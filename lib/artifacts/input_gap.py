@@ -12,10 +12,8 @@ from dataclasses import dataclass
 
 from lib.project.project_schema import parse_project_schema_version
 
-#: 依据里记录缺席输入的键。
 ABSENT_INPUTS_FIELD = "absent"
 
-#: 从这一 schema 起生成缺口不阻止依据投影。
 GAP_TOLERANT_BASIS_SCHEMA_VERSION = 18
 
 

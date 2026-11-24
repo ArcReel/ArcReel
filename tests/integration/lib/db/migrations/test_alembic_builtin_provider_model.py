@@ -39,7 +39,6 @@ def test_hidden_agnes_models_disabled_and_others_enabled(
 
     disabled = asyncio.run(_disabled(db_path))
 
-    # 读侧把已下线的模型一并算作不作候选；迁移写下的停用状态只有 agnes 这 3 个
     discontinued = {
         pid: frozenset(view.model_id for view in catalog.provider_models(pid) if view.lifecycle.discontinued)
         for pid in disabled
@@ -48,7 +47,6 @@ def test_hidden_agnes_models_disabled_and_others_enabled(
     assert {pid: models for pid, models in disabled.items() if pid != "agnes"} == {
         pid: models for pid, models in discontinued.items() if pid != "agnes"
     }
-    # 其余官方收录模型都是启用：agnes 只停用这 3 个
     agnes_models = {view.model_id for view in catalog.provider_models("agnes")}
     assert agnes_models - _HIDDEN
     assert disabled["agnes"] < agnes_models
@@ -59,7 +57,6 @@ def test_hidden_models_stay_disabled_when_entry_no_longer_discontinued(
     migration_revisions: Callable[[str], tuple[str, str]],
     monkeypatch: pytest.MonkeyPatch,
 ):
-    # 停用是迁移写下的用户状态，不随条目是否下架变化
     cfg, db_path = alembic_cfg
     revision, _parent = migration_revisions("*_builtin_provider_model.py")
     command.upgrade(cfg, revision)

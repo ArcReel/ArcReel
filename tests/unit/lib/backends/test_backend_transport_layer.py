@@ -25,7 +25,7 @@ from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
-from lib.backends.image_backends.minimax import MiniMaxImageBackend
+from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
@@ -94,6 +94,9 @@ _CALLS: dict[str, Call] = {
     "minimax-image": lambda layer, tmp_path: MiniMaxImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
+    "minimax-h3-image": lambda layer, tmp_path: MiniMaxH3ImageBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
+    ).generate(_image(tmp_path)),
     "ark-seedream-4": lambda layer, tmp_path: ArkImageBackend(
         api_key="k", base_url=f"{BASE}/api/v3", transport_layer=layer
     ).generate(_image(tmp_path)),
@@ -149,7 +152,6 @@ async def test_requests_leave_on_the_path_rewritten_by_the_injected_layer(call: 
         rewritten = router.route(host="relay.example", path__startswith="/rewritten/").mock(
             return_value=httpx.Response(400, json={"error": {"message": "stop here"}})
         )
-        # 回包一律拒绝，各调用通道怎样报错不在本用例范围内，只看请求怎样发出
         with contextlib.suppress(Exception):
             await call(layer, tmp_path)
 

@@ -46,8 +46,6 @@ class TestKeyedLocks:
         assert "k1" in locks
         locks.discard("k1")
         assert "k1" not in locks
-        # 已持有的锁对象仍可正常使用
         async with held:
             pass
-        # discard 后再取拿到新实例
         assert locks.lock_for("k1") is not held

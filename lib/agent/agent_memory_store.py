@@ -34,16 +34,12 @@ from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
 
-#: 单个记忆文件的正文上限。超限拒绝写入，让创作者拆分而不是让 Agent 每轮都读进一个大文件。
 MAX_FILE_BYTES = 256 * 1024
 
-#: frontmatter ``type`` 的合法取值。取值之外的一律当作没有标签，不报错。
 MEMORY_TYPES = frozenset({"user", "feedback", "project", "reference"})
 
-#: 文件名上限：与 ``_FILENAME_PATTERN`` 一起构成可见性与可读写性的同一把尺子。
 FILENAME_MAX_LENGTH = 100
 
-# 允许空格与括号：回收站恢复到被占用的原名时换成 ``name (n).md``。
 _FILENAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._() -]*\.md$"
 
 
@@ -207,7 +203,6 @@ class AgentMemoryStore:
         if self.project_dir is None:
             # hard-delete: out-of-scope -- 用户记忆不属于任何项目
             shutil.rmtree(self.directory, ignore_errors=True)
-        # 项目记忆可被 Agent 并发写入；回收后保留目录，避免硬删枚举之后新写入的内容。
         self.directory.mkdir(parents=True, exist_ok=True)
         self._record_activity()
 

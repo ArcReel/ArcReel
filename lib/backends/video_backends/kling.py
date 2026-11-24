@@ -38,13 +38,14 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_video_url,
-    image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
@@ -62,9 +63,6 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（multi-image2video）子路径一次能承载的参考图张数（通道事实，编排层裁剪与生成时防御同读生效能力）。
-# 各型号接受几张参考图记在模型条目上（官方 3.0 Omni / O1 在无参考视频时可达 7 张），与本值两侧取较小值
-# （docs/adr/0104）；本子路径的请求体沿用保守值 4，由调用端点固定声明。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 
@@ -76,23 +74,11 @@ class KlingVideoEndpoint:
     这里只留随请求档位变化、无档位上下文时求不出来的部分。
     """
 
-    # 尾帧仅 pro 档可用（官方文档：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"）；std 档提交 image_tail 请求体
-    # 虽会被受理，尾帧约束却不生效——video_capabilities_for_tier 按此位在 std/4k 档收窄 last_frame，
-    # _build_payload 据此拒绝 image_tail，而非放行一个调用方以为已生效实则被忽略的请求；
-    # 用户放宽了尾帧时以用户为准。
     last_frame_requires_pro: bool
-    # 能产出视频内人声（官方能力地图的「音画同出」列）：v2-6 / v3 / v3-omni ✅。该位同时决定请求体
-    # 是否携带音频开关 sound——官方各档默认 off，无此能力的 model 不发该字段而非发 "off" 压制。
-    # 对外的音轨形态（VideoCapabilities.audio_track）由 `_audio_track_for` 从本位投影，展示层与
-    # 入队预检读那一份，不直接读本位。
     generate_audio: bool
-    # 有声仅在 1080P 下可用（官方 v2-6 明文「生成有声视频时，仅支持生成 1080P」）。可灵请求体没有
-    # 分辨率字段——输出档位只由 mode 决定，故执行期判据落在 mode 上（见 `_effective_audio`）。
-    # v3 系官方未声明任何分辨率或档位限制，故为 False。
     audio_requires_1080p: bool
 
 
-# 认不得的 model（bearer 透传原生 model_name）：尾帧不受档位约束，也不下发音频开关，成片恒无声。
 _UNRECOGNIZED_VIDEO_CAPS = KlingVideoEndpoint(
     last_frame_requires_pro=False,
     generate_audio=False,
@@ -117,25 +103,24 @@ def _audio_track_for(caps: KlingVideoEndpoint) -> VideoAudioMode:
     return VideoAudioMode.CONTROLLABLE if caps.generate_audio else VideoAudioMode.ALWAYS_OFF
 
 
-# mode → 输出分辨率档位（可灵官方：std 720P、pro 1080P，4k 档即 4K）。
 _MODE_RESOLUTIONS = {"std": "720p", "pro": "1080p", "4k": "4k"}
 
 
 def _valid_frames(images: list[Path] | None) -> list[Path]:
-    """过滤出有效（非空）参考图路径；空 / None 归空列表。"""
+    """保留每个提供的槽位，由共享读取器报告无效路径。"""
     if not images:
         return []
-    return [Path(img) for img in images if str(img)]
+    return [Path(img or "") for img in images]
 
 
 def _has_start_image(request: VideoGenerationRequest) -> bool:
     start_image = request.start_image
-    return isinstance(start_image, (str, Path)) and bool(str(start_image))
+    return start_image is not None
 
 
 def _has_end_image(request: VideoGenerationRequest) -> bool:
     end_image = request.end_image
-    return isinstance(end_image, (str, Path)) and bool(str(end_image))
+    return end_image is not None
 
 
 def _subpath_for(request: VideoGenerationRequest) -> str:
@@ -268,8 +253,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             ),
         )
 
-    # ── request building ────────────────────────────────────────────────
-
     @staticmethod
     def _resolve_mode_from(resolution: str | None, service_tier: str | None) -> str:
         """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），1080p→``pro``，否则 service_tier→std/pro。
@@ -281,7 +264,7 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         if (resolution or "").lower() == "4k":
             return "4k"
         if (resolution or "").lower() == "1080p":
-            return "pro"  # 可灵无分辨率字段，1080p 只能靠 pro 档
+            return "pro"
         return "pro" if (service_tier or "").lower() == "pro" else "std"
 
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:
@@ -340,17 +323,10 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         if audio_track is VideoAudioMode.ALWAYS_OFF:
             return False
         if audio_track is VideoAudioMode.ALWAYS_ON:
-            # 可灵各型号声明的音轨只有可控与恒无声两种，恒有声必是用户覆盖：放宽照常发 sound="on"、由上游裁定，
-            # 不套用下面的 1080P 约束。
             return True
         if not request.generate_audio:
             return False
         if cls.endpoint.audio_requires_1080p:
-            # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
-            # 分辨率字段：输出档位只由 mode 决定，``request.resolution`` 除识别 4k 档外不进入 payload。
-            # 判据因此落在实际发出的 mode 上。声明该位的 model（v2-6）只有 std / pro 两档，pro 即
-            # 1080P；4k 档是 v3 系专有，对这些 model 是非法请求，不当作满足 1080P 放行——否则会发
-            # sound="on" 并按有声价出账，换回一个必然失败或无声的任务。
             return KlingVideoBackend._resolve_mode_from(request.resolution, request.service_tier) == "pro"
         return True
 
@@ -368,22 +344,17 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             "aspect_ratio": request.aspect_ratio,
         }
 
-        # 可灵请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
 
-        # 可发与否按执行闸门那份能力判定：用户放宽的维度照常发出、由上游裁定；直接构造的请求回落档位感知声明。
         caps = request.video_capabilities or self.video_capabilities_for_tier(
             request.service_tier, resolution=request.resolution
         )
         subpath = _subpath_for(request)
         if subpath == _MULTI_IMAGE2VIDEO:
             reference_images = _valid_frames(request.reference_images)
-            # 多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。
             if _has_start_image(request) or _has_end_image(request):
                 raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
-            # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
-            # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
             image_limit = reference_image_limit(caps)
             if not image_limit.accepts_input:
                 raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
@@ -391,11 +362,11 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             if bound is not None and len(reference_images) > bound:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
+                    names=excess_image_names(bound, len(reference_images), reference_images),
                     model=self._model,
                     count=len(reference_images),
                     limit=bound,
                 )
-            # 多图主体请求体没有 sound 字段；用户把这条路径的音轨覆盖为有声时发不出，付费前拒绝而不是静默出无声成片。
             route_audio = caps.audio_track_for_route("r2v")
             if route_audio is VideoAudioMode.ALWAYS_ON or (
                 route_audio is VideoAudioMode.CONTROLLABLE and request.generate_audio
@@ -403,46 +374,30 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
                 raise VideoCapabilityError(
                     "video_reference_route_audio_unsupported", provider=self.name, model=self._model
                 )
-            # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
-            payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
+            images = read_video_images(request, self.model)
+            payload["image_list"] = [{"image": images[Path(p)].base64()} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
 
         if subpath == _TEXT2VIDEO:
-            # 无首帧/无参考 = 文生视频意图；不支持 t2v 的 model（如 kling-video-o1）即拒绝。
             if not caps.text_to_video:
                 raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
-            # 尾帧只能随首帧走 image2video 的 image_tail；单独的尾帧拒绝而不是按文生视频丢掉。
             if _has_end_image(request):
                 raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
         else:
-            payload["image"] = self._encode_frame(Path(cast(Path, request.start_image)))
+            images = read_video_images(request, self.model)
+            payload["image"] = images[Path(cast(Path, request.start_image))].base64()
             if _has_end_image(request):
                 if not caps.last_frame:
-                    # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
-                    # 尾帧约束却不生效——档位感知声明已按档收窄，这里报出档位这一卡点，而非放行一个
-                    # 调用方以为已生效实则被忽略的请求。按档拦截只在尾帧未被用户放宽时生效。
                     if self.endpoint.last_frame_requires_pro and self._resolve_mode(request) != "pro":
                         raise VideoCapabilityError(
                             "video_last_frame_requires_pro", provider=self.name, model=self._model
                         )
                     raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-                payload["image_tail"] = self._encode_frame(Path(cast(Path, request.end_image)))
+                payload["image_tail"] = images[Path(cast(Path, request.end_image))].base64()
 
-        # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径
-        # 携带（multi-image2video 原生 schema 不含）；音轨恒无声（含用户收窄）时不发该字段，避免向不支持的
-        # 端点递未知参数；用户放宽为可控或恒有声时照常发出。
         if caps.audio_track is not VideoAudioMode.ALWAYS_OFF:
             payload["sound"] = "on" if self._effective_audio(request, subpath=subpath) else "off"
         return subpath, payload
-
-    def _encode_frame(self, path: Path) -> str:
-        # fail-loud：声明了帧图却缺失/不可读即中止，不静默退化（会产出错误结果且照常计费）。
-        if not path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
-        try:
-            return image_to_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name) from exc
 
     @staticmethod
     def _safe_log_view(subpath: str, payload: dict) -> dict:
@@ -458,7 +413,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             "mode": payload.get("mode"),
             "duration": payload.get("duration"),
             "aspect_ratio": payload.get("aspect_ratio"),
-            # 空串 = 该档不携带音频开关，与显式 "off" 区分开
             "sound": payload.get("sound", ""),
             "has_image": "image" in payload,
             "has_image_tail": "image_tail" in payload,
@@ -466,20 +420,13 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
 
-    # ── generate / resume ───────────────────────────────────────────────
-
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 组装 payload 要读首帧 / 尾帧 / 参考图并编码，放线程里跑，避免阻塞事件循环
         subpath, payload = await asyncio.to_thread(self._build_payload, request)
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
-        # 建任务与轮询与产物下载共用出站目的地闸：base_url 由用户配置，同按不可信目标处理。
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
-            # 与 submit 时的有声决策（见 _encode_job_id）。一并写回本次实际请求的域名：
-            # 续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
             await self._persist_provider_job_id(
                 request,
                 _encode_job_id(subpath, task_id, generate_audio=generate_audio),
@@ -505,8 +452,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
                 client, subpath, task_id, request, generate_audio=generate_audio, resume_job_id=job_id
             )
 
-    # ── HTTP poll / download ────────────────────────────────────────────
-
     async def _poll_and_build(
         self,
         client: httpx.AsyncClient,
@@ -518,8 +463,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         resume_job_id: str | None = None,
     ) -> VideoGenerationResult:
         """轮询至终态、取件并组装结果；``resume_job_id`` 非空表示续跑，值为持久化的 job_id。"""
-        # 续跑轮询回放提交时的域名（提交路径恒 None）：任务 id 只在创建它的 endpoint 上可查，
-        # 用户在途改 base_url 后按新域名去轮旧任务会 404，被下方的 404 闸门误判成过期。
         base_url = request.submitted_base_url or self._base_url
 
         gated_poll = resume_expiry_gate(
@@ -541,7 +484,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             duration_seconds=request.duration_seconds,
             video_uri=download_url,
             task_id=task_id,
-            # audio 门控后的实际有声标志（下游 finish_call 取它定有声/无声价）。
             generate_audio=generate_audio,
         )
 

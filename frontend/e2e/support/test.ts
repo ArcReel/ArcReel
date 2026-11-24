@@ -1,4 +1,3 @@
-// 页面级套件的 test：每条用例自动回放录制的接口替身、固定时间并拦住外网请求。
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test as base, type Page } from "@playwright/test";
 import { inspectLayout } from "./layout-probe.ts";
@@ -6,10 +5,6 @@ import { FIXED_NOW, loadRecordedResponses, recordedKey, type RecordedResponse } 
 
 const RECORDED = loadRecordedResponses();
 
-/**
- * 场景对某个接口的替换响应，用于长文本、多条目等压力变体；键形如 `GET /api/v1/projects`，带查询串的请求写全查询串。
- * `body` 是字符串时按 text/plain 原样返回，其余按 JSON 返回。
- */
 export type ApiOverrides = Record<string, Pick<RecordedResponse, "status" | "body">>;
 
 export interface ApiStub {
@@ -41,7 +36,6 @@ export const test = base.extend<{ api: ApiStub }>({
           await route.fulfill({ status: 501, json: { detail: `没有录制 ${key}` } });
           return;
         }
-        // 记忆文件正文等接口按 text/plain 返回原文：替换响应的 body 写成字符串
         if (typeof response.body === "string") {
           await route.fulfill({ status: response.status, body: response.body, contentType: "text/plain; charset=utf-8" });
           return;
@@ -68,7 +62,6 @@ export const test = base.extend<{ api: ApiStub }>({
 
 export { expect };
 
-/** 文档本身不滚动，没有被 overflow 裁切、用户够不到的内容，也没有未声明的横向滚动。 */
 export async function expectReachableLayout(page: Page) {
   const report = await page.evaluate(inspectLayout);
   expect

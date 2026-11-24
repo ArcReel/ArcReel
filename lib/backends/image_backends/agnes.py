@@ -16,16 +16,14 @@ from typing import ClassVar
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
 from lib.backends.providers import PROVIDER_AGNES
@@ -40,13 +38,10 @@ DEFAULT_MODEL = "agnes-image-2.5-flash"
 
 _IMAGE_ENDPOINT = "/images/generations"
 
-# 尺寸约束：长宽被 8 整除、长边收口 2048（保守值，覆盖常见 flash 图像档）。缺 image_size
-# 时按 2K 短边兜底，经长边收口后竖屏得 1152x2048。
 _ROUND_TO = 8
 _MAX_LONG_EDGE = 2048
 _DEFAULT_SHORT = 1440
 
-# 仅允许进日志的标量字段白名单；prompt 仅记长度、image 仅计数，base64/URL 一律不入日志。
 _SAFE_LOG_KEYS = ("model", "size", "n")
 
 
@@ -81,7 +76,6 @@ class AgnesImageBackend:
     SENDS_RATIO = False
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # Agnes 通道不按数量裁剪参考图，全量随请求发出。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -141,10 +135,6 @@ class AgnesImageBackend:
         )
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
-        # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
-        # 不发 response_format：上游 litellm 网关对该参数报 UnsupportedParamsError；
-        # 响应默认同时带 url 与 b64_json，由 _persist_image 优先取 url。
         payload: dict = {
             "model": self._model,
             "prompt": request.prompt,
@@ -154,8 +144,6 @@ class AgnesImageBackend:
         if self.SENDS_RATIO:
             payload["ratio"] = request.aspect_ratio
         if request.reference_images:
-            # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
-            # （可能数 MB）offload 到线程，避免阻塞事件循环。
             payload["image"] = await asyncio.to_thread(self._build_reference_images, request)
 
         data = await self._submit(payload)
@@ -205,24 +193,10 @@ class AgnesImageBackend:
         任一参考图缺失 / 读取失败即 fail-loud，报 image_reference_images_unreadable，让用户
         感知有图未被使用而非静默丢弃后照常计费。
         """
-        uris: list[str] = []
-        for idx, ref in enumerate(request.reference_images, start=1):
-            # 空路径无文件名可显示，用序号标识，避免中文占位漏进非中文报错模板。
-            path = Path(ref.path) if ref.path else None
-            if path is None or not path.is_file():
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable",
-                    model=self._model,
-                    names=path.name if path and path.name else f"#{idx}",
-                )
-            try:
-                uris.append(image_to_base64_data_uri(path))
-            except OSError as exc:
-                logger.warning("Agnes 参考图读取失败: %s (%s)", path, exc)
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable", model=self._model, names=path.name
-                ) from exc
-        return uris
+        return [
+            image.data_uri()
+            for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+        ]
 
     async def _persist_image(self, data: dict, output_path: Path) -> str | None:
         """把 images/generations 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。
@@ -245,9 +219,6 @@ class AgnesImageBackend:
             await _write_base64_image(b64, output_path)
             return None
 
-        # 完整响应体可能含 prompt / 签名 URL 等敏感字段，与请求日志脱敏策略一致：只记键名与
-        # data 条数，不落整 body；异常消息同样不嵌 body——避免 "503"/"timeout" 子串被默认
-        # should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
         data_items = data.get("data")
         logger.error(
             "Agnes 图像响应缺少 url/b64_json: keys=%s data_count=%s",

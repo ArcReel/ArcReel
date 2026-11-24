@@ -74,7 +74,6 @@ async def _timed(client, probe: h.Probe | None, name: str, episode: int) -> dict
     return rec
 
 
-# ---------------------------------------------------------------- 空闲
 async def _first_open(name: str, episode: int) -> dict[str, Any]:
     """新进程里的第一次请求：服务重启后第一次打开。模块导入与建表不计入。"""
 
@@ -154,7 +153,6 @@ def cmd_idle(a: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
-# ---------------------------------------------------------------- 剖析
 def cmd_profile(a: argparse.Namespace) -> None:
     """每个接口一次清缓存后的请求与一次热请求，cProfile 输出到 out/<接口>-<cold|warm>.prof。"""
 
@@ -192,7 +190,6 @@ def cmd_profile(a: argparse.Namespace) -> None:
     asyncio.run(run())
 
 
-# ---------------------------------------------------------------- 高峰
 def _complete_video(unit_id: str, episode: int, video_kb: int) -> None:
     """一次视频任务完成：提交版本并登记产物清单，再把产物写回剧本。"""
 
@@ -278,10 +275,10 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 task.add_done_callback(tasks.discard)
 
             def on_video_done(self, episode: int) -> None:
-                for name in ("project", "units", "wf_status", "wf_plan"):  # 实体变更批次
+                for name in ("project", "units", "wf_status", "wf_plan"):
                     if name in names:
                         self.fire(name, episode)
-                for name in ("units", "wf_status", "wf_plan"):  # 任务终态批次
+                for name in ("units", "wf_status", "wf_plan"):
                     if name in names:
                         self.fire(name, episode)
                 if "cost" in names:
@@ -328,7 +325,6 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                     {
                         "t": time.perf_counter() - t0,
                         "loop_lag": wall - 0.5,
-                        # 进程占用的 CPU 核数：多份计算同时在算却始终贴着 1，说明它们被 GIL 串行。
                         "cpu_cores": (time.process_time() - cpu) / wall,
                         "qsize": executor._work_queue.qsize() if executor else 0,
                         "inflight": dict(inflight),
@@ -358,7 +354,6 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         if stacks is not None:
             stacks.stop()
         await asyncio.gather(*bg, return_exceptions=True)
-        # 最后一次写入触发的费用估算还在防抖里，等它发出后再判断是否有在途请求。
         await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
         # 防抖期间在途请求可能一度清零、提前置位 drained，而防抖随后发出的请求还没完成。
         drained.clear()
@@ -367,11 +362,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 await asyncio.wait_for(drained.wait(), a.drain)
         drain_s = time.perf_counter() - t_stop
         if stacks is not None:
-            # 排空计时之后、在事件循环外写盘，不拖慢仍在途的请求。
             await asyncio.to_thread(stacks.write_collapsed, _out_dir() / f"peak-{a.tag}.stacks.txt")
         smp.cancel()
         leftover = {k: v for k, v in inflight.items() if v}
-        # 排空截止时仍未完成的请求按截止时刻计耗时（真实值只会更大），并标记 unfinished。
         for r in reqs:
             if "server_s" not in r:
                 r["server_s"] = time.perf_counter() - t0 - r["t_start"]
@@ -400,7 +393,6 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             "mean_thread_hops": statistics.mean(r["hops"] for r in rs) if rs else 0,
             "mean_thread_qwait_s": statistics.mean(r["qwait"] for r in rs) if rs else 0,
             "mean_lock_wait_s": statistics.mean(r["lock_wait"] for r in rs) if rs else 0,
-            # 工作线程里的墙钟与线程 CPU：CPU 远小于墙钟说明在等 GIL 或 IO。
             "mean_thread_run_s": statistics.mean(r["run"] for r in rs) if rs else 0,
             "mean_thread_cpu_s": statistics.mean(r["cpu"] for r in rs) if rs else 0,
         }
@@ -412,7 +404,6 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         "drain_capped": bool(leftover),
         "leftover": leftover,
         "manifest_lock_nb_failures": probe.lock_fail,
-        # 写入方登记后清单条目应都带内容指纹，否则热态判定会退回读视频内容。
         "video_facts_after": h.video_fact_coverage(),
         "thread_queue_max": max((s["qsize"] for s in samples), default=0),
         "loop_lag_max_s": max((s["loop_lag"] for s in samples), default=0),
@@ -457,11 +448,9 @@ def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
             print(f"    self {share:6.1%} {label}")
     (_out_dir() / f"peak-{a.tag}.json").write_text(json.dumps(result, indent=1))
     sys.stdout.flush()
-    # 放弃的请求可能仍在线程里跑（drain 被截断时），正常退出会等它们，这里直接结束进程。
     os._exit(0)
 
 
-# ---------------------------------------------------------------- 汇总
 def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
     def s(x: float | None) -> str:
         return "-" if x is None or x != x else f"{x:.2f}s"
@@ -476,7 +465,7 @@ def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
             continue
         ip95 = i["p95"] if i else None
         pp95 = p["p95"] if p else None
-        ratio = f"{pp95 / ip95:.1f}x" if ip95 and pp95 and pp95 == pp95 else "-"  # nan != nan
+        ratio = f"{pp95 / ip95:.1f}x" if ip95 and pp95 and pp95 == pp95 else "-"
         # 有未完成请求时 p95 只是下限
         at_least = "≥" if p and p["unfinished"] else ""
         lines.append(
@@ -536,9 +525,7 @@ def cmd_all(a: argparse.Namespace) -> None:
     print(f"\n=== summary ({a.episodes} episodes x {a.units} units, total {time.perf_counter() - t:.0f}s) ===\n{table}")
 
 
-# ---------------------------------------------------------------- CLI
 def _sample_hz(value: str) -> float:
-    # 负数或 inf 会得到不正的采样间隔，采样线程空转、挤占被测进程的 CPU。
     hz = float(value)
     if hz != 0 and not (math.isfinite(hz) and hz > 0):
         raise argparse.ArgumentTypeError("采样频率须为 0 或有限正数")

@@ -8,21 +8,17 @@ type SourceProps = {
   text: string;
   template: PromptTemplateMeta;
   partials: PromptTemplatePartial[];
-  /** 点展开处的片段名进入片段详情。 */
   onOpenPartial: (name: string) => void;
 };
 
 const MARKER_PATTERN = /(\{#[\s\S]*?#\}|\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/;
 const SLOT_PATTERN = /^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*$/;
-// ponytail: 只展开直接片段调用，带过滤器的表达式保留原文；语法扩展后再接解析器。
 const PARTIAL_PATTERN =
   /^\{\{-?\s*(?<kind>partial|variant)\s*\(\s*(["'])(?<name>[^"']+)\2\s*(?:,\s*(?<axis>[a-zA-Z_]\w*))?[^()]*\)\s*-?\}\}$/;
 
-/** 展示模版语法与片段原文，不执行 Jinja 或填充项目数据。 */
 export function PromptTemplateSource(props: SourceProps) {
   const { t } = useTranslation("dashboard");
   return (
-    // 正文里不一定有片段按钮：代码块自身可聚焦，键盘才能横向滚动折不开的长串
     // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动
     <div tabIndex={0} role="region" aria-label={t("prompt_templates_source")} className={SOURCE_BLOCK_CLS}>
       <SourceContent {...props} />
@@ -36,7 +32,6 @@ type SourceNode =
       opening: string;
       condition: string;
       children: SourceNode[];
-      /** `else` / `elif` 标记及其后到 `endif` 前的原文，不属于「仅当」标签覆盖的范围。 */
       alternate: SourceNode[];
       closing: string;
     };

@@ -4,8 +4,6 @@ import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目大厅：铺满档，没有侧栏。顶栏是品牌、搜索、资产库、外部 Agent 接入、已删除项目、「新建项目」分体按钮与设置；
-// 主体是问候区、吸顶的筛选工具栏与海报卡网格。
 
 const LOBBY_PATH = "/app/projects";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +44,6 @@ function project(index: number, title: string, options: ProjectOptions = {}) {
   };
 }
 
-// 压力变体：24 个项目，标题长、待修复原因长、集数多，覆盖三种进度。
 const PROJECTS = Array.from({ length: 24 }, (_, index) => {
   const variant = index % 4;
   if (variant === 0) return project(index, `${LONG_TITLE} 第 ${index + 1} 部`, { episodes: { total: 40, completed: 12, inProduction: 6 } });
@@ -58,7 +55,6 @@ const PROJECTS = Array.from({ length: 24 }, (_, index) => {
 const MANY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { projects: PROJECTS } } };
 const EMPTY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { projects: [] } } };
 
-// 压力变体：十二个已删除项目，标题很长。
 const deletedProjects = recorded<DeletedProjectListing>("deleted-projects.json");
 const DELETED: ApiOverrides = {
   "GET /api/v1/deleted-projects": {
@@ -112,7 +108,6 @@ defineRegionScenarios("项目大厅", [
       await expect(first.getByRole("heading", { level: 3 })).toBeInViewport({ ratio: 1 });
       await expect(first.getByText("制作中", { exact: true })).toBeInViewport({ ratio: 1 });
 
-      // 卡片最小宽 280px，2560 宽的窗口排 8 列
       if (page.viewportSize()?.width === 2560) {
         const lefts = await projectList(page)
           .getByRole("listitem")

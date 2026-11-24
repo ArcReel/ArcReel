@@ -52,15 +52,12 @@ from lib.custom_provider.endpoints import (
 
 GenerationTypeBucket = Literal["t2i", "i2i", "i2v", "r2v"]
 
-#: 每个 media_type 有哪些桶。文本 / 音频不设桶，故不在表内。
 BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[GenerationTypeBucket, ...]] = {
     "image": ("t2i", "i2i"),
     "video": ("i2v", "r2v"),
 }
 
 
-#: 进桶判定看的能力维度，键与能力接口的维度同名。``max_reference_images`` 在图片的图生图里指参考图上限记为 0 张
-#: （图生图本身走得通），在视频的参考生视频里指参考图上限不接受参考图（通道没实现或条目记为 0 张）。
 BucketDimension = Literal["text_to_image", "image_to_image", "max_reference_images", "first_frame"]
 
 
@@ -99,7 +96,6 @@ def _image_fit(
     return BucketFit("image", unmet)
 
 
-#: 视频各桶唯一看的那一维，与 ``video_capability_satisfied`` 的判定式一一对应。
 _VIDEO_BUCKET_DIMENSION: dict[GenerationTypeBucket, BucketDimension] = {
     "i2v": "first_frame",
     "r2v": "max_reference_images",

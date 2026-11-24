@@ -34,9 +34,7 @@ class EpisodeEditOverview(BaseModel):
 
     episode: int
     timeline_count: int
-    #: 最近修改的那条；该集还没有剪辑时间线时为 None。
     latest: LatestTimeline | None
-    #: 成片已落后于剪辑时间线的那几条，按创建顺序。
     stale_final_cuts: tuple[TimelineRef, ...]
 
 
@@ -62,7 +60,6 @@ async def episode_edit_overview(projects: ProjectManager, project_name: str, epi
     stale: list[TimelineRef] = []
     for summary in summaries:
         for variant in FINAL_CUT_VARIANTS:
-            # 只比对渲染过的版本：没有文件的版本读 missing，不必为它重建依据。
             if (summary.id, variant) not in rendered:
                 continue
             status = await final_cuts.status(

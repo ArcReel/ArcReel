@@ -4,9 +4,6 @@ import re
 
 CUSTOM_PROVIDER_PREFIX = "custom-"
 
-#: 用户自定义调用端点的键前缀（``ce-<id>``）。内置端点键不得占用该前缀（``lib.custom_provider.
-#: endpoints`` 在导入期校验）——两套键共享模型行的 ``endpoint`` 列与端点查表入口，前缀划分出两个
-#: 永不重叠的命名空间，查表走哪一侧由它唯一决定。
 CUSTOM_ENDPOINT_KEY_PREFIX = "ce-"
 
 

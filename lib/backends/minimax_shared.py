@@ -21,22 +21,16 @@ from pathlib import Path
 
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 
-# 国内站默认 base（含 /v1）；国际站经配置覆盖 base_url 指向 MINIMAX_INTL_BASE_URL。
 MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
 MINIMAX_INTL_BASE_URL = "https://api.minimax.io/v1"
 
-# 单一已知路径后缀，归一化 host 时剥除以容忍用户填入完整 base。
 _V1_SUFFIX = "/v1"
-# v2 视频端点（H3）与 v1 同 host 不同前缀，见 minimax_video_v2_base_url。
 _V2_SUFFIX = "/v2"
 
-# 视频异步任务终态：Success/Fail；中间态 Preparing/Queueing/Processing 继续轮询。
 MINIMAX_STATUS_SUCCESS = "Success"
 MINIMAX_STATUS_FAIL = "Fail"
 _TERMINAL_VIDEO_STATES = frozenset({MINIMAX_STATUS_SUCCESS, MINIMAX_STATUS_FAIL})
 
-# v2 任务状态取值与 v1 完全不同（小写、多出取消态），且成功响应直接给下载 URL、无 file_id
-# 取回步骤，故两套状态机各自独立，不在 v1 判定里加分支。
 MINIMAX_V2_STATUS_SUCCEEDED = "succeeded"
 MINIMAX_V2_STATUS_FAILED = "failed"
 MINIMAX_V2_STATUS_CANCELLED = "cancelled"
@@ -44,12 +38,8 @@ _TERMINAL_V2_VIDEO_STATES = frozenset(
     {MINIMAX_V2_STATUS_SUCCEEDED, MINIMAX_V2_STATUS_FAILED, MINIMAX_V2_STATUS_CANCELLED}
 )
 
-# 轮询间隔（秒）：海螺视频生成通常数十秒至数分钟，10s 一次平衡时延与请求量。
 MINIMAX_VIDEO_POLL_INTERVAL_SECONDS = 10.0
 
-# 图片后缀 → MIME（first_frame_image 接受 data URI）。本表为 MiniMax 视频系列共用，取各型号
-# 受理格式的并集，heic/heif 仅 H3 受理（出处：
-# https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md）。
 _IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -69,8 +59,6 @@ def resolve_minimax_api_key(api_key: str | None = None) -> str:
 
 def _minimax_host(configured: str | None) -> str:
     """从配置的 base_url 提取 host 段（剥除 `/v1` 后缀），缺省回落国内站 host。"""
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
-    # 否则 base 变空串、派生出 "/v1" 这类非法相对 URL。
     base = ((configured or "").strip() or MINIMAX_BASE_URL).rstrip("/")
     if base.endswith(_V1_SUFFIX):
         return base[: -len(_V1_SUFFIX)]
@@ -113,9 +101,6 @@ def image_to_data_uri(image_path: Path) -> str:
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
-# ── 单步 image_generation 响应工具 ────────────────────────────────────────────
-
-
 def extract_image_url(payload: object) -> str | None:
     """从 image_generation 响应 data.image_urls 取首个 URL（response_format=url，24h 有效）。
 
@@ -156,12 +141,21 @@ def minimax_failure_reason(payload: object) -> str | None:
     return None
 
 
-# ── 日志脱敏 ──────────────────────────────────────────────────────────────────
-
-# 仅允许进日志的标量字段白名单；prompt 仅记长度、subject_reference 仅计数，
-# base64/URL 一律不入日志（对齐 CodeQL clear-text-logging 约束）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
-    {"model", "aspect_ratio", "width", "height", "response_format", "n", "prompt_optimizer", "seed"}
+    {
+        "model",
+        "aspect_ratio",
+        "width",
+        "height",
+        "response_format",
+        "n",
+        "prompt_optimizer",
+        "seed",
+        "size",
+        "area",
+        "output_format",
+        "disable_prompt_enhanced",
+    }
 )
 
 
@@ -178,9 +172,6 @@ def safe_body_for_log(body: dict) -> dict:
     if isinstance(refs, list) and refs:
         view["subject_reference"] = f"<{len(refs)} ref>"
     return view
-
-
-# ── 视频两步取 URL 状态机工具 ──────────────────────────────────────────────────
 
 
 def _base_resp_error(payload: dict) -> str | None:
@@ -226,7 +217,6 @@ def minimax_video_failure_reason(payload: dict) -> str | None:
             f"MiniMax 视频任务失败 task_id={payload.get('task_id')} "
             f"status_code={base.get('status_code')}: {base.get('status_msg', '')}"
         ).strip()
-    # 顶层 base_resp 硬错误（如 task_id 不存在 / 鉴权失败），非 0 即失败。
     return _base_resp_error(payload)
 
 
@@ -245,9 +235,6 @@ def extract_minimax_download_url(retrieve_payload: dict) -> str:
         reason = _base_resp_error(retrieve_payload)
         raise RuntimeError(reason or f"MiniMax files/retrieve 响应缺少 download_url: {retrieve_payload}")
     return url
-
-
-# ── v2 视频任务状态机工具（单步取 URL） ───────────────────────────────────────
 
 
 def minimax_v2_video_status(payload: dict) -> str | None:

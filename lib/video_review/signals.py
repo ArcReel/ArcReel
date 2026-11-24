@@ -152,7 +152,6 @@ def _parse_signals(log: str, duration: float) -> VideoSignals:
     if freeze_start is not None:
         # 视频结束时仍在卡帧：ffmpeg 不再补发 freeze_end，卡帧延续到视频末尾。
         freeze.append(TimeSpan(freeze_start, duration))
-    # 黑屏必然静止：黑屏段不重复计入卡帧段。
     freeze = _without(freeze, black)
     return VideoSignals(
         duration_seconds=_rounded(duration),

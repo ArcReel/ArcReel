@@ -226,8 +226,6 @@ class _Batch:
         self.referenced: set[str] = set()
         self.last_operation: dict[str, int] = {}
 
-    # ---- 定位 ----
-
     def _position(self, index: int, clip_id: str, *, field: str = "clip") -> int:
         self.referenced.add(clip_id)
         if field == "clip":
@@ -276,8 +274,6 @@ class _Batch:
             )
         return media.video_version, media.video_duration_us
 
-    # ---- 字段校验 ----
-
     def _trim(self, index: int, clip_id: str | None, unit_id: str, spec: TrimSpec | None) -> ClipTrim | None:
         if spec is None:
             return None
@@ -286,7 +282,6 @@ class _Batch:
         in_range = 0 <= spec.source_in < spec.source_out <= whole + 0.001
         in_us = seconds_to_microseconds(spec.source_in) if in_range else 0
         out_us = seconds_to_microseconds(spec.source_out) if in_range else 0
-        # 出点按毫秒规整后可能比实测时长多出至多 1 毫秒，规整回视频末尾。
         if whole_us < out_us <= whole_us + 1_000:
             out_us = whole_us
         allowed = (
@@ -365,8 +360,6 @@ class _Batch:
                 allowed="不是最后一个的片段",
             )
 
-    # ---- 相邻关系 ----
-
     def _next_ids(self) -> dict[str, str | None]:
         return {
             clip.id: (self.clips[position + 1].id if position + 1 < len(self.clips) else None)
@@ -378,8 +371,6 @@ class _Batch:
         for position, clip in enumerate(self.clips):
             if clip.transition_to_next is not None and before.get(clip.id, after[clip.id]) != after[clip.id]:
                 self._replace(index, position, transition_to_next=None)
-
-    # ---- 操作 ----
 
     def apply(self, index: int, operation: TimelineOperation) -> None:
         match operation:
@@ -487,8 +478,6 @@ class _Batch:
         self.clips.insert(destination, self._touch(index, moving) if destination != position else moving)
         self._reset_broken_cuts(index, before)
 
-    # ---- BGM ----
-
     def _bgm_position(self, index: int, clip_id: str) -> int:
         self.referenced.add(clip_id)
         self.targets.add(clip_id)
@@ -591,8 +580,6 @@ class _Batch:
         updated = current.model_copy(update=changes)
         if updated != current:
             self.bgm[position] = self._touch_bgm(index, updated)
-
-    # ---- 整批检查 ----
 
     def _duration_us(self, clip: EditClip) -> int | None:
         unit = self.sources.unit(clip.unit_id)

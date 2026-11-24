@@ -371,7 +371,7 @@ async def test_export_cancelled_while_packing_leaves_no_archive(tmp_path, monkey
     class _BlockingArchiveService:
         @asynccontextmanager
         async def export_materials_held(self, project_name: str, *, scope: str = "full") -> AsyncGenerator[None]:
-            yield  # 项目没有远端图片，不需要取回
+            yield
 
         def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
             started.set()

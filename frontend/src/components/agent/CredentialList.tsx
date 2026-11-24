@@ -15,14 +15,12 @@ import { TestResultPanel } from "./TestResultPanel";
 interface Props {
   credentials: AgentCredential[];
   busyId?: number | null;
-  /** 显示在对应 Agent 供应商下方的连接测试结果(null 时不显示). */
   testedId?: number | null;
   testResult?: TestConnectionResponse | null;
   onActivate: (id: number) => void;
   onTest: (id: number) => void;
   onEdit: (cred: AgentCredential) => void;
   onDelete: (cred: AgentCredential) => void;
-  /** 档位绑定或解除绑定请求在途的 Agent 供应商。 */
   tierBusyIds?: ReadonlySet<number>;
   onBindTier: (id: number, tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
   onUnbindTier: (id: number, tier: AgentCredentialTier) => void;
@@ -98,8 +96,6 @@ export function CredentialList({
                   <Pencil aria-hidden />
                 </Button>
                 {c.is_active ? (
-                  // 生效中的 Agent 供应商不能删除。按钮用 focusableWhenDisabled 保留聚焦与悬停（只置 aria-disabled），
-                  // 键盘与读屏才拿得到原因；按钮自带的禁用淡化随之不生效，由外层淡化。
                   <span className="inline-flex cursor-not-allowed opacity-50">
                     <Tooltip>
                       <TooltipTrigger

@@ -13,13 +13,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
+import { hasReferenceOverflow } from "./batch-outcome";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { ReferenceBatchPreview } from "@/types";
 
-/** 尚无成片、却不进这一批的原因：画布本地写入在途，或提交前别处已生成出成片。 */
 export type ReferenceBatchSkipReason = "has_video" | "local_write";
 
 export interface ReferenceBatchSkip {
@@ -27,27 +28,21 @@ export interface ReferenceBatchSkip {
   reason: ReferenceBatchSkipReason;
 }
 
-/**
- * 参考生视频「补齐视频」的提交前确认：列出要生成的单元、跳过项与原因，能算出时给出预估费用。
- *
- * 名单与结论来自预览端点，与提交走同一份准入：时长档位待确认时，档位分组就在这里摊开，
- * 主按钮按这些档位提交，不再另弹一层档位确认；受阻时陈述全部缺口、不给提交。
- * 提交中忽略关闭请求，提交的结局由画布接手。
- */
 export function ReferenceBatchPreviewDialog({
   projectName,
   episode,
   unitIds,
   skipped,
   onConfirm,
+  onEditReferences,
   onClose,
 }: {
   projectName: string;
   episode: number;
   unitIds: string[];
-  /** 画布在提交前摘掉的单元；服务端跳过的已有成片单元由预览补上。 */
   skipped: ReferenceBatchSkip[];
   onConfirm: (preview: ReferenceBatchPreview) => Promise<void>;
+  onEditReferences: (unitId: string) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -69,7 +64,13 @@ export function ReferenceBatchPreviewDialog({
 
   const blocked = preview?.decision === "blocked";
   const confirming = preview?.decision === "confirmation_required";
-  const targets = preview?.units ?? [];
+  const units = preview?.units ?? [];
+  const overflow: ReferenceBatchPreview["units"] = [];
+  const targets: ReferenceBatchPreview["units"] = [];
+  for (const unit of units) {
+    const bucket = hasReferenceOverflow(unit) ? overflow : targets;
+    bucket.push(unit);
+  }
 
   const skippedIds = new Set(skipped.map((item) => item.unit_id));
   const allSkipped: ReferenceBatchSkip[] = [
@@ -101,10 +102,9 @@ export function ReferenceBatchPreviewDialog({
   } else {
     body = (
       <div className="flex flex-col gap-3" data-testid="reference-batch-preview">
-        {targets.length === 0 ? (
+        {units.length === 0 ? (
           <p>{t("reference_batch_preview_nothing")}</p>
         ) : blocked ? (
-          // 受阻时逐个列出全部单元的缺口与被连带扣下的单元，名单已在其中。
           <BatchAdmissionSummary admission={preview} />
         ) : (
           <>
@@ -118,9 +118,20 @@ export function ReferenceBatchPreviewDialog({
                 ))}
               </div>
             </div>
-            {/* 档位分组只含待确认的单元，名单要单列：无需确认的单元同样会提交。 */}
-            {confirming && <BatchAdmissionSummary admission={preview} />}
+            {(confirming || overflow.length > 0) && <BatchAdmissionSummary admission={preview} />}
           </>
+        )}
+        {overflow.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {overflow.map(({ unit_id }) => (
+              <Button key={unit_id} variant="outline" size="sm" disabled={submitting} onClick={() => {
+                onClose();
+                onEditReferences(unit_id);
+              }}>
+                {t("reference_edit_unit_references", { id: unit_id })}
+              </Button>
+            ))}
+          </div>
         )}
         {allSkipped.length > 0 && (
           <div>
@@ -161,7 +172,6 @@ export function ReferenceBatchPreviewDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 名单与跳过清单可能很长，正文可以用键盘滚动 */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
           <AlertDialogDescription render={<div />}>{body}</AlertDialogDescription>
         </AlertDialogBody>

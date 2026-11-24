@@ -36,7 +36,6 @@ if TYPE_CHECKING:
     from lib.db.models.asset_library import AssetLibraryAccount
 
 _TIMEOUT = httpx.Timeout(20.0, connect=10.0)
-# 素材库只有 AIGC 类素材组能经 CreateAsset 写入；真人认证（LivenessFace）素材组在供应商控制台管理。
 _GROUP_TYPE = "AIGC"
 
 AssetStatus = Literal["active", "processing", "failed", "unknown"]
@@ -249,7 +248,6 @@ async def call_action(
     try:
         response = await http.post(url, params=query, content=body, headers={**content_headers, **auth_headers})
     except httpx.HTTPError as exc:
-        # 连接没有建立时请求一定没有到达供应商；其余网络失败（读超时、连接中断）结果未知。
         unknown = not isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
         raise AssetLibraryRequestError("network", message=type(exc).__name__, outcome_unknown=unknown) from exc
     finally:

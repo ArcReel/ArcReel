@@ -9,15 +9,19 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping
+import subprocess
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
+from PIL import Image
 from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.backends.artifact_download_guard import (
@@ -26,14 +30,17 @@ from lib.backends.artifact_download_guard import (
     buffered_error_response,
     stream_body_to_file,
 )
-from lib.backends.data_uri import file_to_data_uri
+from lib.backends.data_uri import file_to_data_uri, image_mime_from_bytes
 from lib.backends.http_status_errors import (
     AmbiguousSubmitError,
     ArtifactDownloadError,
     provider_rejected_error,
     redacted_status_error,
 )
+from lib.backends.image_errors import ImageCapabilityError
+from lib.backends.input_limits import reference_image_name
 from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
 from lib.infra.mp4_faststart import FASTSTART_SUFFIXES, ensure_faststart
 from lib.infra.retry import (
@@ -48,10 +55,6 @@ from lib.infra.retry import (
 if TYPE_CHECKING:
     from arcreel_market_core.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
 
-# `should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
-# 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
-# `ValueError("Connection timed out: rate")`）不该被字符串子串吞掉。
-# 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +63,6 @@ VIDEO_POLL_MAX_CONSECUTIVE_FAILURES = 10
 VIDEO_POLL_MAX_BACKOFF_SECONDS = 60.0
 
 
-# DB 瞬态错误集合：sqlite "database is locked"、pg "could not connect" / 连接已关闭。
-# 故意不收 DBAPIError 父类——会兜住 IntegrityError/DataError/ProgrammingError 等非瞬态
-# 错误（SQL 语法 / 约束违反），重试无意义且拖延 fail-fast。
 _PERSIST_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     OperationalError,
     InterfaceError,
@@ -192,20 +192,13 @@ def is_retryable_http_status(status_code: int, *, retry_not_found: bool = False)
     return False
 
 
-# httpx 传输错误中「请求确定未送达」的子集：连接建立阶段失败 / 从未取得连接 / 代理握手失败。
-# 重试安全——服务端不可能已建任务 / 已计费。读/写阶段及之后的传输错误（ReadTimeout、
-# WriteError、连接中途断开、RemoteProtocolError 等）请求可能已抵达服务端，归歧义态，不在此列。
 _NOT_SENT_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
     httpx.ConnectError,
     httpx.ConnectTimeout,
     httpx.PoolTimeout,
-    httpx.ProxyError,  # 代理连接/握手失败：请求从未离开客户端→代理段，未抵达目标供应商
+    httpx.ProxyError,
 )
 
-# 请求字节发出前就确定失败的本地/协议错误：URL scheme 不受支持（UnsupportedProtocol）
-# 或本地请求构造违反协议（LocalProtocolError）。二者既无重复计费风险，重试到 max_wait
-# 也不会变好——poll 路径快速失败、submit 路径原样抛出（非歧义态，不套「请求可能已送达」）。
-# 注意 RemoteProtocolError 是其同级 ProtocolError 子类，但属「服务端中途断开」，不在此列。
 _NON_RETRYABLE_LOCAL_ERRORS: tuple[type[Exception], ...] = (
     httpx.LocalProtocolError,
     httpx.UnsupportedProtocol,
@@ -300,8 +293,6 @@ async def submit_post(
     try:
         resp = await post_fn()
     except httpx.RequestError as exc:
-        # 请求确定未送达——连接建立失败（瞬态、可重试）或本地/协议错误（确定性、快速失败）——
-        # 均无重复建任务 / 重复计费风险，原样抛出交 should_retry_submit 分流；不套歧义态。
         if isinstance(exc, (*_NOT_SENT_TRANSPORT_ERRORS, *_NON_RETRYABLE_LOCAL_ERRORS)):
             raise
         raise AmbiguousSubmitError(provider=provider) from exc
@@ -363,7 +354,6 @@ def first_mapping_by_paths(payload: object, paths: tuple[tuple[str | int, ...], 
     return None
 
 
-# 错误描述的常见落点：扁平 error 与包装体内的 data.error。
 _ERROR_PATHS: tuple[tuple[str | int, ...], ...] = (("error",), ("data", "error"))
 
 
@@ -372,7 +362,6 @@ def extract_provider_error_message(state: object) -> str:
     for path in _ERROR_PATHS:
         err = _dig(state, path)
         if isinstance(err, dict):
-            # 两个字段各自判定：message 为空白或非字符串时仍要落到 name，别把回退一并跳过。
             for value in (err.get("message"), err.get("name")):
                 if isinstance(value, str) and value.strip():
                     return value.strip()
@@ -425,7 +414,6 @@ async def poll_with_retry[T](
     predicate = retry_if if retry_if is not None else (lambda e: should_retry(e, retryable_errors))
     consecutive_failures = 0
 
-    # 先查询再等待：已完成/缓存命中的任务立刻返回，不被 poll_interval 白等一轮。
     while True:
         try:
             result = await poll_fn()
@@ -461,7 +449,6 @@ async def poll_with_retry[T](
         remaining = max_wait - (active_clock.monotonic() - start)
         if remaining <= 0:
             raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-        # 等待不越过剩余预算：下一次轮询必定发在 max_wait 截止时刻或之前。
         await active_clock.sleep(min(wait_time, remaining))
 
 
@@ -484,7 +471,6 @@ def url_origin(url: str) -> tuple[str, str, int | None]:
     return parts.scheme.lower(), (parts.hostname or "").lower(), port
 
 
-#: 手动跟随重定向时的跳数上限，与 httpx 的缺省一致。
 _MAX_REDIRECTS = 20
 
 
@@ -513,28 +499,20 @@ def _without_query(url: str) -> str:
     return str(httpx.URL(url).copy_with(query=None, userinfo=b""))
 
 
-#: 拒因摘要的字符上限。上游错误体可以长达数千字符，而摘要要落进任务失败信封、随任务列表
-#: 回传给用户，必须有界；超限部分以 :data:`_PROVIDER_REASON_ELLIPSIS` 收尾标记截断。
 PROVIDER_REASON_MAX_CHARS = 300
 
 _PROVIDER_REASON_ELLIPSIS = "…"
 
-#: 错误体里承载「为什么被拒」的字段名，按顺序取第一个非空字符串。
 _REASON_MESSAGE_KEYS = ("message", "msg", "error_msg", "detail", "description", "reason")
 
-#: 错误对象常见的外层容器：拒因往往裹在这些键下面。
 _REASON_NESTED_KEYS = ("error", "output", "data", "detail", "result")
 
-#: 与拒因同层的机器码。它比自然语言更能指向被触发的那条拒绝规则，取到就前置进摘要。
 _REASON_CODE_KEYS = ("code", "error_code", "type")
 
-#: 认证类状态码：401 未认证、407 代理未认证。这类响应体不产出拒因摘要。
 _CREDENTIAL_STATUS_CODES = frozenset({401, 407})
 
-#: 容器下钻深度上限，防畸形错误体上的深递归。
 _REASON_MAX_DEPTH = 3
 
-#: URL 或任何带查询串的 URL-like token。供应商偶尔省略 scheme；query 仍可能是凭证或签名参数。
 _REASON_URL_RE = re.compile(r"https?://[^\s\"'<>]+|[^\s\"'<>?]+\?[^\s\"'<>]+", re.IGNORECASE)
 
 
@@ -602,7 +580,6 @@ def redact_provider_text(value: object) -> str:
     的厂商私有参数要靠查询串整体剥离兜住；而查询串之外的凭证回显只有前者认得出。
     """
     if not isinstance(value, str):
-        # 非字符串只出现在留痕的兜底分支：没有 URL 文本可剥，交通用遮蔽器统一 str 化
         return redact_diagnostic_text(value)
     return redact_diagnostic_text(_strip_url_queries(value))
 
@@ -628,13 +605,10 @@ def provider_reason_summary(response: httpx.Response) -> str | None:
     if not is_provider_rejection(response.status_code):
         return None
     if response.status_code in _CREDENTIAL_STATUS_CODES:
-        # 认证失败的响应体讲的就是凭证本身，上游常把整把密钥回显在句子里；这类拒因除了
-        # 「凭证没被接受」没有别的可行动信息，而那一层已由本地化文案的状态码给出。
         return None
     try:
         body_text = response.text
     except httpx.ResponseNotRead:
-        # 流式响应尚未 aread：错误路径上没有可读的体，不为此再发一次请求。
         return None
     try:
         payload: object = response.json()
@@ -667,17 +641,12 @@ class _Hop:
     url: str
     headers: Mapping[str, str] | None
     params: Mapping[str, str] | None = None
-    #: 按 query 传的凭证。``Location`` 会整体替换查询串，同源续跳时要重新贴回去。
     auth_query: Mapping[str, str] | None = None
 
     def redirected_to(self, location: str, credential_origin: tuple[str, str, int | None]) -> _Hop:
         target = httpx.URL(self.url).join(location)
         if url_origin(str(target)) != credential_origin:
-            # 跨源：请求头、查询凭证与原请求的 params 一并卸掉。
             return _Hop(str(target), None, None, None)
-        # 同源：凭证仍在作用域内。原请求的 params 不重放（重定向目标自带查询串），但按 query
-        # 传的凭证必须补回——否则一次 `/jobs` → `/jobs/` 的规范化跳转就会丢掉 api_key。
-        # 合并进目标 URL 的查询串而不是走 params：后者会整串替换，把 Location 自带的参数冲掉。
         if self.auth_query:
             target = target.copy_merge_params(dict(self.auth_query))
         return _Hop(str(target), self.headers, None, self.auth_query)
@@ -718,7 +687,6 @@ async def request_with_scoped_credentials(
     ``files`` 的内容要是字节而不是文件句柄——句柄读到结尾后第二跳会发出一个空体。
     """
     credential_origin = url_origin(url)
-    # 首跳的 auth.query 已经拼在 url 上，params 不重复带；只在同源续跳时补回。
     hop = _Hop(url, headers, None, auth_query)
     current_method = method.upper()
     body = _Body(json, files, data)
@@ -774,12 +742,10 @@ async def stream_to_file(
 
     async def _write(resp: httpx.Response) -> None:
         if resp.status_code >= 400:
-            # 换成读完（且截断）响应体的副本，HTTPStatusError.response.text 才可用
             resp = await buffered_error_response(resp)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # 产物地址的查询串可能是签名，也可能是按 query 传的凭证——都不该进日志与任务记录。
             raise redacted_status_error(exc) from None
         await stream_body_to_file(resp, output_path, max_bytes=max_bytes)
 
@@ -800,8 +766,6 @@ async def stream_to_file(
         ) as resp:
             location = _redirect_location(resp)
             if location is None:
-                # 3xx 没给 Location 就无处可跳：raise_for_status 放行 3xx，直接落盘会把跳转
-                # 响应体当成产物存下来。抛错交给重试预算。
                 if resp.is_redirect:
                     raise RuntimeError(f"redirect without a Location header: {_without_query(hop.url)}")
                 await _write(resp)
@@ -810,9 +774,6 @@ async def stream_to_file(
     raise RuntimeError(f"artifact download exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
 
 
-#: 产物下载的墙钟上限。终止主要由失败预算负责（连续 10 次 + 退避封顶 60s，累计约 435s），
-#: 本值只兜住「每次都连得上、只是慢」的情形。视频通道传 `poll_timeout_seconds` 覆盖它，
-#: 图片 / 音频通道没有该维度，用本缺省。
 ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS = 1800
 
 
@@ -835,13 +796,9 @@ async def with_artifact_retry[T](
     异常不是 ``HTTPStatusError``，传 ``retry_if=None`` 退到按 ``retryable_errors`` 判定。
     """
 
-    # 单元素元组包住取件结果：`poll_with_retry` 按 is_done 判终态，而取件只要没抛异常就是
-    # 成功，结果本身（None、空 bytes 等）不参与判定。
     async def once() -> tuple[T]:
         return (await attempt(),)
 
-    # 墙钟上限套在整个重试之外：`poll_with_retry` 只在每次 poll_fn 返回后才比对 max_wait，
-    # 而一次取件本身就可能长时间不返回（连得上、只是慢），那正是本上限要兜的情形。
     async with asyncio.timeout(max_wait):
         fetched = await poll_with_retry(
             poll_fn=once,
@@ -864,7 +821,6 @@ async def faststart_video_artifact(output_path: Path) -> None:
     随之作废、生成失败。重封装有自己的期限，经临时文件原子替换产物，失败时原文件不变。
     """
     if output_path.suffix.lower() in FASTSTART_SUFFIXES:
-        # 已下载的成片必须继续提交；重封装仍受其内部子进程期限约束。
         await run_noninterruptible_async(ensure_faststart(output_path))
 
 
@@ -903,17 +859,147 @@ async def download_resumable_video(url: str, output_path: Path, *, label: str) -
         raise ArtifactDownloadError(detail=str(exc)) from exc
 
 
+@dataclass(frozen=True)
+class ReferenceImageData:
+    path: Path
+    content: bytes
+    mime: str
+
+    def base64(self) -> str:
+        return base64.b64encode(self.content).decode("ascii")
+
+    def data_uri(self) -> str:
+        return f"data:{self.mime};base64,{self.base64()}"
+
+    def multipart(self) -> tuple[str, bytes, str]:
+        return self.path.name, self.content, self.mime
+
+
+def _read_reference_image(path: Path) -> ReferenceImageData:
+    if not path.is_file():
+        raise ValueError("expected an image file")
+    content = path.read_bytes()
+    mime = image_mime_from_bytes(content)
+    if mime in {"image/heic", "image/heif"}:
+        frame = subprocess.run(
+            [
+                ffmpeg_executable(),
+                "-v",
+                "error",
+                "-xerror",
+                "-i",
+                "pipe:0",
+                "-map",
+                "0:v:0",
+                "-f",
+                "framemd5",
+                "pipe:1",
+            ],
+            input=content,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        if not any(line and not line.startswith(b"#") for line in frame.stdout.splitlines()):
+            raise ValueError("image contains no frame")
+    else:
+        try:
+            with Image.open(io.BytesIO(content)) as image:
+                image.load()
+                for frame_index in range(1, getattr(image, "n_frames", 1)):
+                    image.seek(frame_index)
+                    image.load()
+                mime = Image.MIME.get(image.format or "") or mime
+        except Exception as exc:
+            raise ValueError("invalid reference image") from exc
+    return ReferenceImageData(path, content, mime or "application/octet-stream")
+
+
+def _read_image_slots(
+    slots: Iterable[tuple[str, str | Path, int]],
+    model: str,
+) -> list[ReferenceImageData]:
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
+    images: list[ReferenceImageData] = []
+    failed: dict[str, list[str]] = {}
+    for code, raw, index in slots:
+        path = Path(raw or "")
+        try:
+            images.append(_read_reference_image(path))
+        except (
+            OSError,
+            ValueError,
+            SyntaxError,
+            Image.DecompressionBombError,
+            FfmpegUnavailableError,
+            subprocess.SubprocessError,
+        ):
+            failed.setdefault(code, []).append(reference_image_name(path) or f"#{index}")
+    if failed:
+        code = next(iter(failed))
+        names = ", ".join(name for group in failed.values() for name in group)
+        if code == "image_reference_images_unreadable":
+            raise ImageCapabilityError("image_reference_images_unreadable", model=model, names=names)
+        if code == "video_start_image_unreadable":
+            raise VideoCapabilityError("video_start_image_unreadable", model=model, name=names)
+        if code == "video_end_image_unreadable":
+            raise VideoCapabilityError("video_end_image_unreadable", model=model, name=names)
+        raise VideoCapabilityError("video_reference_images_unreadable", model=model, names=names)
+    return images
+
+
+def read_reference_images(paths: Iterable[str | Path], model: str) -> list[ReferenceImageData]:
+    """读取请求的全部图片，任一张缺失或解码失败就一次报告全部文件名。"""
+    return _read_image_slots(
+        (("image_reference_images_unreadable", path, index) for index, path in enumerate(paths, 1)),
+        model,
+    )
+
+
+def read_video_images(
+    request: VideoGenerationRequest,
+    model: str,
+    *,
+    remote_indices: frozenset[int] = frozenset(),
+) -> dict[Path, ReferenceImageData]:
+    """读取将以内联素材提交的首尾帧与参考图；远端素材 URI 的槽位不读本地路径。"""
+    return read_video_image_slots(
+        request.start_image, request.end_image, request.reference_images or [], model, remote_indices=remote_indices
+    )
+
+
+def read_video_image_slots(
+    start: Path | None,
+    end: Path | None,
+    references: Iterable[Path],
+    model: str,
+    *,
+    remote_indices: frozenset[int] = frozenset(),
+) -> dict[Path, ReferenceImageData]:
+    slots = []
+    if start is not None:
+        slots.append(("video_start_image_unreadable", start, 1))
+    if end is not None:
+        slots.append(("video_end_image_unreadable", end, 1))
+    slots.extend(
+        ("video_reference_images_unreadable", path, index)
+        for index, path in enumerate(references, 1)
+        if index not in remote_indices
+    )
+    return {image.path: image for image in _read_image_slots(slots, model)}
+
+
 def reference_audio_to_data_uri(path: Path, *, model: str, mime_types: Mapping[str, str]) -> str:
     """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
 
-    音频不能像参考图那样「缺失即跳过」：prompt 里的「音频N」按 content 数组中音频条目的
+    音频与参考图都必须按声明顺序完整发送：prompt 里的「音频N」按 content 数组中音频条目的
     出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个角色头上
     ——错得无声无息，且照常扣费。
 
     ``mime_types`` 由各 backend 传入：同一个扩展名各家接受的 MIME 写法不一致（mp3 有
     ``audio/mp3`` 与 ``audio/mpeg`` 两种口径），合表会让其中一家收到没验证过的 MIME。
     """
-    # 只有视频调用通道会调到这里；延迟导入让图像、音频通道使用运行支持时无需加载视频契约。
     from arcreel_market_core.video_backend_contract import VideoCapabilityError
 
     mime = mime_types.get(path.suffix.lower())

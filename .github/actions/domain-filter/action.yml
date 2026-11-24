@@ -25,7 +25,7 @@ outputs:
     description: 镜像装配域（Dockerfile/.dockerignore 及不属于代码域的 COPY 源）是否变更
     value: ${{ steps.gate.outputs.docker }}
   website:
-    description: 文档站域（website/、CONTRIBUTING.md、两个 README 及翻译 skill）是否变更
+    description: 文档站域（website/、CONTRIBUTING.md、两个 README）是否变更
     value: ${{ steps.gate.outputs.website }}
 
 runs:
@@ -36,9 +36,6 @@ runs:
       id: filter
       with:
         filters: |
-          # .github/** 覆盖 workflows/actions/codeql 配置等全部 CI 基础设施；
-          # .codecov.yml 决定覆盖率状态与 flag 行为；.gitignore 影响 ruff 的
-          # 文件发现（respect-gitignore 对已跟踪文件同样生效）
           workflow:
             - '.github/**'
             - '.codecov.yml'
@@ -69,22 +66,16 @@ runs:
             - '.dockerignore'
             - 'public/**'
             - 'README.md'
-          # CONTRIBUTING.md 构建时复制上站；两个 README 不上站，但都在翻译 lockfile 的
-          # 特例映射内，改动须当场冒出缺译/滞后报告。translate-docs skill 目录同样列入：
-          # website-checks 的孤儿译文检测、滞后报告与该 skill 的单测都执行其中的
-          # translation-lock.mjs，脚本单独变更时这些检查必须照常跑。
           website:
             - 'website/**'
             - 'CONTRIBUTING.md'
             - 'README.md'
             - 'README.en.md'
-            - '.claude/skills/translate-docs/**'
 
     - id: gate
       shell: bash
       env:
         FULL: ${{ inputs.full }}
-        # full 模式跳过 filter 步骤时其 outputs 为空，在表达式层统一兜底
         F_WORKFLOW: ${{ steps.filter.outputs.workflow || 'false' }}
         F_BACKEND: ${{ steps.filter.outputs.backend || 'false' }}
         F_FRONTEND: ${{ steps.filter.outputs.frontend || 'false' }}

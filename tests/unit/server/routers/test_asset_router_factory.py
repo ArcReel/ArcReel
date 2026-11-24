@@ -17,8 +17,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_translator
 from tests.fakes import FakeProjectAssetMutationMixin, use_project_manager
 
-# 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
-# 与 make_translator() 默认 locale 一致。
 _INTERNAL_ERROR_DETAIL = make_translator()("internal_server_error")
 
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
@@ -116,7 +114,6 @@ class TestAssetRouterFactory:
             entry = fake_pm.projects["demo"]["characters"]["Bob"]
             assert entry["voice_style"] == "calm"
             assert entry["character_sheet"] == ""
-            # reference_image 是 character 的 extra 字段，create 时未传则默认 ""
             assert entry["reference_image"] == ""
 
     def test_character_post_with_reference_audio_stamps_voice_updated_at(self, monkeypatch):
@@ -247,7 +244,6 @@ class TestAssetRouterFactory:
                 json={"reference_image": {"foo": "bar"}},
             )
             assert resp.status_code == 422
-            # entry 未被污染
             assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
 
     def test_character_patch_reference_audio_stamps_voice_updated_at(self, monkeypatch):
@@ -328,7 +324,6 @@ class TestAssetRouterFactory:
                 json={"voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
             )
             assert resp.status_code == 422
-            # entry 未被污染
             assert "voice_notice_dismissed_at" not in fake_pm.projects["demo"]["characters"]["Alice"]
 
     def test_unknown_asset_type_raises(self):

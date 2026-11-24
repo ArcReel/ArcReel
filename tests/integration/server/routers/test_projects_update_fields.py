@@ -12,7 +12,6 @@ class TestProjectsRouter:
     def test_update_project_with_style_template_id_expands_and_clears_image(self, tmp_path, monkeypatch):
         """PATCH style_template_id：写入 id + 展开 prompt 到 style，并清掉 style_image/description。"""
         fake_pm = _FakePM(tmp_path)
-        # 预置一个带参考图的项目
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
         fake_pm.project_data["ready"]["style_description"] = "old desc"
 
@@ -82,7 +81,7 @@ class TestProjectsRouter:
                 json={
                     "narration_delivery": "use_tts",
                     "audio_backend": "dashscope/qwen3-tts-flash",
-                    "narration_voice": "Cherry",
+                    "narration_voice": "my-cloned-voice",
                     "narration_speed": 1.2,
                 },
             )
@@ -90,7 +89,7 @@ class TestProjectsRouter:
             data = fake_pm.project_data["ready"]
             assert data["narration_delivery"] == "use_tts"
             assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
-            assert data["narration_voice"] == "Cherry"
+            assert data["narration_voice"] == "my-cloned-voice"
             assert data["narration_speed"] == 1.2
 
     def test_switching_to_post_production_keeps_tts_snapshot(self, tmp_path, monkeypatch):
@@ -116,7 +115,6 @@ class TestProjectsRouter:
         ("patch", "status"),
         [
             ({"narration_delivery": "use_tts"}, 422),
-            # 只写供应商的 TTS 模型在写边界即被拒（docs/adr/0099）
             ({"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"}, 400),
             ({"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"}, 422),
             ({"narration_delivery": None}, 422),
@@ -294,7 +292,6 @@ class TestProjectsRouter:
 
             rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
             assert rejected.status_code == 400
-            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
             assert rejected.json()["diagnostic"] == "field: default_image_backend"
 
             wrong_media = client.patch(
@@ -332,7 +329,6 @@ class TestProjectsRouter:
             assert "text_backend_complex" not in data
             assert "default_text_backend" not in data
 
-            # 非法 backend 值被 400 拒绝
             rejected = client.patch(
                 "/api/v1/projects/ready",
                 json={"text_backend_complex": "no-slash"},
@@ -355,7 +351,6 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["generation_mode"] = "storyboard"
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
-            # 宫格开关创建后可随时切换
             on = client.patch("/api/v1/projects/ready", json={"grid_storyboard": True})
             assert on.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is True
@@ -364,7 +359,6 @@ class TestProjectsRouter:
             assert off.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is False
 
-            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
             route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
             assert route.status_code == 200
             assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"

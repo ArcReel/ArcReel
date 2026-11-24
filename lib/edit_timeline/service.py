@@ -419,7 +419,6 @@ class EditTimelineService:
         return await self._write_result(project_name, script, sources, unit_ids, written, message)
 
     def _delete_sync(self, project_name: str, timeline_id: str) -> None:
-        # 回收站接入依赖产物登记，后者依赖剪辑时间线的模型（经 jianying_draft.basis），模块顶层导入会成环。
         from lib.edit_timeline.trash import delete_edit_timeline
 
         store = self._store(project_name)

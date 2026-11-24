@@ -25,13 +25,10 @@ from lib.episode.episode_sources import (
 
 SourceKind = Literal["novel", "screenplay"]
 
-#: 源文件类型的全部取值。
 SOURCE_KINDS: tuple[SourceKind, ...] = ("novel", "screenplay")
 
-#: 缺省类型。
 DEFAULT_SOURCE_KIND: SourceKind = "novel"
 
-#: 整本源文清单项与账本条目上的字段名。
 SOURCE_KIND_FIELD = "source_kind"
 
 

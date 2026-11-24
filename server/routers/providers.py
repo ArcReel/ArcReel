@@ -56,22 +56,23 @@ from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator, load_display_names_or_builtin
 from server.routers._validators import split_video_backend_query
-from server.services.tasks.video_caps import capability_request_facts, duration_constraints_payload
+from server.services.tasks.video_caps import (
+    annotate_end_frame_tiers,
+    capability_request_facts,
+    duration_constraints_payload,
+)
 
 if TYPE_CHECKING:
     from lib.db.models.credential import ProviderCredential
 
 logger = logging.getLogger(__name__)
 
-MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
+MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024
 
 router = APIRouter(prefix="/providers", tags=["Providers"])
 
 _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url", "access_key", "secret_key"})
 
-# ---------------------------------------------------------------------------
-# 字段元数据映射（key → label/type/placeholder）
-# ---------------------------------------------------------------------------
 
 _FIELD_META: dict[str, dict[str, str]] = {
     "api_key": {"label": "API Key", "type": "secret"},
@@ -90,37 +91,16 @@ _FIELD_META: dict[str, dict[str, str]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
-
-
 class ModelInfoResponse(BaseModel):
     display_name: str
     media_type: str
     capabilities: list[str]
     default: bool
-    # 时长联动约束（分辨率↔时长、参考图↔时长）不在目录里透出：收窄结果由
-    # /providers/video-capabilities 与 /projects/{name}/video-capabilities 按上下文算好回给
-    # 前端，规则只在 lib.config.resolver 一处。
     supported_durations: list[int] = []
     resolutions: list[str] = []
-    # 图片模型的有效画质可选值（条目的画质取值与调用端点是否接受显式画质两侧求值，见
-    # lib.backends.image_capabilities.builtin_image_quality_options），按条目里的顺序；没有时为空。
-    # 项目把选择存在 model_settings["<供应商>/<模型>"].quality。
     qualities: list[str] = []
-    # 成片音轨形态（``VideoAudioMode``：可控 / 恒有声 / 恒无声），按执行路径各给一份——同一
-    # model 在图生与参考生两条子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带
-    # 音轨开关）。设置页按当前生效的桶取对应字段决定开关是否可交互，能力线渲染按「非恒无声即
-    # 有音轨」判定；前端不解读 capabilities token，也不自行合成三态。
-    # 真相源是 backend 的 VideoCapabilities（lib.config.resolver.builtin_video_audio_track）；
-    # 非视频 model 恒 always_off。
     audio_track: str = VideoAudioMode.ALWAYS_OFF.value
     reference_route_audio_track: str = VideoAudioMode.ALWAYS_OFF.value
-    # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
-    # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
-    # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
-    # 带真实 generation_mode），本字段不参与。
     voice_consistency: VoiceConsistency = "none"
 
 
@@ -131,7 +111,6 @@ class ProviderSummary(BaseModel):
     status: str
     media_types: list[str]
     capabilities: list[str]
-    # 凭证（界面称「密钥」）条数；没有凭证时为 0。
     credential_count: int
     models: dict[str, ModelInfoResponse]
 
@@ -170,14 +149,8 @@ class ProviderConfigResponse(BaseModel):
     status: str
     media_types: list[str]
     fields: list[FieldInfo]
-    # 该供应商凭证是否接受自定义 base_url（真相源：optional_keys 含 base_url）。
-    # base_url 随凭证走、不进 fields，前端据此决定是否在密钥表单渲染 URL 输入。
     supports_base_url: bool
-    # 凭证表单应渲染的 secret 字段（有序，真相源：registry required_keys ∩ secret_keys ∩ 凭证键）。
     secret_fields: list[CredentialSecretField]
-    # 凭证「二选一」分组：前端据此校验「至少一组的字段全部填写」而非「全部字段都填写」
-    # （真相源：registry credential_groups；空声明时 router 回退为 [全部 secret_fields]，
-    # 与迁移前「全部必填」语义等价）。
     secret_field_groups: list[list[str]]
 
 
@@ -194,7 +167,6 @@ class CredentialResponse(BaseModel):
     api_key_masked: str | None = None
     credentials_filename: str | None = None
     base_url: str | None = None
-    # 逐字段独立脱敏（不把两段当一个 secret）；除可灵外恒为 None（见 ADR 0037）。
     access_key_masked: str | None = None
     secret_key_masked: str | None = None
     is_active: bool
@@ -248,11 +220,6 @@ class UpdateCredentialRequest(BaseModel):
     base_url: _StrippedOptStr = None
     access_key: _StrippedOptStr = None
     secret_key: _StrippedOptStr = None
-
-
-# ---------------------------------------------------------------------------
-# 辅助函数
-# ---------------------------------------------------------------------------
 
 
 def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
@@ -385,11 +352,6 @@ def _build_field(
     return FieldInfo(**field)
 
 
-# ---------------------------------------------------------------------------
-# 端点
-# ---------------------------------------------------------------------------
-
-
 def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
 
@@ -435,9 +397,6 @@ async def list_providers(
                 qualities=_image_quality_options(s.name, mid) if minfo.get("media_type") == "image" else [],
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
-                # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非
-                # 参考生视频路径派生，音轨位同样取 i2v 路径——有项目上下文时改用
-                # /projects/{name}/video-capabilities。
                 voice_consistency=derive_voice_consistency(
                     reference_audio_mode=reference_audio_mode,
                     generation_mode=None,
@@ -448,8 +407,6 @@ async def list_providers(
         providers.append(
             ProviderSummary(
                 id=s.name,
-                # registry / DB 的 display_name 是数据源原名；有译名表的按请求语言成文，
-                # 没有的（纯品牌名、自定义供应商用户自填的名字）原样返回。
                 display_name=translate_or(f"provider_name_{s.name}", s.display_name, locale),
                 description=_t(f"provider_desc_{s.name}"),
                 status=s.status,
@@ -486,25 +443,29 @@ async def get_model_video_capabilities(
         caps = await resolver.video_capabilities_for_model(provider_id, model_id, None, generation_type=generation_type)
         if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
             raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
-        caps["duration_constraints"] = duration_constraints_payload(
-            await capability_request_facts(
-                candidate_project,
-                generation_type=generation_type,
-                config_resolver=resolver,
-                resolution_override=ResolutionOverride(resolution or None),
-            )
+        request_facts = await capability_request_facts(
+            candidate_project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+            resolution_override=ResolutionOverride(resolution or None),
+        )
+        caps["duration_constraints"] = duration_constraints_payload(request_facts)
+        await annotate_end_frame_tiers(
+            caps,
+            candidate_project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+            without_end_frame=request_facts,
+            resolution_override=ResolutionOverride(resolution or None),
         )
         return caps
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except VideoRequestFactsError as exc:
-        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
         raise UnprocessableError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
-        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)
         raise HTTPException(
             status_code=422, detail=_t("video_model_capabilities_unresolved", value=video_backend)
@@ -525,12 +486,10 @@ async def get_provider_config(
     svc = ConfigService(session)
     db_values = await svc.get_provider_config_masked(provider_id)
 
-    # 计算状态：基于凭证表是否有生效凭证
     cred_repo = CredentialRepository(session)
     has_active = await cred_repo.has_active_credential(provider_id)
     status = "ready" if has_active else "unconfigured"
 
-    # 构建字段列表：先必填，再可选，跳过凭证字段
     fields: list[FieldInfo] = []
     fields.extend(
         _build_field(key, required=True, db_entry=db_values.get(key))
@@ -544,20 +503,12 @@ async def get_provider_config(
         if key not in _CREDENTIAL_KEYS and (not key.endswith("_max_workers") or key in supported_workers)
     )
 
-    # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
-    # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
-    # 二选一分组见下方 secret_field_groups。
     secret_keys = set(meta.secret_keys)
     secret_fields = [
         CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
         for key in meta.required_keys
         if key in _CREDENTIAL_KEYS and key in secret_keys
     ]
-    # 空声明（绝大多数单 secret / 双 secret-AND provider）回退为单一必填组 = 全部 secret_fields，
-    # 与迁移前「全部必填」语义等价；仅可灵声明了非空 credential_groups（api_key 单键 /
-    # access_key+secret_key 双键二选一）。secret_fields 为空时（当前仅 gemini-vertex，走文件
-    # 上传分支不经过分组校验）不合成 [[]]——与 registry.py 的空分组 fail-fast 语义保持一致，
-    # 避免未来新增"无 secret 字段但走普通凭证表单"的 provider 时该分组恒真、静默绕过校验。
     secret_field_groups = meta.credential_groups or ([[f.key for f in secret_fields]] if secret_fields else [])
 
     return ProviderConfigResponse(
@@ -594,7 +545,6 @@ async def patch_provider_config(
             try:
                 await svc.set_provider_config(provider_id, key, value, flush=False)
             except ProviderConfigValueError as exc:
-                # 错误文案中的字段名换成 UI 同款 label（如 Image Max Workers），与表单展示一致
                 params = dict(exc.params)
                 meta = _FIELD_META.get(exc.key)
                 if meta is not None:
@@ -603,15 +553,9 @@ async def patch_provider_config(
 
     await session.commit()
 
-    # 配置变更后刷新缓存和并发池
     await _invalidate_caches(request)
 
     return Response(status_code=204)
-
-
-# ---------------------------------------------------------------------------
-# 供应商倍率
-# ---------------------------------------------------------------------------
 
 
 async def _validate_priced_provider(provider_id: str, session: AsyncSession, _t: Callable[..., str]) -> None:
@@ -658,11 +602,6 @@ async def put_provider_multiplier_setting(
     )
 
 
-# ---------------------------------------------------------------------------
-# 凭证 CRUD 端点
-# ---------------------------------------------------------------------------
-
-
 @router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
 async def list_credentials(
     provider_id: str,
@@ -684,7 +623,6 @@ async def create_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     _validate_provider(provider_id, _t)
-    # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
     _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
     repo = CredentialRepository(session)
     cred = await repo.create(
@@ -713,7 +651,6 @@ async def update_credential(
 ) -> Response:
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
-    # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
     submitted = _submitted_secret_values(provider_id, body)
     clear_keys = _resolve_credential_group_switch(
@@ -733,8 +670,6 @@ async def update_credential(
         kwargs["access_key"] = body.access_key
     if "secret_key" in body.model_fields_set:
         kwargs["secret_key"] = body.secret_key
-    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除同一次提交触及的组，
-    # 故不会覆盖用户在该次提交中填入的值。
     for key in clear_keys:
         kwargs[key] = None
     if kwargs:
@@ -756,11 +691,10 @@ async def delete_credential(
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
-    cred_path = cred.credentials_file()  # 在 delete 前保存，避免 ORM 对象过期后无法访问
+    cred_path = cred.credentials_file()
     await repo.delete(cred_id)
     await session.commit()
     await _invalidate_caches(request)
-    # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON），放在 commit 之后确保数据一致性
     if cred_path:
         cred_file = Path(cred_path)
         if cred_file.is_file():  # noqa: ASYNC240 -- 凭证文件存在性检查，本地元数据
@@ -847,15 +781,10 @@ async def upload_vertex_credential(
     await _invalidate_caches(request)
 
     await session.refresh(cred)
-    # 序列化要探测凭证文件位置（stat），放进线程
     return await asyncio.to_thread(_cred_to_response, cred)
 
 
-# ---------------------------------------------------------------------------
-# 连通性检查：各供应商实现
-# ---------------------------------------------------------------------------
-
-_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15
 
 
 def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
@@ -928,7 +857,6 @@ def _extract_gemini_models(pager) -> list[str]:
         name = m.name or ""
         if not any(k in name.lower() for k in keywords):
             continue
-        # 去掉 "models/" 或 "publishers/google/models/" 前缀
         short = name.rsplit("/", 1)[-1]
         models.add(short)
     return sorted(models)
@@ -939,7 +867,6 @@ def _check_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCh
     from lib.backends.ark_shared import create_ark_client
 
     client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
-    # 轻量级调用验证连通性，不创建任何资源
     client.content_generation.tasks.list(page_size=1)
     return ConnectivityCheckResponse(
         success=True,
@@ -1079,12 +1006,6 @@ def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> Connectivity
         headers=headers,
         timeout=_CONNECTIVITY_CHECK_TIMEOUT,
     )
-    # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
-    # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
-    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。content-type 声称 JSON 但
-    # 实际非法/空体（如异常网关截断响应）时解析会抛 JSONDecodeError——按声明的 content-type
-    # 判断是否尝试解析，不代表响应体一定合法，解析失败即放弃业务错误提取，跳过、直接走
-    # raise_for_status 兜底暴露 HTTP 状态，而非让解析异常本身掩盖更具体的 HTTP 错误。
     if "application/json" in resp.headers.get("content-type", ""):
         try:
             payload = resp.json()
@@ -1144,8 +1065,6 @@ async def check_provider_connectivity(
     config = await svc.get_provider_config(provider_id)
     cred.overlay_config(config)
 
-    # 与简单族 backend 构造的 base_url 优先级对称：用户未显式配 base_url
-    # 时，注入 ProviderMeta.default_base_url，使连通性检查命中正确 endpoint。
     if not config.get("base_url"):
         meta = PROVIDER_REGISTRY.get(provider_id)
         if meta and meta.default_base_url:

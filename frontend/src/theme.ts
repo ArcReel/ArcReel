@@ -21,7 +21,6 @@ export function getThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark(): boolean {
-  // 取不到系统偏好时按深色处理
   return typeof window.matchMedia !== "function" || window.matchMedia(SYSTEM_DARK_QUERY).matches;
 }
 
@@ -49,7 +48,6 @@ export function useThemePreference(): ThemePreference {
   return useSyncExternalStore(subscribe, getThemePreference);
 }
 
-/** 启动时调用一次：应用当前偏好，在跟随系统时随系统明暗实时切换，并跟随其他标签页改的偏好。 */
 export function initTheme() {
   applyTheme();
   window.addEventListener("storage", (event) => {

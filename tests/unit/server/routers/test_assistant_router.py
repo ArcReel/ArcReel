@@ -85,12 +85,10 @@ def _client(monkeypatch):
 class TestAssistantRouter:
     def test_full_endpoints_and_errors(self, monkeypatch):
         with _client(monkeypatch) as client:
-            # POST /sessions/send — new session (no session_id)
             send_new = client.post(f"{PREFIX}/sessions/send", json={"content": "hello"})
             assert send_new.status_code == 200
             assert send_new.json()["session_id"] == "sdk-new-session"
 
-            # POST /sessions/send — existing session
             send_existing = client.post(
                 f"{PREFIX}/sessions/send",
                 json={"content": "hello", "session_id": "session-1"},
@@ -98,32 +96,27 @@ class TestAssistantRouter:
             assert send_existing.status_code == 200
             assert send_existing.json()["session_id"] == "session-1"
 
-            # POST /sessions/send — missing project → 404
             send_missing_project = client.post(
                 "/api/v1/projects/missing/assistant/sessions/send",
                 json={"content": "hello"},
             )
             assert send_missing_project.status_code == 404
 
-            # POST /sessions/send — empty content → 400
             send_empty = client.post(f"{PREFIX}/sessions/send", json={"content": "   "})
             assert send_empty.status_code == 400
 
-            # POST /sessions/send — 并发槽位占满 → 503
             send_at_capacity = client.post(
                 "/api/v1/projects/at-capacity/assistant/sessions/send",
                 json={"content": "hello"},
             )
             assert send_at_capacity.status_code == 503
 
-            # POST /sessions/send — 会话已被改写取代 → 409
             send_superseded = client.post(
                 f"{PREFIX}/sessions/send",
                 json={"content": "hello", "session_id": "superseded"},
             )
             assert send_superseded.status_code == 409
 
-            # POST /sessions/send — 同键重试命中已接纳却没写入日志的消息 → 409，不再送入
             send_unrecorded = client.post(
                 f"{PREFIX}/sessions/send",
                 json={"content": "hello", "session_id": "unrecorded", "client_key": "ck-1"},
@@ -219,7 +212,6 @@ class TestAssistantRouter:
     def test_ownership_validation_wrong_project(self, monkeypatch):
         """Accessing a session through the wrong project should return 404."""
         with _client(monkeypatch) as client:
-            # session-1 belongs to project "demo", accessing via "other" should 404
             get_wrong = client.get("/api/v1/projects/other/assistant/sessions/session-1")
             assert get_wrong.status_code == 404
 

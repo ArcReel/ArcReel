@@ -1,8 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import type { TaskItem } from "@/types";
@@ -37,6 +38,20 @@ function renderNote(episode = 1, ad?: { hasScript: boolean }) {
 describe("TextTaskFailureNote", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
+  });
+
+  afterEach(async () => { await i18n.changeLanguage("zh"); });
+
+  it.each(["text_drama_script_plan", "text_narration_script_plan", "text_reference_script_plan", "text_episode_script"])("keeps the Agent report in collapsed details for %s", async (taskType) => {
+    await i18n.changeLanguage("en");
+    const summary = "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.";
+    const report = "❌ 产出有 5 处违约；open_draft(...)；patch_draft 携带 base_revision";
+    useTasksStore.setState({ tasks: [failed({ task_type: taskType, resource_id: "episode-1", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: report })] });
+    renderNote();
+    expect(screen.getByRole("alert")).toHaveTextContent(summary);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("open_draft");
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText(report)).toBeInTheDocument();
   });
 
   it.each([

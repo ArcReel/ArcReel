@@ -53,7 +53,6 @@ def test_user_added_models_keep_the_channel_they_used_before_upgrade(
         alembic_cfg,
         migration_revisions,
         [
-            # 靠条目绑定识别为 H3 的不透明 ID：升级前内置 MiniMax 只按 API 模型名选通道，走的是海螺 2.3 的请求结构
             {
                 "provider_id": "minimax",
                 "model_id": "acme-video-pro",
@@ -65,7 +64,6 @@ def test_user_added_models_keep_the_channel_they_used_before_upgrade(
             {"provider_id": "ark", "model_id": "doubao-seedance-x", "media_type": "video"},
             {"provider_id": "grok", "model_id": "grok-imagine-image-2", "media_type": "image"},
             {"provider_id": "openai", "model_id": "gpt-5.9", "media_type": "text"},
-            # 官方收录模型的启用状态行：端点跟随官方，不记
             {"provider_id": "minimax", "model_id": "MiniMax-H3", "user_added": False},
         ],
     )

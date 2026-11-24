@@ -93,8 +93,6 @@ const EMPTY_GLOBALS = {
   textDefault: "", textSimple: "", textComplex: "",
 } as const;
 
-// 服务端 video-capabilities 端点的替身：时长全集查当前测试的目录，Veo 的联动约束按上下文给出
-// 预设答案（收窄规则本体只在后端 lib/config/resolver.py，这里是固定应答而非复算）。
 let fakeCatalog: ProviderInfo[] = PROVIDERS;
 
 function veoConstraints(query: VideoCapabilitiesQuery): DurationConstraints {
@@ -211,20 +209,16 @@ describe("ModelConfigSection", () => {
         }}
       />,
     );
-    // 创建向导路径只剩三个默认层主下拉：video + image + text
     const comboboxes = screen.getAllByRole("combobox");
     expect(comboboxes).toHaveLength(3);
     expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
 
-    // Opening each dropdown should reveal "使用全局默认" as the default option
     await user.click(comboboxes[0]);
     expect(await screen.findByRole("option", { name: /使用全局默认/ })).toBeInTheDocument();
-    // Close by clicking again
     await user.click(comboboxes[0]);
   });
 
   it("keeps text tiers when media candidates are unavailable", async () => {
-    // 候选接口失败时调用方传入 candidates=null；文本档位不取用该数据，不应随之消失
     render(
       <ModelConfigSection
         candidates={null}
@@ -235,7 +229,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ ...EMPTY_GLOBALS, textDefault: "gemini/g25" }}
       />,
     );
-    // 只剩文本这一个折叠区，视频/图片细分因无候选数据而不渲染
     const disclosures = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(disclosures).toHaveLength(1);
     await userEvent.setup().click(disclosures[0]);
@@ -244,7 +237,6 @@ describe("ModelConfigSection", () => {
   });
 
   it("keeps configured sub-fields visible and clearable when candidates are unavailable", async () => {
-    // 候选拉取失败不应把已保存的覆盖藏起来——它在后端仍生效，藏起来用户既看不见也无法清除
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(
@@ -258,19 +250,16 @@ describe("ModelConfigSection", () => {
       />,
     );
 
-    // 已配置的「文生图」仍在，且展示的是已保存值；未配置的「图生图」无候选可选，不渲染
     const t2i = screen.getByRole("combobox", { name: "文生图" });
     expect(t2i).toHaveTextContent("nano-banana");
     expect(screen.queryByRole("combobox", { name: "图生图" })).not.toBeInTheDocument();
 
-    // 清空这条覆盖不依赖候选数据
     await user.click(t2i);
     await user.click(await screen.findByRole("option", { name: /跟随默认/ }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageBackendT2I: "" }));
   });
 
   it("shows an explicit error notice with a retry entry when candidatesError is set, even with no saved overrides", async () => {
-    // 候选拉取失败态与「仍在加载中」（candidates=null 但未标记失败）不同：前者要给出可感知的错误信号
     const user = userEvent.setup();
     const onRetry = vi.fn();
     render(
@@ -285,7 +274,7 @@ describe("ModelConfigSection", () => {
       />,
     );
     const alerts = screen.getAllByRole("alert");
-    expect(alerts).toHaveLength(2); // video + image；文本档位不取用候选数据，不参与
+    expect(alerts).toHaveLength(2);
     for (const alert of alerts) {
       expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
@@ -348,7 +337,6 @@ describe("ModelConfigSection", () => {
     it("collapses the sub-fields by default and names each row after its generation path", async () => {
       const user = userEvent.setup();
       renderWithCandidates();
-      // 三个媒体各一个折叠区，初始收起
       const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
       expect(sections).toHaveLength(3);
       expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
@@ -359,7 +347,6 @@ describe("ModelConfigSection", () => {
       for (const name of ["图生视频", "参考生视频", "文生图", "图生图", "简单任务", "复杂任务"]) {
         expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
       }
-      // 界面文案不出现内部术语
       expect(document.body).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
     });
 
@@ -368,13 +355,11 @@ describe("ModelConfigSection", () => {
       renderWithCandidates();
       await user.click(screen.getAllByText("按用途指定模型")[0]);
 
-      // 默认层不过滤：两个视频模型都在
       await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
       expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
       expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
       await user.keyboard("{Escape}");
 
-      // 图生视频桶只列 i2v 候选
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
       expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: /seedance/ })).not.toBeInTheDocument();
@@ -394,7 +379,6 @@ describe("ModelConfigSection", () => {
               shutdown_date: "2026-11-24",
               successor: "bytedance/seedance-2",
               successor_name: "Seedance 2",
-              // 后继只够格参考生视频这一处
               switch_targets: { default: null, i2v: null, r2v: "ark/seedance-2" },
             },
           },
@@ -441,7 +425,6 @@ describe("ModelConfigSection", () => {
       });
 
       it("keeps the capability error when the model is executed without a notice here", async () => {
-        // 项目跟随全局默认：本页引用处为空、不显示下线提示，报错是唯一的说明
         renderWithCandidates({
           projectName: "demo",
           globalDefaults: { ...EMPTY_GLOBALS, video: "ark/seedance" },
@@ -452,7 +435,6 @@ describe("ModelConfigSection", () => {
       });
 
       it("keeps the capability error when only another generation path references the model", async () => {
-        // 图生视频跟随全局默认执行该模型，本页只有参考生视频显式引用它：那条提示说的不是这条路径
         renderWithCandidates({
           projectName: "demo",
           value: { ...EMPTY_VALUE, videoProviderR2V: "ark/seedance" },
@@ -464,7 +446,6 @@ describe("ModelConfigSection", () => {
       });
 
       it("keeps the capability error next to a notice that only announces the shutdown", async () => {
-        // 即将下线的模型仍可调用，能力查询报的是别的问题，不与提示重复
         renderWithCandidates({
           projectName: "demo",
           value: { ...EMPTY_VALUE, videoBackend: "ark/seedance" },
@@ -494,7 +475,6 @@ describe("ModelConfigSection", () => {
         globalDefaults: { ...EMPTY_GLOBALS, video: "gemini/veo-3", videoR2V: "ark/seedance" },
       });
       await user.click(screen.getAllByText("按用途指定模型")[0]);
-      // r2v 有全局桶 → 用桶值；i2v 无 → 落到全局默认模型
       expect(screen.getByRole("combobox", { name: "参考生视频" })).toHaveTextContent(
         /跟随默认 · Ark · seedance/,
       );
@@ -504,7 +484,6 @@ describe("ModelConfigSection", () => {
     });
 
     it("revalidates duration and resolution when a sub-field switches the executing model", async () => {
-      // 细分项改动同样换掉执行模型，分辨率没有越界提示兜底，必须在此清掉
       const user = userEvent.setup();
       const onChange = vi.fn();
       renderWithCandidates({
@@ -515,7 +494,6 @@ describe("ModelConfigSection", () => {
           videoResolution: "1080p",
         },
         onChange,
-        // i2v 桶另放一个模型，才能走到「执行桶换模型」这条分支
         candidates: {
           ...CANDIDATES,
           video: { ...CANDIDATES.video, buckets: { i2v: ["gemini/veo-3", "ark/seedance"], r2v: ["ark/seedance"] } },
@@ -527,13 +505,11 @@ describe("ModelConfigSection", () => {
       expect(onChange).toHaveBeenCalledWith(
         expect.objectContaining({
           videoProviderR2V: "ark/seedance",
-          // 项目走图生视频路径，r2v 不是执行桶——执行模型没变，两者原样保留
           defaultDuration: 4,
           videoResolution: "1080p",
         }),
       );
 
-      // 换的是执行桶：分辨率清空，4 秒不在 seedance 的支持集里，时长退回自动
       onChange.mockClear();
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
       await user.click(await screen.findByRole("option", { name: /seedance/ }));
@@ -607,8 +583,6 @@ describe("ModelConfigSection", () => {
   });
 
   it("derives duration options from the bucket that the project actually executes", async () => {
-    // 默认层 veo-3（4/6/8），但图生视频桶覆盖成 seedance（5/8/10）——执行的是后者，
-    // 按默认层列时长会让用户存下执行时被拒的取值
     const { rerender } = render(
       <ModelConfigSection
         value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", videoProviderI2V: "ark/seedance" }}
@@ -621,7 +595,6 @@ describe("ModelConfigSection", () => {
     expect(await screen.findByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
 
-    // 参考生视频项目改走 r2v 桶，i2v 的覆盖对它不作数
     rerender(
       <ModelConfigSection
         usesReferenceImages
@@ -656,7 +629,6 @@ describe("ModelConfigSection", () => {
     );
     await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
     await user.click(await screen.findByRole("option", { name: /seedance/ }));
-    // 执行模型没变（桶仍指向 seedance），时长与分辨率不该被重置
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ videoBackend: "ark/seedance", defaultDuration: 10, videoResolution: "1080p" }),
     );
@@ -674,10 +646,8 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // Open the video backend dropdown
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
     await user.click(videoTrigger);
-    // Click on the ark/seedance option (4s is not in its supported_durations: [5, 8, 10])
     const seedanceOption = await screen.findByRole("option", { name: /seedance/ });
     await user.click(seedanceOption);
 
@@ -709,7 +679,7 @@ describe("ModelConfigSection", () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         videoBackend: "ark/seedance",
-        defaultDuration: 8, // 8 is in both supported lists
+        defaultDuration: 8,
       }),
     );
   });
@@ -724,7 +694,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 无 projectName（全局设置场景）：档位直接取目录端点的服务端派生值，前端不再自行推导。
     expect(screen.getByText("有声")).toBeInTheDocument();
     expect(screen.getByText("软约束")).toBeInTheDocument();
   });
@@ -756,7 +725,6 @@ describe("ModelConfigSection", () => {
         enable={{ video: false }}
       />,
     );
-    // No combobox for video model should be visible
     expect(screen.queryByRole("combobox", { name: /视频模型/ })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /^默认图片模型$/ })).toBeInTheDocument();
   });
@@ -771,11 +739,9 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ ...EMPTY_GLOBALS, video: "ark/seedance" }}
       />,
     );
-    // Should reflect ark/seedance's supported_durations [5, 8, 10]
     expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
-    // Should NOT show DEFAULT_DURATIONS buttons that ark/seedance doesn't support
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
   });
@@ -790,7 +756,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染；没有候选模型也就没有可查的能力，不发请求
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "8 秒" })).not.toBeInTheDocument();
@@ -898,7 +863,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
     expect(await screen.findByRole("slider")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "3 秒" })).not.toBeInTheDocument();
   });
@@ -971,15 +935,12 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
     expect(await screen.findByText(/不再受当前模型支持/)).toBeInTheDocument();
     expect(screen.getByText(/10/)).toBeInTheDocument();
-    // 无任何时长钮处于激活态：auto 与所有数字钮 aria-checked 均为 false
     expect(screen.getByRole("radio", { name: "auto" })).not.toBeChecked();
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
       expect(screen.getByRole("radio", { name: sec })).not.toBeChecked();
     }
-    // 越界态下 auto 兜底为可聚焦入口，键盘仍能 Tab 进 radiogroup 重选（无元素 tabIndex=0 会成键盘陷阱）
     expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("tabindex", "0");
   });
 
@@ -1052,19 +1013,15 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // slider 分支：20 不在 [3..15] 内
     const slider = await screen.findByRole("slider");
     expect(slider).toBeInTheDocument();
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
-    // 越界值的读数/aria-valuetext 忠实显示原值，而非误报为 auto——与未激活的 auto 钮及
-    // 点名秒数的越界提示一致
     expect(slider).toHaveAttribute("aria-valuetext", expect.stringMatching(/20/));
     expect(slider.getAttribute("aria-valuetext")).not.toBe("auto");
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
   });
 
-  // ── 联动约束：分辨率 / 参考图路径收窄可选时长 ──────────────────
 
   const VEO_PROVIDERS: ProviderInfo[] = [
     {
@@ -1139,7 +1096,6 @@ describe("ModelConfigSection", () => {
     expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
-    // 表单里未保存的分辨率显式交给服务端求值，而不是等保存后再算
     expect(API.getModelVideoCapabilities).toHaveBeenLastCalledWith(
       "gemini-aistudio/veo",
       expect.objectContaining({ resolution }),
@@ -1147,11 +1103,8 @@ describe("ModelConfigSection", () => {
   });
 
   it("stops accepting duration选择 while the new context's constraints are still in flight", async () => {
-    // 约束上下文变了但模型没变：旧收窄结果继续挂着（不闪加载态），但那是上一个档位的选项。
-    // 这段窗口内控件只展示不接受选择，否则用户能从 720p 的列表里给 4K 挑一个 4 秒。
     const user = userEvent.setup();
     const onChange = vi.fn();
-    // 闸口放在对象里：直接用 let + 闭包赋值时 TS 的控制流分析在使用点仍把它收窄成 null。
     const gate: { release?: () => void } = {};
     const original = fakeVideoCapabilities;
     vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend, query = {}) => {
@@ -1174,14 +1127,12 @@ describe("ModelConfigSection", () => {
       />,
     );
 
-    // 旧选项还在（布局不跳），但整组已标记为不可操作，点击不产生任何写入。
     const group = await screen.findByRole("radiogroup", { name: "默认时长" });
     await waitFor(() => expect(group).toHaveAttribute("aria-disabled", "true"));
     await user.click(screen.getByRole("radio", { name: "4 秒" }));
     expect(onChange).not.toHaveBeenCalled();
 
     gate.release?.();
-    // 新上下文落地后恢复可选，且只剩 4K 允许的档位。
     expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument());
     await user.click(screen.getByRole("radio", { name: "8 秒" }));
@@ -1201,7 +1152,6 @@ describe("ModelConfigSection", () => {
   it("sends the project name and an explicit auto resolution when editing a saved project", async () => {
     renderVeo({ projectName: "saved-project", videoResolution: null });
     await screen.findByRole("radio", { name: "4 秒" });
-    // 表单里的「自动」显式传 null：服务端不得回退到该项目已保存的档位来收窄
     expect(API.getVideoCapabilities).toHaveBeenLastCalledWith(
       "saved-project",
       expect.objectContaining({ videoBackend: "gemini-aistudio/veo", resolution: null }),
@@ -1209,7 +1159,6 @@ describe("ModelConfigSection", () => {
     expect(API.getModelVideoCapabilities).not.toHaveBeenCalled();
   });
 
-  // 警告文案按越界成因分开：模型本身仍支持 4 秒，指向「模型不支持」会把用户引去换模型。
   it.each([
     ["1080p 分辨率", { videoResolution: "1080p" }, /当前分辨率下不可用/],
     ["参考生视频", { videoResolution: "720p", usesReferenceImages: true }, /参考生视频下不可用/],
@@ -1253,7 +1202,6 @@ describe("音频开关的模型可控性", () => {
       },
     },
     {
-      // 可灵 v3-omni 的形状：图生子路径带音轨开关，参考生子路径的原生 schema 不含该字段。
       id: "kling",
       display_name: "Kling",
       description: "",
@@ -1330,6 +1278,7 @@ describe("音频开关的模型可控性", () => {
     onVideoGenerateAudioChange = vi.fn(),
     globalVideoGenerateAudio = true,
     usesReferenceImages = false,
+    customProviders: CustomProviderInfo[] = [],
   ) {
     render(
       <ModelConfigSection
@@ -1337,6 +1286,7 @@ describe("音频开关的模型可控性", () => {
         value={{ ...EMPTY_VALUE, videoBackend }}
         onChange={() => {}}
         providers={AUDIO_PROVIDERS}
+        customProviders={customProviders}
         usesReferenceImages={usesReferenceImages}
         options={{
           videoBackends: ["ark/seedance", "dashscope/wan", "minimax/hailuo-02", "kling/v3-omni"],
@@ -1353,6 +1303,25 @@ describe("音频开关的模型可控性", () => {
     );
     return onVideoGenerateAudioChange;
   }
+
+  it.each(["always_on", "always_off"] as const)("uses server audio facts for a custom %s model", (mode) => {
+    const customProviders: CustomProviderInfo[] = [{
+      id: 1, display_name: "Custom", discovery_format: "openai", base_url: "https://example.invalid",
+      api_key_masked: "", created_at: "", image_max_workers: null, video_max_workers: null, audio_max_workers: null,
+      models: [{
+        id: 1, model_id: "video", display_name: "Video", endpoint: "dashscope-video",
+        is_default: true, is_enabled: true, resolution: null, qualities: [], multiplier: 1,
+        entry_binding: null, matched_entry: null, system_capabilities: null,
+        capability_overrides: null, path_overrides: null, requests: [],
+        audio_track: mode, reference_route_audio_track: mode,
+        voice_consistency: mode === "always_off" ? "none" : "soft",
+      }],
+    }];
+    renderAudio("custom-1/video", null, vi.fn(), true, false, customProviders);
+    expect(screen.getByRole("radio", { name: "开启" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("radio", { name: mode === "always_on" ? "开启" : "关闭" })).toBeChecked();
+    expect(screen.getByText(mode === "always_on" ? /始终带声音/ : /没有声音/)).toBeInTheDocument();
+  });
 
   it("keeps the switch interactive for a model whose audio track is controllable", async () => {
     const user = userEvent.setup();
@@ -1379,7 +1348,6 @@ describe("音频开关的模型可控性", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // 存量配置存了「关闭」而模型关不掉：置灰后仍须留一条修正路径，否则设置改不回来。
   it("offers a one-click fix when a stored off setting contradicts an always-audible model", async () => {
     const user = userEvent.setup();
     const onChange = renderAudio("dashscope/wan", false);
@@ -1388,8 +1356,6 @@ describe("音频开关的模型可控性", () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
-  // 项目级留空是「跟随全局」：全局为关闭时同样落在恒有声模型上，提示按生效值给，
-  // 否则界面只显示置灰的「开启」，用户要到入队被拒才知道配置有矛盾。
   it("offers the same fix when the project follows a global off setting", async () => {
     const user = userEvent.setup();
     const onChange = renderAudio("dashscope/wan", null, vi.fn(), false);
@@ -1403,8 +1369,6 @@ describe("音频开关的模型可控性", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // 音轨形态按执行路径分叉：同一模型在图生路线可控、在参考生视频没有开关可下发。按模型（而非
-  // 按路径）取值会让参考生视频的用户开着音频却拿到无声成片，且全程无提示。
   it("keeps the switch interactive for a route-split model on the first-frame route", () => {
     renderAudio("kling/v3-omni", null);
     expect(screen.getByRole("radio", { name: "关闭" })).toBeEnabled();
@@ -1418,8 +1382,6 @@ describe("音频开关的模型可控性", () => {
     expect(screen.getByText(/没有声音/)).toBeInTheDocument();
   });
 
-  // 同屏三个视频下拉分属三条不同路径：默认层跟着项目实际执行的那条，两个细分项各按自己的桶。
-  // 音轨格与下方开关必须给出同一个答案——一屏之内两句话互相矛盾，用户按下拉预览选型就会选错。
   describe("候选下拉的音轨能力线", () => {
     const OMNI_CANDIDATES = {
       image: {
@@ -1446,7 +1408,6 @@ describe("音频开关的模型可控性", () => {
           usesReferenceImages={usesReferenceImages}
           options={{
             videoBackends: ["kling/v3-omni"],
-            // 图片下拉刻意放同一个模型：音轨格若被错接到图片侧，这里会显形。
             imageBackends: ["kling/v3-omni"],
             textBackends: [],
             providerNames: { kling: "Kling" },
@@ -1458,7 +1419,6 @@ describe("音频开关的模型可控性", () => {
       );
     }
 
-    /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
     async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
       await user.click(screen.getByRole("combobox", { name: comboboxName }));
       const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
@@ -1469,12 +1429,10 @@ describe("音频开关的模型可控性", () => {
     it("参考生视频项目：默认层与参考生桶标无声，图生桶不受牵连仍标有声", async () => {
       const user = userEvent.setup();
       renderDropdowns(true);
-      // 默认层留空时执行的是 r2v 桶，能力线跟着走
       expect(await omniRowIn(user, "默认视频模型")).toContain("无声");
 
       await user.click(screen.getAllByText("按用途指定模型")[0]);
       expect(await omniRowIn(user, "参考生视频")).toContain("无声");
-      // 项目走参考生路线不代表「图生视频」这一格也该按参考生标注——它就是图生路径本身
       expect(await omniRowIn(user, "图生视频")).toContain("有声");
     });
 
@@ -1485,7 +1443,6 @@ describe("音频开关的模型可控性", () => {
 
       await user.click(screen.getAllByText("按用途指定模型")[0]);
       expect(await omniRowIn(user, "图生视频")).toContain("有声");
-      // 项目当前不走参考生路线，但这一格描述的是参考生路径的能力，与项目设置无关
       expect(await omniRowIn(user, "参考生视频")).toContain("无声");
     });
 
@@ -1494,7 +1451,6 @@ describe("音频开关的模型可控性", () => {
       renderDropdowns(true);
       expect(await omniRowIn(user, "默认图片模型")).not.toMatch(/有声|无声/);
 
-      // 图片折叠区排在视频之后
       await user.click(screen.getAllByText("按用途指定模型")[1]);
       expect(await omniRowIn(user, "文生图")).not.toMatch(/有声|无声/);
       expect(await omniRowIn(user, "图生图")).not.toMatch(/有声|无声/);
@@ -1502,9 +1458,6 @@ describe("音频开关的模型可控性", () => {
   });
 });
 
-// -------------------------------------------------------------------------
-// ComfyUI 模型行：尺寸 / 时长被 workflow 固定时，对应控件禁用并说清原因
-// -------------------------------------------------------------------------
 describe("dimensions a ComfyUI workflow fixes", () => {
   const COMFY_ENDPOINT: EndpointDescriptor = {
     key: "ce-2",
@@ -1559,7 +1512,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
 
   const BACKEND = "custom-3/my-wan-workflow";
 
-  /** 挂着一个 ComfyUI 模型行的项目：端点目录按用例给出的约束应答。 */
   function renderWithConstraints(overrides: Partial<EndpointDescriptor>, durations: number[]) {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
@@ -1607,7 +1559,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     const picker = await screen.findByRole("combobox", { name: "分辨率" });
     expect(picker).toBeDisabled();
     expect(picker).toHaveAttribute("placeholder", "workflow 原生（480p）");
-    // 禁用原因要有一行可见说明，不能只靠 title。
     expect(screen.getByText(/此 workflow 的像素分辨率固定：宽高没有同时绑定到节点/)).toBeInTheDocument();
   });
 
@@ -1635,7 +1586,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
   });
 
   it("says why the duration control is absent when the frame rate cannot be read either", async () => {
-    // frames 绑了却没有帧率来源：项目页看到的结果与时长固定那一支一样，也要有一行说明。
     renderWithConstraints({ duration_fixed: false, duration_tier_empty: true }, []);
 
     expect(await screen.findByText(/时长由端点固定/)).toBeInTheDocument();
@@ -1677,10 +1627,8 @@ describe("图片画质与失效的已存值", () => {
       capabilities: [],
       credential_count: 0,
       models: {
-        // 接口顺序故意不按字母序：选项必须原样照接口列出
         "gpt-image-2": imageModel(["1K", "2K"], ["low", "medium", "high"]),
         "gpt-image-1": imageModel(["1K", "2K"], []),
-        // 旧数据：条目仍带 512px 时它照常可选
         "gpt-image-legacy": imageModel(["512px", "1K", "2K"], []),
       },
     },
@@ -1856,5 +1804,244 @@ describe("图片画质与失效的已存值", () => {
     expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("4k");
     await screen.findByRole("radio", { name: "8 秒" });
     expect(screen.queryByText(/已保存的分辨率/)).not.toBeInTheDocument();
+  });
+});
+
+describe("ModelConfigSection – split t2i/i2i image resolutions", () => {
+  const IMAGE_PROVIDERS: ProviderInfo[] = [
+    {
+      id: "gemini",
+      display_name: "Gemini",
+      description: "",
+      status: "ready",
+      media_types: ["image"],
+      capabilities: [],
+      credential_count: 0,
+      models: {
+        "nano-banana": {
+          display_name: "Nano Banana",
+          media_type: "image",
+          capabilities: [],
+          default: true,
+          supported_durations: [],
+          resolutions: ["1K", "2K", "4K"],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+        "no-res-model": {
+          display_name: "No Res",
+          media_type: "image",
+          capabilities: [],
+          default: false,
+          supported_durations: [],
+          resolutions: [],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+      },
+    },
+    {
+      id: "openai",
+      display_name: "OpenAI",
+      description: "",
+      status: "ready",
+      media_types: ["image"],
+      capabilities: [],
+      credential_count: 0,
+      models: {
+        "gpt-image-2": {
+          display_name: "GPT Image 2",
+          media_type: "image",
+          capabilities: [],
+          default: true,
+          supported_durations: [],
+          resolutions: ["1K", "2K"],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+      },
+    },
+  ];
+
+  const IMAGE_OPTIONS = {
+    videoBackends: [],
+    imageBackends: ["gemini/nano-banana", "gemini/no-res-model", "openai/gpt-image-2"],
+    textBackends: [],
+    providerNames: { gemini: "Gemini", openai: "OpenAI" },
+  };
+
+  it("shows separate t2i and i2i resolution pickers with each model's own options when executing models differ", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageBackendI2I: "openai/gpt-image-2",
+          imageResolution: "4K",
+          imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "1K" },
+        }}
+        onChange={onChange}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    const t2iPicker = screen.getByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("4K");
+    expect(i2iPicker).toHaveTextContent("1K");
+
+    await user.click(i2iPicker);
+    expect(await screen.findByRole("option", { name: "1K" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "2K" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "4K" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: "2K" }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageResolution: "4K",
+        imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "2K" },
+      }),
+    );
+  });
+
+  it("shows only one resolution picker when t2i and i2i resolve to the same model", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageResolution: "2K",
+          imageResolutions: { "gemini/nano-banana": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("2K");
+    expect(screen.queryByRole("combobox", { name: "文生图 · 分辨率" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "图生图 · 分辨率" })).not.toBeInTheDocument();
+  });
+
+  it("splits image resolutions when global defaults resolve t2i and i2i to different models", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={{
+          ...EMPTY_GLOBALS,
+          imageT2I: "gemini/nano-banana",
+          imageI2I: "openai/gpt-image-2",
+        }}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it("renders only the supported bucket picker when the other executing image model has no resolutions", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/no-res-model",
+          imageBackendI2I: "openai/gpt-image-2",
+          imageResolutions: { "openai/gpt-image-2": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: "文生图 · 分辨率" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it("uses free-form combobox input for a custom i2i model while keeping builtin t2i as a select", () => {
+    useEndpointCatalogStore.setState({
+      endpointToMediaType: { "openai-images": "image" },
+      endpointConstraints: {},
+      initialized: true,
+    });
+    const customProviders: CustomProviderInfo[] = [
+      {
+        id: 7,
+        display_name: "Relay",
+        discovery_format: "openai",
+        base_url: "https://relay.example/v1",
+        api_key_masked: "sk-***",
+        created_at: "2026-01-01T00:00:00Z",
+        image_max_workers: null,
+        video_max_workers: null,
+        audio_max_workers: null,
+        models: [
+          {
+            id: 1,
+            model_id: "custom-edit",
+            display_name: "Custom Edit",
+            endpoint: "openai-images",
+            is_default: false,
+            is_enabled: true,
+            resolution: null,
+            qualities: [],
+            multiplier: 1,
+            entry_binding: null,
+            matched_entry: null,
+            system_capabilities: null,
+            capability_overrides: null,
+            path_overrides: null,
+            requests: [],
+          },
+        ],
+      },
+    ];
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageBackendI2I: "custom-7/custom-edit",
+          imageResolution: "4K",
+          imageResolutions: { "gemini/nano-banana": "4K", "custom-7/custom-edit": "1536x1024" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        customProviders={customProviders}
+        options={{
+          ...IMAGE_OPTIONS,
+          imageBackends: [...IMAGE_OPTIONS.imageBackends, "custom-7/custom-edit"],
+          providerNames: { ...IMAGE_OPTIONS.providerNames, "custom-7": "Relay" },
+        }}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveValue("1536x1024");
   });
 });

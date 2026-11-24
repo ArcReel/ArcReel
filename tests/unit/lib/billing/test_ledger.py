@@ -54,11 +54,6 @@ async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
     return rows[0]
 
 
-# ---------------------------------------------------------------------------
-# union 分发：两处语义转写的唯一落点
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class _ImgResult:
     usage_tokens: int | None = 8
@@ -98,13 +93,11 @@ class TestSettlementDispatch:
         assert s.usage_tokens == 8
 
     def test_audio_reports_raw_text_and_records_character_count(self) -> None:
-        # 语义转写①：原始文本交计算器统计字符，usage_tokens 记原文字符数
         s = _settlement_from_result("audio", _AudioResult(text="念" * 25_000))
         assert s.usage_tokens == 25_000
         assert [usage.text for usage in s.usage] == ["念" * 25_000]
 
     def test_audio_prefers_the_billed_character_count_the_provider_reports(self) -> None:
-        # 供应商回报了计费字符数：字符数计量项与 usage_tokens 都取它，不再按文本统计
         s = _settlement_from_result("audio", _AudioResult(text="你好，世界", billed_characters=7))
         assert s.usage_tokens == 7
         [usage] = s.usage
@@ -122,11 +115,9 @@ class TestSettlementDispatch:
                 },
             }
         ).price
-        # 3 元 / 万字符 × 7 字符
         assert price_usage(table, usage, multiplier=1.0) == Priced(pytest.approx(0.0021), "CNY")
 
     def test_video_transcribes_duration_to_billed(self) -> None:
-        # 语义转写②：backend 实际计费时长 → billed_duration_seconds（覆盖请求时长）
         s = _settlement_from_result("video", _VideoResult(duration_seconds=15, generate_audio=False))
         assert s.billed_duration_seconds == 15
         assert s.generate_audio is False
@@ -141,7 +132,6 @@ class TestSettlementDispatch:
         ]
 
     def test_text_fallback_reports_one_usage_per_billed_request(self) -> None:
-        # 降级链上被丢弃的请求也已计费：各次请求各出一份用量，计费时逐次落上下文档
         kept = _text_result(input_tokens=100, output_tokens=50)
         merge_billed_usage(kept, _text_result(input_tokens=70, output_tokens=10, cache_read_tokens=30))
 
@@ -156,11 +146,6 @@ class TestSettlementDispatch:
     def test_unknown_channel_raises(self) -> None:
         with pytest.raises(AssertionError, match="Expected code to be unreachable"):
             _settlement_from_result("bogus", object())
-
-
-# ---------------------------------------------------------------------------
-# 记账括号 CM 契约
-# ---------------------------------------------------------------------------
 
 
 class TestRecordBracket:
@@ -182,9 +167,8 @@ class TestRecordBracket:
         ledger = Ledger(session_factory=db_factory)
         with pytest.raises(RuntimeError, match=re.escape("未调用 call.success")):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
-                pass  # 正常退出但未声明成功
+                pass
 
-        # 未声明成功 → 未 finish，行停在 pending（不翻 success/failed）
         row = await _only_row(db_factory)
         assert row.status == "pending"
 
@@ -197,7 +181,7 @@ class TestRecordBracket:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message is not None
-        assert len(row.error_message) == 500  # 错误信息截断由仓储承担
+        assert len(row.error_message) == 500
 
     async def test_cancellation_settles_cancelled_zero_cost_and_reraises(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
@@ -210,7 +194,6 @@ class TestRecordBracket:
 
         assert caught, "expected CancelledError to propagate"
 
-        # 取消结算：零费用翻 cancelled，不留 pending 也不计入失败
         row = await _only_row(db_factory)
         assert row.status == "cancelled"
         assert row.cost_amount == 0.0
@@ -231,7 +214,6 @@ class TestRecordBracket:
             nonlocal write_done
             if kwargs.get("status") is CallStatus.SUCCESS:
                 outer.cancel()
-                # 让取消先送达外层，再让写入拖一拍：外层若不等写入就重抛，下面的断言会先于写入完成。
                 await asyncio.sleep(0.05)
             await real_finish_call(repo, *args, **kwargs)
             write_done = True
@@ -336,7 +318,7 @@ class TestRecordBracket:
         assert row.purpose == "generation_task"
         assert row.session_id == "s1"
         assert row.inputs == inputs
-        assert row.prompt == "p" * 900  # 提示词全文入库，不截 500 字
+        assert row.prompt == "p" * 900
 
     async def test_generate_audio_stays_null_unless_the_caller_declares_it(
         self, db_factory: async_sessionmaker
@@ -399,7 +381,7 @@ class TestRecordBracket:
         assert row.status == "failed"
         assert row.error_code == expected_code
         assert row.error_params == expected_params
-        assert row.error_message == str(exc)  # 原文照落，与机器码并存
+        assert row.error_message == str(exc)
 
     async def test_unrecognised_failure_leaves_code_and_params_empty(self, db_factory: async_sessionmaker) -> None:
         ledger = Ledger(session_factory=db_factory)
@@ -437,7 +419,6 @@ class TestRecordBracket:
 
         ledger = Ledger(session_factory=lambda: _dummy_session())
 
-        # 原异常是 ValueError；记账失败分支的 RuntimeError 被吞（仅记日志），ValueError 冒泡
         with pytest.raises(ValueError, match="original"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise ValueError("original")
@@ -474,11 +455,6 @@ class TestRecordBracket:
         assert statuses == ["success", "failed"]
 
 
-# ---------------------------------------------------------------------------
-# resume 补账 / Agent 轮次：语义齐备的直驱确认（端到端计费口径见特征化矩阵）
-# ---------------------------------------------------------------------------
-
-
 class TestResumeAndAgentTurn:
     async def _seed_pending_video(self, db_factory: async_sessionmaker) -> int:
         from lib.db.repositories.usage_repo import UsageRepository
@@ -503,7 +479,7 @@ class TestResumeAndAgentTurn:
 
         row = await _only_row(db_factory)
         assert row.status == "success"
-        assert row.duration_seconds == 6  # backend 实际计费时长覆盖请求 8s
+        assert row.duration_seconds == 6
 
     async def test_resume_failed_flips_pending_zero_cost(self, db_factory: async_sessionmaker) -> None:
         call_id = await self._seed_pending_video(db_factory)
@@ -530,7 +506,6 @@ class TestResumeAndAgentTurn:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message == str(expired)
-        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示。
         assert (row.error_code, row.error_params) == (None, None)
 
     async def test_resume_failed_classifies_the_exception_it_is_given(self, db_factory: async_sessionmaker) -> None:
@@ -588,7 +563,6 @@ class TestResumeAndAgentTurn:
         ledger = Ledger(session_factory=db_factory)
         await ledger.resume_success(call_id=call_id, result=_VideoResult())
 
-        # 二次 finalize 命中 0 行（WHERE status='pending' 幂等守卫），不抛异常
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 

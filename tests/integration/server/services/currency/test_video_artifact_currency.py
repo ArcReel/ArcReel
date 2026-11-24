@@ -106,7 +106,6 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
     assert result["selected_current"] is False
     assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
-    # 分镜视频没有提示时，结果不带 warnings 这一键。
     assert "warnings" not in result
     finalize.assert_not_awaited()
     completed.assert_called_once_with()
@@ -247,7 +246,6 @@ async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_
     await asyncio.sleep(0)
     cancelled_before_guard = prepare.done()
     allow_acquire.set()
-    # The guard state remains the assertion target after callers cancel preparation.
     with suppress(asyncio.CancelledError):
         await prepare
 
@@ -725,7 +723,6 @@ def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) ->
     use_tts = {**project, "narration_delivery": "use_tts"}
     without_tts = _basis(post_production, script)
 
-    # 一份比计划时长更长的当前旁白配音
     audio = project_path / "audio" / "segment_E1S01.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
@@ -857,7 +854,6 @@ def test_switching_to_prompt_voice_binding_makes_a_reference_video_stale(tmp_pat
     switched["character_voice_binding"] = "prompt"
     assert _reference_video_basis(project_path, switched, script, metadata) != before
 
-    # 字段缺省即默认档，与显式写 prompt 同判
     absent = deepcopy(project)
     del absent["character_voice_binding"]
     assert _reference_video_basis(project_path, absent, script, metadata) != before

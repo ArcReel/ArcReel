@@ -96,7 +96,6 @@ class TestRequest:
         assert submitted.headers["Authorization"] == "Bearer sk"
         assert "X-DashScope-Async" not in submitted.headers
         assert "X-DashScope-SSE" not in submitted.headers
-        # 输出格式随落盘扩展名，language_type 不发送；未给语速时不带 rate
         assert request_json(submitted) == {
             "model": "qwen-audio-3.0-tts-flash",
             "input": {
@@ -108,7 +107,6 @@ class TestRequest:
         }
         assert str(only_request(routes.download).url) == _AUDIO_URL
         assert (tmp_path / "o.wav").read_bytes() == b"RIFFbytes"
-        # 3.0 系只报计费字符数，不报 token：按字符计价由计算器从原文统计
         assert result.text == "我家的后面有一个很大的花园。"
         assert result.input_tokens is None
         assert result.audio_output_tokens is None
@@ -176,8 +174,6 @@ class TestVoices:
             ("qwen-audio-3.1-tts-flash", "yuxiaoyun_v3.1", "longanlingxin"),
             ("qwen-audio-3.0-tts-plus", "longanlufeng", "longanhuan_v3.1"),
             ("qwen-audio-3.0-tts-flash", "longanhuan_v3.6", "longanhuan_v3.1"),
-            # 中转命名空间与日期快照后缀不影响代际判定
-            ("aliyun/Qwen-Audio-3.0-TTS-Flash-2026-03-04", "loongjohn", "longanhuan_v3.1"),
         ],
     )
     def test_voices_follow_the_model(self, model: str, included: str, excluded: str):
@@ -185,9 +181,17 @@ class TestVoices:
         assert included in ids
         assert excluded not in ids
 
-    def test_unknown_model_falls_back_to_31_flagship_voices(self):
-        ids = [v.id for v in voices_for_model("qwen-audio-3.2-tts-turbo")]
-        assert ids == ["longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1"]
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "qwen-audio-3.2-tts-turbo",
+            "qwen-audio-3.1-tts-next",
+            "qwen-audio-3.0-tts-flash-2026-03-04",
+            "aliyun/qwen-audio-3.1-tts-flash",
+        ],
+    )
+    def test_unconfirmed_model_lists_no_voices(self, model: str):
+        assert DashScopeSpeechSynthesizerBackend(api_key="sk", model=model).list_voices() == []
 
     def test_list_is_a_fresh_copy(self):
         backend = DashScopeSpeechSynthesizerBackend(api_key="sk")

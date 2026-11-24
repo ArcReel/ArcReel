@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.catalog import query as catalog
@@ -168,7 +169,12 @@ async def _seed_custom_video_rows(
 
 
 def _storyboard_checkpoint_json(
-    task_id: str, *, provider_id: str, endpoint_guard: str | None, model_id: str = "video-x"
+    task_id: str,
+    *,
+    provider_id: str,
+    endpoint_guard: str | None,
+    model_id: str = "video-x",
+    audio_track: VideoAudioMode | None = None,
 ) -> str:
     """真实 ``StoryboardSubmissionCheckpoint.create(...).to_json()``：身份指向 ``provider_id`` 的 ``model_id``。"""
     visual = ArtifactBasis.build(
@@ -202,6 +208,7 @@ def _storyboard_checkpoint_json(
         aspect_ratio="9:16",
         resolution="720p",
         generate_audio=True,
+        audio_track=audio_track,
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
@@ -320,8 +327,6 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
 
         await _run_orphan_recovery(session_factory)
 
-    # resume 不重复提交计费：submit 零请求，接续只按原 job 轮询并取回产物；
-    # 轮询走历史提交域名，不落到供应商行的当前域名。
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -331,7 +336,6 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
-    # 付费字节落入版本历史（当前项目态与提交冻结态不一致时按史存不选中，任务仍成功）。
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
@@ -356,7 +360,6 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
 
         await _run_orphan_recovery(session_factory)
 
-    # 逐字比对失败在 backend 调用之前：poll/submit 都不该有流量。
     assert submit.call_count == 0
     assert poll.call_count == 0
 
@@ -364,7 +367,6 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
-    # 无产物落盘。
     assert not (chain_project / "versions" / "videos").exists()
 
 
@@ -430,7 +432,6 @@ async def test_ce_orphan_resumes_through_unchanged_path_overrides(chain_project:
     assert (await _load_task_row(session_factory, "T-ce-paths-kept")).status == "succeeded"
 
 
-#: 关停日期之后续跑的模型：内置 agnes 收录它，自定义供应商里同名的模型按名字对应到同一个条目。
 RETIRED_MODEL = "agnes-video-v2.0"
 SHUTDOWN = date(2026, 11, 24)
 
@@ -509,7 +510,6 @@ async def test_builtin_job_submitted_before_shutdown_still_resumes_after_it(
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
-    # 续跑构造的 backend 已进实例缓存，新提交也不能经缓存绕过下线检查。
     await _assert_new_submission_rejected("agnes")
 
 
@@ -551,7 +551,6 @@ async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
     await _assert_new_submission_rejected(rows["provider_id"])
 
 
-#: 端点拆分前的方舟 Seedance 端点名：升级前提交的任务把它冻结在检查点里。
 LEGACY_SEEDANCE_ENDPOINT = "ark-seedance"
 SEEDANCE_MODEL = "doubao-seedance-2-0-260128"
 
@@ -749,3 +748,53 @@ async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Pat
         assert row.error_message
         assert "resume_endpoint_changed" in row.error_message
         assert len(router.calls) == 0
+
+
+@pytest.mark.parametrize(("submitted", "current"), [("always_off", "always_on"), ("always_on", "always_off")])
+async def test_resume_settles_frozen_audio_after_override_change(chain_project, session_factory, submitted, current):
+    from sqlalchemy import update
+
+    from lib.db.models.api_call import ApiCall
+    from lib.db.models.custom_provider import CustomProviderModel
+    from lib.db.repositories.usage_repo import UsageRepository
+
+    rows = await _seed_custom_video_rows(session_factory)
+    task_id = "T-audio-resume"
+    await _seed_running_video_task(
+        session_factory,
+        task_id=task_id,
+        provider_id=rows["provider_id"],
+        checkpoint_json=_storyboard_checkpoint_json(
+            task_id,
+            provider_id=rows["provider_id"],
+            endpoint_guard=rows["endpoint_keys"][0],
+            audio_track=VideoAudioMode(submitted),
+        ),
+    )
+    async with session_factory() as session:
+        await session.execute(update(CustomProviderModel).values(capability_overrides={"audio_track": current}))
+        call_id = await UsageRepository(session).start_call(
+            project_name="demo",
+            call_type="video",
+            model="video-x",
+            provider=rows["provider_id"],
+            task_id=task_id,
+            generate_audio=True,
+        )
+        await session.commit()
+    with capture_http() as http:
+        submit = http.post("https://relay.test/v1/video/create")
+        poll = http.get("https://relay.test/v1/video/fetch/job-old").respond(
+            200, json={"status": "completed", "video_url": "https://relay.test/files/job.mp4"}
+        )
+        download = http.get("https://relay.test/files/job.mp4").respond(200, content=b"paid-result")
+        await _run_orphan_recovery(session_factory)
+    assert submit.call_count == 0
+    assert poll.call_count == download.call_count == 1
+    assert (await _load_task_row(session_factory, task_id)).status == "succeeded"
+    async with session_factory() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert call.status == "success"
+        assert call.generate_audio is (submitted == "always_on")
+    assert [p.read_bytes() for p in (chain_project / "versions" / "videos").glob("E1S01_v*.mp4")] == [b"paid-result"]

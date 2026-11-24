@@ -132,10 +132,6 @@ class ArtifactCurrencyResolver:
         root_planner = TargetStatePlanner(project_dir, shared_versions=self._shared_versions)
         if not project_schema_is_current(root_planner.project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
-        # One Manifest snapshot serves every admission and comparison of this
-        # resolver, read even when a workflow phase has no artifacts to compare: a
-        # corrupt active manifest is a blocker, never an empty target state or
-        # permission to fall back to filesystem existence.
         self.manifest_snapshot = root_planner.adapter.read_snapshot()
         root_planner.manifest_snapshot = self.manifest_snapshot
         self._observations: dict[str, ArtifactObservation] = {}
@@ -161,14 +157,6 @@ class ArtifactCurrencyResolver:
         return planner
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
-        # Admission precedes basis reconstruction.  An unclaimed or unsafe
-        # formal path is not an input to the planner, so malformed orphan files
-        # cannot block the workflow that is responsible for replacing them.
-        #
-        # A formal file is opened once per request: admission, the final
-        # comparison and the planners' media proof share one observation.  A
-        # proof that has to reread the file replaces it with what it saw, so the
-        # final comparison does not trust the admission-time observation.
         entries = self.manifest_snapshot.entries
         admission = self._manifest.compare_observed_entry(
             key, observation=self._observe(artifact_path), expected=None, entries=entries

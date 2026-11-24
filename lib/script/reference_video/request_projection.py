@@ -189,10 +189,8 @@ class ReferenceUnitRequestProjection:
     declared_references: tuple[ReferenceResource, ...]
     available_assets: tuple[ResolvedReferenceAsset, ...]
     request_assets: tuple[ResolvedReferenceAsset, ...]
-    #: 两者的对外载荷键固定为 ``declared_capability`` / ``hydrated_capability``（API 契约）。
     declared_generation_type: VideoGenerationType
     hydrated_generation_type: VideoGenerationType
-    #: 单元所落桶的视频请求事实；求值失败时为 None，失败已折成 ``problems`` 里的阻断项。
     request_facts: VideoRequestFacts | None
     planned_duration: int
     duration_input: int
@@ -244,14 +242,9 @@ class ReferenceAssetAvailability(Protocol):
 
 VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
-#: 按任务类型桶取视频请求事实。读侧用 :func:`configured_reference_request_facts`，执行侧交出
-#: lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
 ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
 
 
-#: 参考图的供应商素材关联核对：按这次调用的素材库范围检查裁剪后将要发出的参考图（顺序即提示词里的图片编号），
-#: 适用的关联尚未可用或入库失败时返回阻断问题，问题码与参数和执行期失败相同；没有问题时为 None。读侧实现见
-#: :mod:`lib.script.reference_video.provider_asset_links`，执行侧交出实际调用通道的那一份。
 ReferenceAssetLinkCheck = Callable[
     [VideoRequestFacts, Sequence[ResolvedReferenceAsset]], Awaitable["ProjectionProblem | None"]
 ]
@@ -282,6 +275,7 @@ def configured_reference_request_facts(project: dict, resolver: ConfigResolver) 
 class ReferenceAssetHydration:
     available: tuple[ResolvedReferenceAsset, ...]
     missing: tuple[ReferenceResource, ...]
+    unreadable_files: tuple[str, ...]
 
 
 def hydrate_reference_assets(
@@ -292,11 +286,33 @@ def hydrate_reference_assets(
     """把候选按声明范围过滤并给出实际可用图片与缺图逻辑引用。"""
 
     declared_keys = {(ref.type, asset_name_comparison_key(ref.name)) for ref in declared}
-    candidates = tuple(asset for asset in resolved_assets if _asset_key(asset) in declared_keys)
-    available = tuple(asset for asset in candidates if availability.is_available(asset))
+    candidates = [asset for asset in resolved_assets if _asset_key(asset) in declared_keys]
+    available: list[ResolvedReferenceAsset] = []
+    unavailable: list[ResolvedReferenceAsset] = []
+    try:
+        for asset in candidates:
+            (available if availability.is_available(asset) else unavailable).append(asset)
+    except (OSError, ValueError) as exc:
+        cause = exc if isinstance(exc, OSError) else exc.__cause__
+        paths = [asset.path for asset in candidates]
+        if not isinstance(cause, OSError) or not cause.filename or Path(cause.filename) not in paths:
+            raise
+        from arcreel_market_core.video_backend_contract import VideoCapabilityError
+        from lib.backends.backend_runtime import read_video_image_slots
+
+        names = Path(cause.filename).name
+        try:
+            read_video_image_slots(None, None, paths, "")
+        except VideoCapabilityError as failure:
+            names = failure.params["names"]
+        return ReferenceAssetHydration(available=(), missing=(), unreadable_files=(names,))
     available_keys = {_asset_key(asset) for asset in available}
     missing = tuple(ref for ref in declared if (ref.type, asset_name_comparison_key(ref.name)) not in available_keys)
-    return ReferenceAssetHydration(available=available, missing=missing)
+    return ReferenceAssetHydration(
+        available=tuple(available),
+        missing=missing,
+        unreadable_files=tuple(asset.path.name for asset in unavailable if _asset_key(asset) in available_keys),
+    )
 
 
 @dataclass(frozen=True)
@@ -310,13 +326,12 @@ class ReferenceUnitHydration:
 
     declared_references: tuple[ReferenceResource, ...]
     available_assets: tuple[ResolvedReferenceAsset, ...]
-    #: 声明了、此刻却没有任何可用图片候选的引用。
     unavailable_references: tuple[ReferenceResource, ...]
-    #: 正文提及、但项目未登记的名字。
     unregistered_references: tuple[str, ...]
     declared_generation_type: VideoGenerationType
     hydrated_generation_type: VideoGenerationType
     problems: tuple[ProjectionProblem, ...]
+    unreadable_files: tuple[str, ...] = ()
 
 
 def hydrate_unit_references(
@@ -341,9 +356,6 @@ def hydrate_unit_references(
     available = hydration.available
 
     problems: list[ProjectionProblem] = []
-    # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里，须在此单独阻断并
-    # 列名。无资产图的角色 / 场景 / 道具不需要在此另报——它们不退回原图，展开时就不产生
-    # 候选，一律落进 ``hydration.missing``。
     admission = _admit_unit_references(catalog, references, unregistered)
     if admission.unregistered:
         problems.append(
@@ -365,7 +377,7 @@ def hydrate_unit_references(
             )
         )
 
-    hydrated_generation_type: VideoGenerationType = "r2v" if available else "i2v"
+    hydrated_generation_type: VideoGenerationType = "r2v" if available or hydration.unreadable_files else "i2v"
     if hydrated_generation_type != declared_generation_type:
         problems.append(
             _problem(
@@ -383,6 +395,7 @@ def hydrate_unit_references(
         declared_generation_type=declared_generation_type,
         hydrated_generation_type=hydrated_generation_type,
         problems=tuple(problems),
+        unreadable_files=hydration.unreadable_files,
     )
 
 
@@ -397,7 +410,6 @@ class FilesystemReferenceAssets:
             path = safe_join(self._project_path, asset.path)
         except (OSError, PathTraversalError, TypeError):
             return False
-        # 缓存已清理的远端内容版本仍可取回，不算缺图
         return material_file_present(path)
 
 
@@ -418,7 +430,6 @@ class MemoizedReferenceAssets:
         self._known: dict[tuple[Path, str, str, str], bool] = {}
 
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        # 判定依赖路径、候选种类与认领键（引用类型 + 名称），四者共同决定一张图。
         key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
         known = self._known.get(key)
         if known is None:
@@ -458,8 +469,8 @@ def unit_reference_declarations(
     """视频单元正文 → 该单元生成所用的逻辑参考图引用，按首次提及顺序。
 
     正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
-    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用——它只在渲染与预览侧发一条
-    非阻断 warning，不挡住这次生成。
+    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用。编辑侧可保留这样的正文，
+    生成准入通过 :func:`unit_reference_admission` 将未登记名称作为阻断项（见 ADR 0073）。
     """
 
     references, _missing = derive_references_from_text(_unit_text(unit), project, catalog=catalog)
@@ -546,11 +557,7 @@ def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
 def clamp_reference_assets(
     assets: Sequence[ResolvedReferenceAsset], max_references: int | None
 ) -> tuple[ResolvedReferenceAsset, ...]:
-    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。
-
-    ``max_references`` 是参考图上限的生效值（``lib.backends.video_capabilities``）：``None`` 为未收录，不裁剪；
-    ``0`` 为不接受参考图，同样不裁剪，原样交给执行时的校验拒绝，而不是裁成 0 张后静默改走无参考图的请求。
-    """
+    """按历史成片记录的上限重建其产物依据；新提交始终使用完整参考集。"""
 
     bound = InputLimit.from_json(max_references).clamp_bound()
     if bound is None or len(assets) <= bound:
@@ -559,10 +566,11 @@ def clamp_reference_assets(
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
+    "video_reference_images_unreadable": ("repair_reference_assets", (("text",),)),
     "reference_asset_missing": ("repair_reference_assets", (("text",),)),
     UNREGISTERED_REFERENCE_CODE: ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
-    "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "video_reference_images_exceeded": ("review_reference_selection", (("text",),)),
     "provider_asset_link_processing": ("review_reference_selection", (("text",),)),
     "provider_asset_link_failed": ("review_reference_selection", (("text",),)),
     "video_audio_switch_not_supported": (
@@ -629,7 +637,6 @@ class ReferenceUnitRequestProjector:
         """投影调用瞬间状态；``script`` 显式入参锁定公共缝的完整上下文契约。"""
 
         del script
-        # 资产可用性要读产物清单、对设计图算摘要，整段水合放进工作线程。
         hydration = await asyncio.to_thread(hydrate_unit_references, project, unit, resolved_assets, self._assets)
         return await self.project_hydrated(project=project, unit=unit, hydration=hydration, options=options)
 
@@ -665,6 +672,15 @@ class ReferenceUnitRequestProjector:
         else:
             facts = evaluated
 
+        if hydration.unreadable_files:
+            problems.append(
+                _problem(
+                    "video_reference_images_unreadable",
+                    blocking=True,
+                    model=facts.model_id if facts else "?",
+                    names=", ".join(hydration.unreadable_files),
+                )
+            )
         request_assets = available
         if facts is not None:
             if (
@@ -686,14 +702,15 @@ class ReferenceUnitRequestProjector:
                         model=facts.model_id,
                     )
                 )
-            request_assets = clamp_reference_assets(available, facts.max_reference_images)
-            if len(request_assets) < len(available):
+            limit = facts.max_reference_images
+            if limit is not None and len(available) > limit:
                 problems.append(
                     _problem(
-                        "reference_images_clamped",
-                        blocking=False,
+                        "video_reference_images_exceeded",
+                        blocking=True,
                         count=len(available),
-                        max_count=facts.max_reference_images,
+                        limit=limit,
+                        names=", ".join(dict.fromkeys(asset.reference.name for asset in available[limit:])),
                         provider=facts.provider_id,
                         model=facts.model_id,
                     )
@@ -718,7 +735,6 @@ class ReferenceUnitRequestProjector:
         cost: VideoRequestCostFacts | None = None
 
         if facts is not None:
-            # 取档判定与分镜路线同一份实现；这里只把它的结论映射成参考生视频的 problem code。
             projected = project_request_duration(
                 planned_duration_seconds=planned_duration,
                 supported_durations=facts.allowed_durations,
@@ -804,7 +820,6 @@ async def project_reference_unit_request(
     调用方（限流路由）传 ``check_asset_links=False`` 跳过核对。
     """
 
-    # artifact_selection 与 provider_asset_links 依赖本模块，延迟导入避免循环。
     from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 
     if resolver is None:
@@ -822,7 +837,6 @@ async def project_reference_unit_request(
         asset_links = configured_asset_link_check(project_path=project_path, resolver=resolver)
 
     def current_assets() -> tuple[ReferenceAssetAvailability, tuple[ResolvedReferenceAsset, ...]]:
-        # 构造清单感知的可用性判定、展开候选路径都会碰文件系统，放进工作线程。
         availability = CurrentReferenceAssets(project_path, project) if shared_assets is None else shared_assets()
         return availability, resolve_reference_assets(project, project_path, unit)
 

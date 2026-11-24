@@ -5,8 +5,6 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplanContinue } from "@/actions/generation";
-import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
-import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -21,13 +19,13 @@ import { episodeDisplayName } from "@/utils/episode-display";
 import { lastPlanningFailure } from "./episode-planning-model";
 import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 import { episodeHue, formatVolume } from "./episodes-view-model";
+import { PlanningFailureNote } from "./PlanningFailureNote";
 
 interface Props {
   projectName: string;
   view: EpisodesView;
   replan: ReplanSummary;
   episodes: EpisodeMeta[];
-  /** 方案还在逐窗生成。 */
   generating: boolean;
   onChanged: () => void;
 }
@@ -35,15 +33,9 @@ interface Props {
 interface PendingAdoption {
   impact: ReplanAdoptionImpact & { text: string; delete_text: string };
   deleteRetired: boolean;
-  /** 确认时服务端的后果已变，这是更新后的后果。 */
   changed: boolean;
 }
 
-/**
- * 「分集」视图方案栏的「新的分集方案」：重新规划生成的候选。生成中显示进度与停止；生成完显示变化摘要、
- * 逐集变化与「放弃新方案」「采纳新方案」。中途停止时说明停在哪里、为什么停，可以继续生成、采纳已完成的部分
- * 或放弃，摘要点名超出方案范围、同样被替换的集。采纳前分集账本不变。
- */
 export function ReplanCandidatePanel({ projectName, view, replan, episodes, generating, onChanged }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [stopRequested, setStopRequested] = useState(false);
@@ -164,7 +156,6 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     notice = t(reason, { end: point(view, replan.end) });
   }
   const failure = stopped && replan.interrupted === "failed" ? lastPlanningFailure(tasks, projectName) : null;
-  const truncated = failure?.truncated ?? null;
 
   return shell(
     <>
@@ -182,8 +173,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           </span>
         </p>
       ) : null}
-      {failure?.code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
-      {truncated ? <OutputTruncationHint truncation={truncated} /> : null}
+      {failure ? <PlanningFailureNote failure={failure} /> : null}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
         <SummaryRow label={t("dashboard:replan_count")}>
           {replan.old_count === null
@@ -319,7 +309,6 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   );
 }
 
-/** 原文旁并排色条的图例：左侧现有分集、右侧新方案、琥珀色虚线是分界不同处；`pending` 时加上等待规划。 */
 function CompareLegend({ pending }: { pending: boolean }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -361,7 +350,6 @@ function SummaryRow({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-/** 源文位置的读法：文件名与在这个文件里的百分比。 */
 function point(view: EpisodesView, at: SourcePoint): string {
   const file = view.files.find((entry) => entry.source_file === at.source_file);
   if (!file) return at.source_file;

@@ -30,14 +30,11 @@ __all__ = [
     "register_backend",
 ]
 
-# Auto-register backends
-# Gemini: google-genai is a core dependency, import failure is a real error
 from lib.backends.video_backends.gemini import GeminiVideoBackend, VertexVideoBackend
 
 register_backend(PROVIDER_GEMINI, GeminiVideoBackend)
 register_backend("gemini-vertex-video", VertexVideoBackend)
 
-# Gemini Omni 走 Interactions API，与 Veo 是不同的请求协议，AI Studio 与 Vertex 各是一个内置调用端点。
 from lib.backends.video_backends.gemini_interactions import (
     GeminiInteractionsVideoBackend,
     VertexInteractionsVideoBackend,
@@ -46,14 +43,11 @@ from lib.backends.video_backends.gemini_interactions import (
 register_backend("gemini-interactions-video", GeminiInteractionsVideoBackend)
 register_backend("gemini-vertex-interactions-video", VertexInteractionsVideoBackend)
 
-# Ark: volcengine-python-sdk[ark] is a project dependency。Seedance 各代是各自的内置调用端点，按端点名注册，
-# 方舟与方舟 Agent Plan 两个内置供应商共用（凭证差异在 backend_assembly 的构造闭包里）。
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
 for _endpoint, _backend in SEEDANCE_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# Grok: xai-sdk
 from lib.backends.video_backends.grok import GrokVideoBackend
 
 register_backend(PROVIDER_GROK, GrokVideoBackend)
@@ -63,12 +57,10 @@ from lib.backends.video_backends.grok import GROK_BACKENDS
 for _endpoint, _backend in GROK_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# OpenAI Sora
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 
 register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
 
-# fork: Vidu — 单独 import 以避免与上游聚合 import 冲突
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.video_backends.vidu import ViduVideoBackend
 
@@ -79,13 +71,11 @@ from lib.backends.video_backends.vidu import VIDU_BACKENDS
 for _endpoint, _backend in VIDU_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# 阿里百炼 DashScope — HappyHorse / 万相视频
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 
 for _endpoint, _backend in DASHSCOPE_VIDEO_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# 可灵 Kling — JWT 直连视频（默认模型 kling-v2-5-turbo）
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.video_backends.kling import KlingVideoBackend
 
@@ -96,12 +86,10 @@ from lib.backends.video_backends.kling import KLING_BACKENDS
 for _endpoint, _backend in KLING_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# 可灵新版 API（模型名在路径里，只收 API Key）
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 
 register_backend(KlingModelPathVideoBackend.endpoint_key, KlingModelPathVideoBackend)
 
-# Agnes — apihub 异步视频端点（裸 base64 + 轮询 + resume）
 from lib.backends.video_backends.agnes import AGNES_VIDEO_BACKENDS
 
 for _endpoint, _backend in AGNES_VIDEO_BACKENDS.items():

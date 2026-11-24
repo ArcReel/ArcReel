@@ -44,13 +44,11 @@ const LABEL_CLS = "text-sm font-medium text-foreground";
 
 type DialogState = { mode: "add" } | { mode: "edit"; account: AssetLibraryAccount } | null;
 
-/** 「素材库账号」块：列出控制面账号，增改在对话框里提交、删除经 AlertDialog 确认，都立即生效。 */
 export function AssetLibraryAccountsBlock({
   data,
   onChanged,
 }: {
   data: AssetLibraryAccountList;
-  /** 账号增删改之后调用，上层据此重新读取账号与绑定。 */
   onChanged: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -153,7 +151,6 @@ type AccountDraft = {
   secretAccessKey: string;
 };
 
-/** 新建时提交完整字段；编辑时留空的密钥沿用已保存的值，站点未变则不提交。 */
 function saveAccount(account: AssetLibraryAccount | null, draft: AccountDraft) {
   const common = { name: draft.name.trim(), project_name: draft.project.trim() };
   if (account === null) {
@@ -172,7 +169,6 @@ function saveAccount(account: AssetLibraryAccount | null, draft: AccountDraft) {
   });
 }
 
-/** 密钥输入框；编辑已有账号时占位符给出已保存值的掩码，留空表示沿用。 */
 function SecretField({
   id,
   label,
@@ -219,7 +215,6 @@ function AccountDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
   const nameRef = useRef<HTMLInputElement>(null);
-  // 打开时的取值，判断是否有未保存的填写；之后 data 刷新不改变它
   const [initial] = useState(() => ({
     site: account?.site ?? data.sites[0]?.id ?? "volcengine",
     name: account?.name ?? "",
@@ -260,7 +255,6 @@ function AccountDialog({
     }
   }, [complete, account, site, name, project, accessKeyId, secretAccessKey, onDone]);
 
-  // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
   useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
   const confirmLeave = useConfirmLeave();
   const requestClose = () => {
@@ -387,7 +381,6 @@ function DeleteAccountDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间 account 已清空，沿用最后一次的内容，标题不闪成空白
   const [shown, setShown] = useState(account);
   if (account && account !== shown) {
     setShown(account);

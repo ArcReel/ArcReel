@@ -58,7 +58,7 @@ class CustomEndpointRepository(BaseRepository):
             display_name=display_name,
         )
         self.session.add(endpoint)
-        await self.session.flush()  # 取回自增 id：端点键 ce-<id> 由它派生
+        await self.session.flush()
         return endpoint
 
     async def get(self, endpoint_id: int) -> CustomEndpoint | None:
@@ -104,8 +104,6 @@ class CustomEndpointRepository(BaseRepository):
         )
         await self.session.execute(delete(CustomEndpoint).where(CustomEndpoint.id == endpoint_id))
         await self.session.flush()
-
-    # ── 引用完整性 ────────────────────────────────────────────────
 
     async def list_attachments(self, endpoint_key: str) -> list[EndpointAttachment]:
         """按 ``endpoint`` 键字面量列出引用它的模型行及其供应商协议。

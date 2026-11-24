@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from lib.db import async_session_factory
-from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmission, UnitAdmissionTicket
+from lib.generation.batch_admission import (
+    DURATION_CONFIRMATION_CODE,
+    REFERENCE_OVERFLOW_CODE,
+    BatchAdmission,
+    UnitAdmissionTicket,
+)
 from lib.generation.generation_result import GenerationProblem
 from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, VideoRequestFactsFailure
 from server.services.admission.cost_estimation import quote_video_request
@@ -23,11 +28,8 @@ from server.services.admission.cost_estimation import quote_video_request
 class VideoQuoteOutcome(StrEnum):
     """正式提交时这个单元会怎样。"""
 
-    #: 会入队生成（档位变化的单元在带上确认档位之后）。
     GENERATE = "generate"
-    #: 已有可用视频，正式提交会原样复用、不收费。
     REUSE = "reuse"
-    #: 有确认档位之外的缺口，修复前整批都不会入队。
     BLOCKED = "blocked"
 
 
@@ -91,7 +93,11 @@ class VideoQuoteSheet:
     def submittable(self) -> bool:
         """带上确认档位正式提交时整批能入队。"""
 
-        return all(unit.outcome is not VideoQuoteOutcome.BLOCKED for unit in self.units)
+        blocked = [unit for unit in self.units if unit.outcome is VideoQuoteOutcome.BLOCKED]
+        return not blocked or (
+            any(unit.outcome is VideoQuoteOutcome.GENERATE for unit in self.units)
+            and all(all(problem.code == REFERENCE_OVERFLOW_CODE for problem in unit.problems) for unit in blocked)
+        )
 
     @property
     def confirmed_request_durations(self) -> dict[str, int]:

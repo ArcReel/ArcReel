@@ -23,17 +23,9 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
 
     def _stub(cmd, *args, **kwargs):
         assert cmd[0] == "bwrap"
-        # probe 必须用 unshare-user + unshare-net + unshare-pid 才能在启动期捕获三类典型失败：
-        # userns 创建被拒 / loopback 配置被拒（缺 NET_ADMIN）/ pid namespace 被拒。
-        # 缺一断言，probe 命令未来意外回退到更弱形态时这层测试就会漏检。
         assert "--unshare-user" in cmd
         assert "--unshare-net" in cmd
         assert "--unshare-pid" in cmd
-        # 锁住 probe 调用的关键 kwargs——决定"启动不卡死 + 失败能拿 stderr 诊断"：
-        # 没 timeout 会被 hung bwrap 永久阻塞 startup；没 capture_output 拿不到
-        # bwrap 真实 stderr 给运维诊断；check=False 是为了让 returncode!=0 也走
-        # 我们自己的 SANDBOX_BWRAP_BROKEN 包装，而不是抛 CalledProcessError 让
-        # _diagnose_bwrap_failure 没机会跑。
         assert kwargs["timeout"] == 5
         assert kwargs["capture_output"] is True
         assert kwargs["check"] is False
@@ -42,8 +34,6 @@ def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
     return _stub
 
 
-# 复用生产代码（assert_no_provider_secrets_in_environ）所基于的同一份真相源，
-# 避免测试与运行时密钥清单漂移。sorted() 让 parametrize 测试 ID 稳定。
 _SECRET_KEYS_SORTED = sorted(PROVIDER_SECRET_KEYS)
 
 
@@ -54,7 +44,7 @@ def _clear_secret_envs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_clean_environ_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_secret_envs(monkeypatch)
-    assert_no_provider_secrets_in_environ()  # no raise
+    assert_no_provider_secrets_in_environ()
 
 
 @pytest.mark.parametrize("leaked_key", _SECRET_KEYS_SORTED)
@@ -69,7 +59,7 @@ def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch)
     """空字符串不算泄漏（os.environ.pop 后 SDK 子进程会跳过空值）。"""
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    assert_no_provider_secrets_in_environ()  # 空值不 raise
+    assert_no_provider_secrets_in_environ()
 
 
 def test_claude_code_oauth_token_does_not_trigger_startup_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,7 +200,7 @@ def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyP
     msg = str(exc_info.value)
     assert "seccomp:unconfined" in msg
     assert "NET_ADMIN" in msg
-    assert "Ubuntu 24.04" not in msg  # 未命中 apparmor sysctl，不应误导
+    assert "Ubuntu 24.04" not in msg
 
 
 @pytest.mark.parametrize(
@@ -264,8 +254,6 @@ def test_detect_no_docker(tmp_path) -> None:
     assert detect_docker_environment(dockerenv_path=tmp_path / "nope", cgroup_path=tmp_path / "also_nope") is False
 
 
-# bool 是 int 子类，``isinstance(True, int) and True > 0`` 为真——这一组三连测试
-# 防止 startup 日志判定回退到天真的 isinstance 写法，把 abort 信号误打成"同步完成"。
 def test_log_profile_sync_outcome_aborted_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

@@ -36,11 +36,11 @@ paths:
 
 ### 供应商返回之后的落账段不可中断
 
-`GLOSSARY.md` 「取消」要求已发出的供应商调用照常跑完、结果照常成为产物。落到代码上：从供应商返回或产物提交起，到执行器返回前，这一段里的每个线程调用用 `lib/infra/async_thread.py` 的 `run_noninterruptible_sync`，它等线程结束后把结果交回调用方，本次取消随之消失。两种已出现过的事故形态：参考图压缩副本的清理与线程并发，把刚付费拿到的图片一起删掉；完成回调与失败补偿同时执行。
+[ADR 0006](../adr/0006-cancel-only-queued-tasks.md)规定已发出的供应商调用继续完成。自供应商返回或产物提交起，到执行器返回前，线程调用用 `lib/infra/async_thread.py` 的 `run_noninterruptible_sync`。它等线程结束再交回结果，防止清理与线程落盘并发，或完成回调与失败补偿同时执行。
 
-它吞掉取消，调用点放在 `asyncio.timeout` 块与 `asyncio.wait_for` 之外，否则超时失效。
+该函数会吞掉取消信号，调用点应在 `asyncio.timeout` 与 `asyncio.wait_for` 之外。下载末尾的原子改名可留在预算内，见下文。
 
-图片、视频、音频后端落盘时按下面分工：
+图片、视频、音频后端落盘时按以下方式分工：
 
 - 内存里已有供应商返回的字节（`b64_json`、SDK 响应、已读完的响应体）时，解码、写盘、转码都放进 `run_noninterruptible_sync`。图片后端共用的 `lib/backends/image_backends/base.py::save_image_from_response_item` 的 b64 路径已满足本条，后端复用即可，不必自己绕开。
 - 产物地址的下载（`stream_to_file`）中，分片写入保持 `run_sync_transaction`：此时产物还没有成形，取消把下载整体回退（`.part` 被清掉），没有成形的产物可丢。网络取件保留可中断语义；使用 `with_artifact_retry` 的通道整体受墙钟预算（`asyncio.timeout`）约束，放进不可中断段会让预算失效，慢速出数据的下载不再有终点。产物成形的那一步，`.part` 改名为成品，是一次耗时可忽略的原子操作，用 `run_noninterruptible_sync`，取消不能落在成品已就位、调用方却按取消处理的间隙。下载返回之后的线程步骤（转 PNG、写盘）在预算之外，同样用 `run_noninterruptible_sync`。
@@ -59,7 +59,7 @@ paths:
 
 `shutil.rmtree` 的目标来自命令行参数、环境变量或配置时（如脚本的 `--data-root`），删除前确认这个目录归本工具所有：只接受空目录，或带本工具建目录时写下的哨兵文件的目录，否则报错退出。参数可以指向任意位置，误指到真实数据目录时会删掉全部用户项目。参考 `scripts/perf/harness.py` 的 `.arcreel-perf-bench` 哨兵。
 
-放行条件：目标是本进程用 `tempfile` 新建的目录。
+放行条件：目标目录是由本进程通过 `tempfile` 新建的临时目录。
 
 ### 拼进 `:path` 路由参数的 ID 在服务端拒绝点段
 
@@ -85,7 +85,7 @@ paths:
 
 枚举文件与收尾删除之间，原目录里可能出现新写入的内容，例如 Agent 写入的项目记忆、刚落盘的生成结果。它们不在记录里，`rmtree` 会把它们硬删且无法恢复。收尾时只移走记录里的文件，目录只用 `rmdir` 删除已经变空的那些。`# hard-delete` 标注写明的理由，要在枚举之后仍有并发写入时也成立。
 
-放行条件：所有写入方与枚举、删除持同一把锁。
+放行条件：所有写入方与枚举、删除操作持有同一把锁。
 
 ## 标识与引用
 

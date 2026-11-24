@@ -54,7 +54,6 @@ class TestSetupLogging:
         setup_logging()
         setup_logging()
         httpx_logger = logging.getLogger("httpx")
-        # 重复调用不叠加过滤器
         assert len([f for f in httpx_logger.filters if type(f).__name__ == "_StripUrlQueryFilter"]) == 1
         url = httpx.URL("https://assets.example/a.png?X-Tos-Signature=TEST-SIGNATURE")
         with caplog.at_level(logging.INFO, logger="httpx"):

@@ -16,9 +16,6 @@ import type {
   PresetProvider,
 } from "@/types/agent-credential";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeConfigResponse(): GetSystemConfigResponse {
   return {
@@ -110,9 +107,6 @@ function renderSection() {
   return location;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("AgentConfigTab", () => {
   beforeEach(() => {
@@ -212,7 +206,6 @@ describe("AgentConfigTab", () => {
         ),
       );
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "选择模型" })).not.toBeInTheDocument();
-      // 面板选中后关闭
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
@@ -235,7 +228,6 @@ describe("AgentConfigTab", () => {
     });
 
     it("所选模型已下线的档位仍可解除绑定", async () => {
-      // 档位已回到按名字对应而已定价，但存着的绑定还在，用户须能清掉
       setupBaseMocks({
         credentials: [credentialWith({ entry_display_name: "Claude Haiku 4.5", binding_stale: true, priced: true })],
       });
@@ -336,7 +328,7 @@ describe("AgentConfigTab", () => {
       "href",
       "/app/settings?section=external-agent",
     );
-    expect(screen.getByRole("link", { name: "提示词模版" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "提示词模板" })).toHaveAttribute(
       "href",
       "/app/settings?section=prompt-templates&template=text%2Fagent_language_rule",
     );

@@ -32,17 +32,14 @@ from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides,
 from .errors import EndpointTestDefinitionError
 from .inputs import ASSET_SOURCES, EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
 
-#: 无凭证预览时保持原样的占位符：预览的用途是对照供应商文档核字段，凭证缺席不该让请求形状塌掉。
 UNRESOLVED_API_KEY = "{{ api_key }}"
 UNRESOLVED_BASE_URL = "{{ base_url }}"
 
-#: 轮询与二次取件节里提交后才有的值：预览恒保持占位符。
 UNRESOLVED_TASK_ID = "{{ task_id }}"
 UNRESOLVED_RESULT_ID = "{{ result_id }}"
 
 _MASK_TAIL = 4
 _MASK = "****"
-#: auth.query 追加项做百分号编码，打码记号会变成 ``%2A%2A%2A%2A``；预览 URL 把它还原成惯用形。
 _ENCODED_MASK = quote(_MASK, safe="")
 
 
@@ -128,8 +125,6 @@ def _video_variables(
     definition: Mapping[str, Any], parameters: EndpointTestParameters, inputs: Mapping[str, object]
 ) -> dict[str, object]:
     """视频定义的生成参数变量。"""
-    # 渲染出的请求要与真发的一致：声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上
-    # 只接受 adaptive，按实际渲进请求的首帧有无施加同一条覆盖。
     aspect_ratio = resolve_first_frame_aspect_ratio(
         caps=declarative_video_capabilities(definition),
         aspect_ratio=parameters.aspect_ratio,
@@ -198,7 +193,6 @@ def restore_mask_in_url(url: str) -> str:
 
 
 def _preview_base_url(definition: Mapping[str, Any], credentials: EndpointTestCredentials | None) -> str:
-    # 归一化与运行时同一份：定义带显式版本段时剥掉配置末尾的版本段，预览与真发的 URL 必须一致。
     if credentials:
         return normalize_declarative_base_url(credentials.base_url, definition)
     meta = definition.get("meta")
@@ -217,7 +211,6 @@ def _preview_section(
     rendered = _render(definition, section, context)
     return PreviewedRequest(
         method=rendered.method,
-        # 只把百分号编码后的打码记号还原成 ****，不对凭证本身做任何子串替换。
         url=rendered.url.replace(_ENCODED_MASK, _MASK),
         headers=dict(rendered.headers),
         body=rendered.body,

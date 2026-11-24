@@ -4,16 +4,11 @@ import { Button } from "@/components/ui/button";
 import type { EndpointInstallation } from "@/types";
 import { MarketInstallBadges } from "../market/MarketInstallBadges";
 
-/** 两轴状态徽标；不是从市场安装的端点不显示。两种 kind 的详情页头共用。 */
 export function EndpointInstallBadges({ installation }: { installation: EndpointInstallation | null }) {
   if (installation === null) return null;
   return <MarketInstallBadges state={installation.state} modified={installation.modified} />;
 }
 
-/**
- * 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。
- * 不是从市场安装的端点不显示。两种 kind 的详情页头共用。
- */
 export function MarketOrigin({ installation }: { installation: EndpointInstallation | null }) {
   const { t } = useTranslation("dashboard");
   if (installation === null) return null;
@@ -27,10 +22,6 @@ export function MarketOrigin({ installation }: { installation: EndpointInstallat
   return <span className="min-w-0 break-all">{t(key, { source })}</span>;
 }
 
-/**
- * 详情动作行的「更新」：只在市场轴可更新时出现，点击后由上层拉取条目详情并打开安装弹窗的更新态。
- * 条目详情加载期间转圈并禁用。
- */
 export function MarketUpdateButton({
   installation,
   pending,

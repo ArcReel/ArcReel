@@ -17,7 +17,6 @@ import {
 
 type PartialDetail = {
   partial: PromptTemplatePartial;
-  /** 模版 id → 元数据，用于把引用方显示为标题；列表加载失败时为空，退回显示 id。 */
   templates: Map<string, PromptTemplateMeta>;
 };
 

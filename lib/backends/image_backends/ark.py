@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 from lib.backends.ark_shared import create_ark_client
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
-    image_to_base64_data_uri,
     per_image_usage,
     save_image_from_response_item,
 )
@@ -26,13 +25,6 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# Seedream `size` 参数：不传时 4.x/5.x 默认 2048x2048（1:1），3.0-t2i 默认 1024x1024（1:1）。
-# 不显式传 size 会让项目设置的 aspect_ratio 完全失效。
-#
-# Ark 官方推荐宽高像素值（方式 2）：
-#   - 4.x/5.x 系列 2K 档（总像素须 ≥ 3_686_400）
-#   - 3.0-t2i 系列 1K 档（单边 ∈ [512, 2048]）
-# 参考：https://www.volcengine.com/docs/82379/1666946
 _SEEDREAM_2K_SIZE_MAP: dict[str, str] = {
     "1:1": "2048x2048",
     "4:3": "2304x1728",
@@ -59,7 +51,6 @@ class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：Seedream 各代的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     SIZE_MAP: ClassVar[dict[str, str]] = _SEEDREAM_2K_SIZE_MAP
@@ -108,34 +99,28 @@ class ArkImageBackend:
     @with_retry_async()
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片（T2I / I2I）。"""
-        # 构建 SDK 参数
         kwargs: dict = {
             "model": self._model,
             "prompt": request.prompt,
         }
 
-        # Seedream 不显式传 size 时默认输出 1:1（4.x/5.x: 2048x2048；3.0-t2i: 1024x1024），
-        # 项目设置的 aspect_ratio 会被静默忽略。优先使用 caller 显式传入的 image_size
-        # （如 grid 路径会传 "2K"/"4K"），否则按官方推荐表从 aspect_ratio 推导宽高。
         kwargs["size"] = self._size(request.image_size, request.aspect_ratio)
         reference_count = 0
 
-        # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
-            refs = request.reference_images
-            # 读整张图做 base64 编码是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
-            data_uris = await asyncio.gather(
-                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref.path)) for ref in refs]
+            data_uris = await asyncio.to_thread(
+                lambda: [
+                    image.data_uri()
+                    for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+                ]
             )
             reference_count = len(data_uris)
-            # 单张传字符串，多张传列表
             kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 
         if request.seed is not None:
             kwargs["seed"] = request.seed
 
         logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
-        # 同步 SDK 通过 to_thread 包装
         response = await asyncio.to_thread(
             self._client.images.generate,
             **kwargs,
@@ -143,7 +128,6 @@ class ArkImageBackend:
 
         data = getattr(response, "data", None) or []
         if not data:
-            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
             raise RuntimeError(f"Ark 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常")
         await save_image_from_response_item(data[0], request.output_path)
 
@@ -151,7 +135,6 @@ class ArkImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_ARK,
             model=self._model,
-            # 按生成张数计费：响应里每张图一项。
             usage=per_image_usage(
                 output_images=len(data), input_images=reference_count, dimensions={"resolution": kwargs["size"]}
             ),

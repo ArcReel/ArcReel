@@ -55,12 +55,10 @@ from lib.db.repositories.catalog_user_entry_repo import CatalogUserEntryReposito
 
 logger = logging.getLogger(__name__)
 
-#: 全局设置键：升级前实例会补全的推荐模型（:class:`RecommendationTable` 的 JSON）。
 SETTING_KEY = "pre_upgrade_recommendations"
 
 Key = tuple[str, str]
 
-#: 条目身份：模型厂商、官方模型名、媒体类型。
 Ident = tuple[str, str, str]
 
 
@@ -73,8 +71,6 @@ class _Release:
     snapshot_defaults: Mapping[str, Mapping[str, tuple[str, str]]]
 
 
-# 0.34.0 与 0.35.0 出厂快照里的默认模型（两版相同）与它们引用的条目，取自各自发版 tag 的
-# lib/catalog/snapshot/catalog.json。条目用来对上用户修改过的条目副本：副本带关停日期时，旧版本按已下线跳过。
 _DEFAULTS_0_34: Mapping[str, Mapping[str, tuple[str, str]]] = {
     "agnes": {
         "image": ("agnes-image-2.5-flash", "agnes/agnes-image-2.5-flash"),
@@ -134,7 +130,6 @@ _DEFAULTS_0_34: Mapping[str, Mapping[str, tuple[str, str]]] = {
     },
 }
 
-# 0.36.0 出厂快照里的默认模型：ark 图片换成 pro，ark-agent-plan 的图片与文本、gemini-aistudio 的视频不再有默认。
 _DEFAULTS_0_36: Mapping[str, Mapping[str, tuple[str, str]]] = {
     **_DEFAULTS_0_34,
     "ark": {
@@ -145,8 +140,6 @@ _DEFAULTS_0_36: Mapping[str, Mapping[str, tuple[str, str]]] = {
     "gemini-aistudio": {key: value for key, value in _DEFAULTS_0_34["gemini-aistudio"].items() if key != "video"},
 }
 
-#: 升级前库里的 alembic revision → 可能的发布版。0.34.0 与 0.35.0 的库结构相同，同一个 revision 对应两个发布版。
-#: 0.36.0 之后到首个不读默认模型的版本之间没有新的 revision，从 main 构建的预览镜像报告的也是 0.36.0。
 _RELEASES_BY_REVISION: Mapping[str, tuple[_Release, ...]] = {
     "b5d1e8f3a627": (
         _Release("0.34.0", "2026-10-24T06:01:38Z", _DEFAULTS_0_34),
@@ -156,7 +149,6 @@ _RELEASES_BY_REVISION: Mapping[str, tuple[_Release, ...]] = {
 }
 
 
-#: 旧版本自动挑选的三种结果：选中内置模型、落到自定义供应商默认模型这一层（有就用、没有就报错）、还原不了。
 AutoPickKind = Literal["builtin", "fallback", "unknown"]
 
 
@@ -253,7 +245,6 @@ class _Unresolved:
 
 _UNRESOLVED = _Unresolved()
 
-#: ``(provider_id, media_type)`` → 升级前会用的默认模型、``None``（没有可用的默认）或 :data:`_UNRESOLVED`。
 DefaultOf = Callable[[str, str], "str | _Unresolved | None"]
 
 
@@ -433,7 +424,6 @@ async def compute(session: AsyncSession) -> RecommendationTable:
         logger.warning("升级前的库 revision %r 对不上已知的发布版，升级前的推荐模型还原不了", source.revision)
         return _unknown(ready)
     if await _stored_sync_not_loaded(session):
-        # 旧实例读的可能就是这份同步数据，不能拿出厂快照代替
         logger.warning("库里存着官方同步数据但没有读入，升级前的推荐模型还原不了")
         return _unknown(ready)
     synced = catalog.synced_data()
@@ -471,7 +461,6 @@ async def capture(session: AsyncSession) -> RecommendationTable:
         len(table.unresolved),
         {media_type: pick.kind for media_type, pick in table.auto.items()},
     )
-    # 并发启动的另一个进程先存了一份时以先存的为准
     return await load(session) or table
 
 

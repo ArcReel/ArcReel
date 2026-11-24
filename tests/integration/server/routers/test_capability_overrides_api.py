@@ -24,15 +24,9 @@ from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import use_project_manager, use_projects_session_factory
 
-# 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
 VIDEO_ENDPOINT = "openai-video"
 VIDEO_MODEL = "relay-sora"
 
-# openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
-# end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance-2 端点下 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
-# 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
-# 本身就是 True，无法体现覆盖生效前后的差异。
 LAST_FRAME_ENDPOINT = "ark-seedance-2"
 LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
@@ -150,7 +144,6 @@ class TestModelListExposesCapabilities:
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
-        # 判定值不受覆盖影响：设置页要能同时显示"判定 False / 生效 True"
         assert models[0]["system_capabilities"]["last_frame"] is False
 
     async def test_stale_incompatible_override_filtered_from_response(
@@ -201,7 +194,6 @@ class TestModelListExposesCapabilities:
         )
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
-        # 音频两维整组剔除，与音频无关的 last_frame 覆盖原样保留
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
     async def test_corrupted_non_dict_override_does_not_500_response(
@@ -347,7 +339,6 @@ class TestSaveDropsUnlistedOverrides:
                     _video_model(
                         endpoint=LAST_FRAME_ENDPOINT,
                         model_id=LAST_FRAME_MODEL,
-                        # 表单把 GET 回显的遗留键原样带回，同时把 last_frame 切成「强制开」
                         capability_overrides={"reference_audio_per_image": True, "last_frame": True},
                     )
                 ],
@@ -622,7 +613,6 @@ class TestModelFactOverrides:
         assert resp.status_code == 422
         assert "image_to_image" in resp.json()["detail"]
 
-        # 关掉通道实现了的那一维不需要背书
         resp = _post_provider(capability_client, [{**model, "capability_overrides": {"text_to_image": False}}])
         assert resp.status_code == 201
 
@@ -734,7 +724,6 @@ class TestFullUpdateOverrideSemantics:
                 "models": [
                     _video_model(
                         model_id=LAST_FRAME_MODEL,
-                        # endpoint 悄悄换成 openai-video（不 end_image_capable），覆盖字典原样不动
                         endpoint=VIDEO_ENDPOINT,
                         capability_overrides={"last_frame": True},
                     )
@@ -830,7 +819,6 @@ class TestResolverReturnsEffectiveCapabilities:
         assert caps["first_frame"] is executed.first_frame
         assert caps["last_frame"] is executed.last_frame
         assert caps["max_reference_images"] == executed.max_reference_images
-        # 同源的判据：两侧都等于合成函数在同一输入下的返回值
         expected = synthesize_video_capabilities(
             endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL, overrides={"last_frame": True}
         )
@@ -1017,3 +1005,20 @@ def test_image_reference_limit_override_roundtrip(capability_client: TestClient)
     url = f"/api/v1/custom-providers/{pid}"
     saved = capability_client.get(url).json()["models"][0]
     assert saved["capability_overrides"] == model["capability_overrides"]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides", "expected"),
+    [
+        ("dashscope-video", None, "always_on"),
+        ("minimax-hailuo-v1", None, "always_off"),
+        ("newapi-video", None, "controllable"),
+        ("newapi-video", {"audio_track": "always_off"}, "always_off"),
+    ],
+)
+def test_custom_model_catalog_exposes_effective_audio_for_settings(capability_client, endpoint, overrides, expected):
+    pid = _create_provider(capability_client, [_video_model(endpoint=endpoint, capability_overrides=overrides)])
+    model = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"][0]
+    assert model["audio_track"] == expected
+    assert model["reference_route_audio_track"] == expected
+    assert model["voice_consistency"] == ("none" if expected == "always_off" else "soft")

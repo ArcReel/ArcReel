@@ -17,18 +17,11 @@ const TIER_LABEL_KEY: Record<AgentCredentialTier, string> = {
 
 interface Props {
   tiers: AgentCredentialTierStatus[];
-  /** 档位操作（选择模型、解除绑定）请求在途时禁用。 */
   busy?: boolean;
-  /** 为档位选定模型条目。 */
   onBind: (tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
-  /** 解除档位的绑定，回到按模型名自动对应。 */
   onUnbind: (tier: AgentCredentialTier) => void;
 }
 
-/**
- * Agent 供应商各档位实际调用的模型与定价状态。每行依次是档位、模型名、对应的模型条目或「未定价」、档位操作；
- * 行是外层网格的子网格。未定价的档位可以「选择模型」，手动选择过的档位（含所选模型已下线的）可以「解除绑定」。
- */
 export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }: Props) {
   const { t } = useTranslation("dashboard");
   const [pickingTier, setPickingTier] = useState<AgentCredentialTier | null>(null);
@@ -37,7 +30,6 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
       <h4 className="text-xs font-medium text-muted-foreground">{t("cred_tier_pricing_title")}</h4>
       <ul className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)_auto] gap-x-4 gap-y-1 text-xs">
         {tiers.map((status) => {
-          // 绑定还存着（所选模型已下线的也算）就得有解除的入口，否则用户清不掉
           const canUnbind = status.manually_bound || status.binding_stale;
           const canPick = status.model_name !== null && !status.priced;
           return (
@@ -69,7 +61,6 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
           );
         })}
       </ul>
-      {/* 选择面板的标题行渲染在组件所在位置，只在打开时挂载，关闭时不在列表里留不可见的标题 */}
       {pickingTier !== null && (
         <CatalogEntryPicker
           open
@@ -87,7 +78,6 @@ export function CredentialTierPricing({ tiers, busy = false, onBind, onUnbind }:
 
 function TierPricingState({ status }: { status: AgentCredentialTierStatus }) {
   const { t } = useTranslation("dashboard");
-  // 档位留空时由 Claude Code 决定调用的模型，记账时按实际调用的模型名对应条目，这里没有可显示的状态。
   if (status.model_name === null) return <span />;
   return (
     <span className="flex min-w-0 items-center gap-1.5">

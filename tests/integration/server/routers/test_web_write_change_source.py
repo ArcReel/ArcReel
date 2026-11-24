@@ -66,7 +66,6 @@ _SEGMENT = {
     "props": [],
 }
 _DOC_TYPE = "narration_script_plan"
-# 定时轮询不参与：扫描只由写入出口的 hint 与显式批次唤醒，收齐事件由显式批次屏障确认。
 _POLL_SECONDS = 3600.0
 _AGENT = RevisionAuthor(kind="arcreel_agent")
 
@@ -113,7 +112,6 @@ class _Env:
     async def batches_after_barrier(self) -> list[dict]:
         """用串行重建的两条屏障批次收齐此前写入引起、尚未取走的全部批次。"""
         collected: list[dict] = []
-        # 批次先广播自身再补扫；第二条到达证明第一条的补扫已结束。屏障不发 hint，不改变真实变更的来源。
         for marker in ("scan", "done"):
             emit_project_change_batch(
                 "demo",
@@ -149,7 +147,6 @@ def _changes(batches: list[dict]) -> list[tuple[str, str, str]]:
     return [(c["entity_type"], c["action"], c["entity_id"]) for batch in batches for c in batch["changes"]]
 
 
-#: 应用依赖替换：键是依赖函数，值是返回替身的工厂。
 _Overrides = dict[Callable[..., Any], Callable[[], Any]]
 
 
@@ -180,7 +177,6 @@ def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManage
         await service.start()
         stream = project_events_router.stream_project_events("demo", _ConnectedRequest(service), service=service)
         assert (await anext(stream)).event == "snapshot"
-        # 事件流由后台任务转进队列：对流本身设超时会取消生成器、关掉订阅。
         batches: asyncio.Queue[dict] = asyncio.Queue()
 
         async def _pump() -> None:
@@ -235,9 +231,6 @@ async def _draft_revision(env: _Env) -> str:
     response = await env.client.get(f"/projects/demo/episodes/1/drafts/{_DOC_TYPE}")
     assert response.status_code == 200
     return response.json()["revision"]
-
-
-# ---------------------------------------------------------------- files.py
 
 
 async def test_creating_an_unregistered_source_file_broadcasts_as_webui(env: _Env) -> None:
@@ -309,9 +302,6 @@ async def test_saving_a_reference_plan_broadcasts_as_webui(env: _Env) -> None:
     assert _sources(batches) == {"webui"}
 
 
-# ---------------------------------------------------------------- episode_drafts.py
-
-
 async def test_saving_an_episode_draft_that_stays_a_draft_broadcasts_as_webui(env: _Env) -> None:
     _write_narration_draft(env.project_path, {**_SEGMENT, "characters_in_segment": ["王五"]})
     await env.batches_until(_is("draft", "created"))
@@ -368,8 +358,6 @@ async def test_discarding_an_episode_draft_broadcasts_as_webui(env: _Env) -> Non
     assert ("trash", "updated", "trash") in _changes(batches)
     assert _sources(batches) == {"webui"}
 
-
-# ---------------------------------------------------------------- reference_videos.py
 
 _UNITS = "/projects/demo/reference-videos/episodes/1/units"
 
@@ -430,8 +418,6 @@ async def test_moving_a_reference_unit_broadcasts_nothing(reference_env: _Env) -
 
     assert await reference_env.batches_after_barrier() == []
 
-
-# ---------------------------------------------------------------- edit_timelines.py
 
 _TIMELINES = "/projects/demo/edit-timelines"
 
@@ -525,9 +511,6 @@ async def test_managing_an_edit_timeline_broadcasts_as_webui(
     assert _sources(batches) == {"webui"}
 
 
-# ---------------------------------------------------------------- project_migration.py
-
-
 async def test_retrying_a_migration_broadcasts_its_changes_as_webui(tmp_path: Path, open_env) -> None:
     """升级链改写 project.json 与剧本时不发 hint；重试入口补发，这些变更按 webui 广播。"""
     _old_project(tmp_path)
@@ -563,9 +546,6 @@ async def test_acknowledging_a_migration_report_broadcasts_nothing_as_an_outside
     assert response.json()["acknowledged"] is True
 
     assert await env.batches_after_barrier() == []
-
-
-# ---------------------------------------------------------------- Agent 的同类写入
 
 
 @pytest.mark.parametrize("source", ["filesystem", "worker"])

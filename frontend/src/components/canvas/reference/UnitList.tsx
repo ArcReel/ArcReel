@@ -14,20 +14,11 @@ export interface UnitListProps {
   selectedId: string | null;
   onSelect: (unitId: string) => void;
   onAdd: () => void;
-  /** 画布推导的单元状态；未提供时按有无成片退化为 ready / pending。 */
   statusMap?: Record<string, UnitStatus>;
-  /**
-   * 把单元移到 `afterId` 之后，null 移到最前；提交完成后 resolve。缺省时列表不可排序。
-   * 提交期间按新顺序显示，不接受新的移动：锚点仍按 store 里的旧顺序换算，叠加的移动会算错落点。
-   */
   onMove?: (unitId: string, afterId: string | null) => Promise<void>;
   className?: string;
 }
 
-/**
- * 视频单元列表：搜索、新增与排序。拖动把手，或聚焦把手后用空格与方向键调整顺序；
- * 按搜索词筛选时不能排序。
- */
 export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove, className = "" }: UnitListProps) {
   const { t } = useTranslation("dashboard");
   const [query, setQuery] = useState("");
@@ -38,7 +29,6 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
   const filtering = query.trim().length > 0;
   const reorderable = Boolean(onMove) && !filtering && pendingOrder === null;
 
-  // 显示的位置跟着显示顺序走：改序在途时按新顺序编号，落定后与剧本一致。
   const positionById = useMemo(() => new Map(ids.map((id, i) => [id, i + 1])), [ids]);
   const positionLabel = (id: string) => t("common:item_position_unit", { position: positionById.get(id) });
 

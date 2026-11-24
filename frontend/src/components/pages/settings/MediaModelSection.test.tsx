@@ -70,11 +70,9 @@ describe("MediaModelSection", () => {
     for (const name of ["默认视频模型", "默认图片模型", "默认模型"]) {
       expect(await screen.findByRole("combobox", { name })).toBeInTheDocument();
     }
-    // video / image / text 三处折叠区，初始收起
     const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(sections).toHaveLength(3);
     expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
-    // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
 
@@ -96,12 +94,10 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     expect(await screen.findByText("ark 现在推荐 seedance，当前使用 veo-3")).toBeInTheDocument();
-    // 只提示，不替用户改：没有经保存栏改动全局默认模型
     expect(patch).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "切换到 seedance" }));
 
     expect(acknowledge).toHaveBeenCalledWith(change, true);
-    // 处理后重取配置与提示，提示随之消失
     await waitFor(() => expect(getChanges).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText("ark 现在推荐 seedance，当前使用 veo-3")).not.toBeInTheDocument());
   });
@@ -117,7 +113,6 @@ describe("MediaModelSection", () => {
     vi.spyOn(API, "getRecommendationChanges")
       .mockResolvedValueOnce({ changes: [change] })
       .mockResolvedValue({ changes: [] });
-    // 切换由服务端写入全局默认：之后重取的配置带着新的图片默认模型
     vi.spyOn(API, "acknowledgeRecommendation").mockImplementation(async () => {
       mockConfig({ default_image_backend: change.recommended });
     });
@@ -131,7 +126,6 @@ describe("MediaModelSection", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "切换到 gpt-image-edit" })).not.toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    // 只提交未保存的超时，不把旧图片默认模型写回去
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
   });
 
@@ -169,7 +163,6 @@ describe("MediaModelSection", () => {
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
     await user.clear(timeout);
     await user.type(timeout, "60.5");
-    // 编辑期间保留原始字符串，小数点等中间态不被吞掉
     expect(timeout).toHaveValue("60.5");
     await user.tab();
     expect(timeout).toHaveValue("61");
@@ -183,36 +176,31 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
-    // 先键入有效值（键入过程会把中间值写进未保存修改），再清空离开
     await user.clear(timeout);
     await user.type(timeout, "7200");
     await user.clear(timeout);
     expect(timeout).toHaveValue("");
     await user.tab();
 
-    // 空输入撤销该字段的未保存编辑：回显已保存值，键入过的 7200 不残留在未保存修改里
     expect(timeout).toHaveValue("3600");
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
-    // 候选接口失败不应让已生效的全局覆盖从界面消失——它在后端仍参与解析，藏起来用户无从察觉
     mockConfig({ default_video_backend_i2v: "ark/seedance" });
     vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
     render(<MediaModelSection />);
     const i2v = await screen.findByRole("combobox", { name: "图生视频" });
     expect(i2v).toHaveTextContent("seedance");
-    // 未配置的细分项没有候选可选，仍不渲染
     expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
   });
 
   it("shows an explicit error notice with a retry entry when the candidate fetch fails, even with no saved overrides", async () => {
-    // 全局层未配置过任何细分项时折叠区本会整块消失，失败态须把它留下，用户才拿得到失败信号
     vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
     render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认视频模型" });
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
+    expect(alerts.length).toBeGreaterThanOrEqual(2);
     for (const alert of alerts) {
       expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
@@ -232,7 +220,6 @@ describe("MediaModelSection", () => {
 
     await waitFor(() => expect(getCandidates).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
-    // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
     await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
     expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
   });
@@ -291,7 +278,6 @@ describe("MediaModelSection", () => {
     expect(screen.getByRole("combobox", { name: "默认图片模型" })).toHaveTextContent(
       "自动选择（当前：gemini · nano-banana）",
     );
-    // 自动推断按用途过滤：图生图选不出模型时如实说没有可用供应商
     await user.click(screen.getAllByText("按用途指定模型")[1]);
     expect(screen.getByRole("combobox", { name: "图生图" })).toHaveTextContent("自动选择（没有可用的供应商）");
   });
@@ -332,8 +318,6 @@ describe("MediaModelSection", () => {
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
     );
-    // 保存结束的可观测证据：保存栏显示「已保存」——PATCH 已返回但流程仍卡在候选请求上时，
-    // 保存栏会一直停在「正在保存」。
     expect(await screen.findByText("已保存")).toBeInTheDocument();
   });
 
@@ -374,6 +358,27 @@ describe("MediaModelSection", () => {
       ]);
     }
 
+    it.each(["always_on", "always_off"] as const)("uses server audio facts for a custom %s model", async (mode) => {
+      mockConfig({ default_video_backend: "custom-1/video" });
+      vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([{
+        id: 1, display_name: "Custom", discovery_format: "openai", base_url: "https://example.invalid",
+        api_key_masked: "", created_at: "", image_max_workers: null, video_max_workers: null, audio_max_workers: null,
+        models: [{
+          id: 1, model_id: "video", display_name: "Video", endpoint: "dashscope-video",
+          is_default: true, is_enabled: true, resolution: null, qualities: [], multiplier: 1,
+          entry_binding: null, matched_entry: null, system_capabilities: null,
+          capability_overrides: null, path_overrides: null, requests: [],
+          audio_track: mode, reference_route_audio_track: mode,
+          voice_consistency: mode === "always_off" ? "none" : "soft",
+        }],
+      }]);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
+      expect(box).toHaveAttribute("aria-disabled", "true");
+      expect(screen.queryAllByRole("checkbox", { name: /生成有声视频/, checked: true })).toHaveLength(mode === "always_on" ? 1 : 0);
+      expect(screen.getByText(mode === "always_on" ? /始终带声音/ : /没有声音/)).toBeInTheDocument();
+    });
+
     it("keeps the checkbox interactive for a model whose audio track is controllable", async () => {
       mockProviders("controllable");
       render(<MediaModelSection />);
@@ -398,8 +403,6 @@ describe("MediaModelSection", () => {
       await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_generate_audio: true }));
     });
 
-    // 置灰要求两个生效桶同为不可控，提示只要一个桶恒有声就给：两桶判定不一致时置灰会连带
-    // 禁掉可控桶的合法关闭。判据漏掉细分桶则会让这份配置一路带到入队才被拒。
     it("warns about a stored off setting when only a capability-bucket override is always audible", async () => {
       const user = userEvent.setup();
       mockConfig({ default_video_backend_i2v: "dashscope/wan" });
@@ -439,8 +442,6 @@ describe("MediaModelSection", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
-    // 各层全空时执行期用自动选中的模型，勾选框判据与规格条要按它取，否则恒有声的自动模型
-    // 配上「关闭」时一路到入队预检才被拒。
     it("judges the checkbox and shows the spec bar by the auto-selected model when every layer is unset", async () => {
       mockConfig({ default_video_backend: "" });
       vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, i2v: "dashscope/wan", r2v: "gemini/veo-3" });
@@ -464,8 +465,6 @@ describe("MediaModelSection", () => {
       expect(screen.getByText(/没有声音/)).toBeInTheDocument();
     });
 
-    // 全局页无项目上下文，默认模型两条路径都会用到，能力线只能给目录位；但两个细分项下拉
-    // 各自就是一条路径，与上方按桶取值的勾选框判据同源，不能共用默认层那一个答案。
     describe("候选下拉的音轨能力线", () => {
       function mockOmni() {
         vi.spyOn(API, "getSystemConfig").mockResolvedValue({
@@ -488,7 +487,6 @@ describe("MediaModelSection", () => {
         ]);
       }
 
-      /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
       async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
         await user.click(screen.getByRole("combobox", { name: comboboxName }));
         const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
@@ -505,7 +503,6 @@ describe("MediaModelSection", () => {
 
         await user.click(screen.getAllByText("按用途指定模型")[0]);
         expect(await omniRowIn(user, "图生视频")).toContain("有声");
-        // 与同屏 r2vAudioControl（always_off）判定的勾选框一致：一屏之内两句话不能互相矛盾
         expect(await omniRowIn(user, "参考生视频")).toContain("无声");
       });
     });
@@ -559,7 +556,6 @@ describe("MediaModelSection", () => {
 });
 
 describe("MediaModelSection – 语言切换", () => {
-  // 译名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
   function candidatesFor(language: string) {
     const en = language.startsWith("en");
     return {
@@ -600,11 +596,9 @@ describe("MediaModelSection – 语言切换", () => {
     });
 
     await waitFor(() => expect(trigger).toHaveTextContent("Gemini · Veo 3"));
-    // 语言切换只重取候选，不重取整页配置——后者会 setDraft({}) 丢掉这里未保存的输入
     expect(timeout).toHaveValue("7200");
 
     await user.click(trigger);
-    // 选项行主行为译名，model id 仍在行内可辨识
     expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });
@@ -637,7 +631,6 @@ describe("MediaModelSection – 引用处的下线提示", () => {
         shutdown_date: "2026-11-24",
         successor: "google/veo-4",
         successor_name: "Veo 4",
-        // 后继不支持图生视频：这一处没有切换目标，只写后继名称
         switch_targets: { default: "gemini/veo-4", i2v: null, r2v: null },
       },
     });
@@ -648,13 +641,11 @@ describe("MediaModelSection – 引用处的下线提示", () => {
 
     const notices = await screen.findAllByText("即将下线（2026-11-24），官方建议改用 Veo 4");
     expect(notices).toHaveLength(2);
-    // 只有默认层有切换入口
     expect(screen.getAllByRole("button", { name: "切换到 Veo 4" })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    // 一键切换只改这一处：图生视频的引用原样保留
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ default_video_backend: "gemini/veo-4" }));
   });
 
@@ -677,7 +668,6 @@ describe("MediaModelSection – 引用处的下线提示", () => {
 
   it("offers the successor switch for a discontinued reference that has left the provider list", async () => {
     const user = userEvent.setup();
-    // 官方数据删除了清单项、只剩本地保留条目的旧型号：值不在任何候选里，提示照样给出
     mockConfig({ default_video_backend: "gemini/veo-3-preview" });
     mockLifecycle({
       "gemini/veo-3-preview": {

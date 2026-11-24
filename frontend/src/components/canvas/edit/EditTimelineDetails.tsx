@@ -22,16 +22,32 @@ const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   bgm_missing: "bg-destructive",
 };
 
+function ClipTransitionValue({ transition }: { transition: EditClip["transition_to_next"] }) {
+  const { t } = useTranslation("dashboard");
+  if (!transition) return t("edit_view_transition_none");
+
+  const showHint = transition.duration > 0 && transition.type !== "cut" && transition.type !== "none";
+  return (
+    <>
+      {t("edit_view_transition_value", {
+        type: t(`edit_transition_${transition.type}`, { defaultValue: transition.type }),
+        duration: formatSeconds(transition.duration),
+      })}
+      {showHint && (
+        <span className="block text-muted-foreground">{t("edit_view_transition_export_hint")}</span>
+      )}
+    </>
+  );
+}
+
 interface ClipInspectorProps {
   projectName: string;
   clip: EditClip | undefined;
   trimIgnored: boolean;
   thumbnail: string | undefined;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
   positions: ReadonlyMap<string, number>;
 }
 
-/** 选中片段的位置、截取、转场与说明。截取作废时旧的截取加删除线，并说明暂用完整视频。 */
 export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, positions }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
   const thumbnailFp = useProjectsStore((s) => (thumbnail ? s.getAssetFingerprint(thumbnail) : null));
@@ -39,7 +55,6 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
     return <p className="text-sm text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
   }
   const deleted = clip.status === "unit_deleted";
-  const transition = clip.transition_to_next;
   const sourceLength = clip.source_duration ?? null;
   const trimText = (trim: NonNullable<EditClip["trim"]>) =>
     t("edit_view_trim_value", { in: formatSeconds(trim.source_in), out: formatSeconds(trim.source_out) });
@@ -74,7 +89,6 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
               <dd className="text-subtle-foreground">
                 {clip.trim ? (
                   trimIgnored ? (
-                    // 作废的截取划掉显示，读屏读作删除内容
                     <del className="text-muted-foreground">{trimText(clip.trim)}</del>
                   ) : (
                     <span>{trimText(clip.trim)}</span>
@@ -96,12 +110,7 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
               )}
               <dt className="text-muted-foreground">{t("edit_view_field_transition")}</dt>
               <dd className="text-subtle-foreground">
-                {transition
-                  ? t("edit_view_transition_value", {
-                      type: t(`edit_transition_${transition.type}`, { defaultValue: transition.type }),
-                      duration: formatSeconds(transition.duration),
-                    })
-                  : t("edit_view_transition_none")}
+                <ClipTransitionValue transition={clip.transition_to_next} />
               </dd>
             </>
           )}
@@ -117,19 +126,15 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
   );
 }
 
-/** 「问题」列表标题的元素 ID，showIssues 据此把焦点带到列表。 */
 export const ISSUE_LIST_HEADING_ID = "edit-view-issues-title";
 
 interface IssueListProps {
   issues: readonly EditTimelineIssue[];
-  /** 可选中的剪辑片段 ID；BGM 片段（如 b1）不在其中，相关 issue 不带定位按钮。 */
   clipIds: ReadonlySet<string>;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
   positions: ReadonlyMap<string, number>;
   onSelectClip: (clipId: string) => void;
 }
 
-/** 「问题（N）」列表：每条带片段编号或视频单元的位置，指向剪辑片段的点击选中该片段。 */
 export function IssueList({ issues, clipIds, positions, onSelectClip }: IssueListProps) {
   const { t, i18n } = useTranslation("dashboard");
   return (
@@ -153,7 +158,6 @@ export function IssueList({ issues, clipIds, positions, onSelectClip }: IssueLis
               unit: issue.unit_id ? (positions.get(issue.unit_id) ?? t("common:deleted")) : "",
               code: issue.code,
             };
-            // 同一种 issue 按 params.cause 分成几种说法，如旁白越界分「压到下一段旁白」与「超出末尾」。
             const cause = typeof issue.params.cause === "string" ? `_${issue.params.cause}` : "";
             const text = t(`edit_view_issue_${issue.code}${cause}`, {
               ...params,

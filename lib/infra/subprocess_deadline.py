@@ -51,7 +51,6 @@ async def _reap(proc: _Process, grace: float, cleanup: list[Path]) -> None:
     try:
         await _terminate(proc, grace)
     finally:
-        # 只经 _reap_to_completion 以 shield 运行，取消不会打断这次删除
         await asyncio.to_thread(_remove, cleanup)
 
 

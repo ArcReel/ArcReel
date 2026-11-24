@@ -67,7 +67,6 @@ async def test_each_tile_shows_the_frame_at_its_labelled_time(tmp_path: Path):
     assert times[0] < 1
     assert times[-1] >= 2
     for frame in sheet.frames:
-        # 时间码落在 25 fps 的帧格上：标注的是该帧自身的起点。
         assert frame.time_seconds * 25 == pytest.approx(round(frame.time_seconds * 25), abs=1e-6)
         left, top, right, bottom = frame.box
         center = image.getpixel(((left + right) // 2, (top + bottom) // 2))

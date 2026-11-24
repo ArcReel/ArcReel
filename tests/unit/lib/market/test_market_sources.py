@@ -91,11 +91,6 @@ async def _add_team_source(service: MarketSourceService) -> MarketSource:
         return await service.add_source("someone/market")
 
 
-# ---------------------------------------------------------------------------
-# 官方源 seed
-# ---------------------------------------------------------------------------
-
-
 async def test_seed_inserts_official_source_once_without_fetching(factory: async_sessionmaker[AsyncSession]) -> None:
     with capture_http() as http:
         async with factory() as session:
@@ -173,11 +168,6 @@ async def test_seed_discards_snapshot_when_the_official_source_moves(
     assert official.index_url == "https://raw.githubusercontent.com/ArcReel/market-index/main/arcreel-market.json"
     assert (official.cached_index, official.fetched_at, official.etag, official.last_error) == (None, None, None, None)
     assert official.status == SourceStatus.NEVER_FETCHED.value
-
-
-# ---------------------------------------------------------------------------
-# 添加
-# ---------------------------------------------------------------------------
 
 
 async def test_add_fetches_once_and_stores_ok_snapshot(
@@ -312,11 +302,6 @@ async def test_re_adding_a_deleted_source_gets_a_new_id(
 async def test_add_rejects_malformed_address(service: MarketSourceService) -> None:
     with pytest.raises(SourceAddressError):
         await service.add_source("git@github.com:someone/market.git")
-
-
-# ---------------------------------------------------------------------------
-# 刷新
-# ---------------------------------------------------------------------------
 
 
 async def test_failed_refresh_keeps_last_snapshot_and_records_status(

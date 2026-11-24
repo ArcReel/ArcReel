@@ -235,7 +235,6 @@ class TestWithRetryAsync:
 
         await fn()
 
-        # attempt 0→backoff[0]=1, attempt 1→backoff[1]=2, attempt 2→backoff[1]=2 (clamped), attempt 3→backoff[1]=2
         assert clock.sleeps == [1, 2, 2, 2]
 
     async def test_retry_if_true_triggers_retry(self):
@@ -266,7 +265,7 @@ class TestWithRetryAsync:
         @with_retry_async(
             max_attempts=3,
             backoff_seconds=(0, 0, 0),
-            retry_if=lambda e: False,  # 始终不重试
+            retry_if=lambda e: False,
             clock=clock,
             jitter=_no_jitter,
         )

@@ -26,12 +26,9 @@ from PIL import Image
 
 from lib.infra.image_utils import compress_image_bytes
 
-# ── 保守通用上限（ArcReel 侧安全策略常量，不声称任何一家的真实数字；被动 413 自我纠正）──
-# 与 lib/config/service.py 的 _DEFAULT_REFERENCE_*_MAX_BYTES 数值一致（单测断言对齐）。
 DEFAULT_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
-# 降档梯子：分辨率优先、质量地板 q80。step 0 = 基线（2048,q92）；step >= len 取地板。
 _LADDER: tuple[tuple[int, int], ...] = (
     (2048, 92),
     (1536, 90),
@@ -40,24 +37,20 @@ _LADDER: tuple[tuple[int, int], ...] = (
 )
 _FLOOR: tuple[int, int] = (1024, 80)
 
-# 统一色度抽样 4:4:4，保住带文字 sheet 的边缘（避免 4:2:0 在文字边缘色彩外溢）。
 _SUBSAMPLING_444 = 0
 _BASELINE_QUALITY = 92
-# FRAME 永不缩尺寸：用一个远大于任何真实图片的长边上限，使 compress_image_bytes 不触发 resize。
 _FRAME_NO_RESIZE_EDGE = 1_000_000
 
-# step 0 有条件透传阈值：已是 JPEG 且小于此且尺寸合规则原样透传，避免对合理小图二压。
 _PASSTHROUGH_MAX_BYTES = 1 * 1024 * 1024
 
-# 梯子可下压的档位数（不含地板）。咽喉层被动 413 续档据此判断是否已到底。
 LADDER_STEPS = len(_LADDER)
 
 
 class RefRole(Enum):
     """参考图角色，决定压缩策略。"""
 
-    ARRAY = "array"  # 多图参考数组：完整基线 + 降档梯子 + 字节预算
-    FRAME = "frame"  # 单张首/尾帧：仅超字节时重编码、永不缩尺寸（护 Sora 像素匹配）
+    ARRAY = "array"
+    FRAME = "frame"
 
 
 @dataclass(frozen=True)
@@ -74,7 +67,6 @@ class ReferenceSpec:
 
     source: Path
     role: RefRole
-    # 这一项以供应商素材引用发出、不上传图片内容：不压缩、不计入字节预算，按原路径透传以保住序位。
     provider_asset: bool = False
 
 
@@ -182,8 +174,6 @@ def select_ladder_step(
             for raw, role in zip(raws, roles, strict=True)
         ]
         total = sum(len(b) for b in compressed)
-        # single 硬门控只管 ARRAY：FRAME 永不缩尺寸、降档对它是 no-op，单张超 single 的帧
-        # 不该让主动预检在 provider 被调用前就 floor 掉（保守上限是猜的，交被动 413 兜底）。
         single_ok = all(
             len(b) <= effective_single for b, role in zip(compressed, roles, strict=True) if role is RefRole.ARRAY
         )
@@ -207,6 +197,9 @@ def _try_read_image(source: Path) -> bytes | None:
         raw = source.read_bytes()
         with Image.open(BytesIO(raw)) as img:
             img.load()
+            for index in range(1, getattr(img, "n_frames", 1)):
+                img.seek(index)
+                img.load()
         return raw
     except Exception:
         return None
@@ -261,10 +254,8 @@ def compressed_reference_payload(
         for k, (idx, data) in enumerate(zip(compressible_indices, compressed_bytes, strict=True)):
             spec = specs[idx]
             if data is compressible_raws[k]:
-                # 透传：未重编码，直接用原始源路径（不写临时副本）。
                 by_index[idx] = CompressedRef(path=Path(spec.source), role=spec.role)
                 continue
-            # 重编码：写临时文件，按 idx 分子目录避免重名，文件名沿用源 stem 保留参考图名。
             if temp_root is None:
                 temp_root = Path(tempfile.mkdtemp(prefix="refcomp-"))
             sub = temp_root / str(idx)
@@ -277,7 +268,6 @@ def compressed_reference_payload(
         for i, spec in enumerate(specs):
             ref = by_index.get(i)
             if ref is None:
-                # 非本地 / 不可解码透传项：保留原路径，交回 backend 按旧行为处理。
                 ref = CompressedRef(path=Path(spec.source), role=spec.role)
             merged.append(ref)
 

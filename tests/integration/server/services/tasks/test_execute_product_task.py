@@ -2,6 +2,7 @@
 
 import pytest
 
+from lib.backends.image_errors import ImageCapabilityError
 from lib.infra.api_errors import BadRequestError
 from server.services.tasks import generation_tasks
 from tests.fakes import use_generation_context, use_project_manager
@@ -34,6 +35,7 @@ class TestGenerationTasks:
         [sent] = [reference["image"] for reference in call["reference_images"]]
         assert sent.name == "0000-保温杯_1.jpg"
         assert not sent.is_relative_to(project_path)
+        assert call["reference_sources"][str(sent)] == project_path / "products" / "refs" / "保温杯_1.jpg"
         assert fake_generator.image_reference_bytes[0] == [b"jpg"]
         assert "商品「保温杯」的标准资产图。" in call["prompt"]
         assert "不锈钢保温杯" in call["prompt"]
@@ -93,7 +95,8 @@ class TestGenerationTasks:
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, image_max_reference_images=1))
 
-        result = await generation_tasks.execute_product_task("demo", "保温杯", {})
-
-        assert fake_generator.image_reference_bytes[0] == [b"jpg"]
-        assert [warning["key"] for warning in result["warnings"]] == ["ref_too_many_images"]
+        with pytest.raises(ImageCapabilityError) as exc:
+            await generation_tasks.execute_product_task("demo", "保温杯", {})
+        assert exc.value.code == "image_reference_images_exceeded"
+        assert exc.value.params["count"] == 2
+        assert not fake_generator.image_calls

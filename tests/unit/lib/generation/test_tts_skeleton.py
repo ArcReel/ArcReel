@@ -51,7 +51,6 @@ class TestVersionManagerAudio:
 
     def test_ensure_dirs_creates_audio(self, tmp_path: Path):
         vm = VersionManager(tmp_path)
-        # 目录由写路径按需创建，构造本身只读，不落盘
         assert not (tmp_path / "versions").exists()
 
         vm._ensure_dirs()
@@ -70,12 +69,8 @@ class TestGeneratedAssetsNarrationAudio:
     def test_roundtrip(self):
         ga = GeneratedAssets(narration_audio="audio/segment_E1S01.wav")
         assert ga.narration_audio == "audio/segment_E1S01.wav"
-        # extra="forbid" 下仍可序列化/反序列化往返
         restored = GeneratedAssets.model_validate(ga.model_dump())
         assert restored.narration_audio == "audio/segment_E1S01.wav"
-
-
-# ── generate_audio_async ──────────────────────────────────────────────────────
 
 
 class _FakeAudioBackend:
@@ -200,7 +195,6 @@ class TestGenerateAudioAsync:
         assert gen._audio_backend.calls[0].output_path != output_path
         assert not gen._audio_backend.calls[0].output_path.exists()
         assert version == 1
-        # 记账括号用 call_type=audio；backend 上报原始文本，由真 Ledger union 分发转成计量用量
         assert gen.ledger.started[0]["call_type"] == "audio"
         assert gen.ledger.started[0]["model"] == "tts-model"
         assert gen.ledger.outcomes[0]["status"] == "success"
@@ -280,7 +274,6 @@ class TestGenerateAudioAsync:
             await gen.generate_audio_async(text="x", resource_id="E1S03", voice="Cherry")
 
     async def test_regenerate_tracks_existing_file(self, tmp_path: Path):
-        # 重新生成时旧文件须先经 ensure_current_tracked 记录进版本历史
         gen = _build_generator(tmp_path)
         tracked = []
         gen.versions.ensure_current_tracked = lambda **kw: tracked.append(kw)
@@ -359,9 +352,6 @@ class TestGenerateAudioAsync:
         assert (gen.project_path / history["versions"][0]["file"]).read_bytes() == b"RIFFfakewav"
 
 
-# ── audio 调用记账 ────────────────────────────────────────────────────────
-
-
 class TestAudioCallSettlement:
     async def test_audio_call_settles_as_a_cny_cost_row(self):
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -381,7 +371,6 @@ class TestAudioCallSettlement:
                 )
                 stored = (await session.execute(select(ApiCall))).scalars().all()
                 assert [row.call_type for row in stored] == ["audio"]
-                # audio 按字符冻结费用（非 0）
                 assert stored[0].currency == "CNY"
                 assert stored[0].cost_amount is not None
                 assert stored[0].cost_amount > 0
@@ -389,12 +378,8 @@ class TestAudioCallSettlement:
             await engine.dispose()
 
 
-# ── worker audio lane ───────────────────────────────────────────────────────────
-
-
 class TestWorkerAudioLane:
     def test_lane_limits_audio_projection(self):
-        # 支持 audio 的 provider 投影出上限，不支持的 lane → 0
         assert CapacityTable._lane_limits({"audio"}, 5, 3, 10) == {"image": 0, "video": 0, "audio": 10}
         assert CapacityTable._lane_limits({"image", "video"}, 5, 3, 10)["audio"] == 0
 
@@ -406,7 +391,6 @@ class TestWorkerAudioLane:
         slots.register("dashscope", "audio", "a", dummy)
         slots.register("dashscope", "audio", "b", dummy)
         assert not slots.has_room("dashscope", "audio", 2)
-        # cap=0（provider 不支持 audio）始终无空位
         assert not slots.has_room("x", "audio", 0)
 
     async def test_pool_full_providers_audio(self):
@@ -475,7 +459,6 @@ class TestExtractProviderAudio:
     async def test_audio_payload_provider_routes_to_audio_resolver(self):
         from lib.generation.generation_worker import _extract_provider
 
-        # payload 携带历史 audio_provider → audio lane 投影短路取到
         task = {
             "payload": {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"},
             "task_type": "tts",
@@ -485,7 +468,6 @@ class TestExtractProviderAudio:
 
 class TestOrphanAudioRestartLost:
     async def test_orphan_audio_running_marked_restart_lost(self):
-        # audio 同步无 resume 入口：running 孤儿降级 [restart_lost]，不重新提交以免重复计费
         class _Q:
             def __init__(self):
                 self.failed = []

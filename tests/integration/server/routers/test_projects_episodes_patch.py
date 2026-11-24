@@ -14,9 +14,6 @@ from tests.integration.server.routers.projects_router_support import (
 
 
 class TestProjectsRouter:
-    # Episodes PATCH tests
-    # ---------------------------------------------------------------------------
-
     def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -106,7 +103,6 @@ class TestProjectsRouter:
             ep1 = next(e for e in episodes if e["episode"] == 1)
             ep2 = next(e for e in episodes if e["episode"] == 2)
             assert ep1["script_file"] == "scripts/ep1_v2.json"
-            # 第二集不受影响
             assert ep2["script_file"] == "scripts/ep2.json"
 
     def test_patch_project_episodes_has_no_route_field(self, tmp_path, monkeypatch):
@@ -141,11 +137,10 @@ class TestProjectsRouter:
                     "episodes": [
                         {
                             "episode": 1,
-                            "script_file": "scripts/ep1_v2.json",  # 合法白名单字段
-                            "title": "新标题",  # title 不再可经 PATCH /projects 写入
-                            # 以下为项目摘要读时注入的统计字段，不应写入磁盘
+                            "script_file": "scripts/ep1_v2.json",
+                            "title": "新标题",
                             "item_count": 999,
-                            "scenes_count": 999,  # 已退场的旧字段，同样不得落盘
+                            "scenes_count": 999,
                             "status": "completed",
                             "storyboards": {"total": 5, "available": 3, "stale": 0},
                             "videos": {"total": 5, "available": 5, "stale": 1},
@@ -157,11 +152,8 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 200
             ep1 = fake_pm.project_data["ready"]["episodes"][0]
-            # 合法字段应被写入
             assert ep1["script_file"] == "scripts/ep1_v2.json"
-            # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
             assert ep1["title"] == "原标题"
-            # 计算字段不得写入
             assert "item_count" not in ep1
             assert "scenes_count" not in ep1
             assert "status" not in ep1
@@ -186,16 +178,13 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 200
             episodes = fake_pm.project_data["ready"]["episodes"]
-            # 集数不变
             assert len(episodes) == 2
-            # 已有字段不受影响
             assert episodes[0]["script_file"] == "scripts/ep1.json"
             assert episodes[1]["script_file"] == "scripts/ep2.json"
 
     def test_update_episode_title_renames_script_and_mirror(self, tmp_path, monkeypatch):
         """PATCH /episodes/{episode}：剧本顶层 title 与 project.json 镜像都反映新值，标题首尾空白被裁剪。"""
         fake_pm = _FakePM(tmp_path)
-        # 剧本带 episode 字段，触发 _apply_episode_sync 镜像（与真实生成剧本一致）
         fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
 
         client = build_projects_client(monkeypatch, fake_pm)
@@ -203,9 +192,7 @@ class TestProjectsRouter:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "  新集名  "})
             assert resp.status_code == 200
             assert resp.json()["episode"]["title"] == "新集名"
-            # 剧本顶层 title 落盘
             assert fake_pm.scripts[("ready", "episode_1.json")]["title"] == "新集名"
-            # project.json 镜像同步
             ep = next(e for e in fake_pm.project_data["ready"]["episodes"] if e["episode"] == 1)
             assert ep["title"] == "新集名"
 

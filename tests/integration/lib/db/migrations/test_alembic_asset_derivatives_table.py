@@ -108,7 +108,6 @@ def test_deleting_an_asset_cascades_to_its_derivatives(
     engine = sa.create_engine(f"sqlite:///{db_path}")
     try:
         with engine.begin() as conn:
-            # SQLite 默认不强制外键；生产 engine 在连接建立时开这个 pragma。
             conn.execute(sa.text("PRAGMA foreign_keys=ON"))
             conn.execute(_INSERT_ASSET, {"id": "a1", "name": "王"})
             conn.execute(

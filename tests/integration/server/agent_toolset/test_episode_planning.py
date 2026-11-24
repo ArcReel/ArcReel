@@ -104,11 +104,6 @@ def _plan_value(outcome: ToolOutcome[Any]) -> PlanEpisodesResult:
     return outcome.value
 
 
-# ---------------------------------------------------------------------------
-# plan_episodes
-# ---------------------------------------------------------------------------
-
-
 async def test_plan_episodes_reports_each_planned_episode_for_boundary_review(fake_ctx: ToolHarness) -> None:
     captured: dict[str, Any] = {}
     result = PlanResult(
@@ -192,7 +187,6 @@ async def test_plan_episodes_rejects_bad_instructions_before_planning(fake_ctx: 
     ("raised", "code"),
     [
         pytest.param(EpisodePlanningError("校验耗尽"), "episode_planning_failed", id="planning-error"),
-        # 供应商未配置、模型调用失败等规划器内部的异常不是入参问题，与规划失败同码，界面按用户语言成文。
         pytest.param(ValueError("未找到可用的 text 供应商"), "episode_planning_failed", id="provider-error"),
         pytest.param(RuntimeError("HTTP 429"), "episode_planning_failed", id="model-error"),
     ],
@@ -302,11 +296,6 @@ async def test_remote_plan_episodes_returns_the_generation_batch_handle(tmp_path
     assert handle["poll_after_seconds"] is not None
 
 
-# ---------------------------------------------------------------------------
-# reset_episode_planning
-# ---------------------------------------------------------------------------
-
-
 def _fake_reset(result: object, captured: dict[str, Any] | None = None) -> Any:
     def _reset(project_path: Path, *, episode_id: int | None, confirm_consumed: bool) -> object:
         if captured is not None:
@@ -405,7 +394,6 @@ async def test_reset_episode_planning_reports_a_failed_partial_precheck(fake_ctx
 @pytest.mark.parametrize(
     ("arguments", "field"),
     [
-        # confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。
         pytest.param({"confirm_consumed": "true"}, "confirm_consumed", id="string-confirm"),
         pytest.param({"episode_id": 0}, "episode_id", id="zero"),
         pytest.param({"episode_id": -1}, "episode_id", id="negative"),

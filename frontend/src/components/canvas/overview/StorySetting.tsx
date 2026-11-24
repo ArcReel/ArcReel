@@ -43,22 +43,14 @@ interface StorySettingProps {
   projectName: string;
   overview: ProjectOverview | undefined;
   readOnly: boolean;
-  /** 项目有可读的原文（整本源文或已有故事设定），提供「从原文生成」。 */
   canGenerate: boolean;
-  /** 正在从原文生成：显示骨架与「正在读取原文…」，完成后就地填入。 */
   generating: boolean;
   generateError: StoryGenerateError | null;
   onGenerate: () => void;
-  /** 标题下的一句说明，如广告项目「故事设定」tab 里说明保存后脚本的去向。 */
   description?: string;
-  /** 不会卸载本编辑单元的应用内跳转（见 `useEditUnit` 的同名参数）。需传稳定引用。 */
   allowNavigation?: (to: string) => boolean;
 }
 
-/**
- * 故事设定：梗概、类型、主题、世界观是一个编辑单元，字段为正文样式，修改后在下方出现内联提示条。
- * 「从原文重新生成」整份替换四个字段，用 AlertDialog 确认；有未保存修改时一并放弃。
- */
 export function StorySetting({
   projectName,
   overview,
@@ -78,7 +70,6 @@ export function StorySetting({
   const source = useMemo(() => fieldsOf(overview), [overview]);
   const save = useCallback(
     async (value: SettingFields) => {
-      // 落盘前裁剪首尾空白，避免持久化纯空白
       const trimmed: SettingFields = {
         synopsis: value.synopsis.trim(),
         genre: value.genre.trim(),
@@ -257,7 +248,6 @@ function FieldBlock({ id, label, children }: { id: string; label: string; childr
       <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
       </label>
-      {/* 字段向两侧伸出自身的内边距，静止时正文与标签左对齐 */}
       <div className="-mx-2.5">{children}</div>
     </div>
   );

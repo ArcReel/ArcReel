@@ -27,22 +27,15 @@ from arcreel_market_core.market.icon import ICON_FORMATS
 from arcreel_market_core.market.issues import message_key
 from arcreel_market_core.validation_messages import MessageJoin, MessagePart, MessageRef, Translator, ValidationMessage
 
-#: 首批只接受调用端点。
 SUBMISSION_TYPE = ENDPOINT_ENTRY_TYPE
 SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-#: 键名按分隔符与大小写切分、去掉复数 s 后含这些片段即视为凭证；只看键名，模型文件名等长串字面值不受影响，
-#: ``tokenizer`` 这类键名也不命中。``Proxy-Authorization``、``Set-Cookie`` 按片段命中。
 CREDENTIAL_NAME_PARTS = frozenset(
     {"apikey", "token", "secret", "password", "passwd", "credential", "authorization", "cookie"}
 )
-#: 请求头映射的键名：其下的值另按字面凭证形态判定，覆盖自定义头名。
 _HEADERS = "headers"
 LITERAL_CREDENTIAL_KEY = "market_submission_literal_credential"
-#: 各类定义随分享原样公开的请求内容所在的节；``auth`` 节由定义校验器的字面凭证检查负责。
 _REQUEST_SECTIONS = {"comfyui": ("workflow",), "declarative": ("submit", "poll", "result")}
-#: 声明式请求节里的响应取值：键是取值名、值是 JSONPath，不进请求，不扫描。
 _RESPONSE_EXTRACT = "extract"
-#: 请求里允许的图标文件名，与市场仓目录约定一致。
 ICON_FILENAMES = frozenset(f"{ICON_STEM}.{extension}" for extension in ICON_FORMATS)
 
 

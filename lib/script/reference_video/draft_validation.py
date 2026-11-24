@@ -47,10 +47,6 @@ from lib.script.script_models import ReferenceResource
 from lib.speech.speech_composition import SpeechProblem, admit_script_unit
 from lib.speech.speech_rate import estimate_spoken_seconds
 
-#: 台词口播时长相对 unit 时长的宽容系数：估算超出 unit 时长这个比例才判超载。
-#: 语速是统计估算（``lib.speech.speech_rate``），逐字计数与真实配音节奏必然有出入；不留宽容会
-#: 把「刚好写满」的正常产出判违约。与 drama 保存期上界 warning 的 20% 同量级——两处都是
-#: 「同一套语速估算 vs 已定时长」的比对，宽容度没有理由不同。
 SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 
@@ -96,9 +92,6 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
         )
 
 
-#: 全角花括号。语法只认半角，但中文输入法下模型很容易写出全角形；行里出现全角花括号时
-#: 该段不成发声记号，会被当成画面描述放行——台词静默降级成描述、说话人反而被派生成参考图。
-#: 故在语法判定处显式识别并拒绝，不静默、也不代模型改写。
 _FULLWIDTH_BRACES = "｛｝"
 
 
@@ -132,8 +125,6 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
             )
         parts = split_speech_line(line)
         leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
-        # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
-        # 是合法的画面描述写法，按同一形态一概判违约会把正常的 script_plan 产出拒掉。
         if not leads_with_speech and (leading_mention_before_colon(line) or "") in character_references:
             raise DraftViolation(
                 f"{label} 的台词写法不合法：{line.strip()[:40]!r}；"
@@ -144,7 +135,6 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
                 line=idx,
                 params={"label": label, "excerpt": repr(line.strip()[:40])},
             )
-        # 只判记号之外的残余：一行里已识别的台词不因同行另有花括号被连坐。
         rest = speech_line_description(parts)
         if "{" not in rest and "}" not in rest:
             continue
@@ -243,12 +233,9 @@ def validate_unit_text(
             params={"label": label},
         )
 
-    # 已登记名字一律取自引用目录：目录的名字已在比对坐标系中，正文一侧由解析器入口归一，
-    # 两侧同形才判得准。
     catalog = build_reference_catalog(project)
     _assert_line_syntax(label, text, catalog.reference_names("character"))
 
-    # 只有台词与画外音的正文没有可生成的画面：整段非空时上面的空正文检查放不住它。
     if not _has_description_line(text):
         raise DraftViolation(
             f"{label} 没有画面描述；只有台词与画外音的单元没有可生成的画面",
@@ -257,8 +244,6 @@ def validate_unit_text(
             params={"label": label},
         )
 
-    # 与编辑器预览共用 ``derive_references_from_text``：严格度分流（此处对 missing 与上限一律拒），
-    # 派生口径不分流——否则同一份正文在两侧派生出不同的 `图N` 编号。
     refs, missing = derive_references_from_text(text, project)
     if missing:
         raise DraftViolation(
@@ -268,7 +253,6 @@ def validate_unit_text(
             params={"label": label, "field": "text", "names": missing},
         )
 
-    # 说话人位问的不是「能不能引用」而是「是不是一条角色资产」：它决定该句台词绑哪段参考音频。
     tolerated = {asset_name_comparison_key(name) for name in tolerated_speakers}
     registered_speakers = catalog.asset_names("character")
     bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_speakers and s not in tolerated})
@@ -280,8 +264,6 @@ def validate_unit_text(
             params={"label": label, "names": bad_speakers},
         )
 
-    # 本体已登记，说话人位仍不在引用名里，只可能是那个角色没有这个衍生。分成两条违约：一条
-    # 该去登记角色，一条该去登记衍生或改名，合成一句会指错修复方向。
     character_references = catalog.reference_names("character")
     bad_forms = sorted(
         {name for name in speech_speaker_references(text) if name not in character_references and name not in tolerated}
@@ -322,7 +304,6 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
         ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
         for location in problem.locations
     )
-    # Web 与编辑器同一写法：行号从 1 起；Agent 消息保留从 0 起的原始定位。
     display_locations = ", ".join(
         ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
         for location in problem.locations
@@ -343,13 +324,7 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
 
 def dialogue_spoken_seconds(text: str, language: object, speech_rate_override: float | None = None) -> float:
     """该 unit 全部台词的口播估算秒数；``speech_rate_override`` 为 None 时按语言默认语速。"""
-    # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
-    # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
-    # 已付费的调用之后抛 AttributeError，草稿一并丢失。
     language = language if isinstance(language, str) else None
-    # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
-    # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
-    # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
     return sum(estimate_spoken_seconds(line[2], language, speech_rate_override) for line in normative_lines(text))
 
 
@@ -417,7 +392,6 @@ def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authorin
                 f"现：{new[1] or '画外音'}「{new[2]}」）；prompt_authoring 只做提示词编写，台词须逐字保留",
                 code="dialogue_rewritten",
                 label=label,
-                # 按正文语法写出台词：画外音没有说话人，界面不必再翻译「画外音」。
                 params={"label": label, "index": index, "before": _speech_syntax(old), "after": _speech_syntax(new)},
             )
 

@@ -27,7 +27,6 @@ from lib.db.models.config import SystemSetting
 if TYPE_CHECKING:
     from alembic.runtime.migration import MigrationContext, MigrationInfo
 
-#: 全局设置键：升级前库里的 alembic revision（JSON ``{"revision": ...}``，全新的库为 ``null``）。
 SOURCE_SETTING_KEY = "pre_upgrade_db_revision"
 
 
@@ -98,7 +97,6 @@ class SourceRecorder:
             return
         if _has_settings_table(connection):
             if connection.dialect.name == "sqlite":
-                # SQLite DDL 已生效，不能让来源写入失败单独回滚这一步的 revision。
                 with ctx.autocommit_block():
                     assert ctx.connection is not None
                     record(ctx.connection, self._revision)

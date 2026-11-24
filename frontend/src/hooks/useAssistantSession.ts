@@ -18,9 +18,6 @@ import type {
   TimelineEntry,
 } from "@/types";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const TERMINAL = new Set(["completed", "error", "interrupted"]);
 
@@ -32,9 +29,6 @@ function deletingKey(projectName: string, sessionId: string): string {
   return `${projectName}\n${sessionId}`;
 }
 
-// ---------------------------------------------------------------------------
-// localStorage helpers — 记住每个项目最后使用的会话
-// ---------------------------------------------------------------------------
 
 const LAST_SESSION_KEY = "arcreel:lastSessionByProject";
 
@@ -58,20 +52,6 @@ function saveLastSessionId(projectName: string, sessionId: string): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
-/**
- * 管理 Agent 会话生命周期，时间线唯一读源为会话事件日志：
- * - 冷读 GET entries（历史回放）
- * - SSE entry 流实时接收（事件 id 即 seq，断线由流式客户端带 Last-Event-ID 续传）：
- *   打开会话时建立一条，切换会话或关闭面板时关闭；轮次结束只更新状态、不关流，
- *   发送与自主轮次的内容都从这条流收到
- * - 发送消息：回复进行中同样可发；已有会话的消息先进排队消息托盘，被 Agent 接纳时
- *   才作为权威条目从流上到达；新会话的首条消息由响应直接回传权威条目。
- *   client_key 幂等，重试不产生重复；时间线不渲染本地合成消息
- */
 export function useAssistantSession(projectName: string | null) {
   const { t } = useTranslation("dashboard");
   const store = useAssistantStore;
@@ -81,10 +61,7 @@ export function useAssistantSession(projectName: string | null) {
   const streamStatusCursorRef = useRef<{ sessionId: string; seq: number } | null>(null);
   const deferredResumeRef = useRef<{ projectName: string; sessionId: string } | null>(null);
   const pendingSendVersionRef = useRef(0);
-  // 失败重试复用同一幂等键（同内容签名），成功后清除
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
-  // 本页点了「编辑」、内容还没退回输入框的排队消息 id。撤回答复失败后仍保留：Agent 随后若没处理它，
-  // 流上的移出事件会带回内容。退回一次即删除，响应与流上的移出谁先到都只退回一次；其他页面不在此列。
   const pendingEditsRef = useRef(new Set<string>());
   const failedRewriteRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
@@ -102,15 +79,8 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setSending(false);
   }, [store]);
 
-  // 会话加载链取消域：init 的会话自动选择与 loadSession（冷读/建流）共用一个
-  // controller。任何接管会话选择权的入口（切会话/新建/删除/发送建会话/项目切换）
-  // 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。
   const loadAbortRef = useRef<AbortController | null>(null);
-  // 项目级取消域的当前 controller：跨 useCallback 边界（connectStream 的终态刷新）
-  // 复用同一 signal，随项目切换/卸载 abort。
   const projectAbortRef = useRef<AbortController | null>(null);
-  // 当前 controller 属于哪个项目。回调可能来自上一个项目的迟到收尾，那时
-  // projectAbortRef 里装的已经是新项目的 controller，只看 signal 认不出跨项目。
   const projectAbortOwnerRef = useRef<string | null>(null);
 
   const abortSessionLoad = useCallback(() => {
@@ -125,40 +95,19 @@ export function useAssistantSession(projectName: string | null) {
     return controller.signal;
   }, [abortSessionLoad]);
 
-  // 会话列表的本地权威写入代数。新建/改写分叉/删除都在本地即时改写列表，这类写入
-  // 表达的是「服务端已经这么做了」，比任何更早开始的读都新；代数在写入时递增，读到
-  // 的旧列表据此作废，不会把已消失的会话写回来、把新分支挤掉。
   const sessionsWriteVersionRef = useRef(0);
-  // 最近一次成功加载完成的会话；加载失败后为 null，用于放行对同一会话的重试
   const loadedSessionRef = useRef<string | null>(null);
-  // 在途的「删除当前会话」计数，按项目 + 会话分桶。改写的列表补拉只在它的源会话
-  // 正被删除时跳过：补拉会把分支拉进列表，那次删除收尾就顺手切到它，正是进入时
-  // 那次作废要避免的结果。分桶到会话、且计数而非布尔，别处的删除才不会连坐——
-  // 共享一个格子时，并行的另一次删除收尾会替这一次把保护摘掉，别的项目/会话上
-  // 迟迟不返回的删除则会一直压着本该发生的补拉，新分支不刷新页面就找不回来。
   const deletingCurrentRef = useRef<Record<string, number>>({});
-  // 因上面的保护而没做成的改写补拉，按同一个 key 记账，删除收尾后补上：服务端此刻
-  // 已开出新分支，两条删除路径都只处理原会话，不补拉的话新分支要等刷新页面才出现。
   const deferredRefreshRef = useRef<Set<string>>(new Set());
 
   const writeSessions = useCallback((sessions: SessionMeta[]) => {
-    // 上一个项目的迟到回调既不写列表也不占代数：占了代数，新项目会把自己刚拉到的
-    // 初始列表误判成过期而丢弃，侧边栏就一直停在旧项目的会话上
     if (projectAbortOwnerRef.current !== projectName) return;
     sessionsWriteVersionRef.current += 1;
-    // 面板是长生命周期单例，切项目后列表在新项目的响应到达前仍停在上一个项目：合并
-    // 时滤掉外来会话，否则新建/改写会把它们一起固化进来，而本项目在途的权威列表又
-    // 因为这次写入被判过期丢弃，侧边栏就一直挂着一串在本项目里打不开的会话
     store.getState().setSessions(sessions.filter((s) => s.project_name === projectName));
   }, [projectName, store]);
 
-  // 补拉会话列表。纳入项目级取消域，挂起期间切换项目时迟到响应不得覆盖已切到的
-  // 新项目会话列表；空列表不写入，避免一次失败的读把列表清空。
   const refreshSessions = useCallback(() => {
     if (!projectName) return;
-    // 本次补拉属于 projectName，取消域也必须是它的。改写的迟到收尾会带着旧
-    // projectName 走到这里，此刻 ref 里已是新项目的 controller——借用它去读旧项目
-    // 的列表，再把结果写进新项目的侧边栏，用户会看到一串打不开的会话。
     if (projectAbortOwnerRef.current !== projectName) return;
     const signal = projectAbortRef.current?.signal;
     if (!signal) return;
@@ -167,16 +116,13 @@ export function useAssistantSession(projectName: string | null) {
       .then((res) => {
         if (signal.aborted) return;
         if (projectAbortOwnerRef.current !== projectName) return;
-        // 本次读开始之后发生过本地权威写入：这份列表已经过期
         if (sessionsWriteVersionRef.current !== writeVersion) return;
         const fresh = res.sessions ?? [];
         if (fresh.length > 0) store.getState().setSessions(fresh);
       })
-      .catch(() => {/* 静默失败 */});
+      .catch(() => { });
   }, [projectName, store]);
 
-  // 改写被作废后的列表对账。源会话正在删除时不能当场补拉——补拉会把新分支带进列表，
-  // 那次删除收尾就顺手切到它，正是作废要避免的结果；改为记账，等删除收尾后再补。
   const reconcileAfterStaleRewrite = useCallback((originSessionId: string) => {
     if (!projectName) return;
     const key = deletingKey(projectName, originSessionId);
@@ -187,7 +133,6 @@ export function useAssistantSession(projectName: string | null) {
     refreshSessions();
   }, [projectName, refreshSessions]);
 
-  // 关闭流（同时停止流式客户端的自动重建）
   const closeStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.close();
@@ -196,10 +141,8 @@ export function useAssistantSession(projectName: string | null) {
     streamSessionRef.current = null;
   }, []);
 
-  // 连接 SSE entry 流（常驻：只由切换会话、关闭面板等离开会话的入口关闭）
   const connectStream = useCallback(
     (sessionId: string) => {
-      // 已连接到同一 session 且句柄未关闭时跳过：断线重建由流式客户端自行完成。
       if (streamRef.current && streamSessionRef.current === sessionId && !streamRef.current.closed) {
         return;
       }
@@ -217,7 +160,6 @@ export function useAssistantSession(projectName: string | null) {
           const draft = (payload.draft ?? null) as DraftState | null;
           const rev = typeof payload.rev === "number" ? payload.rev : 0;
           store.getState().setDraftSnapshot(draft, rev);
-          // 流先补发存量条目、再发 draft 快照，快照到达即历史回放完毕
           store.getState().settleHistory();
         },
         delta(payload) {
@@ -236,12 +178,10 @@ export function useAssistantSession(projectName: string | null) {
           if (TERMINAL.has(status)) {
             store.getState().setInterrupting(false);
             clearPendingQuestion();
-            // 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失
             if (status !== "interrupted") {
               store.getState().clearDraft();
             }
 
-            // 轮次结束后刷新会话列表，获取 SDK summary 标题；开场下发的终态不算
             if (wasRunning) refreshSessions();
           }
         },
@@ -272,7 +212,6 @@ export function useAssistantSession(projectName: string | null) {
         },
       };
 
-      // 冷订阅游标：已有条目之后；断线重建由流式客户端携带 Last-Event-ID 续传
       const after = lastEntrySeq(store.getState().entries);
       const stream = API.openAssistantEntriesStream({
         projectName: projectName!,
@@ -292,12 +231,9 @@ export function useAssistantSession(projectName: string | null) {
     [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
   );
 
-  // 项目事件流的恢复通知与重连核对：当前会话的新一轮已经从常驻的 entry 流收到，
-  // 只在这条流不在时补建（加载中的会话由 loadSession 收尾时建流）。
   const pendingResumeSignals = useAssistantStore((s) => s.sessionResumeSignals);
   useEffect(() => {
     if (pendingResumeSignals.length === 0) return;
-    // 整批取走：留在全局 store 里，切项目重建回调时会被当成新信号再处理一次
     const signals = store.getState().takeSessionResumeSignals();
     const sessionId = store.getState().currentSessionId;
     if (!projectName || !sessionId) return;
@@ -312,9 +248,6 @@ export function useAssistantSession(projectName: string | null) {
     connectStream(sessionId);
   }, [projectName, pendingResumeSignals, connectStream, store]);
 
-  // 加载指定会话时间线：非 running 先冷读日志，再从其后接上 entry 流；running
-  // 直接交给 entry 流回放。signal 被 abort 时网络 await 断点由 fetch 自动 reject；
-  // 写 store 与建流前复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
   const loadSession = useCallback(async (sessionId: string, options: { signal: AbortSignal }) => {
     const { signal } = options;
     store.getState().beginHistory();
@@ -328,8 +261,6 @@ export function useAssistantSession(projectName: string | null) {
       const status = (sessionObj.status as string) ?? "idle";
       statusRef.current = status;
       store.getState().setSessionStatus(status as "idle");
-      // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
-      // 未决问题由 entry 流的 question 事件重新投递。
       clearPendingQuestion();
 
       if (status !== "running") {
@@ -340,7 +271,6 @@ export function useAssistantSession(projectName: string | null) {
         store.getState().settleHistory();
       }
     } finally {
-      // 冷读失败也接上常驻流，由 entry / draft / status 快照补齐会话。
       const deferred = deferredResumeRef.current;
       const resumed = deferred?.projectName === projectName && deferred.sessionId === sessionId;
       if (!signal.aborted && (sessionLoaded || resumed)) {
@@ -350,49 +280,30 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, clearPendingQuestion, connectStream, store]);
 
-  // 加载会话
   useEffect(() => {
     if (!projectName) {
-      // 离开项目：上一个 projectName 的 cleanup 已 abort 在途加载链，但没有
-      // 后续加载链接管收尾——显式清掉可能遗留的 loading，避免卡死为 true
       store.getState().setMessagesLoading(false);
       return;
     }
-    // 项目级取消域：只随项目切换/卸载 abort。会话列表与技能列表是项目级数据，
-    // 挂起期间的会话操作（新建/切换/删除）不应作废它们——否则慢响应下技能列表
-    // 会被误判过期丢弃、新项目的会话列表被陈旧会话点击作废且无重试。
     const projectAbort = new AbortController();
     projectAbortRef.current = projectAbort;
     projectAbortOwnerRef.current = projectName;
-    // 加载完成标记按项目作废：留着上一个项目的会话 id，回到那个项目后若自动重载
-    // 失败，点它会被短路当成「已加载」，重试就永远进不来
     loadedSessionRef.current = null;
 
     async function init() {
-      // 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废
       const loadSignal = beginSessionLoad();
       store.getState().setMessagesLoading(true);
-      // 切项目先重置时间线（与新建/切换/删除三条会话路径同口径），使有会话/
-      // 无会话两个分支都从干净状态出发：running 会话的 SSE 冷订阅游标由重置后
-      // 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会
-      // 把旧项目条目混排进新会话时间线。
       store.getState().resetTimeline();
-      // 上一个项目会话的错误提示不跟到新项目里（与 switchSession 同口径）
       store.getState().setError(null);
       const writeVersion = sessionsWriteVersionRef.current;
       try {
-        // 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）
         const res = await API.listAssistantSessions(projectName!, null, { signal: projectAbort.signal });
         if (projectAbort.signal.aborted) return;
         const sessions = res.sessions ?? [];
-        // 这份读期间发生过本地权威写入（建会话/改写分叉/删会话）就已过期，整份
-        // 作废——不只是别写列表：删掉的若不是当前会话，加载链不会被作废，照着这份
-        // 名单自动选择会选中一条已经不存在的会话并去加载它的时间线
         if (sessionsWriteVersionRef.current !== writeVersion) return;
         store.getState().setSessions(sessions);
         if (loadSignal.aborted) return;
 
-        // 优先使用上次选择的会话（如果仍存在于列表中）
         const lastId = getLastSessionId(projectName!);
         const sessionId = (lastId && sessions.some((s: SessionMeta) => s.id === lastId))
           ? lastId
@@ -406,20 +317,14 @@ export function useAssistantSession(projectName: string | null) {
 
         store.getState().setCurrentSessionId(sessionId);
         await loadSession(sessionId, { signal: loadSignal });
-        // 与 switchSession 同口径地记账：不记的话，点一下本来就选中的这条会话不会
-        // 被短路，时间线白重建一次，连带丢掉还没提交的编辑草稿
         if (!loadSignal.aborted) loadedSessionRef.current = sessionId;
       } catch {
         // 静默失败（含被 abort 中止的请求）
       } finally {
-        // 被作废时 loading 归接管方管理（switchSession 自开自收、
-        // createNewSession / deleteSession / sendMessage 显式复位），
-        // 此处复位会踩到接管方正在进行的加载
         if (!loadSignal.aborted) store.getState().setMessagesLoading(false);
       }
     }
 
-    // 加载技能列表
     API.listAssistantSkills(projectName, { signal: projectAbort.signal })
       .then((res) => {
         if (projectAbort.signal.aborted) return;
@@ -451,7 +356,6 @@ export function useAssistantSession(projectName: string | null) {
     store,
   ]);
 
-  // 发送消息。返回是否受理成功——失败时调用方保留输入内容。
   const sendMessage = useCallback(
     async (content: string, images?: AttachedImage[]): Promise<boolean> => {
       if ((!content.trim() && (!images || images.length === 0)) || store.getState().sending) {
@@ -465,16 +369,11 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
 
-      // 提取 base64 数据
       const imagePayload = images?.map((img) => ({
         data: img.dataUrl.split(",")[1] ?? "",
         media_type: img.mimeType,
       }));
 
-      // 请求侧幂等键：同一内容失败重试复用同键，服务端按键去重不产生重复。
-      // 签名纳入 projectName：面板为长生命周期单例，切换项目不卸载，失败缓存
-      // （clientKey + 签名）跨项目存活；含项目维度后旧项目缓存的 clientKey 自然
-      // 失效，不再被其他项目的同内容重发复用。
       const signature = JSON.stringify([projectName, sessionId, content.trim(), imagePayload ?? []]);
       const clientKey =
         failedSendRef.current?.signature === signature
@@ -485,22 +384,18 @@ export function useAssistantSession(projectName: string | null) {
         const result = await API.sendAssistantMessage(
           projectName!,
           content,
-          sessionId,  // null for new session
+          sessionId,
           imagePayload,
           clientKey,
         );
 
         if (pendingSendVersionRef.current !== sendVersion) return false;
         failedSendRef.current = null;
-        // 发送已受理：用户以发送行为接管会话选择权与时间线，作废在途加载链
-        // （init 自动选择不再覆盖 currentSessionId，挂起的冷读不再覆写时间线），
-        // 并复位其遗留的 loading
         abortSessionLoad();
         store.getState().setMessagesLoading(false);
 
         const returnedSessionId = result.session_id;
 
-        // 新会话：更新 store
         if (!sessionId) {
           const newSession: SessionMeta = {
             id: returnedSessionId,
@@ -519,13 +414,9 @@ export function useAssistantSession(projectName: string | null) {
 
         if (store.getState().currentSessionId !== sessionId) return false;
 
-        // 托盘只消费常驻流：HTTP 响应可能抢在另一客户端更早发送的消息之前到达。
-        // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
         if (result.entry) {
           const lastSeq = lastEntrySeq(store.getState().entries);
           if (result.entry.seq > lastSeq + 1) {
-            // seq 跳档：其他客户端在本地未订阅期间产生了轮次，先冷读补齐缺口，
-            // 否则订阅游标越过缺口后中间条目永远不会被拉取
             try {
               const gap = await API.listAssistantEntries(projectName!, sessionId, lastSeq);
               if (store.getState().currentSessionId !== sessionId) return false;
@@ -536,8 +427,6 @@ export function useAssistantSession(projectName: string | null) {
           }
           store.getState().appendEntry(result.entry);
         }
-        // 常驻流可能已收到这条消息的条目乃至其后的 CLI idle，或者它没被接纳就离开了排队
-        // （CLI 取消、CLI 退出）；迟到的受理响应不能覆盖服务端状态。
         const acceptedId = result.queued_message?.id;
         const acceptedEntry =
           result.entry ?? (acceptedId ? store.getState().entries.find((e) => e.uuid === acceptedId) : undefined);
@@ -551,13 +440,10 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setSessionStatus("running");
         }
         store.getState().setSending(false);
-        // 已打开的会话复用常驻流；新会话在这里建立它的第一条流
         connectStream(sessionId);
         return true;
       } catch (err) {
         if (pendingSendVersionRef.current !== sendVersion) return false;
-        // 失败：无本地合成消息可回滚，仅记录幂等键供重试复用；
-        // 在途加载链未被作废，挂起的冷读继续正常落地
         failedSendRef.current = { clientKey, signature };
         if (err instanceof AgentFailureError) {
           store.getState().setStartupFailure(err.failure);
@@ -591,8 +477,6 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store],
   );
 
-  // 编辑或删除一条排队消息：服务端先向 Agent 撤回。编辑撤回成功时内容追加到输入框；
-  // Agent 已接收时提示，消息照常进入对话
   const withdrawQueuedMessage = useCallback(
     async (messageId: string, intent: QueuedMessageWithdrawal) => {
       const sessionId = store.getState().currentSessionId;
@@ -600,7 +484,6 @@ export function useAssistantSession(projectName: string | null) {
       if (intent === "edit") pendingEditsRef.current.add(messageId);
       try {
         const result = await API.withdrawQueuedMessage(projectName, sessionId, messageId, intent);
-        // 输入框是共享草稿，导航后仍接收本页已撤回的内容；会话反馈另按作用域隔离。
         if (result.message && pendingEditsRef.current.delete(messageId)) {
           store.getState().appendToComposer(result.message.content);
         }
@@ -619,13 +502,11 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store, t],
   );
 
-  // 重新发送一条「未发送」消息：服务端必要时先重建会话连接，消息回到排队中
   const resendQueuedMessage = useCallback(
     async (messageId: string) => {
       const sessionId = store.getState().currentSessionId;
       if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
       try {
-        // 托盘只消费常驻流，响应里的 queued 可能已被之后的 CLI 退出更新为 unsent。
         await API.resendQueuedMessage(projectName, sessionId, messageId);
       } catch (err) {
         if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
@@ -635,7 +516,6 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store, t],
   );
 
-  // 立即发送一条排队消息：Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；Agent 已接收时提示
   const sendQueuedMessageNow = useCallback(
     async (messageId: string) => {
       const sessionId = store.getState().currentSessionId;
@@ -652,7 +532,6 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store, t],
   );
 
-  // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
     if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName || statusRef.current !== "running") return;
@@ -667,7 +546,6 @@ export function useAssistantSession(projectName: string | null) {
     }
   }, [projectName, store]);
 
-  // 创建新会话（懒创建：仅清空状态，实际创建延迟到首次发消息时）
   const createNewSession = useCallback(() => {
     if (!projectName) return;
 
@@ -680,17 +558,12 @@ export function useAssistantSession(projectName: string | null) {
     clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
-    // 草稿会话无加载过程，复位被作废加载链遗留的 loading
     store.getState().setMessagesLoading(false);
     statusRef.current = "idle";
   }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
 
-  // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
-    // 面板为长生命周期单例：切项目为 null 后 sessions 列表不清空，仍可能渲染出
-    // 旧项目的会话项，点击不得以 null projectName 发起请求
     if (!projectName) return;
-    // 上一次加载失败过的会话不短路：否则界面停在空时间线、无 SSE，再点同一条也进不来
     if (store.getState().currentSessionId === sessionId && loadedSessionRef.current === sessionId) return;
 
     const signal = beginSessionLoad();
@@ -700,11 +573,9 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setIsDraftSession(false);
     store.getState().resetTimeline();
     clearPendingQuestion();
-    // 上一次加载失败的提示到此为止：重试成功后不该继续压在已经载入的对话上面
     store.getState().setError(null);
     store.getState().setMessagesLoading(true);
 
-    // 记住选择
     saveLastSessionId(projectName, sessionId);
 
     loadedSessionRef.current = null;
@@ -712,39 +583,25 @@ export function useAssistantSession(projectName: string | null) {
       await loadSession(sessionId, { signal });
       if (!signal.aborted) loadedSessionRef.current = sessionId;
     } catch {
-      // 被后续切换 abort 不是失败，接管方会自己收尾；真失败要说出来，
-      // 否则用户面对的是一片空白的时间线，也不知道可以重试
       if (!signal.aborted) store.getState().setError(t("session_load_failed"));
     } finally {
-      // 被作废时 loading 归接管方管理，此处复位会踩到其正在进行的加载
       if (!signal.aborted) store.getState().setMessagesLoading(false);
     }
   }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store, t]);
 
-  // 改写历史用户消息。返回是否受理成功——失败时调用方保留编辑态与草稿内容。
-  //
-  // 受理成功前不动任何视图状态：改写会被服务端拒绝（锚点失效 400、未决问答或
-  // 原会话已被取代 409），被拒时用户仍留在原会话，时间线原样。受理之后才整体
-  // 切换到承接改写的新会话——时间线重建、SSE 重连，不做增量缝合。
   const rewriteMessage = useCallback(
     async (anchorEntryUuid: string, content: string, images?: ImagePayload[]): Promise<boolean> => {
       const originSessionId = store.getState().currentSessionId;
       if (!projectName || !originSessionId) return false;
-      // 与发送同口径：图片附件本身就是内容，正文被改空的带图消息仍可提交
       if (!content.trim() && (!images || images.length === 0)) return false;
-      // sending 同时是发送与改写的在途锁：两者都会开启新一轮，不能并发
       if (store.getState().sending) return false;
 
-      // 与发送共用一轮版本号：任何接管会话选择权的入口都会 invalidatePendingSend，
-      // 在途改写随之作废，迟到的响应不再把用户从他已切去的会话拽回分支
       const rewriteVersion = pendingSendVersionRef.current + 1;
       pendingSendVersionRef.current = rewriteVersion;
       store.getState().setSending(true);
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
 
-      // 幂等键：响应丢失后的重试由服务端在新分支里认领同一条消息（仍在排队或已入日志），
-      // 不会再分叉一次。签名含锚点与改写后内容（含附件），改了内容即换新键。
       const signature = JSON.stringify([
         projectName,
         originSessionId,
@@ -767,9 +624,6 @@ export function useAssistantSession(projectName: string | null) {
           clientKey,
         );
 
-        // 本轮已被作废：不把用户从他已切去的会话拽回分支，sending 也由作废方复位。
-        // 但服务端此刻确已取代原会话并开出新分支，本地列表仍指向已消失的原会话——
-        // 补拉一次列表，否则新分支要等到刷新页面才出现。
         if (pendingSendVersionRef.current !== rewriteVersion) {
           reconcileAfterStaleRewrite(originSessionId);
           return false;
@@ -777,9 +631,6 @@ export function useAssistantSession(projectName: string | null) {
         failedRewriteRef.current = null;
 
         const newSessionId = result.session_id;
-        // 原会话已被取代，服务端列表不再返回它；本地列表同步剔除，由新分支接位。
-        // 标题沿用原会话（分支是同一段对话的续写），轮次结束时的列表刷新会用
-        // SDK summary 校正。
         const sessions = store.getState().sessions;
         const origin = sessions.find((s) => s.id === originSessionId);
         const branch: SessionMeta = {
@@ -796,21 +647,14 @@ export function useAssistantSession(projectName: string | null) {
         ]);
         store.getState().setSending(false);
 
-        // 整体切到新分支：重置时间线（编辑态随之清空）、冷读/建流、记住选择，
-        // 刷新与断线重连后都停在新分支
         await switchSession(newSessionId);
         return true;
       } catch (err) {
-        // 幂等键无论本轮是否被作废都要留住：网络中断说不清服务端受理没有，重试时
-        // 换新键才会真的分叉两次。作废时同样对账一次列表，受理了的话新分支就不必
-        // 等到刷新页面
         failedRewriteRef.current = { clientKey, signature };
         if (pendingSendVersionRef.current !== rewriteVersion) {
           reconcileAfterStaleRewrite(originSessionId);
           return false;
         }
-        // 启动失败与发送路径同口径，落故障卡片而非一行错误条。标注来源为改写：
-        // 保留原始输入的是仍开着的编辑器，重放要由它的「重新发送」发起
         if (err instanceof AgentFailureError) {
           store.getState().setStartupFailure(err.failure, "rewrite");
         } else {
@@ -823,11 +667,8 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, reconcileAfterStaleRewrite, switchSession, store, t, writeSessions],
   );
 
-  // 删除会话。返回删除接口是否成功：失败时会话仍在，调用方据此提示并允许重试。
   const deleteSession = useCallback(async (sessionId: string): Promise<boolean> => {
     if (!projectName) return false;
-    // 删除当前会话即刻接管会话选择权，作废不能等到 DELETE 返回：在途的发送/改写
-    // 若在这期间被受理，会把用户装到一个分支上，而删除收尾此时已看不出该切换
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
     const deleteKey = deletingKey(projectName, sessionId);
     if (invalidatedForDelete) {
@@ -839,7 +680,6 @@ export function useAssistantSession(projectName: string | null) {
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
       writeSessions(sessions);
 
-      // 如果删除的是当前会话，切换到下一个
       if (store.getState().currentSessionId === sessionId) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
@@ -852,18 +692,12 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setError(null);
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
-          // 清空到无会话后无加载过程，复位被作废加载链遗留的 loading
           store.getState().setMessagesLoading(false);
           statusRef.current = "idle";
         }
       }
       return true;
     } catch {
-      // 删除没成功，会话还在。进入时那次作废已经把在途发送/改写的收尾摘掉了——
-      // 若它其实被服务端受理了，这一轮此刻在本地不可见，输入框里的内容还会被再发
-      // 一次。作废与补偿成对出现：重新加载一次当前会话，把它接回来。
-      // 补偿的对象只能是被删的那一条：期间用户切走或换了项目的话，当前会话另有其人，
-      // 拿闭包里的旧 projectName 去加载它只会把接管方的时间线冲掉
       if (invalidatedForDelete && store.getState().currentSessionId === sessionId
         && projectAbortOwnerRef.current === projectName) {
         loadedSessionRef.current = null;
@@ -873,7 +707,6 @@ export function useAssistantSession(projectName: string | null) {
     } finally {
       if (invalidatedForDelete) {
         deletingCurrentRef.current[deleteKey] -= 1;
-        // 最后一次并行删除收尾后才补：早于此仍在删除窗口内
         if (deletingCurrentRef.current[deleteKey] === 0 && deferredRefreshRef.current.delete(deleteKey)) {
           refreshSessions();
         }

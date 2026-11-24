@@ -22,10 +22,8 @@ ENDPOINTS_DIR = "endpoints"
 DEFINITION_FILENAME = "definition.json"
 ICON_STEM = "icon"
 
-#: 沿用既有索引时保留的顶层可选字段。
 _HEADER_FIELDS = ("name", "description", "homepage")
 
-#: 条目定义缺 ``meta`` 对象时，``definition_invalid`` 诊断里的细节消息。
 META_NOT_OBJECT_KEY = "val_market_detail_meta_not_object"
 
 
@@ -83,7 +81,6 @@ def render_index(index: dict[str, Any]) -> str:
 
 def write_index(root: Path, index: dict[str, Any]) -> Path:
     path = root / INDEX_FILENAME
-    # 索引是生成物：被换成符号链接时替换链接本身，否则写入会落到链接目标，索引文件在 git 里不变。
     if path.is_symlink():
         path.unlink()  # hard-delete: derived -- 生成的市场索引被换成符号链接时替换链接本身
     path.write_text(render_index(index), encoding="utf-8")

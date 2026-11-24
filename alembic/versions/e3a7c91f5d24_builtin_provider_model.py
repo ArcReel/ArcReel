@@ -23,7 +23,6 @@ down_revision: str | Sequence[str] | None = "b25cfcfb8bad"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-#: 改造前注册表里 ``hidden=True`` 的模型：(供应商, 模型键)。
 _HIDDEN_MODELS: tuple[tuple[str, str], ...] = (
     ("agnes", "agnes-2.0-flash"),
     ("agnes", "agnes-image-2.1-flash"),

@@ -31,7 +31,6 @@ function isExpired(expiresAt: string | null, now: Date): boolean {
   return expiresAt !== null && new Date(expiresAt) < now;
 }
 
-/** 全局设置「访问令牌」：列出 ArcReel 签发的访问令牌，创建与吊销。吊销不可逆，用 AlertDialog 确认。 */
 export function AccessTokensSection() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [tokens, setTokens] = useState<ApiKeyInfo[]>([]);
@@ -108,7 +107,6 @@ export function AccessTokensSection() {
         onOpenChange={setCreateOpen}
         onCreated={(token) => {
           if (loadController.current && load.status === "loading") {
-            // 创建发生在首次列表加载期间，重新读取以保留既有令牌和刚创建的令牌。
             void fetchTokens();
           } else {
             setTokens((prev) => [token, ...prev]);
@@ -223,7 +221,6 @@ function RevokeTokenDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间 token 已清空，保留最后一次的名称避免标题闪成空白
   const [shown, setShown] = useState<ApiKeyInfo | null>(token);
   if (token && token !== shown) {
     setShown(token);
@@ -249,7 +246,6 @@ function RevokeTokenDialog({
     <AlertDialog
       open={token !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !submitting) onClose();
       }}
     >

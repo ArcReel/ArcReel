@@ -57,7 +57,7 @@ class TestCreateApiKey:
         body = resp.json()
         assert body["name"] == "mykey"
         assert body["key"].startswith("arc-")
-        assert "key" in body  # 完整 key 在响应中
+        assert "key" in body
 
     def test_create_409_on_duplicate_name(self):
         from sqlalchemy.exc import IntegrityError
@@ -107,7 +107,7 @@ class TestListApiKeys:
         body = resp.json()
         assert len(body) == 1
         assert body[0]["name"] == "mykey"
-        assert "key" not in body[0]  # 完整 key 不在列表响应中
+        assert "key" not in body[0]
 
 
 class TestDeleteApiKey:

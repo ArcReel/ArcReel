@@ -26,7 +26,6 @@ from lib.custom_provider.duration_presets import infer_supported_durations
 
 logger = logging.getLogger(__name__)
 
-#: 每种媒体类型可以覆盖的模型事实维度。音频没有模型事实维度。
 MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
@@ -34,11 +33,10 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "audio": frozenset(),
 }
 
-#: 全部模型事实维度的键，供写入侧白名单合并。
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})
-_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images"})
+_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
 
 
 def _is_positive_int(value: object) -> bool:
@@ -61,14 +59,20 @@ def _is_constraints(value: object) -> bool:
     ):
         return False
     with_reference = value.get("with_reference_images", [])
-    return isinstance(with_reference, list) and all(_is_positive_int(item) for item in with_reference)
+    with_end_frame = value.get("with_end_frame", [])
+    return (
+        isinstance(with_reference, list)
+        and all(_is_positive_int(item) for item in with_reference)
+        and isinstance(with_end_frame, list)
+        and all(_is_positive_int(item) for item in with_end_frame)
+    )
 
 
 def model_fact_value_matches(key: str, value: object) -> bool:
     """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
 
     布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
-    ``by_resolution``（分辨率 → 非空时长列表）与 ``with_reference_images``（时长列表）两个键。
+    ``by_resolution``（分辨率 → 非空时长列表）、``with_reference_images`` 与 ``with_end_frame``（时长列表）三个键。
     """
     if key in _BOOL_KEYS:
         return isinstance(value, bool)
@@ -90,7 +94,7 @@ _TYPE_NAMES: Mapping[str, str] = {
     "max_reference_images": "int >= 0",
     "durations": "list[int > 0]（非空）",
     "resolutions": "list[str]（非空）",
-    "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0]}",
+    "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0], with_end_frame: list[int > 0]}",
 }
 
 
@@ -209,8 +213,6 @@ def video_model_facts(model_id: str, overrides: object | None, *, entry_binding:
     return VideoModelFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
 
 
-#: ComfyUI 视频端点上唯一接受的覆盖维度：可选时长。ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），
-#: 但时长档位是用户在 workflow 原生时长之外自己增删的偏好，不是能力声明（docs/adr/0104）。
 COMFYUI_VIDEO_OVERRIDE_KEYS: frozenset[str] = frozenset({"durations"})
 
 
@@ -242,7 +244,12 @@ def _constraints_from_override(raw: Mapping[str, object]) -> DurationConstraints
                 by_resolution[str(res).strip().lower()] = tuple(int(d) for d in allowed)
     with_reference_raw = raw.get("with_reference_images")
     with_reference = tuple(int(d) for d in with_reference_raw) if isinstance(with_reference_raw, list) else ()
-    return DurationConstraints(by_resolution=by_resolution, with_reference_images=with_reference)
+    end_raw = raw.get("with_end_frame")
+    return DurationConstraints(
+        by_resolution=by_resolution,
+        with_reference_images=with_reference,
+        with_end_frame=tuple(int(d) for d in end_raw) if isinstance(end_raw, list) else (),
+    )
 
 
 def matched_entry_summary(model_id: str, media_type: str, entry_binding: str | None = None) -> dict[str, object] | None:

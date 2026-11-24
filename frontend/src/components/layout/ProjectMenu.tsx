@@ -29,7 +29,6 @@ const CONTENT_MODE_LABEL_KEY = {
 
 type ProjectList = { status: "loading" } | { status: "ready"; projects: ProjectSummary[] } | { status: "error"; message: string };
 
-/** 打开切换器时拉取一次全部项目；先用大厅已经拉到的列表顶上，新列表到达后替换。 */
 function useProjectList(open: boolean): ProjectList {
   const cached = useProjectsStore((s) => s.projects);
   const [list, setList] = useState<ProjectList>({ status: "loading" });
@@ -52,16 +51,11 @@ function useProjectList(open: boolean): ProjectList {
   return list;
 }
 
-/**
- * 顶栏左上的项目切换器：触发按钮显示当前项目的名称、创作类型与画幅；弹层里可以搜索全部项目，
- * 选中即切换，底部是项目设置、新建项目与全部项目。
- */
 export function ProjectMenu() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
   const setShowCreateModal = useProjectsStore((s) => s.setShowCreateModal);
-  // 演示项目没有项目级设置
   const demoMode = useDemoWorkbench();
   const [open, setOpen] = useState(false);
   const list = useProjectList(open);
@@ -137,7 +131,6 @@ export function ProjectMenu() {
             </p>
           )}
         </Command>
-        {/* 底部入口不随搜索词过滤，放在候选列表之外，用 Tab 到达 */}
         <div className="-mx-1 flex flex-col border-t border-border pt-1.5">
           {currentProjectName && !demoMode && (
             <Link

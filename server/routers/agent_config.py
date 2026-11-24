@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["Agent 配置"])
 
 
-# ── Response models ─────────────────────────────────────────────────
-
-
 class PresetProviderResponse(BaseModel):
     id: str
     display_name: str
@@ -54,9 +51,6 @@ class PresetProviderResponse(BaseModel):
 class PresetProvidersResponse(BaseModel):
     providers: list[PresetProviderResponse]
     custom_sentinel_id: str
-
-
-# ── Endpoints ──────────────────────────────────────────────────────
 
 
 @router.get("/preset-providers", response_model=PresetProvidersResponse)
@@ -83,9 +77,6 @@ async def list_preset_providers(_t: Translator) -> PresetProvidersResponse:
     )
 
 
-# ── Credential models ──────────────────────────────────────────────
-
-
 class TierStatusResponse(BaseModel):
     """一个档位的定价状态，按当前目录现查。``model_name`` 为 None 表示档位留空、由 CLI 决定调用的模型。"""
 
@@ -93,7 +84,6 @@ class TierStatusResponse(BaseModel):
     model_name: str | None
     entry_display_name: str | None
     manually_bound: bool
-    # 档位存着绑定、但所绑条目已不在目录里：对应关系已回到按模型名，界面仍须能解除这条绑定。
     binding_stale: bool
     priced: bool
 
@@ -111,7 +101,6 @@ class CredentialResponse(BaseModel):
     opus_model: str | None
     subagent_model: str | None
     multiplier: float
-    # 主模型、haiku、sonnet、opus、子智能体五个档位实际调用的模型名与定价状态，顺序固定。
     tiers: list[TierStatusResponse]
     is_active: bool
     created_at: str | None
@@ -125,7 +114,6 @@ class CreateCredentialRequest(BaseModel):
     preset_id: str
     display_name: str | None = None
     base_url: str | None = None
-    # 与 from_custom_provider_id 二选一：给出供应商 id 时密钥由服务端从该供应商复制
     api_key: str | None = None
     from_custom_provider_id: int | None = None
     model: str | None = None
@@ -133,11 +121,9 @@ class CreateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
-    # Agent 凭证倍率（docs/adr/0100）：订阅制网关可填 0，费用记 0。
     multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
-    # 档位 → 条目绑定（「模型厂商/官方模型名」，docs/adr/0105）；值为 null 的档位忽略。
     tier_bindings: dict[Tier, str | None] | None = None
-    activate: bool | None = None  # None = 自动 (无 active 时自动 set active)
+    activate: bool | None = None
 
 
 class UpdateCredentialRequest(BaseModel):
@@ -150,7 +136,6 @@ class UpdateCredentialRequest(BaseModel):
     opus_model: str | None = None
     subagent_model: str | None = None
     multiplier: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    # 按档位合并：给出的档位设为该条目，值为 null 的档位解除绑定，没给出的档位保持不变。
     tier_bindings: dict[Tier, str | None] | None = None
 
 
@@ -239,9 +224,6 @@ async def _resolve_key_source(
     return provider.api_key, body.base_url or provider.base_url
 
 
-# ── Credential endpoints ───────────────────────────────────────────
-
-
 @router.get("/credentials", response_model=CredentialListResponse)
 async def list_credentials(
     _t: Translator,
@@ -289,7 +271,6 @@ async def create_credential(
         multiplier=body.multiplier,
         tier_bindings={tier: ref for tier, ref in bindings.items() if ref is not None},
     )
-    # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
     if body.activate is None:
         existing_active = await repo.get_active()
@@ -310,8 +291,6 @@ async def update_credential(
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
-    # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
-    # 必需字段 (display_name/base_url/api_key/multiplier) 仍过滤 None：传 null 给它们没有意义
     fields = body.model_dump(exclude_unset=True)
     for required in ("display_name", "base_url", "api_key", "multiplier"):
         if fields.get(required) is None:
@@ -380,9 +359,6 @@ async def delete_credential(
     await session.commit()
 
 
-# ── Activate endpoint ──────────────────────────────────────────────
-
-
 class ActivateResponse(BaseModel):
     active_id: int
 
@@ -400,9 +376,6 @@ async def activate_credential(
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
     return ActivateResponse(active_id=cred_id)
-
-
-# ── Test connection models + endpoints ────────────────────────────
 
 
 class ProbeResultModel(BaseModel):

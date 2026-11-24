@@ -3,13 +3,11 @@ import { translate } from "@docusaurus/Translate";
 
 export interface Sponsor {
   name: string;
-  // 内联 SVG 组件，用 currentColor 跟随明暗主题的文字色。
   Logo: ComponentType<SVGProps<SVGSVGElement>>;
   url: string;
   description: string;
 }
 
-// viewBox 比图形外框大一圈，在圆形头像里留出内边距。
 function ApimartLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="280 271 1500 1500" fill="currentColor" aria-hidden="true" {...props}>
@@ -20,7 +18,6 @@ function ApimartLogo(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-// 官网 icon.svg 的狐狸标，保留品牌橙色；图形外框约 16×21，扩到 30×30 居中留白。
 function OfoxLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="-2.86 -3.43 30 30" fill="#FF5000" aria-hidden="true" {...props}>

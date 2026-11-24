@@ -9,10 +9,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
-/**
- * 「规划这段未切分的原文」：以这段原文的结尾为终点直接提交 AI 分集规划，不替换任何集，新集按源文位置插入。
- * 分集规划进行中、或有等待处理的新的分集方案（`blocked` 是原因）时不可用。
- */
 export function PlanGapButton({ sourceFile, end, blocked }: { sourceFile: string; end: number; blocked: string | null }) {
   const { t } = useTranslation("dashboard");
   const projectName = useProjectsStore((s) => s.currentProjectName);

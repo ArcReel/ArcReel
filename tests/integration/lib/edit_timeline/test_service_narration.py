@@ -129,7 +129,6 @@ async def test_place_narration_moves_the_carrier_within_the_unit(pm: ProjectMana
     assert (readout.clips[4].narration.start, readout.clips[4].narration.end) == (4.0, 6.5)
     history = await service.list_revisions("demo", timeline_id)
     assert history.revisions[-1].changed_clip_ids == ("c2", "c5")
-    # c2 不再承载旁白，它的重叠与相撞随之消失；c4 的旁白（3–4.5 秒）压到 c5 的旁白上，c5 的旁白超出 5 秒的末尾。
     assert [(issue[0], issue[3]) for issue in _narration_issues(readout.issues)] == [
         ("narration_overrun", ("c4", "c5")),
         ("narration_overrun", ("c5",)),

@@ -17,12 +17,10 @@ from arcreel_market_core.validation_messages import MessageRef, ValidationMessag
 
 from .definition_diagnostics import ROOT_PATH, DefinitionErrorCode, DefinitionIssue, join_path
 
-#: 声明式 schema 里给 ``$each`` 打的标记：它的 ``oneOf`` 是互斥形态而非分支联合。
 EACH_SHAPE_MARKER = "each_shape"
 
 _ENUM_KEYWORDS = frozenset({"enum", "const"})
 
-#: 同一深度上多条分支报错时的取舍：缺字段 / 多字段最能说明问题，笼统的类型错最没用。
 _KEYWORD_SPECIFICITY: Mapping[str, int] = {
     "type": 0,
     "anyOf": 1,
@@ -40,7 +38,6 @@ _MINIMUM_KEYWORDS = frozenset({"minLength", "minimum", "minItems", "minPropertie
 _MAXIMUM_KEYWORDS = frozenset({"maxLength", "maximum"})
 _FORMAT_KEYWORDS = frozenset({"pattern", "format", "propertyNames"})
 
-#: jsonschema 约束违例的细节模板：把第三方库的英文散文收成少量 locale-neutral 的消息键。
 SCHEMA_MINIMUM_KEY = "val_ce_schema_minimum_constraint"
 SCHEMA_MAXIMUM_KEY = "val_ce_schema_maximum_constraint"
 SCHEMA_FORMAT_KEY = "val_ce_schema_format_constraint"

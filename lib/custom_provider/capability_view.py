@@ -54,6 +54,7 @@ from lib.custom_provider.capabilities import (
     CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
+    synthesize_video_capabilities,
     two_sided_video_capabilities,
 )
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
@@ -70,7 +71,6 @@ from lib.custom_provider.model_facts import (
 
 logger = logging.getLogger(__name__)
 
-#: 界面上的维度顺序：模型事实在前（时长联动约束紧跟可选时长），通道事实随后。
 OVERRIDE_KEY_ORDER: tuple[str, ...] = (
     "image_input",
     "structured_output",
@@ -97,7 +97,6 @@ _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
-#: 图片覆盖维度 → 调用通道须实现的能力，未实现时该维度不可编辑：参考图上限只对图生图路径有意义。
 _IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
     **_IMAGE_CAPABILITY_BY_KEY,
     "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
@@ -156,21 +155,18 @@ def _constraints_json(constraints: DurationConstraints) -> dict[str, object]:
     return {
         "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
         "with_reference_images": list(constraints.with_reference_images),
+        **({"with_end_frame": list(constraints.with_end_frame)} if constraints.with_end_frame else {}),
     }
 
 
-def _channel_json(caps: VideoCapabilities, *, audio_signal: bool) -> dict[str, object]:
-    """通道事实维度的原值。``audio_signal`` 为假时（自定义供应商没有音轨覆盖）音轨形态按「假定有声、开关可控」。"""
+def _channel_json(caps: VideoCapabilities) -> dict[str, object]:
+    """通道事实维度的原值；音轨视图保留端点的开关声明与确定的无声信号。"""
     raw = asdict(caps)
     values: dict[str, object] = {}
     for key in CHANNEL_FACT_OVERRIDE_KEYS:
         value = raw[key]
         values[key] = value.value if isinstance(value, ReferenceAudioMode | VideoAudioMode) else value
-    if audio_signal:
-        values["reference_route_audio_track"] = caps.audio_track_for_route("r2v").value
-    else:
-        values["audio_track"] = VideoAudioMode.CONTROLLABLE.value
-        values["reference_route_audio_track"] = VideoAudioMode.CONTROLLABLE.value
+    values["reference_route_audio_track"] = caps.audio_track_for_route("r2v").value
     return values
 
 
@@ -184,6 +180,7 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
     if isinstance(constraints, Mapping):
         by_resolution = constraints.get("by_resolution")
         with_reference = constraints.get("with_reference_images")
+        with_end_frame = constraints.get("with_end_frame")
         result["duration_constraints"] = {
             "by_resolution": (
                 {str(res).strip().lower(): list(allowed) for res, allowed in by_resolution.items()}
@@ -191,13 +188,9 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
                 else {}
             ),
             "with_reference_images": list(with_reference) if isinstance(with_reference, list) else [],
+            **({"with_end_frame": list(with_end_frame)} if isinstance(with_end_frame, list) and with_end_frame else {}),
         }
     return result
-
-
-# ---------------------------------------------------------------------------
-# 自定义供应商的模型
-# ---------------------------------------------------------------------------
 
 
 def custom_capability_view(
@@ -213,7 +206,6 @@ def custom_capability_view(
     media_type = spec.media_type
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
-            # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
             return CapabilityView(
                 media_type,
                 base=_image_base(
@@ -228,10 +220,17 @@ def custom_capability_view(
             return CapabilityView(media_type)
         endpoint_durations = list(spec.endpoint_durations or [])
         override = comfyui_duration_override(raw_overrides, model_id=model_id)
+        caps = two_sided_video_capabilities(
+            endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
+        )
         return CapabilityView(
             media_type,
             editable=("durations",) if endpoint_durations else (),
-            base={"durations": endpoint_durations},
+            base={
+                "durations": endpoint_durations,
+                "audio_track": caps.audio_track_for_route("i2v").value,
+                "reference_route_audio_track": caps.audio_track_for_route("r2v").value,
+            },
             overrides={"durations": override} if override and endpoint_durations else {},
         )
 
@@ -271,16 +270,27 @@ def custom_capability_view(
             except ValueError:
                 logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
                 caps = VideoCapabilities()
-            base |= _channel_json(caps, audio_signal=False)
+            base |= _channel_json(caps)
         case _:
             editable = set()
     overrides = _normalized_overrides(applied_overrides or {})
-    return CapabilityView(media_type, editable=_ordered(editable), base=base, overrides=overrides)
-
-
-# ---------------------------------------------------------------------------
-# 内置供应商的模型
-# ---------------------------------------------------------------------------
+    effective = None
+    if media_type == "video":
+        try:
+            caps = synthesize_video_capabilities(
+                endpoint=endpoint,
+                model_id=model_id,
+                endpoint_spec=spec,
+                overrides=dict(applied_overrides or {}),
+                entry_binding=entry_binding,
+            )
+        except ValueError:
+            effective = None
+        else:
+            effective = {**base, **overrides, **_channel_json(caps)}
+    return CapabilityView(
+        media_type, editable=_ordered(editable), base=base, overrides=overrides, effective_values=effective
+    )
 
 
 def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:
@@ -302,6 +312,7 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                         res: list(allowed) for res, allowed in model.duration_resolution_constraints.items()
                     },
                     "with_reference_images": list(model.reference_image_durations),
+                    **({"with_end_frame": list(model.end_frame_durations)} if model.end_frame_durations else {}),
                 },
                 "resolutions": list(model.resolutions) or None,
             }
@@ -312,7 +323,7 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
             except ValueError:
                 logger.warning("无法读取内置视频能力: provider=%r model_id=%r", provider_id, model_id)
                 declared = VideoCapabilities()
-            return facts | _channel_json(declared, audio_signal=True)
+            return facts | _channel_json(declared)
         case _:
             return {}
 

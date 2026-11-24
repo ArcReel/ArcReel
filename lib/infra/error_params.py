@@ -9,8 +9,6 @@ from __future__ import annotations
 import json
 from typing import Any, TypeGuard
 
-#: 结构化失败信封 ``[code] {params}`` 的字符上限。任务 ``error_message`` 落库按它收窄，使用记录的
-#: code 与 params 分列落库，同样按整串信封计入，详情里显示的参数才与任务侧一致。
 FAILURE_MESSAGE_LIMIT = 2000
 
 
@@ -83,7 +81,6 @@ def shrink_json_strings(params: dict[str, Any], shrinkable: list[tuple[dict[str,
         current: str = owner[longest_key]
         if not current:
             return False
-        # JSON 转义会放大长度；差值超过原串时逐次减半，保留可容纳的诊断内容。
         deficit = len(encoded) - limit
         drop = deficit if deficit < len(current) else max(1, len(current) // 2)
         owner[longest_key] = current[: len(current) - drop]

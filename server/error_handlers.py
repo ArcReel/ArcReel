@@ -122,7 +122,6 @@ def register_error_handlers(
 
     @app.exception_handler(ModelNotInCatalogError)
     async def _handle_model_not_in_catalog(request: Request, exc: ModelNotInCatalogError) -> JSONResponse:
-        # 设置或项目里引用的内置模型已下线或不在供应商的模型清单中：提示用户重新选择，不当作服务器错误
         _t = get_translator(request)
         names = await request_display_names(request)
         message = render_message(failure_message_key(exc.code, exc.params), exc.params, _t, names)
@@ -145,14 +144,12 @@ def register_error_handlers(
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
-        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
         _t = get_translator(request)
         detail = await present_request_diagnostics(script_edit_detail(exc, _t), request, _t)
         return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(FileNotFoundError)
     async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:
-        # 不回传 str(exc)：load_script 等异常消息含服务器绝对路径，只进日志
         logger.warning("资源不存在: %s %s (%s)", request.method, request.url.path, exc)
         _t = get_translator(request)
         return JSONResponse(status_code=404, content={"detail": _t("resource_not_found")})

@@ -35,6 +35,9 @@ from lib.generation.generation_result import (
 DURATION_CONFIRMATION_CODE = "reference_duration_confirmation_required"
 """The one blocker a user can clear by agreeing to the request tier and cost."""
 
+REFERENCE_OVERFLOW_CODE = "video_reference_images_exceeded"
+"""The one blocker that withdraws only its own unit instead of holding the batch (ADR 0061)."""
+
 
 class BatchAdmissionDecision(StrEnum):
     """Whether this request may create its task set."""
@@ -63,6 +66,29 @@ class UnitAdmissionTicket:
     @property
     def admitted(self) -> bool:
         return not self.problems
+
+    @property
+    def reference_limit_exceeded(self) -> bool:
+        """This unit is withdrawn from the request on its own and never runs in it."""
+
+        return any(problem.code == REFERENCE_OVERFLOW_CODE for problem in self.problems)
+
+    @property
+    def batch_problems(self) -> tuple[GenerationProblem, ...]:
+        """The problems the all-or-nothing verdict still answers to.
+
+        A withdrawn unit no longer runs, so neither its overflow nor the consent it
+        would have needed matter to the rest of the batch; any other gap it has keeps
+        holding the whole request, as it would without the overflow.
+        """
+
+        if not self.reference_limit_exceeded:
+            return self.problems
+        return tuple(
+            problem
+            for problem in self.problems
+            if problem.code not in {REFERENCE_OVERFLOW_CODE, DURATION_CONFIRMATION_CODE}
+        )
 
     @property
     def confirmation_only(self) -> bool:
@@ -116,10 +142,12 @@ class BatchAdmission:
 
     @property
     def decision(self) -> BatchAdmissionDecision:
-        refused = [ticket for ticket in self.tickets if not ticket.admitted]
-        if not refused:
+        if self.tickets and all(ticket.reference_limit_exceeded for ticket in self.tickets):
+            return BatchAdmissionDecision.BLOCKED
+        holding = [ticket for ticket in self.tickets if ticket.batch_problems]
+        if not holding:
             return BatchAdmissionDecision.ADMITTED
-        if all(ticket.confirmation_only for ticket in refused):
+        if all(ticket.confirmation_only for ticket in holding):
             return BatchAdmissionDecision.CONFIRMATION_REQUIRED
         return BatchAdmissionDecision.BLOCKED
 
@@ -139,7 +167,7 @@ class BatchAdmission:
     def holding_unit_ids(self) -> tuple[str, ...]:
         """The units whose own problems kept the whole batch from being created."""
 
-        return tuple(ticket.unit_id for ticket in self.refused_tickets)
+        return tuple(ticket.unit_id for ticket in self.tickets if ticket.batch_problems)
 
     def withheld_problem_for(self, ticket: UnitAdmissionTicket) -> GenerationProblem | None:
         """The reason this ticket has none of its own, or ``None`` if it does.
@@ -167,10 +195,6 @@ class BatchAdmission:
             quoted = [(_cost_amount(member.request_cost), _cost_currency(member.request_cost)) for member in members]
             priced = [(amount, currency) for amount, currency in quoted if amount is not None and currency is not None]
             currencies = {currency for _, currency in priced}
-            # The total covers the priced members only; those the price list cannot quote
-            # are counted in ``unpriced_count`` so the user sees the sum is a floor.
-            # Amounts of different currencies do not add up to a number at all, so a tier
-            # priced in more than one currency has no total.
             total = sum(amount for amount, _ in priced) if len(currencies) == 1 else None
             tiers.append(
                 BatchConfirmationTier(
@@ -194,6 +218,8 @@ class BatchAdmission:
         total: dict[str, float] = {}
         unpriced = 0
         for ticket in self.tickets:
+            if ticket.reference_limit_exceeded:
+                continue
             amount = _cost_amount(ticket.request_cost)
             currency = _cost_currency(ticket.request_cost)
             if amount is None or currency is None:
@@ -211,7 +237,7 @@ class BatchAdmission:
         *,
         states: Mapping[str, GenerationTargetState] | None = None,
     ) -> None:
-        """Report every target as blocked, because zero tasks were created.
+        """Report refused targets and, on an atomic refusal, targets withheld with them.
 
         A unit that passed on its own still gets a machine-readable reason —
         ``BATCH_ADMISSION_WITHHELD`` naming the units that held the batch back —
@@ -220,7 +246,12 @@ class BatchAdmission:
 
         if self.admitted:
             raise ValueError("record_refusal requires a refused admission")
-        for ticket in self.tickets:
+        self.record_blocked_units(builder, states=states)
+
+    def record_blocked_units(
+        self, builder: GenerationResultBuilder, *, states: Mapping[str, GenerationTargetState] | None = None
+    ) -> None:
+        for ticket in self.refused_tickets if self.admitted else self.tickets:
             withheld = self.withheld_problem_for(ticket)
             problem = ticket.problems[0] if ticket.problems else withheld
             if problem is None:

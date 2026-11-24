@@ -60,7 +60,6 @@ class TestUpdateProjectAtomicity:
         name = _make_project(tmp_path, chars)
 
         async def _update(char_id: str):
-            # Simulate async image generation delay
             await asyncio.sleep(0.01)
             pm.update_project(
                 name,
@@ -89,20 +88,16 @@ class TestUpdateProjectAtomicity:
             },
         )
 
-        # Simulate two tasks both reading the same initial version
         snapshot_a = pm.load_project(name)
         snapshot_b = pm.load_project(name)
 
-        # Task A finishes first and writes back
         snapshot_a["characters"]["alice"]["character_sheet"] = "characters/alice.png"
         pm.save_project(name, snapshot_a)
 
-        # Task B finishes second and writes back its stale snapshot
         snapshot_b["characters"]["bob"]["character_sheet"] = "characters/bob.png"
         pm.save_project(name, snapshot_b)
 
         result = pm.load_project(name)
-        # Alice's change is lost! This demonstrates the bug.
         assert result["characters"]["alice"]["character_sheet"] == "", (
             "Expected alice's sheet to be lost (demonstrating the bug)"
         )

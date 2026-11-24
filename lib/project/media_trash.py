@@ -52,9 +52,6 @@ REFERENCE_AUDIO_KIND = "reference_audio"
 _GRID_TYPE = "grids"
 
 
-# ---------------------------------------------------------------- 删除
-
-
 def trash_grid(project_dir: Path, grid_id: str, episode: int | None) -> project_trash.TrashRecord:
     """把一条宫格记录连同联合图与版本历史移进项目回收站；调用方持项目锁与该宫格的记录锁。
 
@@ -68,7 +65,6 @@ def trash_grid(project_dir: Path, grid_id: str, episode: int | None) -> project_
         *versions.snapshot_files(versions.resource_records(resource)),
     ]
     files = [rel for rel in dict.fromkeys(candidates) if _is_plain_file(project_dir / rel)]
-    # 快照先拍：版本历史与清单登记留在快照里，恢复时从迁移后的临时项目取出。
     record = project_trash.record_deletion(
         project_dir, {"kind": GRID_KIND, "id": grid_id, "episode": episode}, files, snapshot=True
     )
@@ -112,9 +108,6 @@ def trash_reference_audio(project_dir: Path, character: str, rel: str) -> projec
     return project_trash.record_deletion(project_dir, obj, [rel], snapshot=True)
 
 
-# ---------------------------------------------------------------- 恢复
-
-
 def take_grid(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
     """按宫格 ID 从迁移后的临时项目取出宫格记录、联合图、版本历史与清单登记。"""
     grid_id = str(obj.get("id"))
@@ -147,7 +140,6 @@ def take_grid(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restor
         if any(not _free(project_dir, rel) for rel in rels) or versions.resource_records(resource):
             raise _failed(grid_id)
 
-    # 此处按取不出对象降级（集已彻底删除、位置被占）或拒绝（集在回收站里）；落地时在锁内再核对一次。
     require_free()
 
     def land(landing: Landing) -> None:
@@ -157,7 +149,6 @@ def take_grid(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restor
         with formal_write_transaction(versions.versions_file):
             versions.attach_resources(history)
             if claim is not None:
-                # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
                 register_artifact_entries_atomically(
                     project_dir, {key: ArtifactManifestEntry(claim.artifact_path, claim.basis_digest)}
                 )
@@ -176,7 +167,6 @@ def take_end_frame(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> R
         items, id_field, *_ = get_storyboard_items(script)
         matched = find_storyboard_item(items, id_field, shot_id)
         if matched is None:
-            # 分镜或所属的剧本已删除：加回的尾帧没有归属。
             raise _failed(rel)
         return matched[0]
 
@@ -218,7 +208,6 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
         characters = projects.load_project(project_dir.name).get("characters")
         key = resolve_asset_key(characters, character)
         if key is None or not isinstance(characters, dict):
-            # 角色已删除：加回的参考音频没有归属。
             raise _failed(rel)
         current = characters[key].get("reference_audio")
         return not (isinstance(current, str) and current and _is_plain_file(project_dir / current))
@@ -236,7 +225,6 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
 
         with formal_write_transaction(project_dir / ProjectManager.PROJECT_FILE):
             landing.place(staged / rel, target, original=rel)
-            # 换名后的文件不在角色自己名下，不能重新关联为参考音频。
             if link and target == rel:
                 projects.update_project_locked(project_dir.name, relink)
         return {**obj, "path": target}
@@ -245,9 +233,6 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
         land=land,
         after=lambda: emit_project_change_hint(project_dir.name, changed_paths=[ProjectManager.PROJECT_FILE]),
     )
-
-
-# ---------------------------------------------------------------- 内部
 
 
 def _failed(identity: str) -> ConflictError:

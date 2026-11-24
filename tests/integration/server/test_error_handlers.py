@@ -16,7 +16,6 @@ from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, Unpro
 from lib.script.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
 
-# 运行时基于系统 tmp 目录构造，不提交机器特定的绝对路径。
 _SERVER_PATH = str(Path(tempfile.gettempdir()) / "projects" / "demo" / "episode_1.json")
 
 
@@ -161,7 +160,6 @@ class TestLibExceptionHandlers:
         client = _make_client()
         resp = client.get("/task-spec-error")
         assert resp.status_code == 400
-        # detail 是翻译后的成品文案，不是裸 code
         assert resp.json()["detail"] != "prompt_text_empty"
 
     def test_model_not_in_catalog_400_asks_to_reselect(self):
@@ -278,7 +276,6 @@ class TestUnexpectedErrorCorsHeaders:
         assert "access-control-allow-origin" not in resp.headers
 
     def test_default_kwargs_fall_back_to_wildcard(self):
-        # register_error_handlers 不传 cors 参数时的保守默认值：通配 origins，不开 credentials。
         app = FastAPI()
         register_error_handlers(app)
 

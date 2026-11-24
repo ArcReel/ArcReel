@@ -38,7 +38,13 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
+from lib.backends.backend_runtime import (
+    ProviderJobIdPersistenceMixin,
+    ReferenceImageData,
+    notify_provider_response,
+    read_video_images,
+)
+from lib.backends.input_limits import excess_image_names
 from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
@@ -46,8 +52,6 @@ from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInpu
 
 logger = logging.getLogger(__name__)
 
-#: 本端点产出的是视频：产物扩展名白名单与失败文案共读这一个值
-#: （见 ``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``）。
 MEDIA_TYPE = "video"
 
 
@@ -99,11 +103,21 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         return binding_video_capabilities(self._definition)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        bindings = self._definition.get("bindings") or {}
+        if request.start_image is not None and not _targets(bindings.get("start_image")):
+            raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self.model)
+        if request.end_image is not None and not _targets(bindings.get("end_image")):
+            raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self.model)
         count = len(request.reference_images or [])
         slots = derive_video_capabilities(self._definition).max_reference_images
         if count > slots:
-            raise VideoCapabilityError("video_reference_images_exceeded", model=self._model, limit=slots, count=count)
-        # 预检使用本地引用占位，不上传：无效绑定、欠填或缺失画幅必须在所有外部写入前失败。
+            raise VideoCapabilityError(
+                "video_reference_images_exceeded",
+                names=excess_image_names(slots, count, request.reference_images or []),
+                model=self._model,
+                limit=slots,
+                count=count,
+            )
         if (
             request.reference_audio_files
             or self._definition["bindings"].get("reference_audio")
@@ -132,8 +146,6 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 self._definition,
                 prompt=request.prompt,
                 aspect_ratio=request.aspect_ratio,
-                # 时长原样转交：``frames`` 未绑定或读不到帧率时，构造层自己跳过帧数换算——在这里
-                # 补一个缺省只会把「这份 workflow 的时长不由 ArcReel 驱动」写成一个具体秒数。
                 duration_seconds=request.duration_seconds,
                 resolution=request.resolution,
                 media=media,
@@ -181,8 +193,6 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 output_path=request.output_path,
                 poll_timeout_seconds=request.poll_timeout_seconds,
                 record=lambda stage, body: notify_provider_response(request, stage, body),
-                # 续跑期的「执行找不着了」归 resume_expired：worker 据此标失败并结算那条 pending
-                # 的调用行，而不是把它当成一次可以就地重试的生成失败。
                 lost_error=lambda prompt_id: ResumeExpiredError(job_id=prompt_id, provider=self._provider),
             )
             return self._result(request, job_id, picked, built=None)
@@ -219,28 +229,29 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             duration_seconds=request.duration_seconds,
             video_uri=self._execution.view_url(picked.artifact),
             task_id=prompt_id,
-            # 实发种子与 workflow 指纹只在提交那一次的构造里存在：两者一起才说得清「这一版是照
-            # 哪份图、用哪个种子出的」，而续跑这条路一样都没构造，故一起缺席而不是各给一个假值。
             seed=built.seed if built is not None else None,
-            generate_audio=request.generate_audio,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
             provenance={"workflow_sha256": built.workflow_sha256} if built is not None else None,
             warnings=warnings,
         )
-
-    # ------------------------------------------------------------------ 上传
 
     async def _upload_media(
         self, http: httpx.AsyncClient, request: VideoGenerationRequest, *, job_label: str
     ) -> MediaInputs:
         """上传绑定的首尾帧，以及已通过槽位容量校验的全部参考图。"""
-        bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
-        start = await self._upload_one(http, request.start_image, bindings, "start_image", job_label=job_label)
-        end = await self._upload_one(http, request.end_image, bindings, "end_image", job_label=job_label)
+        images = await asyncio.to_thread(read_video_images, request, self.model)
+        start = await self._upload_one(http, request.start_image, "start_image", images, job_label=job_label)
+        end = await self._upload_one(http, request.end_image, "end_image", images, job_label=job_label)
         references: list[str] = []
         for index, path in enumerate(request.reference_images or []):
             references.append(
                 await self._client.upload_media(
-                    http, path, filename=upload_filename(job_label, "reference_images", path, index)
+                    http,
+                    path,
+                    image=images[Path(path)],
+                    filename=upload_filename(job_label, "reference_images", path, index),
                 )
             )
         audio = []
@@ -258,14 +269,16 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         self,
         http: httpx.AsyncClient,
         path: Path | None,
-        bindings: Mapping[str, Any],
         key: str,
+        images: Mapping[Path, ReferenceImageData],
         *,
         job_label: str,
     ) -> str | None:
-        if path is None or not _targets(bindings.get(key)):
+        if path is None:
             return None
-        return await self._client.upload_media(http, path, filename=upload_filename(job_label, key, path))
+        return await self._client.upload_media(
+            http, path, image=images[Path(path)], filename=upload_filename(job_label, key, path)
+        )
 
 
 def _targets(raw: object) -> list[Mapping[str, Any]]:

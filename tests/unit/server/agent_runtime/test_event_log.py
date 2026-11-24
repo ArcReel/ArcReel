@@ -51,11 +51,6 @@ class _FakeDriverError(Exception):
             self.sqlite_errorname = sqlite_errorname
 
 
-# ---------------------------------------------------------------------------
-# normalize_sdk_message_to_entries — 写入点定型纯函数
-# ---------------------------------------------------------------------------
-
-
 class TestNormalize:
     def test_assistant_message_becomes_single_entry_with_message_id(self):
         entries = normalize_sdk_message_to_entries(
@@ -100,7 +95,6 @@ class TestNormalize:
         assert entries[1]["tool_use_id"] == "tu-2"
         assert entries[1]["content"] == "boom"
         assert entries[1]["is_error"] is True
-        # 独立条目、不同 uuid
         assert entries[0]["uuid"] != entries[1]["uuid"]
 
     def test_mixed_user_content_splits_tool_results_from_text(self):
@@ -169,11 +163,6 @@ class TestNormalize:
         assert len(entries) == 1
         assert entries[0]["type"] == "user"
         assert entries[0]["content"] == [{"type": "text", "text": "继续下一章"}]
-
-
-# ---------------------------------------------------------------------------
-# 写入点定型 — interrupt / task 通知 XML / AskUserQuestion 答复
-# ---------------------------------------------------------------------------
 
 
 class TestNormalizeInterrupt:
@@ -293,7 +282,6 @@ class TestNormalizeTaskNotificationXml:
         assert len(entries) == 2
         assert [e["task_id"] for e in entries] == ["t9", "t10"]
         assert [e["subtype"] for e in entries] == ["task_notification", "task_notification"]
-        # 多条时 uuid 加序号后缀，避免与单条场景的 uuid 撞车
         assert entries[0]["uuid"] == "n-multi-tn0"
         assert entries[1]["uuid"] == "n-multi-tn1"
 
@@ -470,11 +458,6 @@ class TestNormalizeQuestionAnswer:
         assert entries[1]["content"] == "answered 2"
 
 
-# ---------------------------------------------------------------------------
-# SdkMessageNormalizer — skill 调用定型（跨消息状态）
-# ---------------------------------------------------------------------------
-
-
 _SKILL_INJECTION_TEXT = (
     "Base directory for this skill: /proj/.claude/skills/generate-storyboard\n\n# 生成分镜图\n\n完整注入正文……"
 )
@@ -511,7 +494,6 @@ class TestSkillInvocationTyping:
         assert entry["skill_name"] == "generate-storyboard"
         assert entry["skill_args"] == "第一集所有场景"
         assert entry["tool_use_id"] == "tu-skill"
-        # 注入全文不进日志：条目任何字段都不携带正文
         import json
 
         assert "完整注入正文" not in json.dumps(entries, ensure_ascii=False)
@@ -638,11 +620,6 @@ class TestSkillInvocationTyping:
         assert entries[0]["type"] == "user"
 
 
-# ---------------------------------------------------------------------------
-# EventLogStore — seq 单调 / 幂等键 / 游标
-# ---------------------------------------------------------------------------
-
-
 class TestEventLogStore:
     async def test_seq_is_monotonic_across_appends(self, log_store: EventLogStore):
         first = await log_store.append("s1", [{"type": "user", "uuid": "a"}])
@@ -714,7 +691,7 @@ class TestEventLogStore:
 
         result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
 
-        assert calls["n"] == 2  # 首次撞主键冲突后重试一次即成功
+        assert calls["n"] == 2
         assert result[0]["uuid"] == "u1"
 
     async def test_append_retries_seq_race_with_localized_pg_error_via_sqlstate(
@@ -786,7 +763,7 @@ class TestEventLogStore:
         driver_error.__context__ = _FakeDriverError(
             "original pg error", constraint_name="uq_agent_event_log_client_key"
         )
-        assert driver_error.__cause__ is None  # 隐式关联，未显式 raise ... from
+        assert driver_error.__cause__ is None
 
         async def _conflicting_append_once(session_id, entries, client_key):
             raise IntegrityError("INSERT INTO agent_session_event_log ...", {}, driver_error)
@@ -808,7 +785,7 @@ class TestEventLogStore:
         err_a = _FakeDriverError("a")
         err_b = _FakeDriverError("b")
         err_a.__context__ = err_b
-        err_b.__context__ = err_a  # 环：a -> b -> a -> ...
+        err_b.__context__ = err_a
 
         exc = IntegrityError("INSERT INTO agent_session_event_log ...", {}, err_a)
 
@@ -843,8 +820,6 @@ class TestEventLogStore:
 
         calls = {"n": 0}
         original_append_once = log_store._append_once
-        # 驱动只给出含 client_key 字样的文案：真实分类器据此判为 True，正是要被
-        # 结构性排除的那种误判。
         misleading = _FakeDriverError(
             "UNIQUE constraint failed: agent_session_event_log.client_key",
             sqlite_errorname="SQLITE_CONSTRAINT_PRIMARYKEY",
@@ -858,7 +833,7 @@ class TestEventLogStore:
 
         monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
 
-        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])  # client_key 默认 None
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
 
         assert calls["n"] == 2
         assert result[0]["uuid"] == "u1"
@@ -912,7 +887,6 @@ class TestEventLogStore:
         first = build_user_entry([{"type": "text", "text": "hi"}])
         await log_store.append("sdk-a", [first], client_key="ck-new")
         await log_store.append("sdk-b", [build_user_entry([{"type": "text", "text": "other"}])])
-        # 非首条（seq>0）的常规消息幂等键不属于新会话受理，不参与匹配
         mid = build_user_entry([{"type": "text", "text": "mid"}])
         await log_store.append("sdk-b", [mid], client_key="ck-mid")
 
@@ -976,11 +950,6 @@ class TestUserMessageLink:
         assert await log_store.find_user_message_link("s1", "user-1") is None
 
 
-# ---------------------------------------------------------------------------
-# EventLogService — 懒生成
-# ---------------------------------------------------------------------------
-
-
 class _FakeAdapter:
     def __init__(self, messages, subagent_timelines=None, subagent_descriptions=None):
         self._messages = messages
@@ -1020,7 +989,6 @@ class TestLazyBackfill:
         assert [e["seq"] for e in entries] == [0, 1]
         assert entries[0]["timestamp"] == "2026-01-01T00:00:00Z"
 
-        # 第二次访问不重复重放
         again = await service.list_entries("old-session", None)
         assert len(again) == 2
         assert adapter.read_count == 1
@@ -1096,11 +1064,9 @@ class TestLazyBackfill:
             await service.ensure_backfilled(f"empty-{i}", None)
         assert len(service._backfill_locks) == 0
 
-        # transcript 补齐内容后，并发访问只灌入一次
         adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]
         await asyncio.gather(*[service.ensure_backfilled("old", None) for _ in range(5)])
         assert len(await log_store.list_after("old")) == 1
-        # 写入成功后锁引用被清理
         assert "old" not in service._backfill_locks
 
     async def test_backfill_skips_message_that_fails_normalization(self, log_store: EventLogStore, monkeypatch):
@@ -1201,14 +1167,8 @@ class TestLazyBackfill:
 
         entries = await service.list_entries("old-session", None)
         assert [e["type"] for e in entries] == ["user", "system", "user", "system"]
-        # 相邻两条回显收敛为一条；隔轮的新中断仍独立成条
         assert entries[1]["subtype"] == "interrupt"
         assert entries[3]["subtype"] == "interrupt"
-
-
-# ---------------------------------------------------------------------------
-# 懒生成 — subagent subpath 合并
-# ---------------------------------------------------------------------------
 
 
 class TestSubagentBackfillMerge:
@@ -1258,10 +1218,8 @@ class TestSubagentBackfillMerge:
 
         entries = await service.list_entries("old-session", None)
 
-        # 子条目紧跟携带 Task tool_use 的主线条目之后，先于后续主线条目
         uuids = [e["uuid"] for e in entries]
         assert uuids == ["u1", "a1", "s-u1", "s-a1", "s-u2-tr0", "u2-tr0", "a2"]
-        # 子条目全部带 parent_tool_use_id，主线条目不带
         sub = [e for e in entries if e.get("parent_tool_use_id")]
         assert {e["parent_tool_use_id"] for e in sub} == {"tu-agent"}
         assert [e["uuid"] for e in sub] == ["s-u1", "s-a1", "s-u2-tr0"]

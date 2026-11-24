@@ -31,7 +31,6 @@ VIDU2 = "vidu/vidu2.0"
 
 @pytest.fixture
 def resolver(db_factory, monkeypatch) -> ConfigResolver:
-    # 请求事实用例单独验证档位与能力，不受模型关停日期影响。
     install_catalog(
         monkeypatch,
         with_entry_changes(catalog.factory_snapshot(), VEO_PROVIDER, VEO_MODEL, discontinued=False, shutdown_date=None),
@@ -55,8 +54,7 @@ async def _seed_custom_video_models(db_factory, *rows: dict) -> str:
                 CustomProviderModel(
                     provider_id=provider.id,
                     display_name=row["model_id"],
-                    endpoint="newapi-video",
-                    **row,
+                    **{"endpoint": "newapi-video", **row},
                 )
             )
         await session.commit()
@@ -267,6 +265,7 @@ async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(res
     assert facts == VideoRequestFactsFailure(
         "video_supported_durations_incompatible",
         (("provider", VEO_PROVIDER), ("model", VEO_MODEL), ("resolution", "1080p"), ("capability", "i2v")),
+        excluded_durations=((4, "resolution"), (6, "resolution"), (8, "resolution")),
     )
 
 
@@ -313,7 +312,6 @@ async def test_configured_identity_change_after_bucket_validation_fails(db_facto
     async def changing_sessions():
         async with db_factory() as session:
             yield session
-        # 在身份与桶校验完成的 session 关闭后提交配置变更，下一次能力读取会看到它。
         if not disabled:
             disabled.append(True)
             async with db_factory() as session:
@@ -540,3 +538,208 @@ async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolv
     assert (facts.text_to_video, facts.first_frame) == (declared.text_to_video, declared.first_frame)
     assert facts.max_reference_audio_count == declared.max_reference_audio_count
     assert facts.reference_audio_per_image is declared.reference_audio_per_image
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides", "mode", "has_audio", "controllable"),
+    [
+        ("dashscope-video", {}, "always_on", True, False),
+        ("openai-video", {}, "always_on", True, False),
+        ("gemini-interactions-video", {}, "always_on", True, False),
+        ("kling-video-model-path", {}, "always_on", True, False),
+        ("minimax-h3", {}, "always_on", True, False),
+        ("minimax-hailuo-v1", {}, "always_off", False, False),
+        ("minimax-s2v-01", {}, "always_off", False, False),
+        ("dashscope-video", {"audio_track": "always_off"}, "always_off", False, False),
+        ("newapi-video", {}, "controllable", True, True),
+        ("newapi-video", {"audio_track": "always_off"}, "always_off", False, True),
+        ("newapi-video", {"audio_track": "always_on"}, "controllable", True, True),
+        ("dashscope-video", {"audio_track": "controllable"}, "always_on", True, False),
+    ],
+)
+async def test_custom_audio_facts_agree_across_settings_preflight_and_voice(
+    resolver, db_factory, endpoint, overrides, mode, has_audio, controllable
+):
+    from pathlib import Path
+
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+    from lib.custom_provider.capabilities import synthesize_video_capabilities
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.custom_provider.metering import custom_video_usage, video_metering_for
+    from lib.generation.video_request_facts import audio_switch_conflict
+    from tests.http_capture import capture_http
+
+    provider = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "unrecorded-model",
+            "endpoint": endpoint,
+            "capability_overrides": {"durations": [5], **overrides},
+            "is_default": True,
+        },
+    )
+    view = custom_capability_view(
+        model_id="unrecorded-model",
+        endpoint=endpoint,
+        spec=get_endpoint_spec(endpoint),
+        raw_overrides=overrides,
+        applied_overrides=overrides,
+        entry_binding=None,
+    )
+    assert view.effective["audio_track"] == mode
+    assert view.effective["reference_route_audio_track"] == mode
+    generation_type = "r2v" if endpoint == "minimax-s2v-01" else "i2v"
+    with capture_http() as http:
+        facts = await _read(
+            resolver,
+            {
+                f"video_provider_{generation_type}": f"{provider}/unrecorded-model",
+                "video_generate_audio": False,
+            },
+            generation_type=generation_type,
+        )
+        assert isinstance(facts, VideoRequestFacts)
+        assert (facts.has_audio_track, facts.audio_switch_controllable) == (has_audio, controllable)
+        assert facts.voice_consistency == ("soft" if has_audio else "none")
+        failure = audio_switch_conflict(facts)
+        assert (failure.code if failure else None) == (
+            "video_audio_switch_not_supported" if has_audio and not controllable else None
+        )
+        assert not http.calls
+    spec = get_endpoint_spec(endpoint)
+    request = VideoGenerationRequest(
+        prompt="p",
+        output_path=Path("unused.mp4"),
+        generate_audio=True,
+        video_capabilities=synthesize_video_capabilities(
+            endpoint=endpoint, model_id="unrecorded-model", overrides=overrides
+        ),
+    )
+    usage = custom_video_usage(video_metering_for(spec.metering_backend, spec.definition), "unrecorded-model", request)
+    assert usage.dimensions["audio"] is has_audio
+
+
+async def test_comfyui_silent_binding_reaches_preflight_and_voice(resolver, db_factory):
+    pair = await seed_endpoint_fixed_video_model(db_factory)
+    facts = await _read(resolver, {"video_provider_i2v": pair, "video_generate_audio": True})
+    assert isinstance(facts, VideoRequestFacts)
+    assert (facts.has_audio_track, facts.audio_switch_controllable, facts.generate_audio) == (False, False, False)
+    assert facts.voice_consistency == "none"
+
+    from pathlib import Path
+
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+    from lib.custom_provider.capabilities import synthesize_video_capabilities
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.custom_provider.metering import custom_video_usage
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    async with db_factory() as session:
+        model = await CustomProviderRepository(session).get_model_by_ids(
+            int(pair.split("/")[0].removeprefix("custom-")), "wan-workflow"
+        )
+        assert model is not None
+        spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+        caps = synthesize_video_capabilities(
+            endpoint=model.endpoint, model_id=model.model_id, overrides=None, endpoint_spec=spec
+        )
+        view = custom_capability_view(
+            model_id=model.model_id,
+            endpoint=model.endpoint,
+            spec=spec,
+            raw_overrides=None,
+            applied_overrides=None,
+            entry_binding=None,
+        )
+    assert view.effective["audio_track"] == "always_off"
+    usage = custom_video_usage(
+        None,
+        "wan-workflow",
+        VideoGenerationRequest(
+            prompt="p",
+            output_path=Path("unused.mp4"),
+            generate_audio=True,
+            video_capabilities=caps,
+        ),
+    )
+    assert usage.dimensions["audio"] is False
+
+
+async def test_end_frame_narrows_request_but_not_planning(resolver, monkeypatch):
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            VEO_PROVIDER,
+            VEO_MODEL,
+            duration_constraints=DurationConstraints(with_end_frame=(4, 6)),
+        ),
+    )
+    project = {"video_provider_i2v": VEO}
+    planning = await _read(resolver, project)
+    request = await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(planning, VideoRequestFacts)
+    assert planning.allowed_durations == (4, 6, 8)
+    assert isinstance(request, VideoRequestFacts)
+    assert request.allowed_durations == (4, 6)
+    assert request.excluded_durations == ((8, "end_frame"),)
+
+
+async def test_end_frame_intersects_resolution_and_reference_constraints(resolver, monkeypatch):
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            VEO_PROVIDER,
+            VEO_MODEL,
+            duration_constraints=DurationConstraints(
+                by_resolution={"1080p": (6, 8)},
+                with_reference_images=(4, 8),
+                with_end_frame=(4, 6),
+            ),
+        ),
+    )
+    failure = await evaluate_video_request_facts(
+        _with_resolution({"video_provider_r2v": VEO}, VEO, "1080p"),
+        route="reference_video",
+        generation_type="r2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(failure, VideoRequestFactsFailure)
+    assert failure.code == "video_end_frame_durations_incompatible"
+    assert failure.action == "fix_input"
+    assert dict(failure.excluded_durations)[8] == "end_frame"
+
+
+async def test_custom_model_end_frame_override_replaces_entry_constraints(resolver, db_factory):
+    provider = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "vendor/Veo-3.1-Generate-001",
+            "is_default": True,
+            "capability_overrides": {"duration_constraints": {"with_end_frame": [4, 6]}},
+        },
+    )
+    result = await evaluate_video_request_facts(
+        {"video_provider_i2v": f"{provider}/vendor/Veo-3.1-Generate-001"},
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(result, VideoRequestFacts)
+    assert result.allowed_durations == (4, 6)
+    assert result.excluded_durations == ((8, "end_frame"),)

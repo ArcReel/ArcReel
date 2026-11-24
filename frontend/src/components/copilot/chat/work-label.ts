@@ -22,17 +22,11 @@ import type { ContentBlock, EpisodeMeta, TodoItem } from "@/types";
 import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/utils/episode-display";
 import { ARCREEL_TOOL_SUMMARIES } from "./arcreel-tool-summaries";
 
-// ---------------------------------------------------------------------------
-// 工序行的显示层：哪些块算工序、工序的状态，以及工具调用的显示名、图标与一句摘要。
-// 认得的参数翻成创作者能读的话，不认得的才退回截断的参数原文。
-// ---------------------------------------------------------------------------
 
 export type ToolInput = Record<string, unknown>;
 
-/** 成功不加标记；运行中与已停止只在会话仍在跑或已终结时区分。 */
 export type WorkStatus = "running" | "ok" | "error" | "stopped";
 
-/** 工序块：一轮回复里连续的工序排成紧凑的一列，正文之间才留段距。 */
 export function isWorkBlock(block: ContentBlock): boolean {
   return (
     block.type === "tool_use" ||
@@ -45,11 +39,9 @@ export function isWorkBlock(block: ContentBlock): boolean {
 
 export interface BlockSegment {
   work: boolean;
-  /** 段内的块与它在原内容里的位置。 */
   items: Array<{ block: ContentBlock; index: number }>;
 }
 
-/** 按工序分段：连续的工序合成一段，其余块各自成段。 */
 export function segmentWorkBlocks(blocks: ContentBlock[]): BlockSegment[] {
   const segments: BlockSegment[] = [];
   blocks.forEach((block, index) => {
@@ -61,7 +53,6 @@ export function segmentWorkBlocks(blocks: ContentBlock[]): BlockSegment[] {
   return segments;
 }
 
-/** tool_use 块的状态：有结果即结束，会话终结仍无结果时是已停止，避免运行状态悬挂。 */
 export function toolStatus(block: ContentBlock, sessionDone: boolean): WorkStatus {
   if (block.is_error) return "error";
   if (block.result !== undefined) return "ok";
@@ -86,20 +77,13 @@ function fileName(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
-/** 摘要片段的格式化工具，按当前语言与项目的集清单生成。 */
 export interface SummaryFormat {
   text: (value: unknown) => string;
-  /** 路径只留最后两段。 */
   path: (value: unknown) => string;
-  /** 集 ID → 集名（标题，没有标题时是播出位置）。 */
   episode: (value: unknown) => string;
-  /** 剧本文件名 → 所属集的集名；不在集清单里时显示文件名。 */
   script: (value: unknown) => string;
-  /** 条目 ID → 「集名 · S01」。 */
   item: (value: unknown) => string;
-  /** 一组条目 ID：同一集时写「集名 · S01、S02」，超过三个只列前三个。 */
   items: (value: unknown) => string;
-  /** 一组名称，超过三个只列前三个。 */
   list: (value: unknown) => string;
   assetType: (value: unknown) => string;
   quote: (value: unknown) => string;
@@ -109,7 +93,6 @@ export interface SummaryFormat {
   count: (key: "tool_summary_grids" | "tool_summary_operations", value: unknown) => string;
   projectFields: (input: ToolInput) => string;
   record: (value: unknown) => Record<string, unknown>;
-  /** 数组里每个对象的某个字段。 */
   field: (value: unknown, key: string) => unknown[];
   join: (...parts: string[]) => string;
 }
@@ -145,7 +128,6 @@ export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts
       const ids = strings(value);
       if (ids.length === 0) return "";
       const labels = ids.map((id) => episodeItemLabel(id, scripts, episodes, t));
-      // 同一集的条目只写一次集名：「第 1 集 · 1、2」
       const prefixes = new Set(labels.map((label) => label.split(SUMMARY_JOINER)[0]));
       if (prefixes.size === 1 && labels.every((label) => label.includes(SUMMARY_JOINER))) {
         const [prefix] = prefixes;
@@ -245,7 +227,6 @@ export interface WorkLabel {
   icon: LucideIcon;
 }
 
-/** 工具调用的显示名、图标与摘要。ArcReel 工具与内置工具都有本地化名称，其余工具保留原名。 */
 export function toolLabel(
   name: string,
   input: ToolInput | undefined,

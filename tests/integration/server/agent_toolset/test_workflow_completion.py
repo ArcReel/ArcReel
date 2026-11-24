@@ -26,11 +26,6 @@ def _harness(projects: ProjectManager) -> ToolHarness:
     return ToolHarness(project_name="demo", data_root=projects.data_root, pm=projects)
 
 
-# ---------------------------------------------------------------------------
-# complete_script_plan_rebuild
-# ---------------------------------------------------------------------------
-
-
 async def test_script_plan_rebuild_forwards_the_explicit_baseline(tmp_path: Path) -> None:
     projects = _project(tmp_path)
     calls: list[tuple[object, ...]] = []

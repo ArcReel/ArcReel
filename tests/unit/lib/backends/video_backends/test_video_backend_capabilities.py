@@ -94,7 +94,6 @@ class TestGrokVideoCapabilities:
 
         with patch("lib.backends.video_backends.grok.create_grok_client"):
             caps = GrokVideoBackend(api_key="test-key").video_capabilities
-        # 通道实现了参考图且不设上限，各型号的上限来自条目
         assert caps.max_reference_images is None
         assert not hasattr(caps, "reference_images_with_start_frame")
 
@@ -108,12 +107,10 @@ class TestVideoCapabilitiesForModel:
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.backends.video_backends.ark import Seedance2VideoBackend
 
-        # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得通道声明：不设参考图上限
         assert (
             Seedance2VideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").max_reference_images
             is None
         )
-        # 生效上限来自条目
         assert builtin_video_capabilities_for_model("ark", "doubao-seedance-2-0-260128").max_reference_images == 9
 
     def test_vidu_returns_seven(self):
@@ -137,7 +134,6 @@ class TestVideoCapabilitiesForModel:
         ("model", "expected"),
         [
             ("MiniMax-Hailuo-2.3", True),
-            # Fast 仅图生视频：这条收窄由 minimax-hailuo-v1-fast 定义里必需的首帧输入承担。
             ("MiniMax-Hailuo-2.3-Fast", False),
             ("MiniMax-H3", True),
         ],

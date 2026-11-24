@@ -18,7 +18,7 @@ CUSTOM_SENTINEL_ID = "__custom__"
 class PresetProvider:
     id: str
     display_name: str
-    icon_key: str  # @lobehub/icons 子组件名 (如 "DeepSeek")
+    icon_key: str
     messages_url: str
     discovery_url: str | None
     default_model: str
@@ -214,7 +214,6 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
 }
 
 
-# 显示顺序：显式定义,Anthropic Official 永远第一,ArcReel 第二,其余按区域归组
 PRESET_ORDER: tuple[str, ...] = (
     "anthropic-official",
     "arcreel",

@@ -27,7 +27,6 @@ def test_default_unit_duration_takes_the_project_preference_only_when_it_is_a_na
     facts = make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,))
 
     assert default_unit_duration(facts, {"default_duration": 8}) == 8
-    # 偏好只在全集里、被收窄掉时不采信：退到收窄后的最短档。
     assert default_unit_duration(facts, {"default_duration": 4}) == 8
 
 

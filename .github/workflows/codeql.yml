@@ -26,10 +26,8 @@ jobs:
       - uses: ./.github/actions/domain-filter
         id: domains
         with:
-          # schedule 事件无变更比对基准，直接全量扫描；发布 PR 与 test.yml 同口径全量
           full: ${{ github.event_name == 'schedule' || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
       - id: languages
-        # 按域裁剪分析语言：纯前端变更不跑 python 分析，反之亦然
         env:
           BACKEND: ${{ steps.domains.outputs.backend }}
           FRONTEND: ${{ steps.domains.outputs.frontend }}
@@ -63,14 +61,14 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           build-mode: none
           config-file: .github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: "/language:${{ matrix.language }}"
 

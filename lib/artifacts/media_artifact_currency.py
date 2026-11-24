@@ -67,7 +67,6 @@ from lib.speech.speech_artifact_provenance import (
 )
 from lib.speech.speech_composition import SpeechPreparation, admit_script_unit
 
-#: 视频依据里缺席项的缺口码，沿用视频生成入口拒绝时的同一码。
 STORYBOARD_UNAVAILABLE_CODE = "generate_storyboard_first"
 END_FRAME_UNAVAILABLE_CODE = "invalid_end_frame_image_path"
 DURATION_UNSUPPORTED_CODE = "video_duration_not_supported"
@@ -209,9 +208,6 @@ def _admitted_speech_basis(
     shape: VideoExecutionShape,
 ) -> ArtifactBasis:
 
-    # 角色声音绑定方式属于交付内容（ADR 0062 的分界线：这一位改变用户拿到的成品）：项目切回提示词
-    # 软约束后，已挂过参考音频的成片不再对得上当前设置，投影里因此不再重放那批音频，条目随之判
-    # stale。反向切换不触发——那批成片本就没挂过音频，参考音频档下渲染出的画面与声明与它们一致。
     replay_audio = character_voice_binding(project) == "reference_audio"
     available_audio = resolve_reference_audio_paths(project, project_path) if replay_audio else {}
     selected_audio = {
@@ -242,7 +238,6 @@ def _storyboard_visual_basis(
     gaps: list[InputGap] = []
     if prompt is None and record_gaps:
         gaps.append(InputGap(PROMPT_PENDING_CODE, name=resource_id))
-    # 两帧分开解析：分镜图缺失时尾帧照样是这条视频的输入，只有真读不到的那一帧记为缺席。
     storyboard = _video_frame_input(
         resolve_storyboard_video_image,
         StoryboardImageUnavailable,
@@ -301,7 +296,6 @@ def _can_open(path: Path) -> bool:
         with path.open("rb"):
             return True
     except FileNotFoundError:
-        # 缓存已清理的远端内容版本仍可取回，按记录的摘要参与依据
         return material_file_present(path)
     except OSError:
         return False

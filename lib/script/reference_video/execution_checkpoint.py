@@ -12,12 +12,13 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal, Self, cast
 
+from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json, canonical_json_digest, sha256_file_with_size
@@ -31,18 +32,15 @@ logger = logging.getLogger(__name__)
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceGenerationType = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 5
-#: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
+_SCHEMA_VERSION = 6
+_PROVIDER_ASSET_SCHEMA_VERSION = 5
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
-#: 不再记录旁白交付事实、也还没有记录供应商素材引用的检查点。
 _NO_NARRATION_SCHEMA_VERSION = 4
-#: 带完整产物时效事实、并且仍记录旁白交付事实的检查点。
 _NARRATION_CURRENCY_SCHEMA_VERSION = 3
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
-#: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
 CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset(
-    {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION}
+    {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _PROVIDER_ASSET_SCHEMA_VERSION, _SCHEMA_VERSION}
 )
 _SUPPORTED_SCHEMA_VERSIONS = frozenset(
     {
@@ -50,6 +48,7 @@ _SUPPORTED_SCHEMA_VERSIONS = frozenset(
         _VISUAL_BASIS_SCHEMA_VERSION,
         _NARRATION_CURRENCY_SCHEMA_VERSION,
         _NO_NARRATION_SCHEMA_VERSION,
+        _PROVIDER_ASSET_SCHEMA_VERSION,
         _SCHEMA_VERSION,
     }
 )
@@ -417,7 +416,6 @@ def stage_provider_media(
     finally:
         if not published:
             shutil.rmtree(temporary_dir, ignore_errors=True)  # hard-delete: temp -- 供应商媒体暂存目录
-        # Concurrent staging or another task-owned entry can keep the shared task directory non-empty.
         with contextlib.suppress(OSError):
             task_dir.rmdir()  # hard-delete: temp -- 空的任务暂存目录
 
@@ -462,7 +460,6 @@ async def _stage_provider_media(
             await _await_uninterruptibly(staging_task)
             published = True
         except BaseException:
-            # The original exception owns this path; a failed staging task has not published bytes to clean up.
             pass
         if published:
             cleanup_task = asyncio.create_task(asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id))
@@ -477,8 +474,6 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
     """Delete only one task's provider-media staging directory."""
 
     final_dir = _lexical_staging_root(project_path, task_id)
-    # Never follow a reparse point during cleanup. An exact staging link is safe to unlink; a linked ancestor is
-    # outside the ownership proof, so leave it untouched rather than deleting through it.
     cursor = project_path.resolve()
     for part in (".arcreel", "tasks", task_id):
         cursor = cursor / part
@@ -497,9 +492,16 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
             shutil.rmtree(final_dir)  # hard-delete: temp -- 任务的供应商媒体暂存
         else:
             final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
-    # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
         final_dir.parent.rmdir()  # hard-delete: temp -- 空的任务暂存目录
+
+
+def staged_source_paths(project_path: Path, media: Sequence[StagedProviderMedia]) -> dict[str, Path]:
+    """暂存副本路径 → 来源路径，供使用记录把任务结束即清理的暂存副本还原为来源。
+
+    键与交给生成器的暂存路径同形（项目目录下的 ``staged_locator``），经 ``str`` 比对。
+    """
+    return {str(project_path / item.staged_locator): project_path / item.source_locator for item in media}
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,7 +517,6 @@ class _VideoSubmissionCheckpoint:
     project_name: str
     script_file: str
     unit_id: str
-    #: 序列化键固定为 ``capability``：checkpoint 是落盘契约，且参与 ``request_digest``。
     generation_type: ReferenceGenerationType
     provider_id: str
     provider_model_id: str
@@ -532,13 +533,12 @@ class _VideoSubmissionCheckpoint:
     visual_basis_digest: str
     legacy_artifact_visual_basis: ArtifactBasisDescriptor | None
     artifact_currency: VideoArtifactCurrencyFacts | None
-    #: schema v1–v3 的旁白交付事实，原样保留只为复核 ``request_digest``；v4 起不再记录。
     legacy_narration: dict[str, Any] | None
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
-    #: schema v5 起记录：以供应商素材引用代替图片内容发出的参考图，按 ``media_index`` 升序。
     provider_asset_references: tuple[ProviderAssetReference, ...]
     request_digest: str
+    audio_track: VideoAudioMode | None = None
 
     _LEGACY_FIELDS = frozenset(
         {
@@ -571,7 +571,8 @@ class _VideoSubmissionCheckpoint:
     _VISUAL_BASIS_FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
     _NARRATION_CURRENCY_FIELDS = _LEGACY_FIELDS | {"artifact_currency"}
     _NO_NARRATION_FIELDS = _NARRATION_CURRENCY_FIELDS - {"narration"}
-    _FIELDS = _NO_NARRATION_FIELDS | {"provider_asset_references"}
+    _PROVIDER_ASSET_FIELDS = _NO_NARRATION_FIELDS | {"provider_asset_references"}
+    _FIELDS = _PROVIDER_ASSET_FIELDS | {"audio_track"}
 
     @property
     def artifact_episode(self) -> int | None:
@@ -634,6 +635,10 @@ class _VideoSubmissionCheckpoint:
         _require_optional_string(self.resolution, "resolution")
         if not is_bool(self.generate_audio):
             raise ValueError("generate_audio must be a boolean")
+        if self.audio_track is not None and type(self.audio_track) is not VideoAudioMode:
+            raise ValueError("audio_track must be a video audio mode or null")
+        if self.schema_version < _SCHEMA_VERSION and self.audio_track is not None:
+            raise ValueError("older checkpoint cannot carry audio_track")
         _require_nonempty_string(self.service_tier, "service_tier")
         if self.seed is not None and not is_int(self.seed):
             raise ValueError("seed must be an integer or null")
@@ -654,7 +659,7 @@ class _VideoSubmissionCheckpoint:
                 raise ValueError("artifact currency visual kind does not match checkpoint kind")
         elif self.artifact_currency is not None:
             raise ValueError("older checkpoint cannot carry complete artifact currency facts")
-        if self.schema_version in (_NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION):
+        if self.schema_version >= _NO_NARRATION_SCHEMA_VERSION:
             if self.legacy_narration is not None:
                 raise ValueError("current checkpoint schema does not record narration delivery")
         elif not isinstance(self.legacy_narration, dict):
@@ -694,7 +699,7 @@ class _VideoSubmissionCheckpoint:
 
     def _validate_provider_asset_references(self) -> None:
         refs = self.provider_asset_references
-        if self.schema_version != _SCHEMA_VERSION:
+        if self.schema_version < _PROVIDER_ASSET_SCHEMA_VERSION:
             if refs:
                 raise ValueError("older checkpoint cannot carry provider asset references")
             return
@@ -735,6 +740,8 @@ class _VideoSubmissionCheckpoint:
         if self.legacy_narration is not None:
             payload["narration"] = self.legacy_narration
         if self.schema_version == _SCHEMA_VERSION:
+            payload["audio_track"] = self.audio_track.value if self.audio_track is not None else None
+        if self.schema_version >= _PROVIDER_ASSET_SCHEMA_VERSION:
             payload["provider_asset_references"] = [ref.to_dict() for ref in self.provider_asset_references]
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             assert self.legacy_artifact_visual_basis is not None
@@ -748,9 +755,6 @@ class _VideoSubmissionCheckpoint:
         """Return the frozen provider-request facts this checkpoint hashes."""
 
         payload = self._request_payload()
-        # Schema v2 preserved its historical provider-request digest semantics.
-        # Schema v3+ binds complete artifact currency evidence into the immutable
-        # checkpoint so a version cannot replace typed components independently.
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             payload.pop("artifact_visual_basis", None)
         return payload
@@ -786,6 +790,7 @@ class _VideoSubmissionCheckpoint:
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
         provider_asset_references: tuple[ProviderAssetReference, ...] = (),
+        audio_track: VideoAudioMode | None = None,
     ) -> Self:
         prompt_sha256 = _sha256_bytes(prompt.encode("utf-8"))
         values: dict[str, object] = {
@@ -806,6 +811,7 @@ class _VideoSubmissionCheckpoint:
             "aspect_ratio": aspect_ratio,
             "resolution": resolution,
             "generate_audio": generate_audio,
+            "audio_track": audio_track.value if audio_track is not None else None,
             "service_tier": service_tier,
             "seed": seed,
             "visual_basis_digest": visual_basis_digest,
@@ -833,6 +839,7 @@ class _VideoSubmissionCheckpoint:
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             generate_audio=generate_audio,
+            audio_track=audio_track,
             service_tier=service_tier,
             seed=seed,
             visual_basis_digest=visual_basis_digest,
@@ -859,9 +866,6 @@ class _VideoSubmissionCheckpoint:
         schema_version = raw.get("schema_version")
         if type(schema_version) is not int or schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError("unsupported video submission checkpoint version or kind")
-        # 任务与调用的关联只有 ``api_calls.task_id`` 一个真相源；检查点不再带调用坐标。
-        # 升级前落库的在途检查点仍带这个键，丢弃它即可继续接续——它不进 request_digest，
-        # 摘要校验不受影响。
         raw.pop("api_call_id", None)
         _require_exact_keys(
             raw,
@@ -874,6 +878,8 @@ class _VideoSubmissionCheckpoint:
                 if schema_version == _NARRATION_CURRENCY_SCHEMA_VERSION
                 else cls._NO_NARRATION_FIELDS
                 if schema_version == _NO_NARRATION_SCHEMA_VERSION
+                else cls._PROVIDER_ASSET_FIELDS
+                if schema_version == _PROVIDER_ASSET_SCHEMA_VERSION
                 else cls._FIELDS
             ),
             "checkpoint",
@@ -905,6 +911,7 @@ class _VideoSubmissionCheckpoint:
             aspect_ratio=raw["aspect_ratio"],
             resolution=raw["resolution"],
             generate_audio=raw["generate_audio"],
+            audio_track=VideoAudioMode(raw["audio_track"]) if raw.get("audio_track") is not None else None,
             service_tier=raw["service_tier"],
             seed=raw["seed"],
             visual_basis_digest=raw["visual_basis_digest"],
@@ -953,7 +960,6 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
         "execution_task_id": checkpoint.task_id,
         "execution_script_file": checkpoint.script_file,
         "execution_request_digest": checkpoint.request_digest,
-        # 产物元数据键固定为 execution_capability（落盘契约）。
         "execution_capability": checkpoint.generation_type,
         "execution_provider_id": checkpoint.provider_id,
         "execution_provider_model_id": checkpoint.provider_model_id,
@@ -1069,4 +1075,5 @@ __all__ = [
     "load_task_video_checkpoint",
     "stage_provider_media",
     "stage_provider_media_for_task",
+    "staged_source_paths",
 ]

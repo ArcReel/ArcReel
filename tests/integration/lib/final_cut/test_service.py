@@ -164,7 +164,6 @@ async def test_trim_and_hold_shape_the_rendered_duration(render_project: Project
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # 0.6（截取）+ 1.5 + 0.7 + 0.5（定格延长）
     assert result.acceptance.expected_duration == pytest.approx(3.3, abs=0.034)
     assert result.acceptance.video_duration == pytest.approx(3.3, abs=0.05)
     assert result.acceptance.audio_duration == pytest.approx(3.3, abs=0.05)
@@ -229,7 +228,6 @@ async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_fil
 
     async def spawn_after_replacing(*args: Any, **kwargs: Any) -> Any:
         if not replaced.is_set():
-            # 模拟另一个写入方替换正式文件：在工作线程里替换，不占事件循环。
             replaced.set()
             await asyncio.to_thread(os.replace, replacement, formal)
         return await asyncio.create_subprocess_exec(*args, **kwargs)
@@ -238,7 +236,6 @@ async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_fil
 
     assert replaced.is_set()
     assert result.acceptance.video_duration == pytest.approx(readout.duration, abs=0.05)
-    # 依据描述渲染实际读取的快照；版本记录仍指向同一版本，成片读为 current。
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
 
 
@@ -263,7 +260,6 @@ async def test_provider_audio_recorded_as_not_generated_is_left_out_of_the_mix(
 
     await FinalCutService(render_project, spawn=spawn_recording_mix).render("demo", timeline_id, **PLAIN)
 
-    # 只有 E1U3 的原声进入混音；E1U1 的快照虽带音轨，版本记录为未生成原声。
     sources = [Path(path).name for path in mixed_inputs if not path.startswith("anullsrc")]
     assert len(sources) == 1
     assert sources[0].startswith("E1U3")
@@ -332,7 +328,6 @@ async def test_transitions_render_without_changing_the_timeline_duration(render_
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # 1.0 + 0.9（截取）+ 0.7：叠化借帧、闪黑淡出淡入都不改变总时长。
     assert edited.duration == pytest.approx(2.6)
     assert result.acceptance.expected_duration == pytest.approx(edited.duration, abs=0.034)
     assert result.acceptance.video_duration == pytest.approx(edited.duration, abs=0.05)
@@ -367,7 +362,6 @@ async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_
     )
     timeline_id = await _create_timeline(render_project)
     editor = EditTimelineService(render_project)
-    # E1U2 那段（1.0–2.5 秒）没有原声；BGM 从 1.0 秒起放 3 秒，越过 3.2 秒的时间线末尾。
     await editor.edit(
         "demo",
         timeline_id,
@@ -439,7 +433,6 @@ async def test_a_high_gain_bgm_over_source_audio_is_limited_below_full_scale(ren
 
     result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    # BGM 的重击按登记增益放大后远超满幅，又与 E1U1 的原声相加；混音限幅后成片不削波。
     output = render_project.get_project_path("demo") / result.artifact_path
     assert 0.5 < _float_peak(output) <= 1.0
 

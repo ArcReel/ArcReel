@@ -90,7 +90,6 @@ class TestPreviewRequest:
         assert preview.submit.url == "https://comfy.test/prompt"
         body = preview.submit.body
         assert isinstance(body, dict)
-        # 提示词按绑定填进正向节点，Avoid 行拆去负向节点——与真发同一个构造。
         assert body["prompt"]["6"]["inputs"]["text"] == "一只猫走过屋顶"
         assert "文字字幕" in body["prompt"]["7"]["inputs"]["text"]
         assert body["client_id"] == "arcreel-{{ prompt_id }}"
@@ -140,7 +139,6 @@ class TestPreviewRequest:
 
         conversions = preview.conversions
         assert conversions is not None
-        # 9:16 + 720p 的落地像素、以及实际生效的随机种子，都只在换算说明里看得到。
         assert (conversions["width"], conversions["height"]) == (720, 1280)
         assert conversions["aspect_ratio"] == "9:16"
         assert conversions["resolution"] == "720p"
@@ -191,7 +189,6 @@ class TestPreviewRequest:
         assert isinstance(body, dict)
         assert "21" not in body["prompt"]
         assert preview.conversions is not None
-        # 空出来的格子连同被它旁路掉的合并节点一起进说明：用户看到的就是这次图上少了哪几个节点。
         assert preview.conversions["dropped_nodes"] == ["21", "22"]
 
     def test_not_placeholding_missing_assets_gives_the_shape_a_real_submit_would_have(self):

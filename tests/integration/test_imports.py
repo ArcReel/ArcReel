@@ -22,7 +22,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # 参与模块级互引的模块（lib.config ↔ lib.custom_provider、端点定义的分派方 ↔ 各 kind 的实现方）
 # 及要求保持轻量的基础模块另需登记 FIRST_IMPORT_MODULES。
 MODULES = [
-    # lib 顶层单文件模块
     "lib.backends.ark_shared",
     "lib.backends.backend_runtime",
     "arcreel_market_core.video_backend_contract",
@@ -56,7 +55,6 @@ MODULES = [
     "lib.backends.text_generator",
     "lib.infra.thumbnail",
     "lib.artifacts.version_manager",
-    # lib 子包
     "lib.config",
     "lib.custom_provider",
     "lib.custom_provider.comfyui",
@@ -68,7 +66,6 @@ MODULES = [
     "lib.prompts.prompt_templates",
     "lib.backends.text_backends",
     "lib.backends.video_backends",
-    # server
     "server",
     "server.agent_runtime",
     "server.app",
@@ -80,7 +77,6 @@ MODULES = [
 ]
 
 
-# 首位导入必须成立的模块，逐个在全新解释器里验证（理由见用例 docstring）。
 FIRST_IMPORT_MODULES = [
     "lib.backends.backend_runtime",
     "lib.backends.image_backends.base",
@@ -137,8 +133,6 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        # 导入期的阻塞式副作用（网络、锁等待）正是本用例要拦的形态之一，超时须显式转红，
-        # 而不是把 CI job 挂满时限。
         pytest.fail(f"{module_name} 首位导入超时，疑似存在阻塞式顶层副作用")
     assert result.returncode == 0, f"{module_name} 无法作为首个导入：\n{result.stderr}"
 

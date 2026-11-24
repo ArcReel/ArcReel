@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, Route } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
@@ -64,7 +64,6 @@ function mockConfig(config: object = FAKE_CONFIG) {
   vi.spyOn(API, "getSystemConfig").mockResolvedValue(config as Awaited<ReturnType<typeof API.getSystemConfig>>);
 }
 
-/** 加载项目，保存时按服务端行为回显合并后的项目。 */
 function mockProject(project: Record<string, unknown>) {
   const base = { title: "Demo", episodes: [], characters: {}, clues: {}, ...project };
   vi.spyOn(API, "getProject").mockResolvedValue({ project: base, scripts: {} } as unknown as ProjectResponse);
@@ -206,7 +205,6 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/projects/demo/settings?tab=memory"));
     expect(await screen.findByRole("heading", { name: "新建记忆文件" })).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, expect.anything());
-    // 记忆与 Agent 配置各管各的保存，不显示外壳保存栏
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(updateSpy).not.toHaveBeenCalled();
   });
@@ -260,9 +258,15 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(saveFile).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, "MEMORY.md", "- 新条目\n");
   });
 
-  it("新参考图在项目 PATCH 之后上传；上传失败时如实说明其他修改已保存，并保留未保存修改", async () => {
+  it.each([
+    [new TypeError("Failed to fetch"), "其他修改已保存，风格参考图上传失败。再次保存会重新上传。"],
+    [new ApiRequestError("Bad Gateway", undefined, 502), "其他修改已保存，风格参考图上传失败。再次保存会重新上传。"],
+    [new ApiRequestError("视觉模型不可用。", undefined, 422), "其他修改已保存，风格参考图上传失败：视觉模型不可用。再次保存会重新上传。"],
+  ])("项目 PATCH 后上传失败（%s），显示重试提示并在再次保存时上传原文件", async (error, message) => {
     const updateSpy = mockProject({ style_template_id: "live_premium_drama" });
-    const uploadSpy = vi.spyOn(API, "uploadStyleImage").mockRejectedValue(new Error("视觉模型不可用"));
+    const uploadSpy = vi.spyOn(API, "uploadStyleImage")
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ success: true, style_image: "style_reference.png", style_description: "水墨", url: "/style_reference.png" });
     const user = userEvent.setup();
     renderAt("/app/projects/demo/settings?tab=style");
 
@@ -275,12 +279,17 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(await screen.findByText("自定义风格")).toBeInTheDocument();
 
     await user.click(saveButton());
-    expect(await screen.findByRole("alert")).toHaveTextContent(/其他修改已保存，风格参考图上传失败：视觉模型不可用/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(updateSpy).toHaveBeenCalledTimes(1);
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("style_template_id");
     expect(uploadSpy).toHaveBeenCalledWith("demo", file);
     expect(updateSpy.mock.invocationCallOrder[0]).toBeLessThan(uploadSpy.mock.invocationCallOrder[0]);
     expect(within(sidebar()).getByRole("link", { name: /^风格.*有未保存的修改/ })).toBeInTheDocument();
+
+    await user.click(saveButton());
+    expect(await screen.findByText("水墨")).toBeInTheDocument();
+    expect(uploadSpy).toHaveBeenNthCalledWith(2, "demo", file);
+    expect(within(sidebar()).getByRole("link", { name: "风格" })).toBeInTheDocument();
   });
 
   it("参考图上传失败后放弃修改，回到 PATCH 已写入的内容，而不是保存前的旧值", async () => {
@@ -337,7 +346,6 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
 
     const group = await screen.findByRole("radiogroup", { name: "目标总时长" });
     await waitFor(() => expect(within(group).getByRole("radio", { name: "30 秒" })).toBeChecked());
-    // 自定义输入留空：目标总时长无效
     fireEvent.click(within(group).getByRole("radio", { name: "自定义" }));
     fireEvent.click(within(sidebar()).getByRole("link", { name: /^模型/ }));
     fireEvent.click(saveButton());
@@ -364,7 +372,6 @@ describe("ProjectSettingsPage – 模型分页的覆盖来源", () => {
 
     expect(await screen.findByText("本项目覆盖了 3 项全局默认，其余跟随全局。")).toBeInTheDocument();
     expect(within(sidebar()).getByRole("link", { name: /^模型3 项覆盖$/ })).toBeInTheDocument();
-    // 图片通道没有覆盖：显示跟随全局与全局默认模型
     expect(screen.getByText("跟随全局 · nano-banana")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "文本模型：恢复全局" }));
@@ -506,12 +513,10 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     await pick(r2v, "720p");
     expect(i2v).toHaveTextContent(sharedModel ? "720p" : "1080p");
     expect(r2v).toHaveTextContent("720p");
-    // 共用模型时两次修改互相抵消，另改一处让保存可用
     fireEvent.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
     fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
     fireEvent.click(saveButton());
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
-    // 共用模型时两次修改抵消，分辨率表与已保存的一致，不回写
     expect(updateSpy.mock.calls[0][1].model_settings).toEqual(
       sharedModel
         ? undefined
@@ -545,8 +550,6 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
   });
 
   it("reads and writes the image resolution under the executing text-to-image model", async () => {
-    // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
-    // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。
     const updateSpy = mockProject({
       video_backend: "gemini/veo-3",
       default_image_backend: "gemini/nano-banana",
@@ -571,9 +574,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     const user = userEvent.setup();
     renderAt("/app/projects/demo/settings?tab=models");
 
-    // 图片分辨率在视频分辨率之后；读到的是文生图执行模型的 720p
-    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "分辨率" })).toHaveLength(2));
-    const imageResolution = screen.getAllByRole("combobox", { name: "分辨率" })[1];
+    const imageResolution = await screen.findByRole("combobox", { name: "文生图 · 分辨率" });
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("1080p");
     expect(imageResolution).toHaveTextContent("720p");
     await user.click(imageResolution);
     await user.click(await screen.findByRole("option", { name: "1080p" }));
@@ -582,10 +584,221 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
     expect(updateSpy.mock.calls[0][1]).toEqual({
       model_settings: expect.objectContaining({
-        // 写回的也是文生图执行模型的 key，项目默认层模型的设置原样保留
         "openai/gpt-image": { resolution: "1080p" },
         "gemini/nano-banana": { resolution: "1080p" },
       }),
+    });
+  });
+
+  it("saves and restores independent resolutions for different executing t2i and i2i models while preserving quality", async () => {
+    let persisted: Record<string, unknown> = {
+      title: "Demo",
+      episodes: [],
+      characters: {},
+      clues: {},
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "1K", quality: "low" },
+      },
+    };
+    vi.spyOn(API, "getProject").mockImplementation(
+      async () => ({ project: persisted, scripts: {} }) as unknown as ProjectResponse,
+    );
+    const updateSpy = vi.spyOn(API, "updateProject").mockImplementation(async (_name, patch) => {
+      persisted = { ...persisted, ...patch };
+      return { success: true, project: persisted } as unknown as UpdateResponse;
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: ["1K", "2K"],
+            qualities: ["low", "medium", "high"],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    const user = userEvent.setup();
+    const first = renderAt("/app/projects/demo/settings?tab=models");
+
+    const t2iPicker = await screen.findByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("4K");
+    expect(i2iPicker).toHaveTextContent("1K");
+
+    await user.click(i2iPicker);
+    expect(screen.queryByRole("option", { name: "4K" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: expect.objectContaining({
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "2K", quality: "low" },
+      }),
+    });
+
+    first.unmount();
+    renderAt("/app/projects/demo/settings?tab=models");
+    expect(await screen.findByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it.each([
+    { options: ["1K", "2K"], showsPicker: true },
+    { options: [], showsPicker: false },
+  ])("resets a stale i2i resolution independently with catalog options $options", async ({ options, showsPicker }) => {
+    const updateSpy = mockProject({
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "512px" },
+      },
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: options,
+            qualities: [],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    renderAt("/app/projects/demo/settings?tab=models");
+    expect(await screen.findByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    const i2iPicker = screen.queryByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(i2iPicker !== null).toBe(showsPicker);
+    expect(i2iPicker?.textContent?.includes("512px") ?? false).toBe(showsPicker);
+    expect(screen.getByText(/已保存的分辨率 512px/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: expect.objectContaining({
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: null },
+      }),
+    });
+  });
+
+  it("saves simultaneous video and i2i image resolution edits without overwriting each other and keeps unconfigured i2i clean", async () => {
+    const updateSpy = mockProject({
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {},
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: ["1K", "2K"],
+            qualities: [],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    const videoPicker = await screen.findByRole("combobox", { name: "分辨率" });
+    const t2iPicker = screen.getByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("默认（不传）");
+    expect(i2iPicker).toHaveTextContent("默认（不传）");
+    expect(within(sidebar()).getByRole("link", { name: /^模型/ })).not.toHaveAccessibleName(/有未保存的修改/);
+
+    await user.click(videoPicker);
+    await user.click(await screen.findByRole("option", { name: "1080p" }));
+    await user.click(i2iPicker);
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: {
+        "gemini/veo-3": { resolution: "1080p" },
+        "gemini/nano-banana": { resolution: null },
+        "openai/gpt-image-2": { resolution: "2K" },
+      },
     });
   });
 });
@@ -642,7 +855,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
     fireEvent.click(saveButton());
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
-    // 视频执行模型（全局默认）的那一项是既有的写法：没有存值时写 null 分辨率
     expect(updateSpy.mock.calls[0][1]).toEqual({
       model_settings: {
         "gemini/veo-3": { resolution: null },
@@ -678,7 +890,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
 
     expect(await qualityPicker()).toHaveTextContent("high");
     await pick(user, screen.getByRole("combobox", { name: /^默认图片模型$/ }), /gpt-image-1/);
-    // 换了执行模型：画质回到未选择
     expect(await qualityPicker()).toHaveTextContent("自动（按分辨率档位）");
     await pick(user, await qualityPicker(), "low");
     fireEvent.click(saveButton());
@@ -696,6 +907,25 @@ describe("ProjectSettingsPage – model_settings quality", () => {
     );
   });
 
+  it("preserves the target model's saved quality when switching and changing its resolution", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-1": { resolution: "1K", quality: "high" } },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    await pick(user, await screen.findByRole("combobox", { name: /^默认图片模型$/ }), /gpt-image-1/);
+    const imageCard = (await qualityPicker()).closest("section")!;
+    await pick(user, within(imageCard).getByRole("combobox", { name: "分辨率" }), "2K");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1].model_settings?.["openai/gpt-image-1"]).toEqual({
+      resolution: "2K", quality: "high",
+    });
+  });
+
   it("keeps an image model's quality when only a video resolution changes", async () => {
     const updateSpy = mockProject({
       video_backend: "gemini/veo-3",
@@ -703,7 +933,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
       model_settings: {
         "gemini/veo-3": { resolution: "720p" },
         "openai/gpt-image-2": { resolution: "2K", quality: "high" },
-        // 别的图片模型上存的画质，本表单不显示它，也不能被整表写入抹掉
         "openai/gpt-image-1": { resolution: "1K", quality: "low" },
       },
     });
@@ -763,7 +992,6 @@ describe("ProjectSettingsPage – 基础", () => {
     expect(await screen.findByText(/跳过分镜图，直接用角色、场景、道具图作为参考生成视频/)).toBeInTheDocument();
     expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
-    // 参考生视频下不呈现宫格开关
     expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 
@@ -780,7 +1008,6 @@ describe("ProjectSettingsPage – 基础", () => {
     await waitFor(() => {
       expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ grid_storyboard: true }));
     });
-    // 生成模式不在 PATCH 面上
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
   });
 
@@ -797,7 +1024,6 @@ describe("ProjectSettingsPage – 基础", () => {
       expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ episode_target_duration: 120 }));
     });
 
-    // 清空即写回 null（后端据此删除该偏好）
     fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "" } });
     fireEvent.click(saveButton());
     await waitFor(() => {
@@ -844,7 +1070,6 @@ describe("ProjectSettingsPage – 基础", () => {
 
     const input = await screen.findByLabelText(/^语速（可选）$/);
     expect(input).toHaveValue(3);
-    // en 项目按词计
     expect(screen.getByText("词/秒")).toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: "4.5" } });
@@ -860,7 +1085,6 @@ describe("ProjectSettingsPage – 配音", () => {
     const updateSpy = mockProject({ generation_mode: "reference_video" });
     renderAt("/app/projects/demo/settings?tab=voice");
 
-    // 字段缺省即默认档：提示词约束选中
     expect(await screen.findByRole("radio", { name: /^提示词约束/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /^参考音频/ }));
     fireEvent.click(saveButton());
@@ -876,9 +1100,26 @@ describe("ProjectSettingsPage – 配音", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
     expect(screen.queryByRole("radio", { name: /^提示词约束/ })).not.toBeInTheDocument();
     fireEvent.click(saveButton());
-    // 参考音频通道只属于参考生视频路线：分镜图生视频下该键与项目无关，不写
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("character_voice_binding");
+  });
+
+  it("keeps a saved custom voice when opening and saving the voice settings without candidates", async () => {
+    const updateSpy = mockProject({
+      narration_delivery: "use_tts",
+      audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "my-cloned-voice",
+    });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
+    renderAt("/app/projects/demo/settings?tab=voice");
+
+    expect(await screen.findByLabelText("旁白音色 ID")).toHaveValue("my-cloned-voice");
+    fireEvent.change(screen.getByLabelText("配音语速（可选）"), { target: { value: "1.1" } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).toEqual({ narration_speed: 1.1 });
+    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("my-cloned-voice");
   });
 
   it("switching a TTS project to post-production writes only the delivery and keeps the snapshot", async () => {

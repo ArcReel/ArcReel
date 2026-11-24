@@ -241,7 +241,6 @@ async def test_a_deleted_timeline_comes_back_from_the_trash_with_its_final_cut(
     assert (await timeline_client.get(_url(timeline_id))).status_code == 200
     assert (project_dir / rendered.artifact_path).is_file()
     assert adapter.get_entry(key) == claim
-    # 临时项目迁移得出的项目级状态不带回
     assert (project_dir / "project.json").read_bytes() == project_json
     assert (await timeline_client.get("/api/v1/projects/demo/trash")).json()["records"] == []
     rerendered = await final_cut.render("demo", timeline_id, narration="without_narration", subtitles="no_subtitles")
@@ -321,7 +320,6 @@ async def test_a_failed_timeline_restore_leaves_the_project_and_the_record_as_th
     project_dir = timeline_project.get_project_path("demo")
     assert (await timeline_client.delete(_url(timeline_id))).status_code == 204
     record = await _only_trash_record(timeline_client)
-    # 文档能落回，渲染文件的途经目录却被换成了符号链接
     (tmp_path / "outside").mkdir()
     (project_dir / "renders" / "episode_1").rmdir()
     (project_dir / "renders" / "episode_1").symlink_to(tmp_path / "outside")

@@ -22,7 +22,6 @@ https://help.aliyun.com/zh/model-studio/regions 。
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, VoiceOption
@@ -35,80 +34,60 @@ DEFAULT_MODEL = "qwen-audio-3.1-tts-flash"
 
 SPEECH_SYNTHESIZER_PATH = "/services/audio/tts/SpeechSynthesizer"
 
-# 非流式可用的输出格式，按落盘扩展名选取，保证文件内容与扩展名一致（资源路径约定 .wav）。
 _SUPPORTED_FORMATS = frozenset({"mp3", "pcm", "wav", "opus"})
 _FALLBACK_FORMAT = "wav"
-# 官方示例取 24000；该值对 opus 与其他格式都合法。
 _SAMPLE_RATE = 24000
-# ``rate`` 的合法区间，超出的语速收拢到边界而不是让供应商 400。
 _RATE_MIN = 0.5
 _RATE_MAX = 2.0
 
 
 def _voices(*voice_ids: str) -> tuple[VoiceOption, ...]:
-    # label 是 lib/i18n 翻译 key（voice_label_dashscope_*，见 lib/i18n/<locale>/assets.py），由音色接口按请求
-    # locale 渲染；点号不进 key。
     return tuple(
         VoiceOption(id=voice_id, label=f"voice_label_dashscope_{voice_id.lower().replace('.', '_')}")
         for voice_id in voice_ids
     )
 
 
-# 各模型的系统音色子集，出处：https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list 。
-# 只收旁白与角色配音常用的普通话与英文音色；小语种音色与 3.0 系 500+ 基础音色不在此暴露，
-# 照文档填写 voice 照常可用（设置页的音色是可自由填写的输入框）。
 _V31_FLAGSHIP = ("longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1")
-_VOICES_BY_MODEL: tuple[tuple[str, tuple[VoiceOption, ...]], ...] = (
-    ("qwen-audio-3.1-tts-plus", _voices(*_V31_FLAGSHIP)),
-    (
-        "qwen-audio-3.1-tts-flash",
-        _voices(
-            *_V31_FLAGSHIP,
-            "yuxiaoyun_v3.1",
-            "wenhuaiqing_v3.1",
-            "xieshurou_v3.1",
-            "anmingyuan_v3.1",
-            "huozhuoshi_v3.1",
-            "longshu_v3.1",
-            "longze_v3.1",
-            "longxiaocheng_v3.1",
-            "longke_v3.1",
-            "Emily_v3.1",
-            "Eric_v3.1",
-            "Ava_v3.1",
-            "Brian_v3.1",
-        ),
+_VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
+    "qwen-audio-3.1-tts-plus": _voices(*_V31_FLAGSHIP),
+    "qwen-audio-3.1-tts-flash": _voices(
+        *_V31_FLAGSHIP,
+        "yuxiaoyun_v3.1",
+        "wenhuaiqing_v3.1",
+        "xieshurou_v3.1",
+        "anmingyuan_v3.1",
+        "huozhuoshi_v3.1",
+        "longshu_v3.1",
+        "longze_v3.1",
+        "longxiaocheng_v3.1",
+        "longke_v3.1",
+        "Emily_v3.1",
+        "Eric_v3.1",
+        "Ava_v3.1",
+        "Brian_v3.1",
     ),
-    ("qwen-audio-3.0-tts-plus", _voices("longanlingxin", "longanlufeng")),
-    (
-        "qwen-audio-3.0-tts-flash",
-        _voices(
-            "longanfengyue",
-            "longanyuanfei",
-            "longanlingxi",
-            "longanxiaoxin",
-            "longanhuan_v3.6",
-            "longjielidou_v3.6",
-            "longpaopao_v3.6",
-            "longhuohuo_v3.6",
-            "longchuanshu_v3.6",
-            "loongmary",
-            "loongeva_v3.6",
-            "loongjohn",
-        ),
+    "qwen-audio-3.0-tts-plus": _voices("longanlingxin", "longanlufeng"),
+    "qwen-audio-3.0-tts-flash": _voices(
+        "longanfengyue",
+        "longanyuanfei",
+        "longanlingxi",
+        "longanxiaoxin",
+        "longanhuan_v3.6",
+        "longjielidou_v3.6",
+        "longpaopao_v3.6",
+        "longhuohuo_v3.6",
+        "longchuanshu_v3.6",
+        "loongmary",
+        "loongeva_v3.6",
+        "loongjohn",
     ),
-)
-# 名字认不出代际的模型（中转别名、后续同端点的新模型）取 3.1 两款共有的旗舰音色。
-_FALLBACK_VOICES = _voices(*_V31_FLAGSHIP)
+}
 
 
 def voices_for_model(model: str) -> tuple[VoiceOption, ...]:
-    """该模型可用的音色子集：剥去中转命名空间前缀后按型号前缀匹配（带日期快照后缀的同代型号同表）。"""
-    canonical = re.split(r"[/:]", model.strip().lower())[-1]
-    for prefix, voices in _VOICES_BY_MODEL:
-        if canonical.startswith(prefix):
-            return voices
-    return _FALLBACK_VOICES
+    """该模型可用的音色子集；音色表没有收录这个型号名时为空，不借用其他型号的音色。"""
+    return _VOICES_BY_MODEL.get(model, ())
 
 
 def _format_for(request: AudioSynthesisRequest) -> str:
@@ -153,8 +132,6 @@ class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
         return list(voices_for_model(self._model))
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
-        # language_type 不发送：本端点的 language_hints 是可选的目标语种提示，而上游传来的
-        # language_type 是固定缺省值（Chinese），并非按文本判定，发出去反会误导英文等文本的合成。
         body: dict[str, Any] = {
             "text": request.text,
             "voice": request.voice,

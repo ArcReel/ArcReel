@@ -18,10 +18,15 @@ from .vocabulary import MediaType
 
 @dataclass(frozen=True)
 class BuiltinEndpoint:
-    """一个内置调用端点。``since`` 是起始版本，即第一个带这个端点的应用版本；基线端点不带起始版本。"""
+    """一个内置调用端点。
+
+    ``since`` 是起始版本，即第一个带这个端点的应用版本；基线端点不带起始版本。
+    ``requires_output_token_rules`` 表示挂接它的图片模型按 ``image_output_tokens`` 计价时，条目须收录输出 token 估算规则。
+    """
 
     media_type: MediaType
     since: str | None = None
+    requires_output_token_rules: bool = False
 
 
 @dataclass(frozen=True)
@@ -40,7 +45,6 @@ def _single(endpoint: str) -> ProviderEndpointOptions:
     return ProviderEndpointOptions((endpoint,), endpoint)
 
 
-#: 内置供应商可挂接的内置调用端点：端点名 → 媒体类型与起始版本。清单首次发布时已有的端点都是基线端点。
 BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
     {
         **_baseline(
@@ -59,9 +63,9 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
             "grok-image",
             "kling-image",
             "minimax-image",
-            "openai-images",
             "vidu-image",
         ),
+        "openai-images": BuiltinEndpoint("image", requires_output_token_rules=True),
         **_baseline(
             "video",
             "agnes-video-2",
@@ -108,13 +112,16 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "vidu-video-q4": BuiltinEndpoint("video", since="0.35.1"),
         "grok-tts": BuiltinEndpoint("audio", since="0.35.1"),
         "ark-agent-plan-tts": BuiltinEndpoint("audio", since="0.36.1"),
+        "vidu-video-q3-drama": BuiltinEndpoint("video", since="0.37.1"),
+        "vidu-video-q3-mix": BuiltinEndpoint("video", since="0.37.1"),
+        "vidu-video-q3-ad": BuiltinEndpoint("video", since="0.37.1"),
+        "minimax-h3-image": BuiltinEndpoint("image", since="0.37.1"),
     }
 )
 
 _SEEDREAM = ProviderEndpointOptions(("ark-seedream-3", "ark-seedream-4"), "ark-seedream-4")
 _SEEDANCE = ProviderEndpointOptions(("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5"), "ark-seedance-2")
 
-#: 内置供应商 → 媒体类型（``MEDIA_TYPES`` 之一）→ 可选端点与默认端点。官方收录的供应商模型只能挂接所在供应商这一媒体类型的可选端点。
 BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOptions]]] = MappingProxyType(
     {
         "agnes": {
@@ -181,7 +188,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
         },
         "minimax": {
             "text": _single("openai-chat"),
-            "image": _single("minimax-image"),
+            "image": ProviderEndpointOptions(("minimax-image", "minimax-h3-image"), "minimax-image"),
             "video": ProviderEndpointOptions(
                 ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01", "minimax-h3"), "minimax-hailuo-v1"
             ),
@@ -201,6 +208,9 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
                     "vidu-video-q3-turbo",
                     "vidu-video-q3-fast",
                     "vidu-video-q3-reference",
+                    "vidu-video-q3-drama",
+                    "vidu-video-q3-mix",
+                    "vidu-video-q3-ad",
                     "vidu-video-q2",
                     "vidu-video-q2-pro",
                     "vidu-video-q2-fast",
@@ -215,7 +225,6 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
     }
 )
 
-#: 实例开始读取端点声明的应用版本。在此之前的实例按 API 模型名选端点。
 ENDPOINT_DECLARATIONS_SINCE: str | None = "0.35.1"
 
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")

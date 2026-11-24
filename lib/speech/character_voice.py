@@ -13,10 +13,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal, cast, get_args
 
-#: 角色声音绑定方式。前端 ``CharacterVoiceBinding`` 与之一一对应，取值增减须两侧同步。
 CharacterVoiceBinding = Literal["prompt", "reference_audio"]
 
-#: 未声明时的取值：提示词软约束。参考音频是可选增强，须由用户显式选择才生效。
 DEFAULT_CHARACTER_VOICE_BINDING: CharacterVoiceBinding = "prompt"
 
 VALID_CHARACTER_VOICE_BINDINGS: frozenset[str] = frozenset(get_args(CharacterVoiceBinding))

@@ -28,7 +28,6 @@ async def test_black_freeze_and_cut_signals_cover_the_synthesised_intervals(clip
 
     assert signals.duration_seconds == pytest.approx(5.0)
     assert [(span.start, span.end) for span in signals.black] == [pytest.approx((1.0, 2.0))]
-    # 黑屏必然静止，但不重复计入卡帧段；视频以定格收尾，卡帧延续到片尾。
     assert [(span.start, span.end) for span in signals.freeze] == [pytest.approx((3.0, 5.0))]
     assert signals.cuts == pytest.approx((1.0, 2.0, 3.0))
     assert [(shot.start, shot.end) for shot in signals.shots] == [
@@ -115,11 +114,9 @@ async def test_frames_around_each_signal_are_densified_and_marked(clip: Path) ->
     def tags_at(time_seconds: float) -> tuple[str, ...]:
         return tags[next(time for time in tags if time == pytest.approx(time_seconds))]
 
-    # 切点两侧：切点帧本身与它前一帧。
     for cut in (1.0, 2.0, 3.0):
         assert TAG_CUT in tags_at(cut)
         assert frame_before(cut) in tags
-    # 黑屏段与卡帧段各自的首尾帧都被抽到并标注。
     assert tags_at(1.0) == (TAG_CUT, TAG_BLACK)
     assert tags[frame_before(2.0)] == (TAG_BLACK,)
     assert tags_at(3.0) == (TAG_CUT, TAG_FREEZE)

@@ -44,7 +44,6 @@ async def _run(operation: str, write: bool, func: Callable[[], Any]) -> ToolOutc
     """在线程里执行回收站操作；领域异常按默认语言转述，问题码沿用异常的 i18n key。"""
 
     def guarded() -> Any:
-        # 与生成工具同一来源标签：Agent 发起的变更不显示成外部文件改动，删除记录的发起方记为 Agent。
         with project_change_source("worker"):
             return func()
 
@@ -83,7 +82,6 @@ async def delete_project_file(
         return {"record": record.to_dict()}
 
     try:
-        # 缓存已清理的远端历史版本先取回，删除记录带着内容本身（与文件视图同一入口）
         async with local_file(project_dir, path, deleting=True):
             return await _run("delete_project_file", True, delete)
     except ApiError as exc:
@@ -117,7 +115,6 @@ async def restore_trash_record(
 
     def restore() -> dict[str, Any]:
         project_dir = services.projects.get_project_path(scope.project_name)
-        # 摘要要对比删除时与恢复后的对象描述，才能说明换了名或换了编号。
         original = dict(project_trash.require_record(project_dir, record_id).object)
         return {**project_trash.restore(project_dir, record_id).to_dict(), "original_object": original}
 

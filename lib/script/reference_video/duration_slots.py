@@ -15,8 +15,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-# 取档相对请求时长基准的偏移方向。前端 `types/reference-video.ts` 的字面量联合与此对齐，
-# 用 Literal 而非裸 str 让类型检查兜住 `warning()` 与预检响应里的分支判等。
 Adjustment = Literal["exact", "up", "down", "unconstrained"]
 
 EXACT: Adjustment = "exact"
@@ -77,8 +75,6 @@ def resolve_duration_slot(total_seconds: int | float, supported_durations: Seque
     return DurationSlot(seconds=chosen, total_seconds=total_seconds, adjustment=adjustment)
 
 
-#: 共享时长投影给出的问题类别。调用方按自己的信封映射成 problem code：类别是判定，
-#: code 与文案属各路线的对外契约。
 DurationProblem = Literal[
     "supported_durations_missing",
     "needs_replan",
@@ -114,7 +110,7 @@ def project_request_duration(
     ``duration_endpoint_fixed`` 为真时档位集是空的合法状态（时长这一维由端点固定，见
     ``docs/adr/0082``）：不收窄、不要求确认，规划秒数原样透传，端点会按 workflow 自己那档出片。
 
-    不带 ``duration_endpoint_fixed`` 的空集是档位声明缺失（``docs/adr/0018``），仍按
+    不带 ``duration_endpoint_fixed`` 的空集是档位声明缺失（``docs/adr/0086``），仍按
     ``supported_durations_missing`` 阻断。
     """
 

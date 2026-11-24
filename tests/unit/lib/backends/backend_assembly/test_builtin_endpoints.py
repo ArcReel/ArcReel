@@ -113,7 +113,6 @@ class TestAssemblyFollowsTheEndpoint:
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-hailuo-v1-fast"))
 
         assert _built_endpoint_and_text_to_video("minimax", "acme-video") == ("minimax-hailuo-v1-fast", False)
-        # Fast 只接受图生视频：通道能力随端点变，与模型名无关
         assert declared_builtin_video_capabilities("minimax", "acme-video").text_to_video is False
 
     def test_the_same_endpoint_declares_the_same_capabilities_whatever_the_model_name(self, user_added: None):
@@ -167,14 +166,18 @@ class TestPrefill:
             ("minimax", "video", "MiniMax-H3-Preview", "minimax-h3"),
             ("minimax", "video", "S2V-01", "minimax-s2v-01"),
             ("minimax", "video", "acme-video", "minimax-hailuo-v1"),
-            # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
+            ("minimax", "image", "MiniMax-H3-Image-Highspeed", "minimax-h3-image"),
+            ("minimax", "image", "image-01-live", "minimax-image"),
+            ("minimax", "image", "acme-image", "minimax-image"),
             ("grok", "video", "grok-imagine-video-2", "grok-video-classic"),
             ("grok", "video", "grok-imagine-video", "grok-video-classic"),
             ("vidu", "video", "viduq2", "vidu-video-q2"),
             ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
             ("vidu", "video", "viduq4-preview", "vidu-video-q4"),
+            ("vidu", "video", "viduq3-drama", "vidu-video-q3-drama"),
+            ("vidu", "video", "viduq3-mix", "vidu-video-q3-mix"),
+            ("vidu", "video", "viduq3-ad", "vidu-video-q3-ad"),
             ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
-            # 只在新版 API 上提供的型号
             ("kling", "video", "kling-4.0", "kling-video-model-path"),
             ("kling", "video", "kling-4.0-flash", "kling-video-model-path"),
             ("kling", "video", "kling-3.0-turbo", "kling-video-model-path"),
@@ -183,7 +186,6 @@ class TestPrefill:
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
             ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
             ("ark", "video", "ep-20261104-opaque", "ark-seedance-2"),
-            # 百炼语音：qwen-audio-*-tts 走 SpeechSynthesizer，其余落回默认的 multimodal 端点
             ("dashscope", "audio", "qwen-audio-3.1-tts-flash", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen-audio-3.0-tts-plus", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen3-tts-flash", "dashscope-tts"),
@@ -216,3 +218,10 @@ class TestPrefill:
 )
 def test_new_image_model_prefill_preserves_the_name_rule(provider: str, model: str, endpoint: str):
     assert infer_builtin_endpoint(provider, "image", model) == endpoint
+
+
+@pytest.mark.parametrize("sample_name", ["acme-opaque", "image-01-live", "MiniMax-H3-Image", "gpt-image-2", "viduq4"])
+def test_prefill_always_lands_within_provider_selectable_endpoints(sample_name: str):
+    """任何模型名在任意内置供应商与媒体类型下预填出的端点，都属于该供应商的可选端点。"""
+    for (provider_id, media_type), declared in PROVIDER_ENDPOINTS.items():
+        assert infer_builtin_endpoint(provider_id, media_type, sample_name) in declared.endpoints

@@ -16,9 +16,7 @@ export interface StylePickerValue {
   mode: "template" | "custom";
   templateId: string | null;
   activeCategory: "live" | "anim";
-  /** 待上传的参考图；有文件时选择器按文件自建预览，不读 `uploadedPreview`。 */
   uploadedFile: File | null;
-  /** 已保存的参考图地址（/api/v1/files/...）；选择器不往这里写 blob: 地址。 */
   uploadedPreview: string | null;
 }
 
@@ -82,10 +80,6 @@ function TemplateCard({ thumbnail, label, tagline, isSelected, isDefault, defaul
   );
 }
 
-/**
- * 待上传文件的预览地址，只由选择器持有：随文件创建，换文件或卸载时收回；重新挂载时按文件重建，
- * 不会把已收回的地址留在调用方的取值里。layout effect 在绘制前换上地址，预览不闪一帧空态。
- */
 function useFilePreview(file: File | null): string | null {
   const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
   useLayoutEffect(() => {
@@ -98,10 +92,6 @@ function useFilePreview(file: File | null): string | null {
   return preview?.file === file ? preview.url : null;
 }
 
-/**
- * 风格选择：风格模版（真人、动画两类）或上传一张风格参考图。
- * 模版网格不自带滚动，由所在的弹层或页面负责滚动，避免嵌套滚动区。
- */
 export function StylePicker({ value, onChange }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);

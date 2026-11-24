@@ -21,11 +21,8 @@ import { PlanGapButton } from "./PlanGapButton";
 import { cutEpisodeActions } from "./manual-split-model";
 import { episodeHue, formatVolume, otherEpisodes, outlineFileGroups } from "./episodes-view-model";
 
-/** 集目录每行「⋯」里的单集操作。 */
 export interface EpisodeMenuActions {
-  /** 手工切分的请求在途：合并与清除暂不可用。 */
   splitBusy: boolean;
-  /** 不能发起规划的原因：分集规划在进行或已有新的分集方案；可以时为 null。 */
   planBlocked: string | null;
   onCreateAfter: (episode: number) => void;
   onMergeWithNext: (episode: number) => void;
@@ -37,24 +34,18 @@ export interface EpisodeMenuActions {
 interface EpisodeOutlineProps {
   view: EpisodesView;
   episodes: EpisodeMeta[];
-  /** 原文视口顶部所在的集。 */
   current: number | null;
   onLocate: (episode: number) => void;
   onLocateFile: (sourceFile: string) => void;
   actions: EpisodeMenuActions;
 }
 
-/**
- * 「分集」视图的集目录：按整本源文文件分组列出切出集，夹在其间的未切分原文是虚线行；
- * 原文不在整本源文里的集列在「其他集」。高亮原文视口顶部所在的集，点击一集让原文滚到这一集。
- */
 export function EpisodeOutline({ view, episodes, current, onLocate, onLocateFile, actions }: EpisodeOutlineProps) {
   const { t } = useTranslation("dashboard");
   const groups = outlineFileGroups(view, episodes);
   const others = otherEpisodes(view, episodes);
   const listRef = useRef<HTMLElement>(null);
 
-  // 高亮随原文滚动变化时，把这一行带进集目录的可见范围
   useEffect(() => {
     if (current === null) return;
     listRef.current?.querySelector(`[data-outline-episode="${current}"]`)?.scrollIntoView({ block: "nearest" });
@@ -174,7 +165,6 @@ function OutlineRow({
   );
   return (
     <li data-outline-episode={id} className="relative" style={{ "--episode-hue": episodeHue(id) } as CSSProperties}>
-      {/* 原文在整本源文里的集点击后滚到原文中这一集；其他集不在原文里，点击打开这一集 */}
       {info?.placed ? (
         <button
           type="button"
@@ -196,10 +186,6 @@ function OutlineRow({
   );
 }
 
-/**
- * 一集的「⋯」菜单：打开这一集、在后面新建一集、与下一集合并、清除之后的分集、从这一集开始重新规划、删除这一集。
- * 合并、清除与重新规划只对切出集出现，不可用时置灰。
- */
 function EpisodeActionsMenu({
   view,
   episodes,

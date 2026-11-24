@@ -1,7 +1,7 @@
 """自定义供应商视频能力的唯一合成点：endpoint spec 系统判定与模型条目两侧求值 ⊕ 模型级用户覆盖。
 
 系统判定是调用端点的声明（通道事实）；它与模型对应条目上的输入能力（模型事实）两侧求值
-（:func:`lib.backends.video_capabilities.effective_video_capabilities`），能力覆盖在两侧求值之后整维替换。
+（:func:`lib.backends.video_capabilities.effective_video_capabilities`），能力覆盖在两侧求值之后整维替换；音轨覆盖只改变模型出声事实，不改变端点的开关事实。
 ComfyUI 端点的能力只来自节点绑定，不读条目（docs/adr/0082、0104）。
 
 合成语义只此一份：需要生效能力的调用方一律走这里，不得自行合并覆盖，否则「界面允许的
@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, get_args, get_type_hints
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND, requires_image_input
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
+    VideoAudioFacts,
     VideoCapabilities,
     VideoRoute,
     audio_capability_pair_is_coherent,
@@ -37,21 +38,14 @@ if TYPE_CHECKING:
     from lib.custom_provider.endpoints import EndpointSpec
 
 
-# 覆盖键 → 值类型，直接从 VideoCapabilities dataclass 派生：新增能力维度自动进入覆盖
-# schema，无需 DB 迁移，也不存在手写副本与 dataclass 漂移的可能。
 # 走 get_type_hints 而非 field.type：base.py 启用 PEP 563，后者只给注解字符串。
 _CAPABILITY_TYPE_HINTS = get_type_hints(VideoCapabilities)
-# 参考图与参考音频段数上限在能力里可以是 ``None``（两侧都没有声明，即未收录），但覆盖是用户写下的一个具体
-# 上限：只收整数，``0`` 即不接受。想回到未收录就删掉这条覆盖。
 _INTEGER_ONLY_OVERRIDES = frozenset({"max_reference_images", "max_reference_audio_count"})
 CAPABILITY_OVERRIDE_FIELDS: dict[str, object] = {
     f.name: int if f.name in _INTEGER_ONLY_OVERRIDES else _CAPABILITY_TYPE_HINTS[f.name]
     for f in fields(VideoCapabilities)
 }
 
-#: 开放给能力覆盖的通道事实维度（docs/adr/0104）：输入模式、参考图与参考音频上限、提示词长度上限、
-#: 音轨形态。``reference_audio_per_image``、``first_frame_ratio_adaptive_only`` 是请求构造的形态，
-#: 改了也不会让调用通道换一种请求，不开放。
 CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
     {
         "text_to_video",
@@ -67,21 +61,8 @@ CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: 音轨形态两维。自定义供应商只在用户覆盖了它们时才按音轨形态派生（见 :func:`overridden_audio_track`）。
+
 AUDIO_TRACK_OVERRIDE_KEYS: frozenset[str] = frozenset({"audio_track", "reference_route_audio_track"})
-
-
-def overridden_audio_track(
-    caps: VideoCapabilities, applied_overrides: Mapping[str, object], route: VideoRoute
-) -> str | None:
-    """自定义供应商模型在该执行路径上的成片音轨形态；用户没有覆盖音轨形态时为 ``None``。
-
-    调用通道按模型名声明的音轨形态不参与派生：endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把
-    合法配置挡在入队之外。没有覆盖时由调用方按「假定有声、开关可控」处理。返回值是 ``VideoAudioMode`` 的字面量。
-    """
-    if not AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys():
-        return None
-    return caps.audio_track_for_route(route).value
 
 
 if (
@@ -232,9 +213,6 @@ def filter_valid_overrides(
 
     if overrides is None:
         return {}
-    # ComfyUI 端点的能力全部由节点绑定推导（``docs/adr/0082``）：能改变执行形态的只有 workflow
-    # 本身，覆盖值在执行层没有对应物。写入侧已拒绝新的覆盖，这里丢掉存量值——回显与执行同走
-    # 本函数，忽略落在这一处，两侧就不会一个显示「已生效」一个照旧不认。
     if endpoint_spec is not None and endpoint_spec.kind == COMFYUI_KIND:
         if overrides:
             logger.warning("忽略 %s/%s 的能力覆盖：ComfyUI 端点的能力只从节点绑定推导", endpoint, model_id)
@@ -265,11 +243,6 @@ def filter_valid_overrides(
                 capability_type_name(expected),
             )
             continue
-        # 与写入侧同一判定（见 server/routers/custom_providers.py::_check_capability_overrides）：
-        # last_frame=True 但 endpoint 的 delegate 不下传 end_image 时，覆盖只会让合成层宣称
-        # 支持、执行层仍静默丢帧。写入侧已挡住新配置，这里再挡一遍存量行 / 非 API 写入路径。
-        # endpoint 本身可能已从注册表下线（升级移除）：get_endpoint_spec 此时抛 ValueError，
-        # 视同不支持尾帧处理——存量脏配置不该让响应过滤这道最后防线也跟着炸。
         if key == "last_frame" and value is True:
             try:
                 end_image_capable = (endpoint_spec or get_endpoint_spec(endpoint)).end_image_capable
@@ -282,8 +255,6 @@ def filter_valid_overrides(
                     model_id,
                 )
                 continue
-        # 同构于上：endpoint 的 delegate 不会把 reference_audio_files 组装进请求时，把模式
-        # 覆盖成 direct 只会让合成层宣称支持音色输入，执行层照样生成随机音色的视频。
         if key == "reference_audio_mode" and value == ReferenceAudioMode.DIRECT.value:
             try:
                 audio_capable = (endpoint_spec or get_endpoint_spec(endpoint)).reference_audio_capable
@@ -299,6 +270,27 @@ def filter_valid_overrides(
         applied[key] = value
 
     return applied
+
+
+def video_audio_facts(channel: VideoCapabilities, effective: VideoCapabilities, route: VideoRoute) -> VideoAudioFacts:
+    """开关只取端点声明，成片音轨取模型覆盖或端点无声信号；缺少无声信号时默认有声。"""
+    return VideoAudioFacts(
+        has_audio_track=effective.audio_track_for_route(route).has_audio_track,
+        audio_switch_controllable=channel.audio_track_for_route(route).audio_switch_controllable,
+    )
+
+
+def retain_channel_audio_switch(channel: VideoCapabilities, effective: VideoCapabilities) -> VideoCapabilities:
+    """把独立音轨事实投影回兼容枚举；覆盖模型音轨时不改写端点是否下发开关。"""
+    primary = video_audio_facts(channel, effective, "i2v").mode
+    reference = video_audio_facts(channel, effective, "r2v").mode
+    return replace(
+        effective,
+        audio_track=primary,
+        reference_route_audio_track=(
+            reference if effective.reference_route_audio_track is not None or reference != primary else None
+        ),
+    )
 
 
 def synthesize_video_capabilities(
@@ -349,7 +341,7 @@ def synthesize_video_capabilities_with_overrides(
     applied = filter_valid_overrides(
         endpoint=endpoint, model_id=model_id, overrides=overrides, endpoint_spec=endpoint_spec
     )
-    merged = merge_overrides(caps, applied)
+    merged = retain_channel_audio_switch(caps, merge_overrides(caps, applied))
     return enforce_audio_capability_invariant(merged, endpoint=endpoint, model_id=model_id), applied
 
 

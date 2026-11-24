@@ -126,7 +126,6 @@ async def test_external_agent_gets_a_batch_handle_to_poll(
     assert isinstance(outcome.value, GenerationBatchReadModel)
     assert outcome.value.operation == "render_final_cut"
     [member] = outcome.value.members
-    # 省略的选项按项目补齐：后期配音项目不带旁白，字幕默认烧入。
     assert member.unit_id == f"{timeline_id}.without_narration.burned_subtitles"
 
 

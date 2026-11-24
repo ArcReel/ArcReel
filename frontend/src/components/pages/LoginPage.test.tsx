@@ -5,10 +5,6 @@ import { memoryLocation } from "wouter/memory-location";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { useAuthStore } from "@/stores/auth-store";
 
-// wouter 的 useLocation/useSearch 钩子只暴露 pathname / search，不暴露 hash，
-// 无法用渲染探针断言 #fragment。改用 memoryLocation 的 record 历史：navigate
-// 入参被逐字 push 进 history，因此可直接断言登录成功后导航到的完整目标
-// （含 query 与 hash），从而锁住回跳链路对 hash 的保留。
 function renderLoginAt(path: string) {
   const memory = memoryLocation({ path, record: true });
   const view = render(
@@ -19,8 +15,6 @@ function renderLoginAt(path: string) {
   return { ...view, history: memory.history };
 }
 
-// 填表并提交。input id 来自 LoginPage（login-username / login-password），
-// 用 id 选择避免依赖 i18n 解析后的 label / 按钮文案。
 function submitLogin(container: HTMLElement) {
   fireEvent.change(container.querySelector<HTMLInputElement>("#login-username")!, {
     target: { value: "alice" },
@@ -48,8 +42,6 @@ describe("LoginPage returnTo consumption", () => {
     );
   });
 
-  // 锁住登录成功后对 ?from 的「消费」分支：读取 from → safeReturnPath 校验 → 回跳。
-  // 防止以后误改回固定跳转 /app/projects 而主流程回归漏过。
   it("navigates to a valid internal ?from path after successful login", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%3Ftab%3Dscene");
     submitLogin(container);
@@ -58,8 +50,6 @@ describe("LoginPage returnTo consumption", () => {
     });
   });
 
-  // 锁住 hash 在回跳链路中存活：from 携带 #shot-3，登录后导航目标须保留该锚点。
-  // 若源码（AuthGuard / 401 拦截 / safeReturnPath）丢掉 hash，此断言会失败。
   it("preserves the URL hash in the return path", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%23shot-3");
     submitLogin(container);

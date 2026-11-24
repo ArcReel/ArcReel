@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type {
@@ -59,6 +59,10 @@ function provider(overrides: Partial<CustomProviderInfo>): CustomProviderInfo {
   };
 }
 
+function importValidationCalls(validate: MockInstance<typeof API.validateCustomEndpoint>) {
+  return validate.mock.calls.filter(([, options]) => options?.mediaType !== undefined);
+}
+
 describe("EndpointsSection", () => {
   beforeEach(stubEndpointsSection);
 
@@ -85,10 +89,8 @@ describe("EndpointsSection", () => {
 
     await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
 
-    // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
-    // 编辑区对默认定义的防抖校验可能先于它发生，调用次序不定，只确认原始 workflow 曾被送检。
-    expect(validate.mock.calls.map(([definition]) => definition)).toContainEqual(workflow);
+    expect(importValidationCalls(validate).map(([definition]) => definition)).toContainEqual(workflow);
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
 
@@ -109,7 +111,6 @@ describe("EndpointsSection", () => {
   });
 
   it("leaves built-in image endpoints out", async () => {
-    // 本节是自定义端点的管理面；内置图像端点在这里没有可做的事。
     renderSection();
     const list = await screen.findByRole("navigation");
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
@@ -194,7 +195,6 @@ describe("EndpointsSection", () => {
       }),
     );
     renderSection("section=endpoints&endpoint=ce-7");
-    // 诊断卡要等 400ms 校验防抖再发请求，默认 1s 等待在并行负载下不够。
     expect(
       await screen.findByText("不支持递归下降语法", undefined, { timeout: 4000 }),
     ).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe("EndpointsSection", () => {
         "error",
       ),
     );
-    expect(validate).not.toHaveBeenCalled();
+    expect(importValidationCalls(validate)).toEqual([]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -277,7 +277,7 @@ describe("EndpointsSection", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "导入" }));
 
-    expect(validate.mock.calls[0][0]).toEqual(definition);
+    expect(importValidationCalls(validate).map(([payload]) => payload)).toContainEqual(definition);
     await waitFor(() => expect(create).toHaveBeenCalledWith(definition));
   });
 
@@ -399,7 +399,6 @@ describe("EndpointsSection", () => {
       expect.stringContaining("backup-video"),
     ]);
     expect(within(rows[1]).getByText("Backup relay")).toBeInTheDocument();
-    // 二级栏第二行写的是同一份数据
     expect(screen.getAllByRole("link", { name: /Example Video API.*2 个模型使用/ })[0]).toBeInTheDocument();
 
     await userEvent.click(within(rows[1]).getByRole("link", { name: "打开「Backup relay」中的模型 backup-video" }));

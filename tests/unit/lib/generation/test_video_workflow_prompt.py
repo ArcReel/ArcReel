@@ -36,12 +36,8 @@ DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
-# ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
-# ``GenerationAction``（整批准入判定被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
-# 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
-#: 视频生成不再读旁白交付后删掉的问题码；档案里留着它们会让 Agent 按不存在的结论行事。
 RETIRED_NARRATED_VIDEO_CODES = (
     "tts_duration_endpoint_fixed",
     "video_shorter_than_tts",
@@ -63,9 +59,6 @@ def _skill(filename: str) -> str:
 
 def _reference(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-# ------------------------------------------------- 计划是步骤适用性的唯一真相源
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
@@ -113,9 +106,6 @@ def test_plan_reference_documents_every_target_field() -> None:
         assert f"`{field}`" in content
 
 
-# ------------------------------------------------------------------- 旁白交付
-
-
 def test_profile_no_longer_routes_a_per_request_delivery_choice() -> None:
     content = "\n".join(path.read_text(encoding="utf-8") for path in PROFILE.rglob("*.md"))
 
@@ -144,9 +134,6 @@ def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_tar
 
     assert "get_generation_batch" in content
     assert "poll_after_seconds" in content
-    # 「在途不自动 force」是费用防线：在途任务刚完成时再 force，会对同一目标再付一次费。
-    # 只锁关键词：「在途」那一行里每个点名 force 的分句都须带否定词，
-    # 避免「自动 force；不必等待」或「在途时自动 force；其他情况不要 force」被当成禁止重做。
     assert any("在途" in line and _forbids_force(line) for line in content.splitlines()), (
         "generate-video skill 未写明已有在途任务时不自动 force 重做"
     )
@@ -171,9 +158,6 @@ def test_profile_names_no_retired_narrated_video_code() -> None:
         assert code not in content, f"档案仍提到已删除的问题码 {code}"
 
 
-# ------------------------------------------------------------------- 整批准入判定
-
-
 def test_plan_reference_covers_every_admission_decision() -> None:
     content = _reference(WORKFLOW_PLAN_REFERENCE)
 
@@ -191,9 +175,6 @@ def test_video_skill_names_the_duration_confirmation_code() -> None:
     assert DURATION_CONFIRMATION_CODE in VIDEO_SKILL.read_text(encoding="utf-8")
 
 
-# ----------------------------------------------------------------- 产物状态轴
-
-
 def test_generation_results_reference_covers_every_item_state() -> None:
     content = _reference(GENERATION_RESULTS_REFERENCE)
 
@@ -207,9 +188,6 @@ def test_variants_name_the_per_id_outcome_states(filename: str) -> None:
 
     for state in (GenerationItemState.SUCCEEDED, GenerationItemState.FAILED, GenerationItemState.BLOCKED):
         assert state.value in content
-
-
-# ---------------------------------------------------- 各变体落点的工具名覆盖
 
 
 @pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
@@ -257,9 +235,6 @@ def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
         assert retired not in content
     assert "--resume" not in content
     assert ".checkpoint_" not in content
-
-
-# ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CONTENT_MODES))

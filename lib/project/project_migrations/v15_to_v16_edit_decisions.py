@@ -158,10 +158,8 @@ from lib.speech.speech_presentation import presentation_artifact_paths
 
 TARGET_SCHEMA_VERSION = 16
 
-#: 按项目名查任务与调用记录里出现过的最大集 ID（没有记录为 0）。数据库在项目目录之外，由应用装配处注入。
 RecordedEpisodeIds = Callable[[str], int]
 
-#: 剧本条目上退役的转场字段名。历史事实，写死在这一步。
 _TRANSITION_FIELD = "transition_to_next"
 
 
@@ -173,11 +171,6 @@ def _load_object(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
-
-
-# ---------------------------------------------------------------------------
-# 子步：视频时效与旁白下限解耦
-# ---------------------------------------------------------------------------
 
 
 def _plan_before_rewrite(project_dir: Path, view: Mapping[str, Any]) -> ArtifactTargetStatePlan:
@@ -259,11 +252,6 @@ def _rebase_video_duration_entries(
         raise RuntimeError("artifact manifest changed while rebasing video duration entries")
 
 
-# ---------------------------------------------------------------------------
-# 子步：上传的分镜图与视频按上传字节登记
-# ---------------------------------------------------------------------------
-
-#: 可上传、且由选中的上传版本决定依据的产物种类与它们的版本资源类型。
 _UPLOAD_RESOURCE_TYPES: Mapping[ArtifactKind, tuple[str, ...]] = {
     ArtifactKind.EPISODE_STORYBOARD: ("storyboards",),
     ArtifactKind.EPISODE_VIDEO: ("videos", "reference_videos"),
@@ -314,11 +302,6 @@ def _history(versions: Mapping[str, Any], resource_type: str, resource_id: str) 
     return bucket.get(resource_id) if isinstance(bucket, Mapping) else None
 
 
-# ---------------------------------------------------------------------------
-# 子步：集 ID 与播出顺序分离
-# ---------------------------------------------------------------------------
-
-
 def _with_episode_id_high_water(
     project_dir: Path, project: Mapping[str, Any], recorded_episode_ids: RecordedEpisodeIds | None
 ) -> dict[str, Any]:
@@ -353,11 +336,6 @@ def _rebase_script_plan_entries(
         expected={key: stored[key] for key in replacements}, replacements=replacements
     ):
         raise RuntimeError("artifact manifest changed while rebasing script plan entries")
-
-
-# ---------------------------------------------------------------------------
-# 子步：集原文与整本源文文件显式登记
-# ---------------------------------------------------------------------------
 
 
 def _legacy_whole_source_paths(project_dir: Path) -> list[Path]:
@@ -441,11 +419,6 @@ def _with_explicit_episode_sources(
     return migrated, snapshot_texts
 
 
-# ---------------------------------------------------------------------------
-# 子步：源文件类型随源文件记录
-# ---------------------------------------------------------------------------
-
-
 def _with_source_kinds(project: Mapping[str, Any]) -> dict[str, Any]:
     """剧情演绎项目按项目级类型给整本源文文件与自带原文的集补记类型；删去项目级字段。"""
     migrated = dict(project)
@@ -474,11 +447,6 @@ def _with_source_kinds(project: Mapping[str, Any]) -> dict[str, Any]:
             for entry in raw_episodes
         ]
     return migrated
-
-
-# ---------------------------------------------------------------------------
-# 子步：转场移出脚本
-# ---------------------------------------------------------------------------
 
 
 def _bound_scripts(project_dir: Path, project: Mapping[str, Any]) -> list[Path]:
@@ -515,7 +483,6 @@ def _drop_script_transitions(project_dir: Path, project: Mapping[str, Any]) -> N
 class _PresentationRewrite:
     path: Path
     key: ArtifactKey
-    #: 文件改写前记录的旧依据登记与改写后的当前依据登记。
     legacy: ArtifactManifestEntry
     current: ArtifactManifestEntry
     content: dict[str, Any]
@@ -612,11 +579,6 @@ def _move_transitions_out_of_scripts(project_dir: Path, project: Mapping[str, An
     _rebase_presentations(project_dir)
 
 
-# ---------------------------------------------------------------------------
-# 子步：旁白交付方式成为项目配置
-# ---------------------------------------------------------------------------
-
-
 def _selected_version_record(
     versions: Mapping[str, Any], resource_type: str, resource_id: str
 ) -> dict[str, Any] | None:
@@ -675,9 +637,6 @@ def _narration_delivery_fields(project_dir: Path, project: Mapping[str, Any]) ->
     return migrated
 
 
-# ---------------------------------------------------------------------------
-
-
 def _without_asset_inventory_marker(project: Mapping[str, Any]) -> dict[str, Any]:
     """删去已退役的资产清单标记；``workflow`` 随之变空时整个删去，其他形态原样保留。"""
 
@@ -690,11 +649,6 @@ def _without_asset_inventory_marker(project: Mapping[str, Any]) -> dict[str, Any
         else:
             migrated.pop("workflow")
     return migrated
-
-
-# ---------------------------------------------------------------------------
-# 子步：项目列表的「已完成」与制作状态同一口径
-# ---------------------------------------------------------------------------
 
 
 def _with_source_remaining(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:

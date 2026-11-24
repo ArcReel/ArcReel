@@ -80,7 +80,6 @@ async def test_declarative_inline_image_write_settles_through_cancellation(tmp_p
 
 
 async def test_downloaded_artifact_rename_settles_through_cancellation(tmp_path: Path, monkeypatch):
-    # 下载的产物成形在 .part 改名为成品这一步：取消落在改名期间时，成品就位、取消随之消失，后续步骤继续
     gate = WriteGate()
     real_replace = os.replace
 

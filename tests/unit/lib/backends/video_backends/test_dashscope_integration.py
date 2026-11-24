@@ -57,7 +57,6 @@ class TestTextProviderBilling:
 
 class TestCatalogPricing:
     def test_text_cny(self):
-        # qwen-plus 按单次请求的输入量分档，10 万输入落在首档：输入 0.8、输出 2 元/百万 token。
         amount, cur = builtin_price(
             PROVIDER_DASHSCOPE,
             "qwen-plus",

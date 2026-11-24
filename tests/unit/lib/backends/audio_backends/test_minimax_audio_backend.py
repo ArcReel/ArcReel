@@ -28,7 +28,6 @@ def _ok(audio: bytes) -> httpx.Response:
 async def test_synthesize_decodes_hex_audio_to_file(tmp_path: Path):
     with capture_http() as router:
         route = router.post(_T2A_URL).mock(return_value=_ok(b"RIFFwavbytes"))
-        # 用户填 host 不带 /v1 也应补齐
         b = MiniMaxAudioBackend(api_key="sk", base_url="https://api.minimaxi.com", model="speech-2.8-hd")
         out = tmp_path / "o.wav"
         result = await b.synthesize(
@@ -43,7 +42,6 @@ async def test_synthesize_decodes_hex_audio_to_file(tmp_path: Path):
     assert body["stream"] is False
     assert body["output_format"] == "hex"
     assert body["voice_setting"] == {"voice_id": "female-shaonv", "speed": 1.2}
-    # 输出格式跟随落盘扩展名，文件内容与 .wav 一致
     assert body["audio_setting"]["format"] == "wav"
     assert out.read_bytes() == b"RIFFwavbytes"
     assert result.provider == "minimax"
@@ -71,6 +69,22 @@ def test_declares_speed_and_voice_catalog():
     ids = [v.id for v in b.list_voices()]
     assert "male-qn-qingse" in ids
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.parametrize(
+    ("model", "listed"),
+    [
+        ("speech-2.8-turbo", True),
+        ("speech-02-hd", True),
+        ("speech-01-turbo", True),
+        ("speech-2.9-hd", False),
+        ("speech-1.5", False),
+    ],
+)
+def test_system_voices_are_listed_only_for_official_t2a_models(model: str, listed: bool):
+    ids = [v.id for v in MiniMaxAudioBackend(api_key="sk", model=model, provider_name="my-relay").list_voices()]
+    assert ("female-shaonv" in ids) is listed
+    assert bool(ids) is listed
 
 
 async def test_custom_endpoint_routes_to_relay_and_bills_provider(tmp_path: Path):

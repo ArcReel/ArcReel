@@ -19,12 +19,9 @@ class TestCapacityTable:
             _limits={"known": {"image": 4, "video": 0}},
             _defaults={"image": 5, "video": 3},
         )
-        # 已知 + lane 在表 → 登记值（含 0=不支持该 lane）
         assert table.get("known", "image") == 4
         assert table.get("known", "video") == 0
-        # 已知 + lane 不在表 → 0
         assert table.get("known", "audio") == 0
-        # 完全未知 → 默认，且纯查询不写回
         assert table.get("unknown", "image") == 5
         assert table.get("unknown", "video") == 3
         assert "unknown" not in table._limits
@@ -34,7 +31,6 @@ class TestCapacityTable:
         table.replace({"p": {"image": 9, "video": 1}})
         assert table.get("p", "image") == 9
         assert table.get("p", "video") == 1
-        # 默认不受 replace 影响
         assert table.get("unknown", "image") == 5
 
     def test_from_env_derives_support_and_defaults(self, monkeypatch):
@@ -48,19 +44,14 @@ class TestCapacityTable:
             assert pid in table._limits
             for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
                 if lane not in catalog.provider_media_types(pid):
-                    assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
+                    assert table.get(pid, lane) == 0
                 elif lane not in meta.default_concurrency:
-                    # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
-                    # meta.default_concurrency，故非重言——能抓住装载回退漂移。声明了默认的
-                    # lane（如 agnes video）由该 provider 的专项测试钉死字面值；此处不用 meta
-                    # 反推，否则对任何声明值都恒真，等于不设防。
                     assert table.get(pid, lane) == global_default
 
     def test_from_env_reads_env(self, monkeypatch):
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
         monkeypatch.setenv("VIDEO_MAX_WORKERS", "2")
         table = CapacityTable.from_env()
-        # 未知 provider 的懒默认跟随 env
         assert table.get("unknown", "image") == 7
         assert table.get("unknown", "video") == 2
 
@@ -163,7 +154,6 @@ class TestCapacityTable:
 
         assert table.get("custom-1", "image") == 2
         assert table.get("custom-1", "video") == 7
-        # 不支持的 lane（无 audio 模型）投影为 0
         assert table.get("custom-1", "audio") == 0
 
     async def test_from_db_custom_endpoint_model_takes_its_lane_from_the_definition(self, monkeypatch):
@@ -231,7 +221,6 @@ class TestCapacityTable:
 
         table = await CapacityTable.from_db()
 
-        # 端点定义说这是图像端点，lane 就落在 image 上——键前缀不蕴含媒体类型。
         assert table.get("custom-1", "image") == 6
         assert table.get("custom-1", "video") == 0
 
@@ -336,7 +325,6 @@ class TestCapacityTable:
 
         table = await CapacityTable.from_db()
 
-        # 全局默认 image=5 / video=3（env 已在 _stub 中清除）
         assert table.get("custom-9", "image") == 5
         assert table.get("custom-9", "video") == 3
 
@@ -356,10 +344,8 @@ class TestCapacityTable:
         with caplog.at_level(logging.WARNING, logger="lib.generation.generation_worker"):
             table = await CapacityTable.from_db()
 
-        # 脏 key 回退 env 默认值（image=5）并告警
         assert table.get("ark", "image") == 5
         assert "image_max_workers" in caplog.text
-        # 同 provider 其余合法 key、其他 provider 的配置正常生效
         assert table.get("ark", "video") == 2
         assert table.get("gemini-aistudio", "image") == 7
 
@@ -420,15 +406,10 @@ class TestCapacityTable:
 
         table = CapacityTable.from_env()
 
-        # 声明了 video=1 → 取声明默认，而非全局默认 3
         assert table.get("declared-video", "video") == 1
-        # 同 provider 未声明的 image lane → 全局默认 5
         assert table.get("declared-video", "image") == 5
-        # 支持 audio 且声明 audio=12 → 取声明默认（高于全局默认 10），audio lane 正向回退
         assert table.get("declared-audio", "audio") == 12
-        # 未声明默认的 provider → 全局默认
         assert table.get("plain-video", "video") == 3
-        # 声明了 image 默认但该 provider 不支持 image → 投影为 0（_lane_limits 不回归）
         assert table.get("declared-unsupported", "image") == 0
 
     async def test_from_db_declared_default_when_user_unconfigured(self, monkeypatch):
@@ -478,9 +459,9 @@ class TestCapacityTable:
 
         table = CapacityTable.from_env()
 
-        assert table.get("agnes", "video") == 1  # 声明默认压过活跃的全局 5
-        assert table.get("agnes", "image") == 5  # 声明不外溢到未声明的 image lane
-        assert table.get("ark", "video") == 5  # 未声明默认的视频供应商仍跟随全局 env
+        assert table.get("agnes", "video") == 1
+        assert table.get("agnes", "image") == 5
+        assert table.get("ark", "video") == 5
 
 
 async def test_worker_start_loads_stored_builtin_and_custom_concurrency(monkeypatch, file_db_factory):
@@ -532,3 +513,106 @@ async def test_worker_start_keeps_env_capacity_and_warns_when_db_unavailable(mon
         assert "database unavailable" in caplog.text
     finally:
         await worker.stop()
+
+
+async def test_concurrent_reload_limits_keeps_latest_db_value(monkeypatch, file_db_factory):
+    """并发两次 reload_limits 时读库与替换整体串行，结束后容量表反映最新数据库状态。"""
+    import asyncio
+    import itertools
+
+    from lib.config.service import ConfigService
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "1")
+        await session.commit()
+
+    first_read_done = asyncio.Event()
+    second_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    call_counter = itertools.count(1)
+
+    class _GatedSessionCtx:
+        def __init__(self, index: int) -> None:
+            self._index = index
+            self._ctx = file_db_factory()
+
+        async def __aenter__(self):
+            if self._index == 2:
+                second_entered.set()
+            return await self._ctx.__aenter__()
+
+        async def __aexit__(self, *exc_info):
+            result = await self._ctx.__aexit__(*exc_info)
+            if self._index == 1:
+                first_read_done.set()
+                await release_first.wait()
+            return result
+
+    bind_safe_session_factory(monkeypatch, lambda: _GatedSessionCtx(next(call_counter)))
+    capacity = CapacityTable.from_env()
+    worker = GenerationWorker(
+        capacity=capacity,
+        executor=stub_executors.execute,
+        resume_executor=stub_executors.execute_resume,
+    )
+
+    first_reload = asyncio.create_task(worker.reload_limits())
+    await first_read_done.wait()
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "2")
+        await session.commit()
+
+    second_reload = asyncio.create_task(worker.reload_limits())
+    second_reload.add_done_callback(lambda _task: release_first.set())
+    # 前提：from_db 进入会话前没有 await，让出一次调度即可判别——不串行时第二次重载已进入会话，
+    # 串行时它停在锁上、尚未进入会话。from_db 若在开会话前加了 await，须改这里的判别，否则用例会在去锁后仍通过。
+    await asyncio.sleep(0)
+    if not second_entered.is_set():
+        release_first.set()
+
+    await asyncio.gather(first_reload, second_reload)
+    assert capacity.get("openai", "image") == 2
+
+
+async def test_reload_limits_failure_keeps_capacity_and_allows_next_reload(monkeypatch, file_db_factory, caplog):
+    """reload_limits 读库失败时保留当前容量表并记录告警，后续重载照常生效。"""
+    import itertools
+    import logging
+
+    from lib.config.service import ConfigService
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "2")
+        await session.commit()
+
+    monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
+    capacity = CapacityTable.from_env()
+    worker = GenerationWorker(
+        capacity=capacity,
+        executor=stub_executors.execute,
+        resume_executor=stub_executors.execute_resume,
+    )
+
+    call_counter = itertools.count(1)
+
+    def flaky_session_factory():
+        if next(call_counter) == 1:
+            raise RuntimeError("database unavailable")
+        return file_db_factory()
+
+    bind_safe_session_factory(monkeypatch, flaky_session_factory)
+
+    with caplog.at_level(logging.WARNING, logger="lib.generation.generation_worker"):
+        await worker.reload_limits()
+
+    assert capacity.get("openai", "image") == 7
+    assert "保持当前配置" in caplog.text
+    assert "database unavailable" in caplog.text
+
+    await worker.reload_limits()
+    assert capacity.get("openai", "image") == 2

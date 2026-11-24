@@ -75,7 +75,6 @@ MESSAGES = {
     "task_not_found": "Tác vụ '{id}' không tồn tại",
     "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
-    # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
     "task_fail_provider_rejected": "Nhà cung cấp đã từ chối yêu cầu tạo này (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
@@ -209,7 +208,6 @@ MESSAGES = {
     "scene_task_submitted": "Đã gửi tác vụ tạo hình tài sản cảnh cho '{name}'",
     "prop_task_submitted": "Đã gửi tác vụ tạo hình tài sản đạo cụ cho '{name}'",
     "product_task_submitted": "Đã gửi tác vụ tạo hình tài sản hàng hóa cho '{name}'",
-    # Files
     "file_not_found": "Tệp không tồn tại: {path}",
     "forbidden_access": "Cấm truy cập tệp ngoài thư mục dự án",
     "invalid_upload_type": "Loại tải lên không hợp lệ: {upload_type}",
@@ -225,6 +223,7 @@ MESSAGES = {
     "bgm_silent": "Nhạc nền này gần như không có tiếng nên không đo được độ lớn âm thanh. Hãy tải lên tệp âm thanh có tiếng",
     "bgm_ffmpeg_unavailable": "ffmpeg đi kèm hiện không dùng được nên không đo được độ lớn âm thanh của nhạc nền; tạm thời chưa thể tải nhạc nền lên",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
+    "draft_generation_invalid": "Kết quả có {count} vi phạm và đã được lưu thành bản nháp. Hãy sửa bản nháp hoặc nhờ AI sửa.",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
@@ -312,14 +311,12 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy hủy bản nháp rồi tạo lại"
     ),
-    # Source loader
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",
     "source_name_reserved": "Tên tệp dạng episode_N.txt được dành cho tệp nguyên văn của tập; hãy đổi tên tệp trước khi tải lên làm toàn bộ văn bản nguồn",
     "source_decode_failed": "Không giải mã được tệp nguồn '{filename}' (đã thử: {tried})",
     "source_corrupt_file": "Tệp nguồn '{filename}' không thể phân tích: {reason}",
     "source_too_large": "Tệp nguồn '{filename}' quá lớn ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Tệp nguồn '{existing}' đã tồn tại; gợi ý đổi tên: '{suggested}'",
-    # Providers
     "unknown_provider": "Nhà cung cấp không xác định: {value}",
     "max_workers_must_be_positive_integer": "{field} phải là số nguyên dương, đã nhận: {value}",
     "credentials_not_found": "Không tìm thấy thông tin xác thực",
@@ -336,7 +333,6 @@ MESSAGES = {
         "Lần gửi này chứa các trường thuộc nhiều nhóm thông tin xác thực loại trừ lẫn nhau, không "
         "thể xác định muốn chuyển sang nhóm nào. Vui lòng chỉ điền một nhóm."
     ),
-    # Assistant
     "assistant_image_too_large": "Mỗi ảnh gốc không được lớn hơn 5 MB",
     "assistant_images_total_too_large": "Tổng dung lượng ảnh không được lớn hơn 7,5 MB",
     "session_not_found": "Phiên '{session_id}' không tồn tại",
@@ -346,7 +342,6 @@ MESSAGES = {
     "agent_startup_failed_title": "Khởi động agent thất bại",
     "interface_offline": "Giao diện này đã ngừng hoạt động, vui lòng dùng giao diện được khuyến nghị",
     "answers_required": "answers không được để trống",
-    # Custom Providers
     "model_id_required": "Phải cung cấp model_id cho các mô hình đã bật",
     "duplicate_model_id": "model_id trùng lặp: {model_id}",
     "default_model_conflict": "Mỗi media_type chỉ có tối đa một mô hình mặc định. Xung đột: {conflict}",
@@ -373,7 +368,6 @@ MESSAGES = {
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",
     "custom_endpoint_referenced_by_models": "Endpoint này đang được {count} mô hình sử dụng, hãy gỡ các tham chiếu đó trước khi xóa",
-    # ---- Chợ ----
     "market_source_not_found": "Nguồn chợ không tồn tại",
     "market_source_official_undeletable": "Không thể xóa nguồn chợ chính thức, nhưng có thể tắt",
     "market_source_duplicate": "Nguồn chợ này đã được thêm",
@@ -396,7 +390,6 @@ MESSAGES = {
     "market_entry_icon_not_found": "Mục chợ này không có biểu tượng",
     "market_entry_fetch_failed": "Không thể tải tệp của mục từ nguồn chợ ({reason})",
     "market_entry_asset_invalid": "Tệp của mục do nguồn chợ cung cấp không dùng được ({reason})",
-    # ---- Kiểm thử endpoint ----
     "endpoint_test_payload_required": "Thiếu trường payload: khi tải tệp lên, hãy đặt JSON của yêu cầu vào trường biểu mẫu payload",
     "endpoint_test_payload_invalid": "Không phân tích được nội dung yêu cầu, hãy kiểm tra định dạng JSON và kiểu dữ liệu",
     "endpoint_test_asset_too_large": "Tệp {name} vượt quá giới hạn {limit_mb} MB",
@@ -477,7 +470,6 @@ MESSAGES = {
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
         "không thể ghi đè last_frame thành true"
     ),
-    # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
@@ -488,7 +480,6 @@ MESSAGES = {
     "project_deleted": "Đã chuyển dự án '{name}' vào dự án đã xóa. Bạn có thể khôi phục trong 30 ngày",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",
     "segment_updated": "Đã cập nhật đoạn '{segment_id}'",
-    # Characters / Scenes / Props
     "character_already_exists": "Nhân vật '{name}' đã tồn tại",
     "character_deleted": "Đã xóa nhân vật '{name}'",
     "project_scene_already_exists": "Cảnh '{name}' đã tồn tại",
@@ -504,18 +495,13 @@ MESSAGES = {
         "Tên {requested_type} '{name}' đã được {existing_type} '{existing_name}' sử dụng. "
         "Nhân vật, cảnh, đạo cụ và hàng hóa trong cùng dự án phải có tên duy nhất"
     ),
-    # API Keys
     "jwt_auth_required": "API Key không được phép thực hiện thao tác này, vui lòng dùng xác thực JWT",
     "api_key_name_exists": "Tên '{name}' đã tồn tại",
     "api_key_not_found": "Không tìm thấy API Key {key_id}",
-    # Agent Chat
     "session_project_mismatch": "Phiên '{session_id}' thuộc dự án '{session_project}', không khớp với dự án yêu cầu '{request_project}'",
-    # Cost Estimation
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
-    # Validators
     "invalid_backend_format": "Định dạng lựa chọn mô hình không hợp lệ; sử dụng provider/model",
     "backend_media_type_mismatch": "Loại mô hình không khớp: mục này cần mô hình {expected}, nhưng {provider}/{model} là mô hình {actual}",
-    # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
     "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",
     "resource_id_required": "ID tài nguyên không được để trống",
@@ -523,7 +509,6 @@ MESSAGES = {
     "end_frame_source_not_found": "Không tìm thấy ảnh nguồn cho khung hình cuối: {path}",
     "end_frame_source_too_large": "Ảnh khung hình cuối vượt quá giới hạn dung lượng ({max_mb} MB): {path}",
     "end_frame_reference_video_unsupported": "Chế độ video tham chiếu không có khái niệm khung hình đầu/cuối, không hỗ trợ đặt khung hình cuối",
-    # Reference Video
     "ref_missing_asset": "Tham chiếu đến {type} '{name}' không có trong thư viện tài nguyên dự án, vui lòng tạo trước",
     "ref_duration_exceeded": "Kịch bản dài {total}s, vượt mức thời lượng lớn nhất của {model}; đã tạo ở {duration}s nên video ngắn hơn kịch bản",
     "ref_duration_rounded_up": "Kịch bản dài {total}s, không thuộc các mức thời lượng của {model}; đã tạo ở {duration}s nên video dài hơn kịch bản",
@@ -531,7 +516,6 @@ MESSAGES = {
     "ref_too_many_images": "Số lượng ảnh tham chiếu {count} vượt giới hạn {max_count} của {model}, đã giữ {max_count} ảnh đầu tiên",
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
     "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
     "ref_sora_single_ref": "Mô hình này chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
     "ref_single_ref_only": "{model} chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
     "ref_episode_not_found": "Không tìm thấy tập (id={episode})",
@@ -540,7 +524,6 @@ MESSAGES = {
     "ref_unit_needs_replan": "Đơn vị video này có vấn đề về người phát ngôn hoặc di chuyển; hãy lập kế hoạch lại trước khi tạo",
     "ref_script_missing": "Tệp kịch bản gắn với tập này không tồn tại",
     "ref_script_rebound": "Liên kết kịch bản của tập này đã thay đổi, vui lòng thử lại",
-    # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
     "ref_warn_unregistered_mention": (
         "@[{name}] chưa được đăng ký trong hàng hóa/nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
         "hãy kiểm tra tên hoặc tạo tài sản trước"
@@ -583,19 +566,16 @@ MESSAGES = {
         "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
         "tùy thuộc vào mô hình đã chọn"
     ),
-    # Mô tả khung hình phân cảnh nhắc tới @[tên] chưa gắn với ảnh tham chiếu
     "storyboard_warn_mention_unbound": (
         "Mô tả khung hình của {unit_id} nhắc tới @[{name}], nhưng tên này chưa được đăng ký là tài sản hoặc "
         "không nằm trong các trường tham chiếu của phân cảnh đó: sẽ không được đánh số thành ảnh N mà gửi "
         "nguyên tên"
     ),
-    # Episode meta
     "episode_not_found": "Không tìm thấy tập (id={episode}) hoặc tập chưa có tệp kịch bản",
     "storyboard_batch_script_invalid": "Không thể dùng kịch bản chính thức của tập {episode} để tạo hàng loạt phân cảnh: cấu trúc kịch bản không khớp với chế độ tạo của dự án, hoặc kịch bản chưa gắn với tập này",
     "episode_source_empty": "Nguyên văn của tập không được để trống",
     "episode_source_derived": "Tập này được cắt từ toàn bộ văn bản nguồn; nguyên văn của tập do lập kế hoạch phân tập tạo ra, không thể sửa tại đây",
     "episode_source_symlink": "Tệp nguyên văn của tập này là liên kết tượng trưng, không thể ghi",
-    # Phân tập thủ công
     "manual_split_episode_not_found": "Tập này không còn trong danh sách tập. Hãy làm mới rồi thử lại",
     "manual_split_episode_not_placed": "Nguyên văn của tập này không nằm trong toàn bộ văn bản nguồn nên không thể điều chỉnh ranh giới trên nguyên văn",
     "manual_split_source_file_not_found": "Toàn bộ văn bản nguồn không có tệp này, hoặc không đọc được tệp",
@@ -644,7 +624,6 @@ MESSAGES = {
     "episode_replan_adopt_moved_item": "{name} → Tập {new}",
     "episode_replan_delete_heading": "Nếu chọn «Xóa luôn», các tập sau sẽ được chuyển cùng sản phẩm vào thùng rác dự án và giữ trong 30 ngày:",
     "episode_replan_delete_item": "{name}: {items}",
-    # Thay đổi tệp của toàn bộ văn bản nguồn
     "source_file_change_source_file_not_found": "Tệp này không có trong toàn bộ văn bản nguồn. Hãy làm mới rồi thử lại",
     "source_file_change_source_file_unreadable": "Không đọc được tệp này hoặc tệp không phải văn bản UTF-8; chỉ có thể xóa",
     "source_file_change_source_changed": "Tệp này đã bị sửa bên ngoài ArcReel. Chưa thể thay thế, chỉnh sửa hay đổi thứ tự cho đến khi sổ phân tập được cập nhật; vẫn có thể xóa",
@@ -672,7 +651,6 @@ MESSAGES = {
     "source_name_not_whole_source": "Tên tệp bắt đầu bằng dấu gạch dưới hoặc có dạng episode_N.txt không thể thêm vào toàn bộ văn bản nguồn; hãy dùng {filename} làm nguyên văn của một tập hoặc xóa tệp",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
-    # Image Capability
     "image_endpoint_mismatch_no_i2i": "Mô hình {model} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh",
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
     "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {model} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Seedream (1K) / Seedream (2K)» trong cài đặt mô hình rồi thử lại",
@@ -680,17 +658,20 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
-    "image_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng yêu cầu này có {count}; chưa gửi yêu cầu tạo; hãy tạo lại",
-    # Image Edit
+    "image_resolution_not_supported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} (chỉ hỗ trợ {supported}); hãy chọn một độ phân giải được hỗ trợ",
+    "image_aspect_ratio_not_supported": "Mô hình {model} không hỗ trợ tỷ lệ khung hình {aspect_ratio} (chỉ hỗ trợ {supported}); hãy chọn một tỷ lệ được hỗ trợ",
+    "image_reference_images_exceeded": "Mô hình {model} nhận tối đa {limit} ảnh tham chiếu. Yêu cầu có {count} ảnh. Ảnh vượt giới hạn: {names}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
+    "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {previous_storyboard}, hãy đặt cảnh này làm điểm ngắt chương.",
     "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
     "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",
     "image_edit_script_file_required": "Cần cung cấp script_file khi chỉnh sửa ảnh phân cảnh",
     "image_edit_no_current_image": "'{id}' chưa có ảnh hiện tại để chỉnh sửa; hãy tạo hoặc tải lên trước",
     "image_edit_i2i_unavailable": "Chưa cấu hình nhà cung cấp ảnh hỗ trợ image-to-image (i2i); hãy cấu hình trong Cài đặt trước",
     "image_edit_task_submitted": "Đã gửi tác vụ chỉnh sửa ảnh cho '{id}'",
-    # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",
+    "video_end_frame_durations_incompatible": "Không có thời lượng video với khung hình cuối phù hợp với cấu hình hiện tại. Đổi cấu hình video hoặc bỏ khung hình cuối.",
+    "video_duration_end_frame_not_supported": "Thời lượng {duration}s không khả dụng khi có khung hình cuối; khả dụng: {supported}. Đổi thời lượng hoặc bỏ khung hình cuối.",
     "video_capability_missing_t2v": "{provider}/{model} không hỗ trợ text-to-video; hãy cung cấp ảnh khung hình đầu hoặc chuyển sang mô hình có hỗ trợ text-to-video",
     "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
@@ -706,7 +687,7 @@ MESSAGES = {
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",
     "video_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "video_reference_images_unsupported": "Mô hình {model} không hỗ trợ ảnh tham chiếu đa chủ thể; hãy bỏ ảnh tham chiếu hoặc chuyển sang mô hình có hỗ trợ tạo video từ ảnh tham chiếu",
-    "video_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng nhận được {count}; hãy giảm số lượng ảnh tham chiếu",
+    "video_reference_images_exceeded": "Mô hình {model} nhận tối đa {limit} ảnh tham chiếu. Yêu cầu có {count} ảnh. Ảnh vượt giới hạn: {names}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
     "video_reference_images_with_frames_unsupported": "Mô hình {model} không thể dùng ảnh/âm thanh tham chiếu cùng với khung hình đầu/cuối; hãy chọn một trong hai",
     "video_start_image_unreadable": "Ảnh khung hình đầu của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình đầu",
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
@@ -724,7 +705,6 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} chỉ chấp nhận câu lệnh tối đa {limit} ký tự nhưng nhận được {count}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
     "video_request_conflicts_with_active_task": "Đơn vị '{resource_id}' đã có tác vụ video đang xử lý với thời lượng yêu cầu đã xác nhận khác; hãy đợi tác vụ hoàn tất rồi thử lại (tác vụ còn đang xếp hàng có thể hủy trước).",
     "audio_restore_conflicts_with_active_task": "Đơn vị '{resource_id}' đang tạo âm thanh thuyết minh; hãy đợi hoàn tất trước khi chuyển phiên bản âm thanh (tác vụ còn đang xếp hàng có thể hủy trước).",
-    # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",
     "agent_api_key_required": "Hãy nhập api_key hoặc chọn nhà cung cấp tùy chỉnh để nhập",
@@ -765,7 +745,6 @@ MESSAGES = {
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",
     "request_invalid": "Yêu cầu không hợp lệ, vui lòng kiểm tra và thử lại",
-    # Ký ức Agent
     "memory_invalid_filename": "Tên tệp ký ức '{filename}' không hợp lệ: chỉ cho phép tệp .md ở thư mục gốc",
     "memory_file_not_found": "Tệp ký ức '{filename}' không tồn tại",
     "memory_file_too_large": "Tệp ký ức '{filename}' vượt quá giới hạn kích thước (tối đa {limit_kib} KiB)",
@@ -776,7 +755,6 @@ MESSAGES = {
     "market_entry_already_installed": "Mục này đã được cài đặt; chọn điểm cuối của nó để cập nhật",
     "market_endpoint_already_installed": "Điểm cuối này có bản ghi cài đặt khác và không thể ghi đè",
     "market_overwrite_target_not_duplicate": "Chỉ có thể ghi đè điểm cuối có cùng tác giả và tên với mục này",
-    # Dịch vụ chính thức
     "official_service_disabled": "Dịch vụ chính thức đã bị tắt",
     "official_service_unavailable": "Hiện không thể kết nối dịch vụ chính thức, vui lòng thử lại sau",
     "market_entry_rating_not_installed": "Cài đặt mục này để đánh giá",
@@ -808,7 +786,6 @@ MESSAGES = {
     "official_service_error_github_unavailable": "Dịch vụ chính thức hiện không kết nối được GitHub, vui lòng thử lại sau",
     "official_service_error_submissions_unconfigured": "Dịch vụ chính thức chưa mở nhận bài gửi",
     "official_service_error_submission_not_found": "Không tìm thấy bài gửi này",
-    # Edit timeline
     "edit_timeline_not_found": "Không tìm thấy dòng thời gian dựng '{timeline_id}'",
     "edit_timeline_revision_not_found": "Dòng thời gian dựng '{timeline_id}' không có phiên bản sửa {revision} (phiên bản mới nhất là {latest_revision})",
     "edit_timeline_name_conflict": "Tập (id={episode}) đã có dòng thời gian dựng tên '{name}'",
@@ -818,7 +795,6 @@ MESSAGES = {
     "edit_timeline_invalid": "Tệp dòng thời gian dựng bị hỏng, không đọc được: {file}",
     "edit_timeline_revision_unchanged": "Phiên bản sửa {revision} có nội dung giống phiên bản mới nhất, nên không cần khôi phục",
     "edit_timeline_render_in_progress": "Dòng thời gian dựng này có tác vụ kết xuất bản dựng hoàn chỉnh hoặc bản nháp Jianying đang chờ hoặc đang chạy ({task_id}); hãy xóa sau khi tác vụ kết thúc",
-    # Final cut
     "final_cut_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới kết xuất được video thành phẩm có lời dẫn",
     "final_cut_presentation_unavailable": "Âm thanh lời dẫn hoặc phụ đề của đơn vị video {unit_id} không thể dùng trong video thành phẩm; hãy kiểm tra âm thanh lời dẫn rồi kết xuất lại",
     "final_cut_blocked": "Dòng thời gian dựng có vấn đề chặn việc kết xuất video thành phẩm, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi kết xuất lại",
@@ -829,7 +805,6 @@ MESSAGES = {
     "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
     "final_cut_acceptance_failed": "Video thành phẩm vừa kết xuất không đạt kiểm tra, vui lòng thử lại",
     "final_cut_render_in_progress": "Dòng thời gian dựng này đã có một tác vụ kết xuất với tham số khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
-    # Jianying draft
     "jianying_draft_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới xuất được bản nháp Jianying có lời dẫn",
     "jianying_draft_blocked": "Dòng thời gian dựng có vấn đề chặn việc xuất bản nháp Jianying, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi xuất lại",
     "jianying_draft_empty": "Dòng thời gian dựng không có đoạn nào để xuất",
@@ -839,7 +814,6 @@ MESSAGES = {
     "jianying_draft_presentation_unavailable": "Tư liệu của đơn vị video {unit_id} không thể dùng trong bản nháp Jianying; hãy kiểm tra video và âm thanh lời dẫn rồi xuất lại",
     "jianying_draft_hold_frame_unavailable": "Không thể trích khung hình tại điểm kết thúc của đoạn {clip_id}, nên bản nháp Jianying chưa được xuất; vui lòng thử lại",
     "jianying_draft_acceptance_failed": "Bản nháp Jianying vừa tạo không đạt kiểm tra; vui lòng thử lại",
-    # Quản lý tập
     "episode_manage_episode_not_found": "Tập này không còn trong danh sách tập. Hãy làm mới rồi thử lại",
     "episode_manage_ledger_invalid": "Sổ phân tập có định dạng bất thường nên không thể điều chỉnh tập",
     "episode_manage_cut_order_locked": "Các tập cắt từ toàn bộ văn bản nguồn giữ theo thứ tự văn bản nguồn, không thể đổi chỗ cho nhau",

@@ -17,7 +17,6 @@ from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -26,6 +25,7 @@ from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_video,
     poll_with_retry,
+    read_video_images,
     reference_audio_to_data_uri,
     should_retry_download,
 )
@@ -44,16 +44,8 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
-# 且格式小写。资产上传期已按同一组格式收窄，此处按扩展名回填，未知扩展名不猜测直接拒绝。
-# 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
-# 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
 
-# Seedance 视频 token 的官方估算公式（《模型价格》视频生成一节）：
-#   (输入视频时长 + 输出视频时长) × 输出视频的宽 × 高 × 帧率 / 1024
-# 帧率与各「分辨率 × 宽高比」的输出像素取自《创建视频生成任务 API》：输出帧率 24；2.5 与 2.0 系列只有 480p 的
-# 16:9 / 9:16 两格不同，2.5 没有 4k。分辨率不发送时 API 默认 720p。结算以供应商回报的 completion_tokens 为准。
 _SEEDANCE_FPS = 24
 _SEEDANCE_DEFAULT_RESOLUTION = "720p"
 _SEEDANCE_2_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
@@ -88,7 +80,6 @@ _SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
     ("480p", "9:16"): (480, 854),
 }
 
-# 请求的服务档取值 → 价目表的服务档取值：方舟请求里的 ``default`` 即标准档。
 _CATALOG_SERVICE_TIERS = {"default": "standard"}
 
 
@@ -100,15 +91,10 @@ class SeedanceEndpoint:
     同一端点下各型号接受哪些输入是模型事实，记在模型条目上（``lib.backends.video_capabilities``）。
     """
 
-    #: 内置调用端点名，与自定义供应商共用（``lib.custom_provider.endpoints.ENDPOINT_REGISTRY`` 的键）。
     key: str
-    #: 请求体是否带 ``service_tier``：只有 1.x 接受；2.0 在参考生视频下以 400 拒绝该参数，2.5 按同代口径不带。
     sends_service_tier: bool
-    #: 视频 token 预估用的「分辨率 × 宽高比 → 输出像素」表；``None`` 表示不按视频 token 预估（1.x 按次计价）。
     token_pixels: Mapping[tuple[str, str], tuple[int, int]] | None
-    #: 参考图槽位是否接受 ``asset://`` 素材引用：官方《Seedance 人像素材使用指南》只给出 2.0 / 2.5 的契约。
     reference_image_asset: bool
-    #: 首帧在场时比例是否只能交给上游按首帧自适应（2.5），见 ``VideoCapabilities.first_frame_ratio_adaptive_only``。
     first_frame_ratio_adaptive_only: bool
 
 
@@ -236,9 +222,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
-        # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
         self._api_key = api_key
-        # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
         self._base_url = ark_base_url(base_url)
         if not model:
             raise ValueError("ArkVideoBackend 需要指定模型")
@@ -356,7 +340,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             if rejection is not None:
                 raise rejection from exc
             raise
-        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
         await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK, endpoint=self._base_url)
         return await self._poll_until_done(provider_task_id, request)
 
@@ -376,20 +359,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> str:
         """创建 Ark 视频生成任务（带重试保护）。"""
-        # 1. Build content list
         content: list[dict[str, Any]] = [{"type": "text", "text": request.prompt}]
 
-        # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
-        # （first_frame / last_frame / reference_image），否则 400 InvalidParameter。
-        # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程。
         content.extend(await asyncio.to_thread(self._build_image_content, request))
 
         if request.reference_audio_files:
-            # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」
-            # 指的是第 N 个 type="audio_url" 条目（官方《快速入门》提示词规则）。故这里必须
-            # 保持 reference_audio_files 的原始顺序、不跳过任何一段——跳过会让编排层拼好的
-            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。gather 按入参顺序返回，
-            # 并发不影响该编号。读整段音频做 base64 编码是阻塞 I/O，逐段卸载到线程。
             audio_data_uris = await asyncio.gather(
                 *[
                     asyncio.to_thread(
@@ -410,9 +384,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 for data_uri in audio_data_uris
             )
 
-        # 2. Build API params
-        # 比例优先：ratio 是独立 SDK 字段，由 aspect_ratio 直接决定；resolution 仅清晰度档位，
-        # 与比例正交（SDK 内部按 ratio×resolution 算像素），不把比例压进像素 size，故无尺寸 bug。
         create_params = {
             "model": self._model,
             "content": content,
@@ -423,13 +394,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         }
         if request.resolution is not None:
             create_params["resolution"] = request.resolution
-        # 只有 Seedance 1.x 端点接受 service_tier，见 SeedanceEndpoint.sends_service_tier
         if self.endpoint.sends_service_tier:
             create_params["service_tier"] = request.service_tier
         if request.seed is not None:
             create_params["seed"] = request.seed
 
-        # 3. Create task (sync SDK call, run in executor)
         logger.info(
             "调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(_safe_create_params_for_log(create_params))
         )
@@ -451,59 +420,22 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _build_image_content(self, request: VideoGenerationRequest) -> list[dict[str, Any]]:
         """首帧 / 尾帧 / 参考图 → image_url 条目（同步：读本地图片，调用方放线程里跑）。"""
-        from lib.backends.image_backends.base import image_to_base64_data_uri
-
-        content: list[dict[str, Any]] = []
-        if request.start_image:
+        asset_uris = _reference_asset_uris(request)
+        if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
+            raise ValueError(f"model {self._model} does not accept provider asset references")
+        remote = frozenset(i for i, uri in enumerate(asset_uris, 1) if uri is not None)
+        images = read_video_images(request, self._model, remote_indices=remote)
+        content = []
+        for role, path in (("first_frame", request.start_image), ("last_frame", request.end_image)):
+            if path is not None:
+                content.append({"type": "image_url", "image_url": {"url": images[Path(path)].data_uri()}, "role": role})
+        for path, uri in zip(request.reference_images or [], asset_uris, strict=True):
             content.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(request.start_image)},
-                    "role": "first_frame",
-                }
-            )
-
-        if request.end_image:
-            end_path = Path(request.end_image)
-            if not end_path.is_file():
-                # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
-                # 与分镜衔接不上的视频却无从知道原因。
-                raise VideoCapabilityError(
-                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
-                )
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(request.end_image)},
-                    "role": "last_frame",
-                }
-            )
-
-        if request.reference_images:
-            asset_uris = _reference_asset_uris(request)
-            if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
-                raise ValueError(f"model {self._model} does not accept provider asset references")
-            # 以素材引用发出的参考图不读本地内容，只核对其余参考图。
-            missing = [
-                p
-                for r, uri in zip(request.reference_images, asset_uris, strict=True)
-                if uri is None and not (p := Path(r)).is_file()
-            ]
-            if missing:
-                # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
-                raise VideoCapabilityError(
-                    "video_reference_images_unreadable",
-                    model=self._model,
-                    names=", ".join(p.name or str(p) for p in missing),
-                )
-            # 素材引用就地替换同一位置的图片内容，不增删、不重排：提示词里的「图片N」仍指向第 N 个参考图条目。
-            content.extend(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": uri if uri is not None else image_to_base64_data_uri(Path(ref_path))},
+                    "image_url": {"url": uri or images[Path(path)].data_uri()},
                     "role": "reference_image",
                 }
-                for ref_path, uri in zip(request.reference_images, asset_uris, strict=True)
             )
         return content
 
@@ -539,11 +471,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 ),
             )
 
-        # Download video
         video_url = result.content.video_url
         await self._download_video_with_retry(video_url, request.output_path)
 
-        # Extract result metadata
         seed = getattr(result, "seed", None)
         usage_tokens = None
         if hasattr(result, "usage") and result.usage:
@@ -580,7 +510,6 @@ class Seedance25VideoBackend(ArkVideoBackend):
     endpoint = SEEDANCE_2_5
 
 
-#: Seedance 内置调用端点名 → 实现它的调用通道，按声明顺序（1、2、2.5）。
 SEEDANCE_BACKENDS: Mapping[str, type[ArkVideoBackend]] = {
     backend.endpoint.key: backend for backend in (Seedance1VideoBackend, Seedance2VideoBackend, Seedance25VideoBackend)
 }

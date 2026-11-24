@@ -4,13 +4,6 @@ import { WorkDetail, WorkRow, useSessionDone, useToolLabel } from "./WorkRow";
 import { stringifyResult } from "./utils";
 import { toolStatus } from "./work-label";
 
-// ---------------------------------------------------------------------------
-// ToolCallWithResult – 一次工具调用连同它的结果，显示为一行工序：本地化名称加一句摘要，
-// 展开后分「参数」「结果」两段。
-//
-// Skill 与 Agent/Task tool_use 不经过本组件（分别由 SkillChip 与 SubagentCard 渲染，
-// 见 ContentBlockRenderer 分发）。
-// ---------------------------------------------------------------------------
 
 export function ToolCallWithResult({ block }: { block: ContentBlock }) {
   const { t } = useTranslation("dashboard");

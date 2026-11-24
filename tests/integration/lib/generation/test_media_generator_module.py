@@ -12,6 +12,7 @@ import pytest
 
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationResult
+from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend
 from lib.generation.deleted_target import TARGET_DELETED_NOTE, GenerationTargetDeletedError
 from lib.generation.media_generator import (
     MediaGenerator,
@@ -21,7 +22,7 @@ from lib.generation.media_generator import (
     task_video_staging_path,
 )
 from lib.project import project_trash
-from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_bytes, wav_bytes
 from tests.fakes import (
     MP4_BYTES,
     PNG_BYTES,
@@ -31,7 +32,7 @@ from tests.fakes import (
     write_backend_output,
     write_generation_targets,
 )
-from tests.http_capture import capture_http, only_request, request_json
+from tests.http_capture import capture_http, only_request, request_form_files, request_json
 
 
 class _FakeImageBackend:
@@ -49,7 +50,6 @@ class _FakeImageBackend:
 
     async def generate(self, request):
         self.calls.append(request)
-        # Touch the output file so version tracking works
         await write_backend_output(request.output_path, b"fake-image-data")
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -77,7 +77,6 @@ class _FakeVideoBackend:
 
     def __init__(self, result_duration_seconds: int | None = None, video_capabilities=None):
         self.calls = []
-        # None = 回显请求时长（多数后端行为）；指定值 = 模拟 provider 回报的实际计费时长
         self._result_duration_seconds = result_duration_seconds
         self.video_capabilities = video_capabilities
 
@@ -208,7 +207,6 @@ class TestTargetDeletedDuringGeneration:
         assert record.object["note"] == TARGET_DELETED_NOTE
         assert record.files == (rel,)
         assert (project_trash.trash_dir(gen.project_path) / record.id / "files" / rel).read_bytes() == content
-        # 原目录里既没有正式文件，也没有残留的暂存文件；版本历史没有新增。
         assert list((gen.project_path / rel).parent.iterdir()) == []
         assert not (gen.project_path / "versions").exists()
         assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["success"]
@@ -299,7 +297,6 @@ class TestSegmentIdFor:
         assert segment_id_for("video", resource_type, "E1S01") == "E1S01"
 
     def test_video_whitelist_miss(self):
-        # grids 只在图片记账白名单内，视频记账应落 None。
         assert segment_id_for("video", "grids", "E1G1") is None
 
     @pytest.mark.parametrize(
@@ -310,7 +307,6 @@ class TestSegmentIdFor:
         assert segment_id_for("audio", resource_type, "E1S01") == "E1S01"
 
     def test_unknown_call_type_raises(self):
-        # 未接入记账白名单的通道显式报错，避免 segment_id 静默丢失。
         with pytest.raises(ValueError, match="unknown ledger channel"):
             segment_id_for("text", "storyboards", "E1S01")
 
@@ -394,8 +390,6 @@ class TestMediaGenerator:
             api_key="",
             definition=comfyui_endpoint_definition(),
         )
-        # 不注入合成能力：请求闸门读的正是 delegate 自己那份由绑定推导出来的声明，注入一份合成
-        # 值会把这条用例要守的那一段跳过去。
         gen._video_backend = CustomVideoBackend(provider_id="custom-1", delegate=delegate, model="wan-t2v")
         history = {
             "status": {"completed": True},
@@ -631,7 +625,6 @@ class TestMediaGenerator:
         assert version == 1
         assert gen.ledger.started[0]["call_type"] == "image"
         assert gen.ledger.outcomes[0]["status"] == "success"
-        # usage_tokens 提取归属真 Ledger union 分发；此处确认调用点递交了 backend 结果对象
         assert gen.ledger.outcomes[0]["result"].usage_tokens == 8
 
         async def _raise(request):
@@ -682,7 +675,6 @@ class TestMediaGenerator:
         assert version == 1
         assert video_ref is None
         assert video_uri == "video-uri"
-        # 无法解析的时长按 8 秒计
         assert gen.ledger.started[0]["duration_seconds"] == 8
 
         video_path2, version2, _, _ = await gen.generate_video_async(
@@ -1144,8 +1136,6 @@ class TestMediaGenerator:
         await gen.generate_video_async(prompt="p", resource_type="reference_videos", resource_id="E1U1")
         assert gen.ledger.started[-1]["segment_id"] == "E1U1"
 
-        # 负向边界：白名单外的 resource_type 仍落 None——守住"白名单"语义，
-        # 避免日后被改成无条件透传而无人察觉。grids 只在图片记账白名单内。
         await gen.generate_video_async(prompt="p", resource_type="grids", resource_id="E1G1")
         assert gen.ledger.started[-1]["segment_id"] is None
 
@@ -1162,7 +1152,6 @@ class TestMediaGenerator:
             duration_seconds="6",
         )
         assert gen.ledger.started[-1]["duration_seconds"] == 6
-        # billed_duration_seconds 由真 Ledger union 分发从结果对象提取；此处确认递交了 duration=15 的结果
         assert gen.ledger.outcomes[-1]["result"].duration_seconds == 15
 
     @pytest.mark.asyncio
@@ -1191,7 +1180,6 @@ class TestMediaGenerator:
                 duration_seconds="6",
             )
 
-            # 读侧直查落库行
             async with factory() as session:
                 item = (await session.execute(select(ApiCall))).scalars().one()
             assert item.status == "success"
@@ -1210,7 +1198,6 @@ class TestMediaGenerator:
             resource_type="videos",
             resource_id="E1S03",
         )
-        # VideoBackend 路径尊重 ConfigResolver 返回的值
         assert gen.ledger.started[-1]["generate_audio"] is False
 
     @pytest.mark.asyncio
@@ -1469,8 +1456,6 @@ class TestMediaGenerator:
         assert call.end_image is None
 
 
-# ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
-
 from PIL import Image
 
 from lib.generation.media_generator import _is_413
@@ -1529,12 +1514,18 @@ class TestIs413:
     def test_httpx_413(self):
         assert _is_413(_http_413_error()) is True
 
+    @pytest.mark.parametrize("method", ["GET", "HEAD"])
+    def test_artifact_request_413_does_not_trigger_compression(self, method):
+        request = httpx.Request(method, "https://example.test/output.png")
+        response = httpx.Response(413, request=request)
+        error = httpx.HTTPStatusError("Payload Too Large", request=request, response=response)
+        assert _is_413(error) is False
+
     def test_phrase_match(self):
         assert _is_413(RuntimeError("Request Entity Too Large")) is True
         assert _is_413(RuntimeError("oops: PAYLOAD TOO LARGE")) is True
 
     def test_byte_count_not_misread(self):
-        # 修正④：不用裸 "413" 子串，避免字节数 / 请求 ID 误命中
         assert _is_413(RuntimeError("only 41300 bytes uploaded")) is False
         assert _is_413(RuntimeError("error code 413xyz")) is False
 
@@ -1545,14 +1536,12 @@ class TestIs413:
         assert _is_413(err) is False
 
     def test_sdk_status_code_attr(self):
-        # OpenAI/xai 风格 SDK 异常：直接带 .status_code
         class _SdkErr(Exception):
             status_code = 413
 
         assert _is_413(_SdkErr("too big")) is True
 
     def test_sdk_code_attr(self):
-        # google-genai 风格 APIError：带 .code
         class _ApiErr(Exception):
             code = 413
 
@@ -1565,14 +1554,12 @@ class TestIs413:
         assert _is_413(_ApiErr("bad request")) is False
 
     def test_string_status_code_413(self):
-        # 个别 SDK / mock 把状态码给成字符串 "413"，需防御性 int 转换
         class _StrErr(Exception):
             status_code = "413"
 
         assert _is_413(_StrErr("too big")) is True
 
     def test_non_numeric_status_code_falls_back_to_phrase(self):
-        # 非数字状态码不应抛 ValueError，落回短语匹配
         class _WeirdErr(Exception):
             status_code = "not-a-number"
 
@@ -1657,7 +1644,7 @@ class TestReferenceCompressionSeam:
         @contextlib.contextmanager
         def _slow_cleanup_payload(specs, *, limits, start_step=0):
             try:
-                yield start_step, []
+                yield start_step, [reference_compression.CompressedRef(spec.source, spec.role) for spec in specs]
             finally:
                 cleaning.set()
                 release.wait(5)
@@ -1698,11 +1685,8 @@ class TestReferenceCompressionSeam:
 
         received = backend.received_refs[-1]
         assert len(received) == 1
-        # backend 收到的是压缩临时副本，而非源路径
         assert received[0] != src
-        # 源文件字节未被改动（只动上传副本）
         assert src.read_bytes() == src_bytes_before
-        # 临时副本退出后清理
         assert not received[0].exists()
 
     async def test_413_retry_then_success_single_finish_call(self, tmp_path):
@@ -1718,11 +1702,46 @@ class TestReferenceCompressionSeam:
             reference_images=[str(src)],
         )
 
-        # 一次 413 后降档重试成功：backend 被调两次
         assert len(backend.calls) == 2
-        # 只记一条 success（413 内循环重试不额外记账）
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "success"
+
+    @pytest.mark.parametrize("failure_phase", ["submit", "download"])
+    async def test_h3_413_only_resubmits_rejected_input(self, tmp_path, failure_phase):
+        gen = _build_generator(tmp_path)
+        gen._image_backend = MiniMaxH3ImageBackend(api_key="sk", base_url="https://203.0.113.10")
+        gen._image_provider_id = "custom-h3"
+        src = _noise_png(tmp_path, "ref.png", 1200, 1200)
+        accepted = httpx.Response(200, json={"data": [{"url": "https://203.0.113.7/out.png"}]})
+
+        with capture_http() as router:
+            edits = router.post("https://203.0.113.10/v1/images/edits").mock(
+                side_effect=[httpx.Response(413), accepted] if failure_phase == "submit" else None,
+                return_value=accepted,
+            )
+            download = router.get("https://203.0.113.7/out.png").mock(
+                return_value=httpx.Response(413, text="Payload Too Large")
+                if failure_phase == "download"
+                else httpx.Response(200, content=PNG_BYTES),
+            )
+            generate = gen.generate_image_async(
+                prompt="p", resource_type="storyboards", resource_id="E1S01", reference_images=[str(src)]
+            )
+            if failure_phase == "download":
+                with pytest.raises(httpx.HTTPStatusError) as error:
+                    await generate
+                assert error.value.request.method == "GET"
+                assert error.value.response.status_code == 413
+                assert edits.call_count == 1
+                assert gen.ledger.outcomes[0]["status"] == "failed"
+            else:
+                await generate
+                assert edits.call_count == 2
+                uploads = [request_form_files(call.request)[0][3] for call in edits.calls]
+                assert len(uploads[1]) < len(uploads[0])
+                assert gen.ledger.outcomes[0]["status"] == "success"
+            assert download.call_count == 1
+            assert len(gen.ledger.outcomes) == 1
 
     async def test_413_exhausted_raises_floor_records_failed(self, tmp_path):
         gen = _build_generator(tmp_path)
@@ -1738,14 +1757,11 @@ class TestReferenceCompressionSeam:
                 reference_images=[str(src)],
             )
 
-        # 走完梯子（基线 + LADDER_STEPS-1 档 + 地板）= LADDER_STEPS + 1 次调用后耗尽
         assert len(backend.calls) == LADDER_STEPS + 1
-        # 耗尽冒泡到外层 except 记一条 failed
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "failed"
 
     async def test_t2i_no_refs_413_not_converted_to_floor(self, tmp_path):
-        # 无参考图（T2I）的 413 与参考图无关，不应被误转成 floor、也不降档
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend(fail_413_times=99)
         gen._image_backend = backend
@@ -1756,7 +1772,6 @@ class TestReferenceCompressionSeam:
                 resource_type="storyboards",
                 resource_id="E1S01",
             )
-        # 单次调用，无降档重试
         assert len(backend.calls) == 1
 
     async def test_video_frame_not_resized_array_laddered(self, tmp_path):
@@ -1767,8 +1782,6 @@ class TestReferenceCompressionSeam:
         class _CapturingVideoBackend:
             name = "fake-video"
             model = "video-model"
-            # 带参考图的请求会先过 gate_video_request，替身须声明足够的参考图容量，
-            # 否则请求在触达 generate 之前就被能力校验拒掉。
             video_capabilities = VideoCapabilities(max_reference_images=9)
 
             def __init__(self):
@@ -1791,8 +1804,8 @@ class TestReferenceCompressionSeam:
         backend = _CapturingVideoBackend()
         gen._video_backend = backend
 
-        start = _solid_png(tmp_path, "start.png", 3000, 2000)  # FRAME：永不缩尺寸（重格式仅重编码）
-        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)  # ARRAY：走梯子缩到 ≤2048
+        start = _solid_png(tmp_path, "start.png", 3000, 2000)
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
 
         await gen.generate_video_async(
             prompt="p",
@@ -1802,8 +1815,8 @@ class TestReferenceCompressionSeam:
             reference_images=[ref],
         )
 
-        assert backend.start_dims == (3000, 2000)  # FRAME 尺寸保持
-        assert max(backend.ref_dims[0]) == 2048  # ARRAY 缩到长边 2048
+        assert backend.start_dims == (3000, 2000)
+        assert max(backend.ref_dims[0]) == 2048
 
     async def test_provider_asset_slot_is_sent_as_reference_without_upload_or_compression(self, tmp_path):
         """以素材引用发出的参考图不读内容、不压缩，在请求、序位与记账输入里都与原图片位置一一对应。"""
@@ -1818,7 +1831,6 @@ class TestReferenceCompressionSeam:
         client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
         with captured_ark_clients("lib.backends.video_backends.ark", client):
             gen._video_backend = Seedance2VideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
-        # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
         character = _noise_png(gen.project_path, "character.png", 3000, 3000)
         scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)
 
@@ -2138,7 +2150,7 @@ class TestFirstFrameRatioAdaptiveOnly:
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
-        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())  # 默认档，未声明该约束
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())
         gen._video_backend = backend
 
         start = _solid_png(tmp_path, "start.png", 100, 100)
@@ -2267,7 +2279,7 @@ class TestEntryBoundVideoRequests:
         refs = []
         for i in range(5):
             ref = tmp_path / f"ref{i}.png"
-            ref.write_bytes(PNG_BYTES)
+            ref.write_bytes(image_bytes())
             refs.append(ref)
 
         with capture_http() as router:
@@ -2298,9 +2310,9 @@ class TestEntryBoundVideoRequests:
         backend = await _builtin_video_backend("grok", model, binding)
         gen = self._generator(tmp_path, backend, "grok")
         start = tmp_path / "start.png"
-        start.write_bytes(PNG_BYTES)
+        start.write_bytes(image_bytes())
         ref = tmp_path / "ref.png"
-        ref.write_bytes(PNG_BYTES)
+        ref.write_bytes(image_bytes())
 
         with pytest.raises(VideoCapabilityError) as exc:
             await gen.generate_video_async(
@@ -2360,3 +2372,170 @@ class TestEntryBoundVideoRequests:
         )
 
         assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_frozen_image_usage_keeps_source_after_cleanup(tmp_path, failed):
+    from lib.artifacts.image_reference_snapshot import freeze_image_references
+    from lib.artifacts.visual_artifact_provenance import VisualReference
+
+    gen = _build_generator(tmp_path)
+    source = _solid_png(gen.project_path, "reference.png", 64, 64)
+    frozen = await asyncio.to_thread(
+        freeze_image_references,
+        [source],
+        [VisualReference(path=source, role="asset_sheet", logical_type="character", logical_id="Alice")],
+    )
+    if failed:
+
+        class FailingBackend(_FakeImageBackend):
+            async def generate(self, request):
+                raise RuntimeError("provider failed")
+
+        gen._image_backend = FailingBackend()
+    try:
+        with pytest.raises(RuntimeError, match="provider failed") if failed else contextlib.nullcontext():
+            await gen.generate_image_async(
+                prompt="p",
+                resource_type="characters",
+                resource_id="A",
+                reference_images=frozen.reference_images,
+                reference_sources=frozen.source_paths,
+            )
+    finally:
+        await asyncio.to_thread(frozen.cleanup)
+    assert not await asyncio.to_thread(Path(frozen.reference_images[0]).exists)
+    recorded = gen.ledger.started[0]["inputs"]["reference_images"][0]["path"]
+    assert recorded == "reference.png"
+    assert (gen.project_path / recorded).is_file()
+    assert gen.ledger.outcomes[0]["status"] == ("failed" if failed else "success")
+
+
+@pytest.mark.parametrize("role", ["reference_image", "start_image", "end_image"])
+async def test_staged_video_image_usage_keeps_source_after_cleanup(tmp_path, role):
+    from arcreel_market_core.video_backend_contract import VideoCapabilities
+    from lib.script.reference_video.execution_checkpoint import (
+        ProviderMediaInput,
+        cleanup_staged_provider_media,
+        stage_provider_media_for_task,
+    )
+
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _FakeVideoBackend(
+        video_capabilities=VideoCapabilities(max_reference_images=9, last_frame=True)
+    )
+    source = _solid_png(gen.project_path, "reference.png", 64, 64)
+    media = await stage_provider_media_for_task(
+        gen.project_path,
+        "usage-test",
+        (
+            ProviderMediaInput(
+                path=source, role=role, logical_type="character", logical_name="Alice", kind="asset_sheet"
+            ),
+        ),
+    )
+    staged = gen.project_path / media[0].staged_locator
+    kwargs = {"reference_images": [staged]} if role == "reference_image" else {role: staged}
+    if role == "end_image":
+        kwargs["start_image"] = source
+    try:
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_sources={str(staged): source},
+            **kwargs,
+        )
+    finally:
+        await asyncio.to_thread(cleanup_staged_provider_media, gen.project_path, "usage-test")
+    inputs = gen.ledger.started[0]["inputs"]
+    recorded = inputs["reference_images"][0]["path"] if role == "reference_image" else inputs[role]
+    assert recorded == "reference.png"
+    assert (gen.project_path / recorded).is_file()
+    assert not staged.exists()
+
+
+@pytest.mark.parametrize("status", ["success", "failed"])
+async def test_video_usage_records_staged_reference_audio_sources_in_request_order(tmp_path, session_factory, status):
+    from arcreel_market_core.video_backend_contract import (
+        ReferenceAudioMode,
+        VideoCapabilities,
+        VideoGenerationRequest,
+        VideoGenerationResult,
+    )
+    from lib.billing.ledger import Ledger
+    from lib.db.repositories.usage_repo import UsageRepository
+    from lib.script.reference_video.execution_checkpoint import (
+        ProviderMediaInput,
+        cleanup_staged_provider_media,
+        stage_provider_media_for_task,
+        staged_source_paths,
+    )
+
+    project_path = tmp_path / "demo"
+    audio_dir = project_path / "characters" / "refs_audio"
+    audio_dir.mkdir(parents=True)
+    write_generation_targets(project_path, video_units=("E1U1",))
+    expected_sources = ["characters/refs_audio/bob.wav", "characters/refs_audio/alice.wav"]
+    audio_bytes = [wav_bytes(1), wav_bytes(2)]
+    sources = [project_path / path for path in expected_sources]
+    for path, content in zip(sources, audio_bytes, strict=True):
+        path.write_bytes(content)
+    external_audio = tmp_path / "temporary-upload" / "sample.wav"
+    external_audio.parent.mkdir()
+    external_bytes = wav_bytes(0.5)
+    external_audio.write_bytes(external_bytes)
+
+    class AudioVideoBackend:
+        name = "fake-video"
+        model = "video-model"
+        video_capabilities = VideoCapabilities(
+            reference_audio_mode=ReferenceAudioMode.DIRECT, max_reference_audio_count=3
+        )
+
+        async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+            assert request.reference_audio_files == [*staged_paths, external_audio]
+            assert [await asyncio.to_thread(path.read_bytes) for path in request.reference_audio_files] == [
+                *audio_bytes,
+                external_bytes,
+            ]
+            if status == "failed":
+                raise RuntimeError("provider rejected video")
+            await write_backend_output(request.output_path, MP4_BYTES)
+            return VideoGenerationResult(request.output_path, self.name, self.model, request.duration_seconds)
+
+    generator = MediaGenerator(project_path, video_backend=AudioVideoBackend(), video_provider_id="custom-1")
+    generator.ledger = Ledger(session_factory=session_factory)
+    task_id = "usage-audio"
+    media = await stage_provider_media_for_task(
+        project_path,
+        task_id,
+        tuple(ProviderMediaInput(path, "reference_audio", "speaker", path.stem, "voice_reference") for path in sources),
+    )
+    staged_paths = [project_path / item.staged_locator for item in media]
+    outcome = (
+        pytest.raises(RuntimeError, match="provider rejected video") if status == "failed" else contextlib.nullcontext()
+    )
+    try:
+        with outcome:
+            await generator.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                task_id=task_id,
+                reference_audio_files=[*staged_paths, external_audio],
+                reference_sources=staged_source_paths(project_path, media),
+            )
+    finally:
+        await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
+
+    assert all(not path.exists() for path in staged_paths)
+    assert all(path.is_file() for path in sources)
+    async with session_factory() as session:
+        repository = UsageRepository(session)
+        page = await repository.list_records()
+        [item] = page["items"]
+        record = await repository.get_record(item["id"])
+    assert record is not None
+    assert record["status"] == status
+    assert record["inputs"]["reference_audio"] == [*expected_sources, "sample.wav"]

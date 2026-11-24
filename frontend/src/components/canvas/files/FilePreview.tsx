@@ -22,7 +22,6 @@ function prettyText(text: string, name: string): string {
   }
 }
 
-/** 选中文件的预览：图片、视频、音频与文本（含 JSON）经鉴权接口取回内容，其余类型与过大的文本只提供下载。 */
 export function FilePreview({ projectName, entry }: { projectName: string; entry: FileViewEntry }) {
   const { t } = useTranslation("dashboard");
   const kind = previewKind(entry.name);

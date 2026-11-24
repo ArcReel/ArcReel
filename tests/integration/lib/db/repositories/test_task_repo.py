@@ -74,8 +74,6 @@ class TestTaskRepository:
             (call_id, "pending"),
             (older_call_id, "failed"),
         ]
-        # 重开的行不再带上一次下载的失败原文与机器码：重试成功后 resume 结算只翻状态，
-        # 留着会让这条 success 行一直挂着 download_failed。
         reopened = (
             await db_session.execute(
                 select(ApiCall.error_message, ApiCall.error_code, ApiCall.error_params).where(ApiCall.id == call_id)
@@ -84,8 +82,6 @@ class TestTaskRepository:
         assert tuple(reopened) == (None, None, None)
 
     async def test_retry_artifact_download_reopens_api_call_left_pending_by_resume(self, db_session):
-        # 落 artifact_download_failed 的任务，其 ApiCall 停在 pending 时同样受理重试；
-        # 不受理就意味着产物只能整单重跑、重扣一次费。
         usage = UsageRepository(db_session)
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
@@ -112,7 +108,6 @@ class TestTaskRepository:
     async def test_retry_artifact_download_leaves_undispatchable_task_failed(self, db_session):
         usage = UsageRepository(db_session)
         repo = TaskRepository(db_session)
-        # provider_id 缺席的任务没有派发目标：翻成 running 后无人接手，故资格判定就该拒绝。
         task = await repo.enqueue(
             project_name="demo",
             task_type="video",
@@ -215,7 +210,6 @@ class TestTaskRepository:
         assert not prop_edit["deduped"]
         assert prop_edit["task_id"] != character_edit["task_id"]
 
-        # 同一 resource_type 再次入队仍应正常去重（回归防护）。
         character_edit_again = await repo.enqueue(
             project_name="demo",
             task_type="image_edit",
@@ -251,8 +245,6 @@ class TestTaskRepository:
             payload={"prompt": "unit1"},
             script_file="ep1.json",
         )
-        # 去重键的每个维度各放一个同名 resource_id 的活动干扰任务：任一维度从查询条件里
-        # 漏掉，它对应的干扰任务就会混进结果，把别的项目/任务类型的在途状态错算成本次冲突。
         decoys = [
             {"project_name": "other-demo"},
             {"task_type": "video"},
@@ -304,8 +296,6 @@ class TestTaskRepository:
 
         repo = TaskRepository(db_session)
 
-        # 逐个入队并立刻推进到目标状态：claim_next 取的是队首，前一个离开 queued 后
-        # 下一次 claim 才会落到新入队的那个。
         done = await _enqueue("E1U0")
         await repo.claim_next("video")
         await repo.mark_succeeded(done["task_id"], {"file": "unit0.mp4"})
@@ -700,12 +690,11 @@ class TestTaskRepository:
             payload={},
             script_file="ep1.json",
         )
-        # Claim one task so it becomes running
         await repo.claim_next("image")
 
         result = await repo.cancel_all_queued("demo")
-        assert result["cancelled_count"] == 1  # only the queued video task
-        assert result["skipped_running_count"] == 0  # running 任务在查询 queued 前已被 claim，不算 skipped
+        assert result["cancelled_count"] == 1
+        assert result["skipped_running_count"] == 0
 
         task = await repo.get(t2["task_id"])
         assert task["status"] == "cancelled"
@@ -763,7 +752,7 @@ class TestCancelCascade:
     async def test_cancel_running_head_is_rejected_and_chain_stays_queued(self, db_session):
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
-        await repo.claim_next("image")  # A 拉成 running
+        await repo.claim_next("image")
 
         with pytest.raises(TaskNotCancellableError):
             await repo.cancel_task(a)
@@ -935,7 +924,6 @@ class TestCancelRespectsScope:
         remaining = await self._enqueue(repo, "E1S02")
         fired: list[bool] = []
 
-        # 目标行查出之后、UPDATE 之前，worker 领走其中一个任务
         def claim_before_update(orm_execute_state):
             if orm_execute_state.is_update and not fired:
                 fired.append(True)

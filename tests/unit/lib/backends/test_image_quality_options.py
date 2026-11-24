@@ -47,7 +47,6 @@ class TestBothSides:
     def test_custom_openai_images_endpoints_offer_the_matched_entry_values(self, endpoint: str) -> None:
         spec = get_endpoint_spec(endpoint)
         assert custom_image_quality_options("gpt-image-2", endpoint_spec=spec) == QUALITIES
-        # 条目绑定同样适用：不透明的模型名绑到收录了画质的条目
         assert (
             custom_image_quality_options("relay-x", endpoint_spec=spec, entry_binding="openai/gpt-image-2") == QUALITIES
         )
@@ -83,11 +82,9 @@ class TestEffectiveQuality:
         ("stored", "options", "expected"),
         [
             ("low", QUALITIES, "low"),
-            # 不在可选值内照发，不做大小写归一
             ("LOW", QUALITIES, "LOW"),
             ("ultra", QUALITIES, "ultra"),
             (None, QUALITIES, None),
-            # 没有有效可选值：忽略存值
             ("low", (), None),
             (None, (), None),
         ],

@@ -21,8 +21,8 @@ from lib.backends.video_backends.dashscope import DashScopeVideoBackend, _profil
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoints import infer_endpoint
 
-_PREFIX_SEPS = ["-", "_", ""]  # wan[-_]?<version>
-_MODALITY_SEPS = ["-", "_"]  # <version>[-_]<modality>
+_PREFIX_SEPS = ["-", "_", ""]
+_MODALITY_SEPS = ["-", "_"]
 _CASE_FNS = [str.lower, str.upper, str.title]
 
 
@@ -63,7 +63,7 @@ def test_wan27_alias_routes_and_profiles_consistently(model_id: str, modality: s
 def test_wan27_image_to_video_alias_normalizes_to_i2v(prefix_sep: str, modality_word: str, case_fn: type[str]) -> None:
     model_id = case_fn(f"wan{prefix_sep}2.7-{modality_word}")
     assert infer_endpoint(model_id, "openai") == "dashscope-always-on-video"
-    assert _profile_key_for_model(model_id) == "wan2.7-i2v"  # 与 r2v 档区分
+    assert _profile_key_for_model(model_id) == "wan2.7-i2v"
 
 
 @pytest.mark.parametrize("prefix_sep", _PREFIX_SEPS)
@@ -134,15 +134,9 @@ def test_boundary_false_positives_are_rejected(model_id: str) -> None:
 @pytest.mark.parametrize(
     ("model_id", "expected_endpoint"),
     [
-        # WAN_DOT_FORM_PATTERN 右边界：紧跟字母不算 2.x 点号形态，落通用视频端点（裸 "wan" 子串
-        # 仍命中 _VIDEO_PATTERN）。
         ("wan2.7foo-r2v", "openai-video"),
-        # HAPPYHORSE_PATTERN 右边界：紧跟字母不算 happyhorse 家族，不含视频/图像关键字，落默认
-        # 文本端点。
         ("happyhorsefoo-t2v", "openai-chat"),
-        # WAN_IMAGE_TO_VIDEO_PATTERN 左边界：紧邻字母不算续接语法，按含 image 语义的图像变体处理。
         ("wan-2.7-fooimage-to-video", "openai-images"),
-        # WAN_IMAGE_TO_VIDEO_PATTERN 右边界：同上。
         ("wan-2.7-image-to-videofoo", "openai-images"),
     ],
 )
@@ -337,7 +331,7 @@ def test_wan_substring_s2v_excluded_from_minimax_routing_even_without_family_mat
     [
         ("proxy/happyhorse-1.0-r2v", "dashscope-reference-video"),
         ("happyhorse-1.0-r2v-0715", "dashscope-reference-video"),
-        ("myhappyhorse-1.0-r2v", "openai-chat"),  # 标识符边界拒绝：非 happyhorse 家族
+        ("myhappyhorse-1.0-r2v", "openai-chat"),
     ],
 )
 def test_happyhorse_boundary_and_decoration(model_id: str, expected_endpoint: str) -> None:
@@ -369,10 +363,10 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
 @pytest.mark.parametrize(
     "model_id",
     [
-        "wan2.7-i2v-s2v",  # 已知 token 与未实现模态共存，has_known_modality 应被后者排除
+        "wan2.7-i2v-s2v",
         "wan-2.7-r2v-v2v",
         "wan2.7-r2v-videoedit",
-        "image-proxy/wan-2.7-s2v",  # 未实现模态本身即被排除，装饰前缀不改变结论
+        "image-proxy/wan-2.7-s2v",
     ],
 )
 def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -> None:
@@ -387,7 +381,7 @@ def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -
 @pytest.mark.parametrize(
     "model_id",
     [
-        "image-to-video-proxy/wan2.7-image",  # 装饰前缀含完整 "image-to-video" 拼写
+        "image-to-video-proxy/wan2.7-image",
         "video-continuation-proxy/wan-2.7-image",
     ],
 )

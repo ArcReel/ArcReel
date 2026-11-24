@@ -59,24 +59,16 @@ router = APIRouter(prefix="/custom-endpoints", tags=["Custom Endpoints"])
 router.include_router(endpoint_tests.router)
 router.include_router(comfyui_inference.router)
 
-#: 请求体即定义 JSON 原样。刻意不声明成 ``dict``：非对象的输入（数组、裸串）也要经共享校验器
-#: 产出定位到字段的诊断，而不是撞上 FastAPI 自己的一套 422 形状。
 DefinitionBody = Annotated[Any, Body()]
 
-#: 粘进来的是原始 workflow 时，由导入方指定它产图还是产视频——workflow 本身不声明这件事。
 ImportMediaType = Literal["image", "video"]
-
-
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
 
 
 class CustomEndpointResponse(BaseModel):
     """一条自定义调用端点。``definition`` 即导出内容，客户端直接存成文件。"""
 
     id: int
-    key: str  # ce-<id>，系统分配、不透明
+    key: str
     display_name: str
     kind: str
     schema_version: str
@@ -98,7 +90,6 @@ class DuplicateDescriptor(BaseModel):
     key: str
     display_name: str
     version: str
-    # 既有定义相对待导入文件的新旧
     relation: VersionRelation
 
 
@@ -122,14 +113,10 @@ class ValidateResponse(BaseModel):
     errors: list[dict[str, str]]
     warnings: list[dict[str, str]]
     duplicates: list[DuplicateDescriptor]
-    # meta.hints 原样回显（base_url 与建议模型）；只展示，不复合创建供应商。
     hints: dict[str, Any] | None = None
     schema_version: SchemaVersionInfo
-    # 定义未声明（或声明值不是 semver）、或应用版本读不出时为 null。
     min_app_version: MinAppVersionInfo | None = None
-    # 这份载荷被当成什么收的：端点定义、ComfyUI 的 API workflow，还是提交不了的 UI 格式。
     import_shape: ImportShape
-    # 原始 API workflow 的包装结果；另两种形状为 null，客户端继续用自己手上那份。
     wrapped_definition: dict[str, Any] | None = None
 
 
@@ -140,11 +127,6 @@ class EndpointReferenceDescriptor(BaseModel):
     provider_display_name: str
     model_id: str
     model_display_name: str
-
-
-# ---------------------------------------------------------------------------
-# 辅助函数
-# ---------------------------------------------------------------------------
 
 
 def endpoint_response(
@@ -288,11 +270,6 @@ async def _invalidate_backend_cache() -> None:
     from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
-
-
-# ---------------------------------------------------------------------------
-# CRUD
-# ---------------------------------------------------------------------------
 
 
 @router.post("", status_code=201)

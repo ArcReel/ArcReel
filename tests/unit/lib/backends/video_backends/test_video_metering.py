@@ -74,7 +74,6 @@ class TestVideoUsage:
         )
 
         assert usage.quantities["output_seconds"] == billed
-        # 时长档按发出的请求取，不随回报的秒数变
         assert usage.dimensions["duration"] == 8
 
     def test_settlement_takes_reported_audio_flag(self) -> None:
@@ -94,9 +93,7 @@ class TestArkVideoTokens:
             (Seedance2VideoBackend, "720p", "16:9", 5, 5 * 1280 * 720 * 24 / 1024),
             (Seedance2VideoBackend, "1080p", "9:16", 8, 8 * 1080 * 1920 * 24 / 1024),
             (Seedance2VideoBackend, "4k", "16:9", 5, 5 * 3840 * 2160 * 24 / 1024),
-            # 不发送分辨率时方舟按 720p 生成
             (Seedance2VideoBackend, None, "1:1", 4, 4 * 960 * 960 * 24 / 1024),
-            # 2.5 的 480p 横竖屏像素与 2.0 不同
             (Seedance25VideoBackend, "480p", "16:9", 5, 5 * 854 * 480 * 24 / 1024),
             (Seedance25VideoBackend, "480p", "9:16", 5, 5 * 480 * 854 * 24 / 1024),
         ],
@@ -111,11 +108,8 @@ class TestArkVideoTokens:
     @pytest.mark.parametrize(
         ("backend", "resolution", "ratio"),
         [
-            # 宽高比交给上游自适应，像素数不可知
             (Seedance2VideoBackend, "720p", "adaptive"),
-            # 2.5 没有 4k 档
             (Seedance25VideoBackend, "4k", "16:9"),
-            # 1.x 端点不按视频 token 计量
             (Seedance1VideoBackend, "720p", "16:9"),
         ],
     )
@@ -171,7 +165,6 @@ class TestSeedanceSelectableResolutions:
         [
             ("ark", "doubao-seedance-2-0-260128", ["480p", "720p", "1080p", "4k"]),
             ("ark", "doubao-seedance-2-5-260628", ["480p", "720p", "1080p"]),
-            # agent plan 共用同一条目，套餐未纳入 2.5
             ("ark-agent-plan", "doubao-seedance-2.0", ["480p", "720p", "1080p", "4k"]),
         ],
     )
@@ -326,3 +319,35 @@ class TestEntryBoundMetering:
         assert KlingVideoBackend.effective_generate_audio_for_model(self._OPAQUE) is False
         backend = KlingAudioVideoBackend if generates_audio else KlingProAudioVideoBackend
         assert backend.effective_generate_audio_for_model(self._OPAQUE, entry) is generates_audio
+
+
+@pytest.mark.parametrize(("resolution", "expected"), [("720p", False), ("1080p", True)])
+def test_custom_kling_estimate_preserves_actual_audio_tier(resolution, expected):
+    from lib.custom_provider.capabilities import synthesize_video_capabilities
+    from lib.custom_provider.metering import custom_video_usage
+
+    request = _request(
+        resolution=resolution,
+        generate_audio=True,
+        video_capabilities=synthesize_video_capabilities(
+            endpoint="kling-video-pro-audio", model_id="kling-v2-6", overrides={}
+        ),
+    )
+    usage = custom_video_usage(KlingProAudioVideoBackend.metered_usage, "kling-v2-6", request)
+    assert usage.dimensions["audio"] is expected
+
+
+@pytest.mark.parametrize(
+    ("backend", "model"),
+    [
+        (DashScopeVideoBackend, "wan2.2-i2v-plus"),
+        (ViduQ3TurboVideoBackend, "viduq3-turbo"),
+        (OpenAIVideoBackend, "sora-2"),
+    ],
+)
+def test_silent_model_override_is_shared_by_estimate_and_settlement(backend, model):
+    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities
+
+    request = _request(video_capabilities=VideoCapabilities(audio_track=VideoAudioMode.ALWAYS_OFF))
+    assert backend.metered_usage(model, request).dimensions["audio"] is False
+    assert backend.metered_usage(model, request, _result(generate_audio=False)).dimensions["audio"] is False

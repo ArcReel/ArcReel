@@ -23,6 +23,7 @@ from lib.backends.video_backends.ark import (
     Seedance25VideoBackend,
 )
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from tests.factories import image_bytes
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -31,7 +32,6 @@ from tests.fakes import (
 )
 from tests.http_capture import capture_http, only_request
 
-# 方舟兼容中转站仍可能提供 Seedance 1.5 Pro；backend 对它的请求构造照常覆盖。
 _SEEDANCE_1_5_PRO = "doubao-seedance-1-5-pro-251215"
 
 
@@ -111,7 +111,7 @@ class TestArkGenerate:
         """图生视频：有 start_image，必须带 role=first_frame。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
-        frame.write_bytes(b"fake-png")
+        frame.write_bytes(image_bytes())
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-test"
@@ -151,7 +151,7 @@ class TestArkGenerate:
         """首帧 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
-        frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        frame.write_bytes(image_bytes())
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-gate"
@@ -190,9 +190,9 @@ class TestArkGenerate:
         image_url 对象不带 position，位置由 role 表达。"""
         output = tmp_path / "out.mp4"
         first = tmp_path / "first.png"
-        first.write_bytes(b"fake-first")
+        first.write_bytes(image_bytes())
         last = tmp_path / "last.png"
-        last.write_bytes(b"fake-last")
+        last.write_bytes(image_bytes(1))
 
         create_result = MagicMock()
         create_result.id = "cgt-fl-test"
@@ -224,16 +224,15 @@ class TestArkGenerate:
         assert len(image_items) == 2
         assert image_items[0]["role"] == "first_frame"
         assert image_items[1]["role"] == "last_frame"
-        # role 表达位置后，不应再塞 position 到 image_url
         assert "position" not in image_items[1]["image_url"]
 
     async def test_reference_images_role(self, ark_backend, tmp_path):
         """参考图：每张 reference_images 必须带 role=reference_image（Ark 多图触发条件）。"""
         output = tmp_path / "out.mp4"
         ref1 = tmp_path / "ref1.jpg"
-        ref1.write_bytes(b"fake-ref-1")
+        ref1.write_bytes(image_bytes())
         ref2 = tmp_path / "ref2.jpg"
-        ref2.write_bytes(b"fake-ref-2")
+        ref2.write_bytes(image_bytes(1))
 
         create_result = MagicMock()
         create_result.id = "cgt-refs-test"
@@ -281,7 +280,7 @@ class TestArkGenerate:
     async def test_missing_reference_image_fails_loud(self, ark_backend, tmp_path):
         """参考图缺失时中止提交，理由同尾帧：少一张仍会出片，成片却与意图不符。"""
         present = tmp_path / "ref1.jpg"
-        present.write_bytes(b"fake-ref-1")
+        present.write_bytes(image_bytes())
         ark_backend._client.content_generation.tasks.create = MagicMock()
 
         request = VideoGenerationRequest(
@@ -366,7 +365,6 @@ class TestArkRetryBehavior:
         get_success.seed = None
         get_success.usage = None
 
-        # 第一次轮询抛 ConnectionError，第二次成功
         ark_backend._client.content_generation.tasks.get = MagicMock(
             side_effect=[ConnectionError("connection reset"), get_success]
         )
@@ -380,9 +378,7 @@ class TestArkRetryBehavior:
             patcher.stop()
 
         assert result.task_id == "cgt-retry-test"
-        # 关键断言：任务只创建了一次
         assert ark_backend._client.content_generation.tasks.create.call_count == 1
-        # 轮询调用了两次（一次失败 + 一次成功）
         assert ark_backend._client.content_generation.tasks.get.call_count == 2
 
     async def test_create_retries_on_transient_error(self, ark_backend, tmp_path):
@@ -391,7 +387,6 @@ class TestArkRetryBehavior:
 
         create_result = MagicMock()
         create_result.id = "cgt-create-retry"
-        # 第一次创建抛 ConnectionError，第二次成功
         ark_backend._client.content_generation.tasks.create = MagicMock(
             side_effect=[ConnectionError("connection reset"), create_result]
         )
@@ -415,7 +410,6 @@ class TestArkRetryBehavior:
             patcher.stop()
 
         assert result.task_id == "cgt-create-retry"
-        # 创建调用了两次（一次失败 + 一次成功）
         assert ark_backend._client.content_generation.tasks.create.call_count == 2
 
     async def test_poll_non_retryable_error_propagates(self, ark_backend, tmp_path):
@@ -432,7 +426,6 @@ class TestArkRetryBehavior:
         with pytest.raises(ValueError, match="invalid response"), bounded_poll_clock():
             await ark_backend.generate(request)
 
-        # 创建只调用一次，轮询只尝试一次就抛出
         assert ark_backend._client.content_generation.tasks.create.call_count == 1
         assert ark_backend._client.content_generation.tasks.get.call_count == 1
 
@@ -532,7 +525,6 @@ class TestArkModelCapabilities:
         caps = Seedance25VideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
         resolved = resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio=aspect_ratio, has_first_frame=True)
         assert resolved == FIRST_FRAME_ADAPTIVE_RATIO
-        # 无首帧的纯文生 / 仅参考图请求不受影响，用户比例原样下发
         assert (
             resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio=aspect_ratio, has_first_frame=False)
             == aspect_ratio
@@ -689,7 +681,6 @@ class TestArkSubmittedBaseUrlReplay:
         assert [(r["job_id"], r["base_url"]) for r in persisted] == [("cgt-a", _RELAY_A)]
 
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path):
-        # 提交时域名为 A，续跑前配置已改成 B：任务只在 A 上可查，凭据沿用当下这套
         with capture_http() as router, bounded_poll_clock():
             submitted = router.get(f"{_RELAY_A}/contents/generations/tasks/cgt-a").mock(
                 return_value=httpx.Response(200, json=_ark_task_json("cgt-a"))
@@ -794,7 +785,7 @@ class TestArkReferenceAudio:
         second_audio = tmp_path / "b.wav"
         second_audio.write_bytes(b"riff-second")
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"fake-ref")
+        ref.write_bytes(image_bytes())
 
         ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
@@ -811,7 +802,6 @@ class TestArkReferenceAudio:
         audio_items = [c for c in content if c["type"] == "audio_url"]
         assert len(audio_items) == 2
         assert [c["role"] for c in audio_items] == ["reference_audio", "reference_audio"]
-        # 顺序即 prompt 中「音频N」的编号：第一段必须是请求里的第一段
         assert audio_items[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
         assert audio_items[1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
 
@@ -845,7 +835,7 @@ class TestArkReferenceAudio:
     async def test_no_audio_entries_when_request_has_none(self, tmp_path):
         ark_backend = self._seedance_2_backend()
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"fake-ref")
+        ref.write_bytes(image_bytes())
         ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
         with pytest.raises(RuntimeError):
@@ -923,7 +913,7 @@ class TestArkProviderAssets:
         """素材引用占原图片的位置，不读本地内容；其余参考图照常内嵌，条目数量与顺序不变。"""
         backend = self._backend()
         scene = tmp_path / "scene.png"
-        scene.write_bytes(b"scene-bytes")
+        scene.write_bytes(image_bytes())
         create_result = MagicMock()
         create_result.id = "cgt-asset"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
@@ -977,7 +967,7 @@ class TestArkProviderAssets:
         paths = []
         for i in range(refs):
             path = tmp_path / f"ref{i}.png"
-            path.write_bytes(b"ref")
+            path.write_bytes(image_bytes())
             paths.append(path)
         backend._client.content_generation.tasks.create = MagicMock(side_effect=self._rejection(self._PRIVACY_CODE))
         request = VideoGenerationRequest(
@@ -997,7 +987,7 @@ class TestArkProviderAssets:
 
         backend = self._backend()
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"ref")
+        ref.write_bytes(image_bytes())
         create_result = MagicMock()
         create_result.id = "cgt-rejected"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)

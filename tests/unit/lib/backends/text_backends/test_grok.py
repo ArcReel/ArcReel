@@ -83,7 +83,6 @@ class TestGenerate:
         assert result.provider == "grok"
 
     async def test_usage_deducts_cache_hits_and_bills_reasoning_as_output(self, backend):
-        # xAI 的 completion_tokens 不含推理 token，推理 token 另报且按输出价计费
         usage = usage_pb2.SamplingUsage(
             prompt_tokens=1_000, cached_prompt_text_tokens=600, completion_tokens=50, reasoning_tokens=200
         )
@@ -120,7 +119,6 @@ class TestGenerate:
         mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}"))
         backend._test_client.chat.create.return_value = mock_chat
 
-        # 回包只是空对象，过不了模型校验；本用例只看下发的 schema
         with pytest.raises(ValidationError):
             await backend.generate(TextGenerationRequest(prompt="gen", response_schema=model))
 

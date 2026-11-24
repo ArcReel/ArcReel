@@ -4,7 +4,6 @@ import { cn } from "cn";
 
 import type { CompareLane, LanePiece } from "./replan-compare-model";
 
-/** 新方案的色条：品牌色深浅两档交替，与现有分集按集 ID 取色的多色相区分开；方案还没生成到的原文是虚线。 */
 function laneClass(lane: CompareLane) {
   return cn(
     lane.kind === "pending"
@@ -15,10 +14,6 @@ function laneClass(lane: CompareLane) {
   );
 }
 
-/**
- * 一行原文右侧的新方案色条：按这一行里各段原文的字数比例分高度。
- * `continues` 为 true 时最后一段延伸过段落间距（`space-y-3`，0.75rem），与下一行的色条连上。
- */
 export function LaneBar({
   pieces,
   start,
@@ -56,7 +51,6 @@ export function LaneBar({
   );
 }
 
-/** 落在两行之间的不同分界：横跨正文与右侧色条的琥珀色虚线，画在下一行上方的段落间距正中。 */
 export function BoundaryRule() {
   const { t } = useTranslation("dashboard");
   return (
@@ -70,7 +64,6 @@ export function BoundaryRule() {
   );
 }
 
-/** 落在一行中间的不同分界：插在那个字之前的琥珀色竖虚线。 */
 export function BoundaryTick() {
   const { t } = useTranslation("dashboard");
   return (
@@ -81,7 +74,6 @@ export function BoundaryTick() {
   );
 }
 
-/** 方案还没生成到这一集：「等待规划」。 */
 export function WaitingBadge() {
   const { t } = useTranslation("dashboard");
   return (

@@ -41,10 +41,6 @@ from server.tool_runtime import (
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver, use_text_generator
 
-# ---------------------------------------------------------------------------
-# Generation result contract helpers
-# ---------------------------------------------------------------------------
-
 
 def read_generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> GenerationBatchResult:
     """Read the structured contract out of a tool response, never its text."""
@@ -181,11 +177,6 @@ async def run_generate_videos(
         {"script": script, "target": target, **arguments},
         batch_waiter=batch_waiter,
     )
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64

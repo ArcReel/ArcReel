@@ -12,6 +12,7 @@ import httpx
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
 
@@ -31,7 +32,6 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
                 200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.example/tasks/r.mp4"}}
             )
         )
-        # 取自响应的下载地址不属于任何请求，原样发出
         download = router.get("https://cdn.example/tasks/r.mp4").mock(return_value=httpx.Response(200, content=b"v"))
         await backend.generate(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="w-1")
@@ -41,7 +41,6 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
 
 
 async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands_the_model():
-    # 方舟 SDK 走同步 httpx 客户端；有覆盖的提交不再补 /api/v3
     backend = ENDPOINT_REGISTRY["ark-seedance-2"].build_backend(
         _PROVIDER, "seedance-x", {"submit": "/ark/{{ model }}/tasks?async=1"}
     )
@@ -51,7 +50,6 @@ async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands
         )
         with contextlib.suppress(Exception):
             await backend.generate(VideoGenerationRequest(prompt="p", output_path=Path("unused.mp4")))
-        # 400 会被重试；未声明路由的请求会抛错并被吞掉，所以比对总请求数
         assert submit.called
         assert router.calls.call_count == submit.call_count
 
@@ -61,7 +59,7 @@ async def test_openai_images_overriding_only_edit_skips_v1_and_keeps_generate_no
         _PROVIDER, "gpt-image-1", {"edit": "/img/{{ model }}/edit"}
     )
     ref = tmp_path / "ref.png"
-    ref.write_bytes(b"\x89PNG\r\nfake")
+    ref.write_bytes(image_bytes())
     image = httpx.Response(200, json={"created": 1, "data": [{"b64_json": base64.b64encode(b"png").decode()}]})
 
     with capture_http() as router:

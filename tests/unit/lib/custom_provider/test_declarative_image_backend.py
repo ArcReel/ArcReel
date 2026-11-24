@@ -11,7 +11,7 @@ import pytest
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
-from tests.factories import image_endpoint_definition
+from tests.factories import image_bytes, image_endpoint_definition
 from tests.fakes import PNG_BYTES, bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -42,7 +42,7 @@ def _reference_files(tmp_path: Path, count: int) -> list[ReferenceImage]:
     references = []
     for index in range(count):
         path = tmp_path / f"ref{index}.png"
-        path.write_bytes(PNG_BYTES + bytes([index]))
+        path.write_bytes(image_bytes(index))
         references.append(ReferenceImage(path=str(path)))
     return references
 
@@ -125,9 +125,7 @@ class TestDeclarativeImageBackend:
 
         body = request_json(only_request(submit))
         assert body["prompt"] == "把头发改成红色"
-        assert body["image_urls"] == [
-            prefix + base64.b64encode(PNG_BYTES + bytes([index])).decode() for index in range(3)
-        ]
+        assert body["image_urls"] == [prefix + base64.b64encode(image_bytes(index)).decode() for index in range(3)]
 
     async def test_single_slot_template_rejects_overridden_extra_references_before_submit(self, tmp_path: Path):
         """对象式 ``$each`` 把参考图写进固定键：覆盖放行多张时提交前拒绝，不让后一张悄悄盖掉前一张。"""
@@ -339,3 +337,20 @@ class TestDeclarativeImageBackend:
                 )
 
         assert caught.value.code == "declarative_image_save_failed"
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = _backend(_image_to_image_definition())
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls

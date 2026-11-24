@@ -89,8 +89,6 @@ class WorkflowPlanner:
         )
         blocked = next((b for b in status.blockers if b.code == MIGRATION_FAILURE_CODE), None)
         if blocked is not None:
-            # The migration verdict is the whole plan: nothing downstream can be
-            # planned off inputs the migration itself refused.
             return build_workflow_plan(
                 status,
                 project_problems=[await self._migration_problem(project_name, blocked)],
@@ -313,7 +311,6 @@ class WorkflowPlanner:
             if isinstance(units, list):
                 units = [unit for unit in units if not (isinstance(unit, dict) and unit.get("unit_id") in in_flight)]
             screened, malformed = screen_script_entries(units, requested_ids=None)
-            # 读产物清单（含等清单锁）与内容摘要，只读，放进工作线程。
             targets, selection, _states = await asyncio.to_thread(
                 resolve_reference_batch_targets,
                 units=screened,
@@ -342,11 +339,6 @@ class WorkflowPlanner:
             )
             return admission.to_payload()
 
-        # 计划要预告的是「这一批真提交时会得到什么结论」，所以走的是提交侧同一条缝：
-        # spec 由 build_storyboard_video_specs 构造（发声准入、输入可用性、prompt 组装
-        # 与逐 ID 拒绝票都在其中），准入由 admit_storyboard_video_request 给出（音频闸门
-        # 与投影缺口折在同一批票里）。自行挑目标并把视觉提示词留空，会让计划按另一套
-        # 视觉基准判断已付费产物能否复用，与真正提交时的结论分叉。
         requested = set(status.next_action.requested_ids) - in_flight
         if not requested:
             return None

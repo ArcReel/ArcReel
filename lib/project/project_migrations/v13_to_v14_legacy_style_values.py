@@ -57,15 +57,12 @@ TARGET_SCHEMA_VERSION = 14
 _GRID_MEMBER_KIND = "artifact-visual/grid-member"
 _REFERENCE_VIDEO_VISUAL_KIND = "artifact-visual/video-reference"
 
-#: 更早的风格枚举值 → 当前风格模版 id。只有本迁移读它：解析一次、展开快照后该值不再出现。
 LEGACY_STYLE_MAP: dict[str, str] = {
     "Photographic": "live_premium_drama",
     "Anime": "anim_kyoto",
     "3D Animation": "anim_3d_cg",
 }
 
-#: 风格值开头的「画风：」前缀（全角/半角冒号）。``anim_arcane`` 的「油画三渲二画风：」不以
-#: 「画风」起头，因而不在此匹配之列——它的「画风」是复合词的一部分，不是可删前缀。
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
 
 
@@ -183,7 +180,6 @@ def _migrated_video_facts(
 @dataclass(frozen=True, slots=True)
 class _VersionRewrite:
     changed: bool
-    #: 选中版本记录与清单登记对不上、无法一并改写的条目：不改写登记，留给读时判过期。
     withdrawn: tuple[ArtifactKey, ...]
 
 
@@ -296,7 +292,6 @@ def migrate_v13_to_v14(project_dir: Path) -> ArtifactBackfillOutcome | None:
     migrated["schema_version"] = TARGET_SCHEMA_VERSION
     description = normalize_style_value(data.get("style_description"))
     if migrated.get("style") == data.get("style") and not description:
-        # 风格值已归一、描述为空的项目依据逐字不变：升级不该为它们付出完整目标态规划的代价。
         atomic_write_json(pj, migrated)
         return None
 

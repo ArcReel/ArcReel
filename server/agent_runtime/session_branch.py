@@ -92,9 +92,6 @@ class SessionBranchService:
         # 无此会话；新 id 必须是规范 uuid4 字符串。
         new_session_id = str(uuid4())
         project_key = make_project_key(project_cwd)
-        # 从这里到落指针为止是一次要么整体成立、要么整体撤回的转换：store 的每次
-        # append 各自提交，中途失败会留下半份 transcript，而 transcript 行不依赖
-        # 元数据行就能被 store 的会话枚举看见。
         try:
             copied = await copy_session_prefix(
                 store,
@@ -103,9 +100,6 @@ class SessionBranchService:
                 anchor_uuid=anchor_uuid,
                 new_session_id=new_session_id,
             )
-            # 先建新会话行再落指针，指针任何时刻都指向已存在的会话。分叉血统随
-            # 建行落库：它是 branch 时刻的不可变事实，与 superseded_by 表达的
-            # 「原会话被谁取代」互为反向，后者可被删除接手改写，前者不会。
             await self._meta_store.create(
                 meta.project_name,
                 new_session_id,
@@ -115,7 +109,6 @@ class SessionBranchService:
             if not await self._meta_store.mark_superseded(session_id, new_session_id):
                 raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
         except InvalidAnchorError as exc:
-            # 锚点校验在任何写入之前，没有可撤回的东西。
             raise BranchAnchorError(
                 f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
             ) from exc
@@ -163,12 +156,9 @@ class SessionBranchService:
         except Exception:
             logger.exception("failed to discard superseded pointer of session %s", origin_session_id)
         if project_key is None:
-            # 元数据行已不在，定位不到 transcript 所属的 project_key；剩下的行成为
-            # 无主数据，只能靠日志留痕。
             logger.warning("cannot locate transcript of incomplete branch %s: project key unresolved", new_session_id)
         else:
             try:
-                # 不带 subpath 的 delete 连子智能体子路径与 summary 一并清除。
                 await store.delete({"project_key": project_key, "session_id": new_session_id})
             except Exception:
                 logger.exception("failed to discard transcript of incomplete branch %s", new_session_id)

@@ -34,8 +34,6 @@ from tests.integration.server.derivative_sheet_support import (
     write_two_tone_png,
 )
 
-#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空——
-#: 生成缺口只拦生成（ADR 0098），Dave 照常补录；Eve 描述为空且没有资产图。
 _EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "current", "Eve": "missing"}
 
 _ADD_ASSET = {
@@ -143,7 +141,6 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
         project["style_description"] = "胶片颗粒"
 
     pm.update_project("demo", _edit)
-    # Dave 按生成输入补录，依据含项目画风，画风描述一改即过期。
     assert _statuses(imported_dir, _EXPECTED) == {**_EXPECTED, "Carol": "stale", "Dave": "stale"}
 
 
@@ -263,7 +260,6 @@ def test_uploaded_derivative_sheet_survives_archive_round_trip_as_finished_conte
     imported_dir = pm.get_project_path("demo")
     assert (imported_dir / sheet_path).read_bytes() == uploaded
     assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"
-    # 本体资产图换了字节、变化描述改写：上传的衍生图是成品，两者都不让它过期。
     write_two_tone_png(imported_dir / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
     pm.update_asset_entry(
         "character", "demo", "阿岚", lambda entry: entry["derivatives"]["战斗装"].update(description="银色轻甲")

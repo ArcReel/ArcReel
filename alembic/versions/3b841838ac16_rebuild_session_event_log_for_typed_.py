@@ -16,7 +16,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "3b841838ac16"
 down_revision: str | Sequence[str] | None = "f3d21ac90b17"
 branch_labels: str | Sequence[str] | None = None
@@ -30,4 +29,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 数据迁移不可逆；旧代码同样按需懒生成，无需回填

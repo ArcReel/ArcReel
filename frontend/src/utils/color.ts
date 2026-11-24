@@ -1,7 +1,3 @@
-/**
- * Deterministic color assignment based on a name string.
- * Used by AvatarStack and ClueStack for fallback thumbnails.
- */
 
 const FALLBACK_COLORS = [
   "bg-rose-700",

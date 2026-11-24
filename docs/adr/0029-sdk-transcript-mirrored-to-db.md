@@ -2,11 +2,10 @@
 status: accepted
 ---
 
-# SDK transcript 镜像入自有 DB，默认 eager flush；idle 会话从内存驱逐、可恢复不丢历史
+# Agent 用 SDK 会话 ID 寻址，数据库保存恢复上下文
 
-SDK 自带的 jsonl transcript 绑定本机文件系统，与「运行时状态统一进单一 async ORM DB」（`docs/adr/0020`）的部署形态（多用户/PostgreSQL）不匹配。决定实现自定义 SessionStore 把 transcript 逐 entry 镜像写入 DB（`agent_session_entries` + 会话摘要表），由 `ARCREEL_SDK_SESSION_STORE` 控制（默认 `db`，`off` 回退 SDK jsonl），启动钩子一次性把本地历史 jsonl 迁移入库；flush 模式默认 eager——逐条写入数据库，以换取崩溃后 SDK resume 不丢上下文。transcript 只服务 SDK resume，UI 时间线的读源是会话事件日志（见 `docs/adr/0048`）。
+新会话在首条消息发送时启动。SDK 返回会话 ID 后才创建持久记录，内存中的临时身份随之替换。收到 SDK ID 前会话不在列表内，也不能按持久 ID 订阅或恢复。这避免维护应用 ID 到 SDK ID 的第二份映射，也不会持久化从未发言的空会话。
 
-## Consequences
+SDK transcript 逐条镜像到运行时数据库，默认即时写入，以额外写入开销换取进程崩溃后可恢复的上下文。默认使用 `ARCREEL_SDK_SESSION_STORE=db`；`off` 保留 SDK 本地文件模式，适用于单机开发。数据库模式支持 [消息改写](0058-session-branch-prefix-fork.md)。历史 SDK 文件记录由启动迁移导入。界面时间线始终读 [会话事件日志](0048-session-event-log-single-ui-read-source.md)。
 
-- 闲置会话在延迟后（`agent_session_cleanup_delay_seconds`，默认 300 秒，另有定期巡检兜底）从内存驱逐（关闭 actor/SDK 子进程）以约束常驻内存。未空闲的会话不驱逐（关闭子进程会中止在途轮次、连带杀掉在途子智能体，完成后的自主轮次也不会发生），容量不足时宁可拒绝新会话；CLI 报 idle 后重新计时。判据就是会话状态：会话在 CLI 报 `idle` 之前一直是 running（子智能体存活、或其完成后还欠一轮时 CLI 持续报 running），与 SDK 判定 run 是否结束的口径一致。同样不设兜底上限：CLI 不报 idle，会话就一直保留到进程重启。正因 transcript 已入库，驱逐不丢历史：再次访问时按 sdk_session_id 以 SDK resume 重建 actor 续聊。
-- eager flush 有写放大；SDK 在慢 store 下会自行合并帧。`off` 模式只适合单机开发。
+闲置会话延迟回收 SDK 客户端和进程，需要时按 SDK ID 恢复。CLI 仍在运行或有待完成工作时继续保留，容量耗尽时拒绝新会话，避免终止在途轮次或子任务。会话状态由 [SessionActor](0028-session-actor-single-task-serialization.md) 的 CLI 状态契约确定。

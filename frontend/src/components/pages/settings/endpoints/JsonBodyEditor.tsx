@@ -2,10 +2,6 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Textarea } from "@/components/ui/textarea";
 
-/**
- * JSON 片段编辑器。文本是编辑期的真相源，只有解析成功才写回定义——
- * 否则用户敲到一半的中间态会被反复重排，无法输入。
- */
 export function JsonBodyEditor({
   value,
   onChange,

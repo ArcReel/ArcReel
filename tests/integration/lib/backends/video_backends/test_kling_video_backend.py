@@ -32,6 +32,7 @@ from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.video_backends.kling import KLING_BACKENDS, KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request
 
@@ -126,9 +127,7 @@ class TestConstructionAndCapabilities:
     def test_video_capabilities_first_and_last_frame(self):
         caps = _jwt_backend().video_capabilities
         assert caps.first_frame is True
-        # turbo 尾帧仅 pro 档生效，声明按默认档保守为 False（std 档提交会被 _build_payload 拒绝）
         assert caps.last_frame is False
-        # 多图主体子路径的通道上限与型号无关；turbo 不接受参考图来自条目（显式 0）
         assert caps.max_reference_images == 4
         assert _effective("kling-v2-5-turbo").max_reference_images == 0
 
@@ -149,7 +148,6 @@ class TestVideoCapabilitiesForTier:
         assert caps.last_frame is True
 
     def test_ungated_model_last_frame_unaffected_by_tier(self):
-        # kling-v3 的 last_frame 各档皆真，不受 last_frame_requires_pro 收窄影响
         b = _jwt_backend("kling-v3")
         assert b.video_capabilities_for_tier("std").last_frame is True
         assert b.video_capabilities_for_tier("pro").last_frame is True
@@ -159,9 +157,6 @@ class TestVideoCapabilitiesForTier:
         assert caps.last_frame is False
 
     def test_4k_overrides_pro_tier_stays_conservative(self):
-        # resolution=4k 优先于 service_tier（与 _resolve_mode 同一派生规则）：即使 tier=pro，
-        # 4k 请求解出的 mode 是 "4k" 而非 "pro"，last_frame 仍须保守拒绝，否则会与
-        # _build_payload 的 fail-loud 护栏（按 _resolve_mode 判定）不一致。
         caps = _jwt_backend().video_capabilities_for_tier("pro", resolution="4k")
         assert caps.last_frame is False
 
@@ -176,7 +171,6 @@ class TestPerModelCapabilities:
         assert vc.max_reference_images == 0
 
     def test_v3_omni_declares_reference_images(self):
-        # 条目记录 7，通道的多图主体子路径一次只承载 4 张，取较小值
         assert _effective("kling-v3-omni").max_reference_images == 4
 
     def test_v2_6_declares_generate_audio_no_reference(self):
@@ -188,7 +182,6 @@ class TestPerModelCapabilities:
         assert _effective("kling-v2-5-turbo", "pro").last_frame is True
 
     def test_video_o1_i2v_only_with_reference_images(self):
-        # 多图主体 R2V
         vc = _effective("kling-video-o1")
         assert vc.text_to_video is False
         assert vc.last_frame is True
@@ -203,20 +196,17 @@ class TestPerModelCapabilities:
         assert backend._effective_audio(request, subpath="text2video") is False
 
     def test_unknown_model_gets_the_channel_declaration(self):
-        # bearer 透传原生 model_name：未登记的型号拿通道声明，不按名字猜输入能力；尾帧对不上条目时由两侧求值关掉
         vc = _bearer_backend("kling-some-passthrough").video_capabilities
         assert vc.text_to_video is True
         assert vc.first_frame is True
         assert vc.max_reference_images == 4
 
     def test_the_same_endpoint_keeps_its_capabilities_when_the_model_name_changes(self):
-        # 请求形态由所选端点决定，中转模型名不影响通道能力。
         registered = _bearer_backend("kling-v3-omni").video_capabilities
         for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
             assert _bearer_backend(model, endpoint="kling-video-audio").video_capabilities == registered
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
-        # 形如 kling-v3-omni-pro 的未登记型号不得被子串误判继承已登记型号的请求形态，拿通道声明本身。
         unlisted = _bearer_backend("kling-some-passthrough").video_capabilities
         for model in ("kling-v4", "kling-v3-omni-pro"):
             assert _bearer_backend(model).video_capabilities == unlisted
@@ -232,7 +222,6 @@ class TestModeAndResolution:
         assert payload["mode"] == "4k"
 
     def test_4k_overrides_service_tier(self, tmp_path):
-        # 4k 档优先于 std/pro（与 per_second_tiered 档位派生一致）
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, resolution="4k", service_tier="pro"))
         assert payload["mode"] == "4k"
 
@@ -249,15 +238,12 @@ class TestAudioGating:
         assert payload["sound"] == "on"
 
     def test_v2_6_std_audio_forced_off(self, tmp_path):
-        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：720p 落 std 档拿不到 1080P，
-        # 压制为无声——否则拿到无声片却按有声价出账
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
         )
         assert "sound" not in payload
 
     def test_1080p_resolves_pro_mode_and_enables_v2_6_audio(self, tmp_path):
-        # 选 1080p 即 pro 档，不依赖 service_tier（生产路径从不写入它）
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
         )
@@ -269,22 +255,18 @@ class TestAudioGating:
         assert usage.dimensions["resolution"] == "1080p"
 
     def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
-        # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
-        # pro 档即 1080P，resolution 写 720p 也照常有声
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="720p", service_tier="pro", generate_audio=True)
         )
         assert payload["sound"] == "on"
 
     def test_v2_6_4k_audio_forced_off(self, tmp_path):
-        # 4k 档是 v3 系专有，对 v2-6 是非法请求：不当作满足 1080P 放行，避免按有声价出账
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="4k", service_tier="pro", generate_audio=True)
         )
         assert "sound" not in payload
 
     def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
-        # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
         for model in ("kling-v3", "kling-v3-omni"):
             _, payload = _jwt_backend(model)._build_payload(
                 _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
@@ -292,14 +274,12 @@ class TestAudioGating:
             assert payload["sound"] == "on"
 
     def test_audio_capable_model_sends_off_when_not_requested(self, tmp_path):
-        # 有能力但请求不要人声：显式发 "off"，与官方默认值一致
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, generate_audio=False))
         assert payload["sound"] == "off"
 
     def test_no_audio_model_omits_sound_field(self, tmp_path):
-        # 无音频能力的档：不携带 sound，避免向不支持的端点发未知参数
         img = tmp_path / "start.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         for backend in (_jwt_backend(), _jwt_backend("kling-video-o1")):
             _, payload = backend._build_payload(_request(tmp_path, start_image=img, generate_audio=True))
             assert "sound" not in payload
@@ -311,7 +291,7 @@ class TestMultiImageSubpath:
         paths: list[Path] = []
         for i in range(n):
             p = tmp_path / f"ref{i}.png"
-            p.write_bytes(b"\x89PNG\r\n" + bytes([i]))
+            p.write_bytes(image_bytes(i))
             paths.append(p)
         return paths
 
@@ -319,7 +299,6 @@ class TestMultiImageSubpath:
         refs = self._refs(tmp_path, 2)
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=refs))
         assert subpath == "multi-image2video"
-        # image_list 为 [{"image": <base64>}] 形态，无单首帧
         assert isinstance(payload["image_list"], list)
         assert len(payload["image_list"]) == 2
         assert all(set(e) == {"image"} and isinstance(e["image"], str) and e["image"] for e in payload["image_list"])
@@ -332,7 +311,6 @@ class TestMultiImageSubpath:
         _, payload = _jwt_backend("kling-v3-omni")._build_payload(
             _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True)
         )
-        # multi-image2video 原生 schema 不含音频开关；有声决策同步归 False，避免按有声价出账
         assert "sound" not in payload
         assert (
             _jwt_backend("kling-v3-omni")._effective_audio(
@@ -363,7 +341,7 @@ class TestMultiImageSubpath:
         """多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。"""
         refs = self._refs(tmp_path, 1)
         image = tmp_path / "frame.png"
-        image.write_bytes(b"\x89PNG\r\n")
+        image.write_bytes(image_bytes())
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path, reference_images=refs, **{frame: image}))
         assert exc.value.code == "video_reference_images_with_frames_unsupported"
@@ -377,7 +355,7 @@ class TestMultiImageSubpath:
             _jwt_backend("kling-v3-omni")._build_payload(
                 _request(tmp_path, reference_images=[tmp_path / "missing.png"])
             )
-        assert exc.value.code == "video_start_image_unreadable"
+        assert exc.value.code == "video_reference_images_unreadable"
 
 
 class TestCapabilityValidation:
@@ -388,12 +366,11 @@ class TestCapabilityValidation:
         paths: list[Path] = []
         for i in range(n):
             p = tmp_path / f"ref{i}.png"
-            p.write_bytes(b"\x89PNG\r\n" + bytes([i]))
+            p.write_bytes(image_bytes(i))
             paths.append(p)
         return paths
 
     def test_reference_images_on_unsupported_model_raises(self, tmp_path):
-        # kling-v3 的条目不接受参考图：带参考图即拒绝，不误升级到 multi-image2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3")._build_payload(
                 _request(
@@ -405,7 +382,6 @@ class TestCapabilityValidation:
         assert exc.value.code == "video_reference_images_unsupported"
 
     def test_reference_images_over_limit_raises(self, tmp_path):
-        # v3-omni 上限 4：传 5 张即拒绝
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 5)))
         assert exc.value.code == "video_reference_images_exceeded"
@@ -413,7 +389,6 @@ class TestCapabilityValidation:
         assert exc.value.params["count"] == 5
 
     def test_text2video_on_model_without_t2v_raises(self, tmp_path):
-        # kling-video-o1 的条目不接受文生视频：无首帧/无参考即拒绝，不回落 text2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-video-o1")._build_payload(
                 _request(tmp_path, video_capabilities=_effective("kling-video-o1"))
@@ -421,7 +396,6 @@ class TestCapabilityValidation:
         assert exc.value.code == "video_capability_missing_t2v"
 
     def test_reference_at_limit_allowed(self, tmp_path):
-        # 恰好达上限（4 张）放行
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
             _request(tmp_path, reference_images=self._refs(tmp_path, 4))
         )
@@ -456,8 +430,8 @@ class TestUserRelaxedCapabilities:
     def test_relaxed_last_frame_sent_at_std_tier_on_pro_only_model(self, tmp_path):
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(
             _request(
                 tmp_path,
@@ -559,7 +533,6 @@ class TestAuthHeaders:
         assert claims["iss"] == "ak-1"
 
     def test_bearer_mode_uses_static_key(self):
-        # bearer 模式旁路 JWT 管理器：Authorization 是静态 key，非签名 token
         headers = _bearer_backend()._headers()
         assert headers["Authorization"] == "Bearer static-key"
 
@@ -570,7 +543,7 @@ class TestPayloadBuilding:
         assert subpath == "text2video"
         assert payload["model_name"] == "kling-v2-5-turbo"
         assert payload["mode"] == "std"
-        assert payload["duration"] == "5"  # 字符串
+        assert payload["duration"] == "5"
         assert payload["aspect_ratio"] == "9:16"
         assert "image" not in payload
 
@@ -584,21 +557,19 @@ class TestPayloadBuilding:
 
     def test_image2video_embeds_base64_frame(self, tmp_path):
         img = tmp_path / "first.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=img))
         assert subpath == "image2video"
         assert isinstance(payload["image"], str)
         assert payload["image"]
-        # 纯 base64，无 data URI 前缀
         assert not payload["image"].startswith("data:")
         assert "image_tail" not in payload
 
     def test_image2video_with_end_frame(self, tmp_path):
-        # kling-v2-5-turbo 首尾帧仅 pro 档生效，须显式带 service_tier="pro" 才会放行 image_tail。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend()._build_payload(
             _request(tmp_path, start_image=first, end_image=last, service_tier="pro")
         )
@@ -606,39 +577,34 @@ class TestPayloadBuilding:
         assert "image_tail" in payload
 
     def test_image2video_end_frame_rejected_at_std_tier(self, tmp_path):
-        # kling-v2-5-turbo 首尾帧仅 pro 档生效：std（含未显式指定 service_tier 的默认档）提交
-        # image_tail 虽会被官方接口受理，尾帧约束却不生效，须 fail loud 而非静默发出无效请求。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert exc.value.code == "video_last_frame_requires_pro"
 
     def test_image2video_end_frame_allowed_at_std_tier_for_v3(self, tmp_path):
-        # kling-v3 首尾帧未标"仅 pro"（官方能力表未附此限制），std 档应正常放行。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert "image" in payload
         assert "image_tail" in payload
 
-    def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
-        # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
+    def test_image2video_empty_end_frame_is_rejected(self, tmp_path):
         first = tmp_path / "first.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
-        assert subpath == "image2video"
-        assert "image" in payload
-        assert "image_tail" not in payload
+        first.write_bytes(image_bytes())
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
+        assert exc.value.code == "video_end_image_unreadable"
 
     def test_end_frame_without_start_frame_rejected(self, tmp_path):
         """单独的尾帧发不进文生视频请求体，拒绝而不是丢掉尾帧。"""
         last = tmp_path / "last.png"
-        last.write_bytes(b"\x89PNG\r\n2")
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3")._build_payload(_request(tmp_path, end_image=last))
         assert exc.value.code == "video_end_image_requires_start_image"
@@ -646,10 +612,9 @@ class TestPayloadBuilding:
     def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
-            # 对应不上条目的型号尾帧按保守回落不开（通道本身实现了尾帧）
             _jwt_backend("kling-unlisted-model")._build_payload(
                 _request(
                     tmp_path,
@@ -678,11 +643,10 @@ class TestPayloadBuilding:
 class TestSafeLogView:
     def test_no_base64_or_prompt_leaks(self, tmp_path):
         img = tmp_path / "f.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         b = _jwt_backend()
         subpath, payload = b._build_payload(_request(tmp_path, start_image=img))
         view = b._safe_log_view(subpath, payload)
-        # 仅标量；base64 与 prompt 不展开
         assert view["has_image"] is True
         assert view["prompt_len"] == len("a cat walking")
         assert "image" not in view
@@ -704,14 +668,13 @@ class TestGenerateHappyPath:
 
             result = await _jwt_backend().generate(_request(tmp_path))
 
-            # text2video 提交端点
             assert only_request(routes.submit).url.path == "/v1/videos/text2video"
             assert str(only_request(routes.download).url) == _DOWNLOAD_URL
 
         assert result.provider == PROVIDER_KLING
         assert result.task_id == "task-9"
         assert result.video_uri == _DOWNLOAD_URL
-        assert result.generate_audio is False  # turbo 无音频
+        assert result.generate_audio is False
         assert result.video_path.read_bytes() == b"mp4-bytes"
 
     async def test_jwt_injected_on_submit(self, tmp_path):
@@ -755,12 +718,11 @@ class TestGenerateHappyPath:
 
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-1"))
 
-        # 持久化的是「子路径:task_id:有声标志」，resume 据此复原查询端点（text2video 因无首帧）+ 有声决策（turbo 恒 0）
         assert [(r["task_id"], r["job_id"]) for r in persisted] == [("local-task-1", "text2video:task-x:0")]
 
     async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
         img = tmp_path / "first.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         with _kling_api() as routes, captured_provider_job_ids() as persisted:
             routes.submit.mock(return_value=_resp(_submit("task-i")))
             routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
@@ -768,7 +730,6 @@ class TestGenerateHappyPath:
 
             await _jwt_backend().generate(_request(tmp_path, task_id="local-task-2", start_image=img))
 
-        # 有首帧 → image2video 前缀编入 job_id，resume 才能查对端点
         assert [r["job_id"] for r in persisted] == ["image2video:task-i:0"]
 
 
@@ -803,7 +764,6 @@ class TestResume:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b"resumed"))
 
-            # 持久化 job_id 带 text2video 前缀 → 复原查询端点 + 还原裸 task_id
             result = await _jwt_backend().resume_video("text2video:task-resume", _request(tmp_path))
 
             assert routes.submit.call_count == 0
@@ -814,8 +774,6 @@ class TestResume:
         assert result.video_path.read_bytes() == b"resumed"
 
     async def test_resume_image2video_subpath_from_encoded_job_id(self, tmp_path):
-        # resume 请求不带 start_image（真实重启路径如此）：子路径必须来自持久化 job_id 前缀，
-        # 否则 image2video 任务会误查 text2video 端点取不到。
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))
@@ -828,7 +786,6 @@ class TestResume:
         assert result.task_id == "task-r2"
 
     async def test_resume_bare_job_id_falls_back_to_text2video(self, tmp_path):
-        # 无已知前缀（异常/旧数据）回落 text2video，整串作 task_id。
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))
@@ -840,7 +797,6 @@ class TestResume:
         assert result.task_id == "legacy-bare-id"
 
     async def test_resume_multi_image2video_subpath_from_encoded_job_id(self, tmp_path):
-        # 多图主体任务 resume：子路径从持久化 job_id 前缀复原，查 multi-image2video 端点。
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))
@@ -853,7 +809,6 @@ class TestResume:
         assert result.task_id == "task-m"
 
     async def test_resume_404_raises_resume_expired_without_retry(self, tmp_path):
-        # 续跑时供应商侧已查无此任务：404 是确定性结果，一次即判过期，不按「刚提交未就绪」重试
         with _kling_api() as routes, bounded_poll_clock():
             routes.poll.mock(return_value=_resp({"code": 1203, "message": "task not found"}, status_code=404))
 
@@ -867,7 +822,6 @@ class TestResume:
         assert caught.value.provider == PROVIDER_KLING
 
     async def test_generate_poll_404_is_retried_as_not_ready(self, tmp_path):
-        # 新提交路径下轮询 404 仍视为任务尚未在查询端就绪，继续轮询到终态
         with _kling_api() as routes, bounded_poll_clock():
             routes.submit.mock(return_value=_resp(_submit("task-new")))
             routes.poll.mock(
@@ -906,7 +860,6 @@ class TestSubmittedBaseUrlReplay:
         assert [(r["job_id"], r["base_url"]) for r in persisted] == [("text2video:task-r:0", _RELAY_A)]
 
     async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path):
-        # 提交时域名为 A，续跑前配置已改成 B：任务只在 A 上可查
         with capture_http() as router, bounded_poll_clock():
             submitted = router.get(f"{_RELAY_A}/videos/image2video/task-r").mock(
                 return_value=_resp(_query("succeed", url=_DOWNLOAD_URL))
@@ -967,7 +920,6 @@ class TestAudioGatingResult:
             yield routes
 
     async def test_v2_6_pro_audio_result_true(self, tmp_path):
-        # v2-6 pro（即 1080P 档）+ 请求有声 → result.generate_audio=True（下游计费取有声价）
         with self._succeeding("task-a") as routes:
             result = await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
@@ -977,8 +929,6 @@ class TestAudioGatingResult:
         assert result.generate_audio is True
 
     async def test_v2_6_std_audio_result_false(self, tmp_path):
-        # 720p 落 std 档拿不到 1080P：结果必须记为无声，
-        # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
         with self._succeeding("task-a2"):
             result = await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
@@ -995,24 +945,20 @@ class TestAudioGatingResult:
         assert result.generate_audio is True
 
     async def test_v3_audio_result_true(self, tmp_path):
-        # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True
         with self._succeeding("task-b"):
             result = await _jwt_backend("kling-v3").generate(_request(tmp_path, generate_audio=True))
 
         assert result.generate_audio is True
 
     async def test_turbo_audio_gated_result_false(self, tmp_path):
-        # turbo 无音频能力：即使请求有声，result.generate_audio=False（计费取无声价）
         with self._succeeding("task-b2"):
             result = await _jwt_backend().generate(_request(tmp_path, resolution="1080p", generate_audio=True))
 
         assert result.generate_audio is False
 
     async def test_v3_omni_multi_image_audio_result_false(self, tmp_path):
-        # multi-image2video 子路径不携带 sound（原生 schema 无此字段），成片必然无声：
-        # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
         ref = tmp_path / "ref0.png"
-        ref.write_bytes(b"\x89PNG\r\n")
+        ref.write_bytes(image_bytes())
         with self._succeeding("task-b3") as routes:
             result = await _jwt_backend("kling-v3-omni").generate(
                 _request(tmp_path, reference_images=[ref], resolution="1080p", generate_audio=True)
@@ -1022,7 +968,6 @@ class TestAudioGatingResult:
         assert result.generate_audio is False
 
     async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):
-        # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
         with self._succeeding("task-c"), captured_provider_job_ids() as persisted:
             await _jwt_backend("kling-v2-6").generate(
                 _request(tmp_path, task_id="local-a", service_tier="pro", generate_audio=True)
@@ -1031,8 +976,6 @@ class TestAudioGatingResult:
         assert [r["job_id"] for r in persisted] == ["text2video:task-c:1"]
 
     async def test_resume_reuses_persisted_audio_over_recompute(self, tmp_path):
-        # 持久化有声标志（:1）优先于 resume 时按请求重算：即使请求 generate_audio=False，
-        # 结果仍取 submit 时算定的有声（避免计费漂移）
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))
@@ -1042,14 +985,12 @@ class TestAudioGatingResult:
             )
 
             assert routes.submit.call_count == 0
-            # 锁定解析契约：3 段 job_id 的有声末段不得漏进 task_id，子路径/任务号须正确复原
             assert only_request(routes.poll).url.path == "/v1/videos/text2video/task-c"
 
         assert result.generate_audio is True
         assert result.task_id == "task-c"
 
     async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
-        # 不含有声标志的 2 段 job_id 一律判无声：这类任务的成片必然无声，不得按当前能力表重算为有声
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))
@@ -1059,14 +1000,12 @@ class TestAudioGatingResult:
             )
 
             assert routes.submit.call_count == 0
-            # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
             assert only_request(routes.poll).url.path == "/v1/videos/text2video/task-c"
 
         assert result.generate_audio is False
         assert result.task_id == "task-c"
 
     async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
-        # 多图主体子路径的成片必然无声：接续请求不带参考图字段，判据只能取自解码出的子路径
         with _kling_api() as routes:
             routes.poll.mock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
             routes.download.mock(return_value=httpx.Response(200, content=b""))

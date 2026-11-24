@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 import httpx
@@ -17,6 +16,7 @@ from lib.backends.backend_runtime import (
     is_provider_rejection,
     poll_with_retry,
     provider_reason_summary,
+    read_reference_images,
     redact_provider_text,
 )
 from lib.backends.http_status_errors import provider_rejected_error, redacted_status_error
@@ -36,7 +36,6 @@ from lib.backends.vidu_shared import (
     create_vidu_client,
     extract_vidu_url,
     fetch_vidu_task,
-    image_to_data_uri,
     is_vidu_done,
     safe_body_for_log,
     vidu_failure_reason,
@@ -51,9 +50,8 @@ DEFAULT_MODEL = "viduq2"
 _MAX_REFERENCE_IMAGES = 7
 _POLL_INTERVAL_SECONDS = 3.0
 _POLL_MAX_WAIT_SECONDS = 600.0
-_PROMPT_MAX_LEN = 2000  # 文档：不超过 2000 个字符
+_PROMPT_MAX_LEN = 2000
 
-# 文档明确的 aspect_ratio 白名单
 _ASPECT_RATIO_WHITELIST: dict[str, list[str]] = {
     "viduq1": ["16:9", "9:16", "1:1", "3:4", "4:3"],
     "viduq2": ["16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "2:3", "3:2", "auto"],
@@ -111,9 +109,13 @@ class ViduImageBackend:
             "prompt": prompt,
         }
         if refs:
-            body["images"] = await asyncio.to_thread(lambda: [image_to_data_uri(Path(ref.path)) for ref in refs])
+            body["images"] = await asyncio.to_thread(
+                lambda: [
+                    image.data_uri()
+                    for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+                ]
+            )
 
-        # aspect_ratio 白名单兜底
         if request.aspect_ratio:
             ar_allowed = _ASPECT_RATIO_WHITELIST.get(self._model)
             if ar_allowed and request.aspect_ratio in ar_allowed:
@@ -126,7 +128,6 @@ class ViduImageBackend:
                     ar_allowed,
                 )
 
-        # resolution 以模型目录条目为准，原样透传；越界档位由上游拒绝（docs/adr/0104）
         resolution = request.image_size or None
         if resolution is not None:
             body["resolution"] = resolution
@@ -152,7 +153,6 @@ class ViduImageBackend:
                 ),
             )
             url = extract_vidu_url(final)
-            # creations 内 credits 可能也带（兜底取顶层）；credits=0 合法，必须显式判 None。
             final_credits = final.get("credits")
             actual_credits = final_credits if final_credits is not None else credits
 
@@ -178,9 +178,6 @@ class ViduImageBackend:
         logger.info("调用 Vidu 图片 API kwargs=%s", format_kwargs_for_log(safe_body_for_log(body)))
         resp = await client.post("/reference2image", json=body)
         if resp.status_code >= 400:
-            # redacted_status_error 透出 httpx.HTTPStatusError，保留 .response.status_code，
-            # 让咽喉层能识别 413 走降档重试；4xx 另带脱敏截断后的拒因摘要，供任务失败信封取用。
-            # body 先经脱敏后落日志，保留可诊断性。
             logger.warning(
                 "Vidu 图片接口 /reference2image 返回 %s: %s",
                 resp.status_code,

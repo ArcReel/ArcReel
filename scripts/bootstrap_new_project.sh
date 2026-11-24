@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bootstrap a clean project copy from current repository.
-# Runtime artifacts and local secrets are excluded by default.
-
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <target_dir> [--init-git]"
   echo "Example: $0 ../ArcReel --init-git"
@@ -40,7 +37,6 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '/vertex_keys' \
     "${SOURCE_DIR}/" "${TARGET_DIR}/"
 else
-  # Fallback copy without rsync.
   cp -R "${SOURCE_DIR}/." "${TARGET_DIR}/"
   rm -rf "${TARGET_DIR}/.git" \
          "${TARGET_DIR}/.idea" \

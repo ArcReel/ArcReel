@@ -75,7 +75,6 @@ class WorkflowProblem(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-#: 不作为文案参数下发的 params 键：单元 ID 已提为 ``unit_id``，发声准入载荷是逐字段定位用的原始结构。
 _UNLOCALIZABLE_PARAMS = frozenset({"unit_id", "speech_admission"})
 
 
@@ -173,11 +172,8 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "edit": "edit_timelines",
 }
 
-#: 草稿 AI 修复的任务类型；资源 ID 见 :func:`draft_repair_resource_id`。
 TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
 _PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
-#: 分集规划的两个占用槽。Agent 的单批规划与 Web 逐窗串联的首窗占前一个；串联时，执行中的窗口
-#: 在请求模型前把下一窗排进另一个槽，两槽交替，停止规划即取消排队中的那一窗。
 EPISODE_PLANNING_SLOT = "episode-planning"
 EPISODE_PLANNING_NEXT_SLOT = "episode-planning-next"
 EPISODE_PLANNING_SLOTS = (EPISODE_PLANNING_SLOT, EPISODE_PLANNING_NEXT_SLOT)
@@ -210,7 +206,6 @@ def _task_step(observation: WorkflowTaskObservation) -> str | None:
     return _TASK_STEP.get(observation.task_type)
 
 
-#: 建议下一步归属的步骤：步骤顺序只用于呈现，下一步挂在它所属内容的那一步上。
 _ACTION_STEP: dict[WorkflowActionType, str] = {
     WorkflowActionType.COLLECT_PROJECT_INPUT: "project_input",
     WorkflowActionType.RETRY_PROJECT_MIGRATION: "project_input",
@@ -408,7 +403,6 @@ def build_workflow_plan(
 
     for step_rule in rules:
         artifact_key = _ARTIFACT_BY_STEP.get(step_rule.id)
-        # 走完的工作流没有下一步可挂：完成的「剪辑」一步不带动作。
         owns = step_rule.id == owner and not complete
         step = WorkflowPlanStep(
             id=step_rule.id,
@@ -461,7 +455,6 @@ def build_workflow_plan(
     elif structure_problems:
         next_action = _structure_action(structure_problems, script_revision=script_revision)
     elif active_tasks:
-        # ponytail: fixed five-minute remote observation window; replace with per-task ETA only if providers expose it.
         batch_ids = list(dict.fromkeys(task.batch_id for task in active_tasks if task.batch_id is not None))
         next_action = WorkflowNextAction(
             type=WorkflowActionType.WAIT_FOR_TASK,

@@ -12,7 +12,6 @@ import {
   textRuns,
 } from "./manual-split-model";
 
-/** 每个码位都是一个汉字的原文，便于按阅读单位核对体量。 */
 function chars(count: number): string {
   return "字".repeat(count);
 }
@@ -36,7 +35,6 @@ function file(name: string, length: number, segments: EpisodesViewSegment[]): Ep
   };
 }
 
-// a.txt：第 1 集 [0, 10)、第 2 集 [10, 20)、未切分 [20, 30)；b.txt：未切分 [0, 8)
 const view: EpisodesView = {
   unit: "chars",
   units: 0,
@@ -64,7 +62,6 @@ describe("落点", () => {
       { start: 102, text: "第一行😀尾" },
       { start: 108, text: "第二行" },
     ]);
-    // 「尾」前的 UTF-16 下标是 5（😀 占两个代码单元），码位偏移是 4
     expect(pointInRun(0, runs[0].start, runs[0].text, 5)).toEqual({ file: 0, offset: 106 });
     expect(pointInRun(1, runs[1].start, runs[1].text, 99)).toEqual({ file: 1, offset: 111 });
   });
@@ -91,7 +88,6 @@ describe("落点", () => {
   });
 
   it("后一个文件里的切分从前一个文件里未切分的原文接起，新集跨文件", () => {
-    // 全局偏移：a.txt 占 [0, 30)，b.txt 从 30 起
     expect(resolvePointAction(view, { file: 1, offset: 3 })).toEqual({
       kind: "cut",
       file: 1,
@@ -148,7 +144,6 @@ describe("←/→ 微调", () => {
 });
 
 describe("跨文件的集", () => {
-  // a.txt：第 1 集 [0, 10)、第 2 集从 [10, 20) 接到 b.txt 的 [0, 4)；b.txt：第 3 集 [4, 8)
   const crossing: EpisodesView = {
     ...view,
     files: [
@@ -210,7 +205,6 @@ describe("跨文件的集", () => {
         { ...crossing.files[1], source_kind: "screenplay" },
       ],
     };
-    // 第 1 集与第 2 集合并不新跨切换处；第 2 集原本就跨着它，与第 3 集合并也不新增
     expect(cutEpisodeActions(switched, 1).merge).toBe("ok");
     expect(resolvePointAction(switched, { file: 1, offset: 6 }, 2)).toMatchObject({ kind: "move", at: 26 });
   });

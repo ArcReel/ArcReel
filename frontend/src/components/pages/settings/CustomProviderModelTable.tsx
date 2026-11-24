@@ -24,7 +24,6 @@ import { matchedEntryFor, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
 import { RequestAddresses } from "./RequestAddresses";
 
-//: 模型多于这个数量时显示搜索框与按类型筛选。
 const FILTER_THRESHOLD = 5;
 
 const MEDIA_LABEL_KEY: Record<MediaType, string> = {
@@ -37,7 +36,6 @@ const MEDIA_ORDER = Object.keys(MEDIA_LABEL_KEY) as MediaType[];
 
 type MediaFilter = "all" | MediaType;
 
-// 档位为空的三支各说一句：三支互斥，两个文案位都为假即「帧率读得到、只是换算不出整秒时长」。
 const EMPTY_TIER_COPY = {
   fixed: {
     placeholder: "supported_durations_fixed_placeholder",
@@ -53,13 +51,11 @@ const EMPTY_TIER_COPY = {
   },
 } as const;
 
-/** 对应条目的三种状态：还不知道（未保存的新行）、未定价（对应不上条目，或条目没有价目表）、已定价。 */
 function entryState(entry: MatchedCatalogEntry | null | undefined): "pending" | "unpriced" | "priced" {
   if (entry === undefined) return "pending";
   return entry?.priced ? "priced" : "unpriced";
 }
 
-/** 表格里「对应条目」一列：已定价显示条目名，其余两种状态显示一个短标签。 */
 function EntryCell({ row }: { row: ModelRow }) {
   const { t } = useTranslation("dashboard");
   const entry = matchedEntryFor(row);
@@ -84,10 +80,8 @@ function EntryCell({ row }: { row: ModelRow }) {
 }
 
 export interface ModelTableProps {
-  /** 已按当前协议派生过端点的模型行。 */
   rows: ModelRow[];
   protocol: DiscoveryFormat;
-  /** 表单里当前填写的接口地址，请求地址条据此拼出完整地址。 */
   baseUrl: string;
   expanded: ReadonlySet<string>;
   onToggleExpanded: (key: string) => void;
@@ -97,10 +91,6 @@ export interface ModelTableProps {
   onSetEnabled: (keys: string[], enabled: boolean) => void;
 }
 
-/**
- * 自定义供应商的模型表格：列为启用、模型 ID、类型、调用端点、对应条目、默认。点击行在下方展开编辑区，
- * 可以同时展开多行；模型多于 5 个时显示搜索框与按类型筛选。
- */
 export function ModelTable({
   rows,
   protocol,
@@ -124,7 +114,6 @@ export function ModelTable({
     () => MEDIA_ORDER.filter((media) => rows.some((row) => endpointToMediaType[row.endpoint] === media)),
     [rows, endpointToMediaType],
   );
-  // 筛选只在显示时生效：模型减到 5 个以内后筛选控件消失，残留的筛选条件不能继续藏行
   const activeFilter = showFilters && (filter === "all" || presentMedia.includes(filter)) ? filter : "all";
   const activeQuery = showFilters ? query.trim().toLowerCase() : "";
   const visible = rows.filter(
@@ -228,7 +217,6 @@ export function ModelTable({
               const media = endpointToMediaType[row.endpoint];
               const name = row.model_id || t("cp_model_id_missing");
               const editorId = `cp-model-editor-${row.key}`;
-              // 点行任意位置展开或收起；行内的勾选框、按钮与输入框各有自己的动作，点它们不切换
               const onRowClick = (e: MouseEvent<HTMLTableRowElement>) => {
                 if ((e.target as HTMLElement).closest("button, input, a, label, [role=checkbox]")) return;
                 onToggleExpanded(row.key);
@@ -320,7 +308,6 @@ interface ModelFieldsProps {
   onRemove: () => void;
 }
 
-/** 展开的编辑区：属性共用一条标签列，「删除模型」在底部。 */
 function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFieldsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const requests = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint)?.requests);
@@ -328,7 +315,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
   const constraints = useEndpointCatalogStore((s) => s.endpointConstraints[row.endpoint]);
   const endImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable[row.endpoint] ?? false);
   const descriptor = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint));
-  // 只有 ComfyUI 视频行还编辑可选时长；其余行的时长由模型条目决定，存量覆盖原样保留
   const editsDurations = descriptor !== undefined && isComfyuiVideoEndpoint(descriptor);
   const idPrefix = `cp-model-${row.key}`;
   const tierEmpty = constraints?.durationTierEmpty ?? false;
@@ -351,7 +337,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
           placeholder={t("cp_model_id_placeholder")}
           onChange={(e) => {
             const nextId = e.target.value;
-            // 能力覆盖的合法性绑在 (endpoint, model_id) 上，改了模型 ID 即作废
             onUpdate({ model_id: nextId, capability_overrides: null });
           }}
         />
@@ -366,8 +351,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
             onUpdate({
               endpoint: next,
               is_default: false,
-              // 覆盖的合法性随 endpoint 变化（last_frame 要求目标 endpoint 支持尾帧），请求地址修改只对原端点有意义：
-              // 换端点即一并作废
               capability_overrides: null,
               path_overrides: null,
             })
@@ -428,11 +411,9 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         />
       </FieldRow>
 
-      {/* 分辨率（仅 image/video，audio 无分辨率维度） */}
       {(media === "image" || media === "video") && (
         <FieldRow
           label={t("resolution_label")}
-          // 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。
           hint={constraints?.sizeFixed ? <FieldHint>{t("resolution_fixed_hint")}</FieldHint> : undefined}
         >
           <ResolutionPicker
@@ -447,14 +428,11 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         </FieldRow>
       )}
 
-      {/* ComfyUI 视频行的可选时长：写进能力覆盖的 durations 键，留空跟随 workflow 原生时长 */}
       {editsDurations && (
         <FieldRow
           label={t("supported_durations_label")}
           htmlFor={`${idPrefix}-durations`}
           hint={
-            // 禁用原因必须有一行可见说明。缺帧率来源那一支是可修的定义，文案指向补哪里；
-            // 换算不出整秒时长那一支补不出帧率来，不说成「补一处就能恢复」。
             tierEmpty ? (
               <FieldHint>{t(emptyCopy.hint)}</FieldHint>
             ) : durationError ? (
@@ -475,13 +453,10 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         </FieldRow>
       )}
 
-      {/* 能力覆盖（仅 video endpoint；首批只开放 last_frame）。ComfyUI 端点的能力只从节点绑定推导，
-          服务端对该协议的覆盖写入一律 422，故不给入口。 */}
       {media === "video" && !isComfyuiProtocol(protocol) && (
         <FieldRow label={t("cap_override_last_frame_label")}>
           <CapabilityOverrideRow
             override={row.capability_overrides?.last_frame}
-            // 系统判定要后端按 (endpoint, model_id) 算，新建的行还没有
             systemValue={null}
             endImageCapable={endImageCapable}
             onChange={(next) => onUpdate({ capability_overrides: withLastFrameOverride(row.capability_overrides, next) })}
@@ -499,7 +474,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
   );
 }
 
-/** 编辑区里的对应条目：已对应时显示条目名与「模型厂商/官方模型名」。 */
 function EntryDetail({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
   const { t } = useTranslation("dashboard");
   if (entry === undefined) return <p className="pt-1.5 text-sm text-muted-foreground">{t("cp_model_entry_pending")}</p>;
@@ -514,7 +488,6 @@ function EntryDetail({ entry }: { entry: MatchedCatalogEntry | null | undefined 
   );
 }
 
-/** 对应条目下方的说明：未定价写明调用会怎样记账，还不知道时说明何时给出。 */
 function EntryHint({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
   const { t } = useTranslation("dashboard");
   switch (entryState(entry)) {

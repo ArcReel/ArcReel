@@ -28,10 +28,8 @@ from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.retry import NonRetryableError
 
-#: 解析器：``(host, port)`` → 该主机解析出的地址文本。
 Resolver = Callable[[str, int], Awaitable[Iterable[str]]]
 
-#: 各媒体类型产物的总字节上限。取值远高于各供应商单个产物的实际体积，只拦异常大的响应。
 VIDEO_ARTIFACT_MAX_BYTES = 2 * 1024 * 1024 * 1024
 IMAGE_ARTIFACT_MAX_BYTES = 256 * 1024 * 1024
 AUDIO_ARTIFACT_MAX_BYTES = 256 * 1024 * 1024
@@ -41,14 +39,11 @@ ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE: dict[str, int] = {
     "audio": AUDIO_ARTIFACT_MAX_BYTES,
 }
 
-#: 主机名解析的时限。解析不走 httpx 的超时配置，单独兜住。
 DNS_RESOLVE_TIMEOUT_SECONDS = 10.0
 
-#: 错误响应体读取上限：够状态错误带出诊断摘要即可。
 ERROR_BODY_MAX_BYTES = 64 * 1024
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
-#: 链路本地段，加上不在链路本地段内的云元数据单地址；只拦单地址，所在网段的其余地址照常放行。
 _REJECTED_NETWORKS = (
     ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("fe80::/10"),
@@ -57,11 +52,9 @@ _REJECTED_NETWORKS = (
     ipaddress.ip_network("192.0.0.192/32"),
 )
 
-#: 落盘攒批阈值：驻留内存的上界，同时把线程池调度摊薄到每 8 MiB 一次。
 _WRITE_BUFFER_BYTES = 8 * 1024 * 1024
 _CHUNK_BYTES = 64 * 1024
 
-#: 这些头描述的是原始传输形态；截断后的响应体已解码，保留它们会让读取端再解码一次或长度对不上。
 _TRANSFER_HEADERS = frozenset({"content-encoding", "content-length", "transfer-encoding"})
 
 
@@ -110,7 +103,7 @@ async def check_destination(
         try:
             async with asyncio.timeout(resolve_timeout):
                 addresses = await resolver(host, port)
-        except OSError:  # TimeoutError 亦是 OSError
+        except OSError:
             return
     if any(_is_rejected_address(address) for address in addresses):
         raise ArtifactDestinationRejectedError(f"artifact host resolves to a disallowed address: {host}")
@@ -177,7 +170,6 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
     （``asyncio.timeout``）之内，不能吞掉取消。改名走 ``run_noninterruptible_sync``，见下方注释。
     """
     chunks = _capped_chunks(response, max_bytes)
-    # 先取首块：声明超限在此抛出，不建 .part
     first = await anext(chunks, b"")
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     partial_path = output_path.with_name(f"{output_path.name}.part")
@@ -201,9 +193,6 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
                 if buffered_bytes >= _WRITE_BUFFER_BYTES:
                     await flush()
             await flush()
-        # 改名是产物成形的那一步：一次原子改名耗时可忽略，不会拖垮外层墙钟预算。取消落在这一刻时改名
-        # 照常完成、取消随之消失，调用方后续的转码与产物提交继续（docs/standards/backend.md
-        # 「供应商返回之后的落账段不可中断」）。
         await run_noninterruptible_sync(os.replace, partial_path, output_path)
     except BaseException:
         await asyncio.to_thread(partial_path.unlink, True)  # hard-delete: temp -- 下载中断留下的 .partial 文件

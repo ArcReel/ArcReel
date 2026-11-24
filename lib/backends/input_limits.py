@@ -9,14 +9,39 @@
 ``0`` 只表示「上限为 0」，不表示「不裁剪」。上限为 0 与不支持都不接受这类输入：候选不列、执行时拒绝，
 编排层不把它们裁成 0 张后静默改走别的路径。
 
-本模块只依赖标准库，图片与视频的能力求值共用，候选、执行时的校验、编排层的裁剪与设置页都读同一个求值结果。
+本模块只依赖标准库，图片与视频的能力求值共用，候选、执行时的校验、编排层的数量检查与设置页都读同一个求值结果。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
+
+_reference_sources: ContextVar[Mapping[Path, Path] | None] = ContextVar("reference_image_sources", default=None)
+
+
+@contextmanager
+def reference_image_sources(paths: Mapping[Path, Path]):
+    """将本次调用的暂存／冻结／压缩路径还原为作者认识的来源名，多个并发请求各自隔离。"""
+    token = _reference_sources.set(paths)
+    try:
+        yield
+    finally:
+        _reference_sources.reset(token)
+
+
+def reference_image_name(path: Path) -> str:
+    return (_reference_sources.get() or {}).get(path, path).name
+
+
+def excess_image_names(limit: int, count: int, paths: Iterable[str | Path] = ()) -> str:
+    """供应商请求没有资产名时优先报告文件名，否则给出从 1 开始的图片序号。"""
+    names = [reference_image_name(Path(path)) for path in paths]
+    return ", ".join(names[i] if i < len(names) and names[i] else f"#{i + 1}" for i in range(limit, count))
 
 
 class LimitState(StrEnum):
@@ -55,7 +80,7 @@ class InputLimit[N: (int, float)]:
         """:meth:`to_json` 的逆：``None`` 为未收录，其余为上限（``0`` 即不接受）。
 
         读已按接口形状存下的生效值（如视频能力 ``VideoCapabilities`` 的参考图与参考音频上限）时用它，
-        不支持与上限为 0 在这一形状里同为 ``0``，读回后的判定（候选、执行时的校验、编排层的裁剪）相同。
+        不支持与上限为 0 在这一形状里同为 ``0``，读回后的判定（候选、执行时的校验、编排层的数量检查）相同。
         """
         return cls.unrecorded() if value is None else cls.at_most(value)
 

@@ -6,14 +6,13 @@ import asyncio
 import logging
 import math
 from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import openai
 
 from arcreel_catalog_core import ImageFacts, ScaledOutputTokenBase
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
-from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
@@ -46,14 +45,10 @@ DEFAULT_MODEL = "gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
 ImageBackendMode = Literal["both", "generations_only", "edits_only"]
 
-# gpt-image-2 / gpt-image-2-2026-04-21：size 接受任意 WxH，宽高均被 16 整除，比例 1:3~3:1；
-# ≤2560x1440 稳定，~3840x2160 实验性，最大 3840x2160（4K）。
 _GPT_IMAGE_MAX_LONG_EDGE = 3840
 _GPT_IMAGE_STABLE_LONG_EDGE = 2560
 _GPT_IMAGE_MAX_RATIO = 3.0
 
-# 档位 → quality 大小写不敏感（与 resolution_to_short_edge 同口径）：用户自定义档位词可能写
-# "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
 _QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
 
 
@@ -176,10 +171,8 @@ def _dimensions(params: dict[str, str]) -> dict[str, object]:
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
 
-    #: 内置供应商按缺省的 ``both`` 构造；自定义端点按 mode 收窄，通道事实由端点声明。
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
-    #: 接受显式画质：请求带 ``quality`` 时原样发送，内置 ``openai-images`` 与自定义的三个 OpenAI Images 端点共用。
     CHANNEL_ACCEPTS_QUALITY: ClassVar[bool] = True
 
     _MODE_TO_CAPS: ClassVar[dict[str, set[ImageCapability]]] = {
@@ -265,30 +258,10 @@ class OpenAIImageBackend:
         return await self._save_and_return(response, request, params)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        refs = request.reference_images
-
-        def _read_refs() -> list[tuple[str, bytes, str]]:
-            """在线程里读出参考图：交给 SDK 的若是文件句柄，multipart 会在事件循环上读文件。"""
-            files = []
-            for ref in refs:
-                ref_path = Path(ref.path)
-                try:
-                    data = ref_path.read_bytes()
-                except FileNotFoundError:
-                    logger.warning("参考图不存在，跳过: %s", ref_path)
-                    continue
-                files.append((ref_path.name, data, IMAGE_MIME_TYPES.get(ref_path.suffix.lower(), "image/png")))
-            return files
-
-        image_files = await asyncio.to_thread(_read_refs)
-        if not image_files:
-            # 参考图全部打不开时报错，不降级为 T2I：请求要的是 I2I，没有有效素材属于错误
-            raise ImageCapabilityError(
-                "image_endpoint_mismatch_no_i2i",
-                model=self._model,
-                detail="all reference images failed to open",
-            )
-        # I2I 与 T2I 对称下传 size/quality：images.edit 不带 size 时比例由上游默认决定，项目 aspect_ratio 不生效
+        images = await asyncio.to_thread(
+            read_reference_images, (ref.path for ref in request.reference_images), self.model
+        )
+        image_files = [image.multipart() for image in images]
         edit_kwargs: dict = {
             "model": self._model,
             "image": image_files,
@@ -304,7 +277,6 @@ class OpenAIImageBackend:
         try:
             response = await self._client.images.edit(**edit_kwargs)
         except openai.NotFoundError as exc:
-            # Seedream 的参考图请求需要方舟端点；只在 edits 不存在时提示，兼容支持 edits 的中转站。
             if "seedream" in self._model.lower():
                 raise ImageCapabilityError("image_seedream_edits_unavailable", model=self._model) from exc
             raise
@@ -315,7 +287,6 @@ class OpenAIImageBackend:
     ) -> ImageGenerationResult:
         data = getattr(response, "data", None) or []
         if not data:
-            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
             raise RuntimeError(
                 f"OpenAI 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常"
             )
@@ -327,8 +298,6 @@ class OpenAIImageBackend:
         if usage is not None:
             try:
                 in_details = getattr(usage, "input_tokens_details", None)
-                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None，
-                # 避免部分字段缺失场景下漏算 input 费用
                 in_image = getattr(in_details, "image_tokens", None) if in_details is not None else None
                 in_text = getattr(in_details, "text_tokens", None) if in_details is not None else None
                 if in_image is not None or in_text is not None:
@@ -339,17 +308,13 @@ class OpenAIImageBackend:
                         img_out = getattr(out_details, "image_tokens", None)
                         txt_out = getattr(out_details, "text_tokens", None)
                     if img_out is None:
-                        # 部分模型只在顶层暴露 output_tokens（GPT Image 输出基本为 image token）
                         img_out = getattr(usage, "output_tokens", None)
-                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回，按拿不到 usage 处理
                     if img_out is None and txt_out is None:
                         img_in = txt_in = None
             except Exception:
                 logger.warning("OpenAI image usage 解析失败", exc_info=True)
                 img_in = img_out = txt_in = txt_out = None
 
-        # 有 usage 时按 token 上报（参考图已计入图片输入 token，不报张数）；拿不到 usage 时只报输出张数，
-        # 价目表按 token 计价，这笔会记为未定价，不按估算值记账。
         usage = (
             _token_usage(
                 text_input=txt_in,

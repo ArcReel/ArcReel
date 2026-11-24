@@ -11,7 +11,7 @@
 - 期望依据只经 ``expected_basis()`` 取得，登记依据只经 ``freeze()`` 取得，两者走同一个私有
   构造器 :func:`_visual_basis`，一致由构造保证（``docs/adr/0062``）。``freeze()`` 只接受没有
   缺口的生成输入，输入完整时期望依据与今天逐字节相同。
-- 参考图集按装配序完整记录、不裁剪；供应商上限只影响实发与「图N」编号，不影响依据。
+- 参考图集按装配序完整记录。超出模型上限时，预览与执行都拒绝该次生成。
 
 本模块只经 :class:`InputObservation` 这一个 seam 读项目现状：不 import 服务端，也不调用
 时效解析器——规划器调用它时不会递归回到自己。
@@ -57,28 +57,21 @@ from lib.prompts.prompt_builders import (
     build_scene_prompt,
     render_storyboard_image_prompt,
 )
-from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, clamp_reference_images
+from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, require_reference_image_limit
 from lib.references.reference_admission import SHEET_MISSING_CODE, UNREGISTERED_REFERENCE_CODE
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 
-#: 声明了原图但文件读不到。与 ``reference_asset_missing`` 分开：修法是重新上传原图或清掉原图字段，
-#: 而不是去生成资产图。
 ORIGINAL_MISSING_CODE = "asset_original_missing"
 
-#: 分镜的图片提示词待生成：语义未就绪，沿用生成入口的同一码。
 PROMPT_PENDING_CODE = "script_prompt_pending"
 
-#: 资产还没有描述：资产图的语义未就绪。
 ASSET_DESCRIPTION_REQUIRED_CODE = "asset_description_required"
 
-#: 衍生还没有外观变化描述：衍生资产图的语义未就绪，沿用衍生生成入口的同一码。
 DERIVATIVE_DESCRIPTION_REQUIRED_CODE = "derivative_description_required"
 
-#: 衍生的本体资产图不可用（未声明、文件不在或清单未登记），沿用衍生生成入口的同一码。
 DERIVATIVE_OWNER_SHEET_MISSING_CODE = "derivative_owner_sheet_missing"
 
-#: 资产图与衍生资产图的画布比例，执行器与规划器共用。
 ASSET_SHEET_CANVAS_RATIO = "16:9"
 
 
@@ -129,7 +122,6 @@ class ManifestInputObservation:
         )
 
     def registered(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
-        # 一次装配读同一份清单快照，各条引用的可用性结论出自同一时刻。
         if self._entries is None:
             self._entries = self._manifest.snapshot_entries()
         return self._entries.get(key)
@@ -180,7 +172,6 @@ class StoryboardImageSemantics:
     image_prompt: object
     style: str
     style_description: str
-    #: schema < 19 的项目沿用记资产名的依据口径（``project_basis_records_asset_names``）。
     asset_names: bool = False
 
 
@@ -209,14 +200,12 @@ type GenerationSemantics = StoryboardImageSemantics | AssetSheetSemantics | Deri
 
 @dataclass(frozen=True, slots=True)
 class RenderedInput:
-    """按供应商上限裁剪后渲染的提示词。``warnings`` 与任务结果的 ``{key, params}`` 同形。"""
+    """按完整参考图集渲染的提示词。``warnings`` 与任务结果的 ``{key, params}`` 同形。"""
 
     prompt: str
-    sent_count: int
     warnings: tuple[dict[str, Any], ...] = ()
 
 
-#: 冻结后按内容摘要重新绑定候选 claim：入参是候选 claims 与「规范相对路径 → 冻结字节摘要」。
 ClaimBinder = Callable[[Sequence[ArtifactInputClaim], Mapping[str, str]], Sequence[ArtifactInputClaim]]
 
 
@@ -238,9 +227,7 @@ class FrozenGenerationInput:
         warnings: tuple[dict[str, Any], ...],
     ) -> None:
         self.prompt = prompt
-        #: 随请求发给供应商的前 N 张参考图（按供应商上限裁剪后的视图）。
         self.references = references
-        #: 按完整冻结集构造的登记依据。
         self.basis = basis
         self.claims = claims
         self.warnings = warnings
@@ -270,9 +257,7 @@ class ImageGenerationInput[S: GenerationSemantics]:
 
     semantics: S
     canvas_ratio: str
-    #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
-    #: 语义缺口在前，引用缺口按装配序，逐项去重。
     gaps: tuple[InputGap, ...] = ()
 
     @property
@@ -292,19 +277,17 @@ class ImageGenerationInput[S: GenerationSemantics]:
         )
 
     def render(self, *, max_reference_images: int | None, model: str) -> RenderedInput:
-        """按供应商上限裁剪后渲染提示词，不冻结参考图；预览用，编号与 :meth:`freeze` 一致。"""
+        """校验上限后按装配序渲染预览，编号与 :meth:`freeze` 一致。"""
 
         self._require_complete()
         visuals = [reference.visual for reference in self.references]
-        return _render_clamped(self.semantics, visuals, max_reference_images=max_reference_images, model=model)
+        require_reference_image_limit(visuals, max_reference_images, model=model)
+        return RenderedInput(prompt=_render_prompt(self.semantics, visuals))
 
     def freeze(
         self, *, max_reference_images: int | None, model: str, bind_claims: ClaimBinder
     ) -> FrozenGenerationInput:
-        """把完整参考图集冻结到任务私有快照，再绑定 claim、裁剪、渲染并构造登记依据。
-
-        依据与 claim 按完整冻结集，供应商只收前 N 张；裁剪发生时结果带一条 warning。
-        """
+        """校验上限，冻结完整参考图集，再绑定 claim、渲染提示词并构造登记依据。"""
 
         self._require_complete()
         return _freeze(
@@ -399,9 +382,7 @@ def storyboard_image_input(
 class GridReferences:
     """一张宫格的参考图集与缺口。宫格的合成依据由宫格执行器按冻结后的参考图构造。"""
 
-    #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
-    #: 引用缺口按装配序，逐项去重。
     gaps: tuple[InputGap, ...] = ()
 
     @property
@@ -795,7 +776,6 @@ def _visual_basis(
                 absent=absent,
             )
         case DerivativeSheetSemantics():
-            # 本体资产图不可用时没有来源，缺口记在 absent 里。
             [*sources] = references
             if len(sources) > 1:
                 raise ValueError("a derivative sheet has at most one source image")
@@ -809,7 +789,6 @@ def _visual_basis(
             )
 
 
-#: 资产图提示词按资产类型的渲染出口。
 _ASSET_SHEET_PROMPT_BUILDERS: dict[str, Callable[[str, str, str, str], str]] = {
     "character": build_character_prompt,
     "scene": build_scene_prompt,
@@ -834,22 +813,6 @@ def _render_prompt(semantics: GenerationSemantics, sent: Sequence[VisualReferenc
             return build_character_derivative_prompt(semantics.description)
 
 
-def _render_clamped(
-    semantics: GenerationSemantics,
-    visuals: Sequence[VisualReference],
-    *,
-    max_reference_images: int | None,
-    model: str,
-) -> RenderedInput:
-    clamp = clamp_reference_images(visuals, max_reference_images, model=model)
-    warning = clamp.warning()
-    return RenderedInput(
-        prompt=_render_prompt(semantics, visuals[: clamp.kept]),
-        sent_count=clamp.kept,
-        warnings=(warning,) if warning is not None else (),
-    )
-
-
 def _freeze(
     semantics: GenerationSemantics,
     canvas_ratio: str,
@@ -859,9 +822,12 @@ def _freeze(
     model: str,
     bind_claims: ClaimBinder,
 ) -> FrozenGenerationInput:
+    visuals = [reference.visual for reference in references]
+    require_reference_image_limit(visuals, max_reference_images, model=model)
     frozen = freeze_image_references(
         [{"image": reference.visual.path} for reference in references] or None,
-        [reference.visual for reference in references],
+        visuals,
+        model=model,
     )
     try:
         content_digests: dict[str, str] = {}
@@ -873,21 +839,16 @@ def _freeze(
             bind_claims([reference.claim for reference in references if reference.claim is not None], content_digests)
         )
         basis = _visual_basis(semantics, canvas_ratio, frozen.visual_references)
-        rendered = _render_clamped(
-            semantics,
-            frozen.visual_references,
-            max_reference_images=max_reference_images,
-            model=model,
-        )
+        prompt = _render_prompt(semantics, frozen.visual_references)
     except BaseException:
         frozen.cleanup()
         raise
     return FrozenGenerationInput(
-        prompt=rendered.prompt,
-        references=frozen.sent(rendered.sent_count),
+        prompt=prompt,
+        references=frozen,
         basis=basis,
         claims=claims,
-        warnings=rendered.warnings,
+        warnings=(),
     )
 
 

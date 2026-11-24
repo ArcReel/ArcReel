@@ -7,7 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { groupBySegmentBreak, computeGridSize, matchGridsForGroup } from "@/utils/grid-layout";
 import { GridPreviewPanel } from "./GridPreviewPanel";
-import type { GridGeneration } from "@/types/grid";
+import type { GridCapability, GridGeneration } from "@/types/grid";
 import type { NarrationSegment, DramaScene } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
@@ -36,6 +36,7 @@ function GridGroupCard({
   rows,
   cols,
   gridIds,
+  referenceInputs,
   submitting,
   canGenerate,
   onGenerate,
@@ -47,6 +48,7 @@ function GridGroupCard({
   rows: number;
   cols: number;
   gridIds: string[];
+  referenceInputs: NonNullable<GridCapability["reference_inputs"]>;
   submitting: boolean;
   canGenerate: boolean;
   onGenerate: () => void;
@@ -55,7 +57,6 @@ function GridGroupCard({
   const { t } = useTranslation("dashboard");
   const titleId = useId();
   const activeGridIds = useActiveResourceIds("grid", projectName);
-  // 「生成这一组」与面板里的动作写同一组联合图：任一在途时互相禁用
   const groupBusy = submitting || gridIds.some((id) => activeGridIds.has(id));
 
   const handleGenerate = () => {
@@ -88,6 +89,13 @@ function GridGroupCard({
           </Button>
         )}
       </div>
+      {referenceInputs.map((input) => (
+        <p key={input.scene_ids[0]} className="px-4 py-1 text-xs text-muted-foreground">
+          {referenceInputs.length > 1 && `${input.scene_ids[0]}–${input.scene_ids.at(-1)} · `}
+          {input.message || t("storyboard_reference_count", { count: input.count })}
+          {!input.message && input.limit != null && ` / ${input.limit}`}
+        </p>
+      ))}
       <GridPreviewPanel
         projectName={projectName}
         gridIds={gridIds}
@@ -99,7 +107,6 @@ function GridGroupCard({
   );
 }
 
-/** 多宫格分镜图视图：按章节切分点分组，每组一张卡片；视图自己滚动，联合图高度按视图高度封顶。 */
 export function GridPreviewView({
   projectName,
   episode,
@@ -113,24 +120,24 @@ export function GridPreviewView({
   const invalidateGrids = useAppStore((s) => s.invalidateGrids);
   const [grids, setGrids] = useState<GridGeneration[]>([]);
   const [generatingGroups, setGeneratingGroups] = useState<Set<string>>(new Set());
-  // 单张宫格的格数上限由后端给：4×4 / 5×5 的 4K 门控要经供应商解析才能定，前端自行推导
-  // 必然与入队口径漂移。取不到时 computeGridSize 用保守默认值。
-  const [maxCellCount, setMaxCellCount] = useState<number | undefined>(undefined);
+  const scope = JSON.stringify([projectName, episode, scriptFile ?? null]);
+  const [loaded, setLoaded] = useState<{ scope: string; capability: GridCapability } | null>(null);
+  const capability = loaded?.scope === scope ? loaded.capability : null;
+  const maxCellCount = capability?.max_cell_count;
 
   const groups = useMemo(() => groupBySegmentBreak(segments), [segments]);
 
   useEffect(() => {
     if (!projectName) return;
     const controller = new AbortController();
-    API.getGridCapability(projectName, { signal: controller.signal })
+    API.getGridCapability(projectName, { signal: controller.signal, episode, scriptFile })
       .then((cap) => {
-        if (!controller.signal.aborted) setMaxCellCount(cap.max_cell_count);
+        if (!controller.signal.aborted) setLoaded({ scope, capability: cap });
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [projectName]);
+  }, [projectName, episode, scriptFile, scope, segments, gridsRevision]);
 
-  // 宫格列表随全局失效信号重拉：生成、上传、还原之后都经 invalidateGrids 触发
   useEffect(() => {
     if (!projectName) return;
     const controller = new AbortController();
@@ -144,7 +151,6 @@ export function GridPreviewView({
   }, [projectName, gridsRevision]);
 
   const handleGenerateGroup = useCallback(
-    // group key 用 sceneIds 排序后 join，分组重排时 spinner 不会挂错卡片
     async (groupKey: string, group: Segment[]) => {
       if (!onGenerateGrid || !scriptFile) return;
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
@@ -164,14 +170,12 @@ export function GridPreviewView({
   );
 
   const stats = useMemo(() => {
-    // 一个分组超过单张格数上限时后端会切成多张宫格，张数按实际入队张数累计
     const batches = groups.reduce(
       (sum, group) => sum + computeGridSize(group.length, maxCellCount).batchCount,
       0,
     );
     const readyGroups = groups.filter((group) => {
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
-      // 一组切成多块时，每一块都有对上的宫格且全部完成才算就绪。
       const groupGrids = matchGridsForGroup(grids, sceneIds, episode, maxCellCount);
       return (
         groupGrids.length === computeGridSize(group.length, maxCellCount).batchCount &&
@@ -197,6 +201,7 @@ export function GridPreviewView({
         <p className="text-sm text-muted-foreground">{t("grid_preview_summary", stats)}</p>
         {groups.map((group, idx) => {
           const sceneIds = group.map((s) => getSegmentId(s, contentMode));
+          const sceneIdSet = new Set(sceneIds);
           const layout = computeGridSize(group.length, maxCellCount);
           const gridIds = matchGridsForGroup(grids, sceneIds, episode, maxCellCount).map((g) => g.id);
           const groupKey = [...sceneIds].sort().join(",");
@@ -209,6 +214,7 @@ export function GridPreviewView({
               rows={layout.rows}
               cols={layout.cols}
               gridIds={gridIds}
+              referenceInputs={(capability?.reference_inputs ?? []).filter((chunk) => sceneIdSet.has(chunk.scene_ids[0]))}
               submitting={generatingGroups.has(groupKey)}
               canGenerate={canGenerate}
               onGenerate={() => void handleGenerateGroup(groupKey, group)}

@@ -43,8 +43,6 @@ class Step:
 
 
 UV = ("uv", "run")
-# 域名 → 步骤。`-n 4 --dist loadfile` 的取值理由见 pyproject.toml 的 pytest 配置注释，
-# `--max-worker-restart=0` 的理由见 .github/workflows/test.yml 的后端测试步骤。
 DOMAINS: dict[str, tuple[Step, ...]] = {
     "backend": (
         Step((*UV, "ruff", "check", ".")),
@@ -63,45 +61,56 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step((*UV, "python", "-m", "pytest"), ROOT / "packages" / "arcreel-catalog-core"),
     ),
     "tests": (Step((*UV, "python", "scripts/audit_tests.py", "--check")),),
-    "conventions": (Step((*UV, "python", "scripts/audit_conventions.py", "--check")),),
+    "conventions": (
+        Step((*UV, "python", "scripts/audit_conventions.py", "--check")),
+        Step((*UV, "python", "-m", "scripts.audit_comments")),
+    ),
     "workflows": (
         Step((*UV, "pre-commit", "run", "--all-files", "actionlint")),
         Step((*UV, "pre-commit", "run", "--all-files", "zizmor")),
     ),
     "frontend": (Step(("pnpm", "check"), ROOT / "frontend"),),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
+    "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
 }
 
 # 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
 # 对照维护：CI 的 backend 域对应这里的 backend、market-core 与 catalog-core，workflow 域对应 workflows；
-# CI 的 docker 域（Dockerfile、public/）没有本地闸门。tests 与 conventions 两个域是秒级的
+# CI 的 docker 域（Dockerfile、public/）没有本地闸门；e2e-record 对应 CI 的 e2e-record-drift job（backend 或
+# frontend 域命中时运行，本地只在录制脚本及其引用的文件变化时随前端触发）。tests 与 conventions 两个域是秒级的
 # 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
+BACKEND_TRIGGERS = (
+    "lib/*",
+    "server/*",
+    "alembic/*",
+    "alembic.ini",
+    "scripts/*",
+    "tests/*",
+    "agent_runtime_profile/*",
+    "packages/*",
+    "pyproject.toml",
+    "uv.lock",
+    ".gitignore",
+    "frontend/src/i18n/*/dashboard.ts",
+    "frontend/src/i18n/*/events.ts",
+    "frontend/src/types/workflow.ts",
+    "frontend/src/data/example-templates/*",
+    "frontend/src/test/contracts/*",
+)
 TRIGGERS: dict[str, tuple[str, ...]] = {
-    "backend": (
-        "lib/*",
-        "server/*",
-        "alembic/*",
-        "alembic.ini",
-        "scripts/*",
-        "tests/*",
-        "agent_runtime_profile/*",
-        "packages/*",
-        "pyproject.toml",
-        "uv.lock",
-        ".gitignore",  # ruff 的文件发现尊重 gitignore
-        # 后端契约测试直接读取的前端源文件
-        "frontend/src/i18n/*/dashboard.ts",
-        "frontend/src/i18n/*/events.ts",
-        "frontend/src/types/workflow.ts",
-        "frontend/src/data/example-templates/*",
-        "frontend/src/test/contracts/*",
-    ),
+    "backend": BACKEND_TRIGGERS,
     "market-core": ("packages/arcreel-market-core/*",),
     "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
-    # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内
-    "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md", ".claude/skills/translate-docs/*"),
+    "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md"),
+    "e2e-record": (
+        *BACKEND_TRIGGERS,
+        "frontend/e2e/record-fixtures.ts",
+        "frontend/e2e/support/recorded.ts",
+        "frontend/e2e/fixtures/comfyui.ts",
+        "frontend/package.json",
+    ),
 }
 ALWAYS_WHEN_CHANGED = ("tests", "conventions")
 
@@ -119,7 +128,6 @@ def select_domains(paths: Iterable[str]) -> list[str]:
 
 
 def _vcs(root: Path, *args: str) -> str:
-    # 路径按 UTF-8 解码，不随平台区域编码变；非 UTF-8 字节用 surrogateescape 保留原样。
     completed = subprocess.run(
         ("git", *args),  # noqa: S607 -- 开发者环境的 git 本就经 PATH 查找
         cwd=root,
@@ -165,7 +173,6 @@ def _write_holder(handle: IO[str] | None, note: str) -> None:
 def _acquire_gate_lock() -> portalocker.Lock:
     """拿到机器级锁后返回；别人持有时每秒重试，只在开始排队时打印一次。"""
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # 持有者说明含非 ASCII 字符，读写两端都显式用 UTF-8，避开 Windows 的区域默认编码。
     lock = portalocker.Lock(LOCK_PATH, mode="a", encoding="utf-8")
     waited_from = time.monotonic()
     announced = False

@@ -4,7 +4,6 @@ import { ReferencesSection } from "./ReferencesSection";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 
-/** 出场资产摘要行：头像堆按引用名取形态，未登记计数是那个引用名登记了没有。 */
 
 const PROJECT = {
   title: "p",

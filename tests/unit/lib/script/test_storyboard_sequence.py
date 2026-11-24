@@ -49,7 +49,6 @@ class TestStoryboardSequence:
             {"segment_id": "E1S03", "segment_break": False},
         ]
 
-        # E1S02 的登记指针指向尚未落盘的文件：E1S03 只看紧邻的前一项，不回溯到 E1S01。
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S03") is None
 
     def test_previous_storyboard_requires_an_explicit_binding(self, tmp_path: Path):
@@ -62,7 +61,6 @@ class TestStoryboardSequence:
             {"segment_id": "E1S02", "generated_assets": {}},
         ]
 
-        # 磁盘上有同名残留文件，但没有登记指针就不认。
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") is None
 
         items[0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
@@ -131,7 +129,6 @@ class TestAdStoryboardItems:
         assert items[0]["shot_id"] == "E1S01"
 
 
-# 骨架种类 → 触发该骨架的最小剧本（取证解析逐种覆盖，含 video_units 短路）。
 _SCRIPT_BY_KIND = {
     "segments": {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
     "scenes": {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
@@ -151,13 +148,11 @@ class TestStoryboardSkeletonExhaustiveness:
     def test_get_storyboard_items_fields_match_registry(self, kind):
         from lib.script.script_skeleton import SKELETONS
 
-        # 遍历 SKELETONS 全键：新增第五种骨架而 _SCRIPT_BY_KIND 未登记即 KeyError 报红。
         assert set(_SCRIPT_BY_KIND) == set(SKELETONS)
 
         _items, id_field, char_field, scenes_field, props_field = get_storyboard_items(_SCRIPT_BY_KIND[kind])
         assert id_field == SKELETONS[kind].id_field
         assert char_field == SKELETONS[kind].chars_field
-        # scenes / props 资产键为项目级常量，不随骨架变。
         assert (scenes_field, props_field) == ("scenes", "props")
 
 

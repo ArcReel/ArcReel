@@ -39,11 +39,9 @@ describe("SegmentRefsEditModal", () => {
   it("renders dialog with three sections (character/scene/prop)", () => {
     render(<SegmentRefsEditModal {...baseProps} />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    // Section headings appear (using i18n badge labels)
     expect(screen.getByText("角色")).toBeInTheDocument();
     expect(screen.getByText("场景")).toBeInTheDocument();
     expect(screen.getByText("道具")).toBeInTheDocument();
-    // All character candidates listed
     expect(screen.getByRole("button", { name: /Hero/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Villain/ })).toBeInTheDocument();
   });
@@ -72,11 +70,10 @@ describe("SegmentRefsEditModal", () => {
     const onSave = vi.fn();
     render(<SegmentRefsEditModal {...baseProps} onSave={onSave} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Villain/ })); // add char
-    fireEvent.click(screen.getByRole("button", { name: /Forest/ })); // add scene
+    fireEvent.click(screen.getByRole("button", { name: /Villain/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Forest/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "确定" }));
-    // props unchanged → not in payload
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0]).toEqual({
       characters: ["Hero", "Villain"],
@@ -106,9 +103,7 @@ describe("SegmentRefsEditModal", () => {
     );
     const ghostRow = screen.getByRole("button", { name: /Ghost/ });
     expect(ghostRow).toBeInTheDocument();
-    // 失效说明写在行内，读屏随按钮名称一起读出
     expect(ghostRow).toHaveAccessibleName(expect.stringContaining("失效"));
-    // Removing the stale ref enables save
     fireEvent.click(ghostRow);
     expect(screen.getByRole("button", { name: "确定" })).toBeEnabled();
   });

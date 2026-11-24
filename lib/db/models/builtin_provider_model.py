@@ -34,13 +34,8 @@ class BuiltinProviderModelState(TimestampMixin, Base):
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     user_added: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # 以下只对用户添加的模型有意义；官方收录的模型忽略这些列。
     media_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default=sa_text("1"))
-    # 条目绑定（docs/adr/0105）：「模型厂商/官方模型名」，媒体类型取 ``media_type``。NULL = 按名字现查。
     entry_binding: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # 能力覆盖（docs/adr/0104），稀疏字典，键名与自定义供应商模型的能力覆盖一致。
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
-    # 挂接的内置调用端点，取值是该供应商在 ``media_type`` 下的可选端点之一。NULL = 没有记下，装配按官方收录模型的
-    # 规则选端点（lib.backends.backend_assembly.specs.builtin_model_endpoint）。
     endpoint: Mapped[str | None] = mapped_column(String(64), nullable=True)

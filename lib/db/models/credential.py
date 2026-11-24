@@ -30,8 +30,6 @@ class ProviderCredential(TimestampMixin, Base):
     api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     credentials_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 按 registry key 命名的定型列，承载需要两个 secret 字符串的内置 provider（可灵 Kling 的
-    # access_key + secret_key，JWT HS256 鉴权）。除可灵外恒为 NULL 的稀疏列（见 ADR 0037）。
     access_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     secret_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

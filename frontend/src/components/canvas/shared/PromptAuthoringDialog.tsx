@@ -54,13 +54,10 @@ function readPromptOverwrite(err: unknown): PromptOverwrite | null {
 interface HostProps {
   projectName: string;
   episode: number;
-  /** 本集正式脚本；尚无时不渲染。 */
   script: unknown;
-  /** 本集上次保存的附加指令。 */
   savedInstructions?: string;
 }
 
-/** 集页上唯一的「编写提示词」弹窗宿主：按 {@link usePromptAuthoringStore} 的请求打开。 */
 export function PromptAuthoringHost({ projectName, episode, script, savedInstructions }: HostProps) {
   const request = usePromptAuthoringStore((s) => s.request);
   const close = usePromptAuthoringStore((s) => s.close);
@@ -72,7 +69,6 @@ export function PromptAuthoringHost({ projectName, episode, script, savedInstruc
   if (!request || request.projectName !== projectName || request.episode !== episode || !script) return null;
   return (
     <PromptAuthoringDialog
-      // 每次打开都从请求重新初始化范围与指令，不沿用上一次弹窗里未提交的状态。
       key={`${projectName}:${episode}:${request.scope}:${request.currentEntryId ?? ""}`}
       projectName={projectName}
       episode={episode}
@@ -89,7 +85,6 @@ interface DialogProps {
   projectName: string;
   episode: number;
   entries: PromptAuthoringEntry[];
-  /** 参考生视频单元：视觉层是单元正文，提示文案按单元说。 */
   unitMode: boolean;
   request: PromptAuthoringOpenRequest;
   savedInstructions: string;
@@ -129,7 +124,6 @@ export function PromptAuthoringDialog({
   const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  // 脚本在弹窗打开期间变化（条目被删）时，自选范围只算仍在脚本里的条目，按剧本顺序。
   const selectedIds = useMemo(
     () => entries.filter((entry) => selectedSet.has(entry.id)).map((entry) => entry.id),
     [entries, selectedSet],
@@ -328,7 +322,6 @@ export function PromptAuthoringDialog({
       <AlertDialog
         open={overwrite !== null}
         onOpenChange={(next) => {
-          // 提交中不响应 Esc，避免请求还在途时对话框先消失
           if (!next && !submitting) setOverwrite(null);
         }}
       >

@@ -1,13 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
+import { API } from "@/api";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
-/**
- * 逐个分镜时长编辑器：候选取经联动约束收窄后的集合，已保存的越界值不静默改写、
- * 按成因给警告并引导重选。选中的时长进入未保存修改，随分镜一起保存。
- */
 
 const saved = () => vi.fn().mockResolvedValue(true);
 
@@ -65,7 +62,6 @@ function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}, sec
   );
 }
 
-/** 时长按钮是唯一以秒数开头的按钮；越界时秒数后面跟着读屏可读的警告。 */
 function warningLabel(): string | null {
   const name = screen.getByRole("button", { name: /^\d+ 秒/ }).textContent ?? "";
   return name.replace(/^\d+ 秒/, "") || null;
@@ -76,11 +72,9 @@ describe("ShotDetail 时长候选与越界提示", () => {
     const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
 
-    // 存值 4 秒照常显示——静默改写会让用户在不知情下丢掉自己的设置
     expect(screen.getByRole("button", { name: /4 秒/ })).toBeInTheDocument();
     expect(onUpdatePrompt).not.toHaveBeenCalled();
 
-    // 展开后只有收窄后的 8 秒可选
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
     const radios = screen.getAllByRole("radio");
     expect(radios).toHaveLength(1);
@@ -116,8 +110,6 @@ describe("ShotDetail 时长候选与越界提示", () => {
     expect(warningLabel()).toBeNull();
   });
 
-  // 成因决定提示把用户引向哪里：分辨率 / 参考图两条改对应设置也能解决，
-  // 说成「模型不支持」会把用户引去换模型。
   it("成因为分辨率时说清是分辨率，不说成模型不支持", () => {
     renderDetail({ durationWarningReason: () => "resolution" });
     expect(warningLabel()).toContain("当前分辨率");
@@ -133,16 +125,11 @@ describe("ShotDetail 时长候选与越界提示", () => {
     expect(warningLabel()).toContain("模型支持范围");
     unmount();
 
-    // 未接线成因判定的调用点（如未来新增的画布）退回通用文案，而不是显示成 undefined key
     renderDetail();
     expect(warningLabel()).toContain("模型支持范围");
   });
 });
 
-/**
- * 占用感知型控件三项检查：在跑的任务已捕获旧时长，此时改时长会让任务产物与剧本存值不一致。
- * 兄弟控件（重生成分镜 / 视频）本就按同一对占用态接线，此处覆盖打开时与提交时两道校验。
- */
 describe("ShotDetail 时长编辑的占用态门控", () => {
   afterEach(() => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
@@ -179,7 +166,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
     expect(screen.getAllByRole("radio")).toHaveLength(1);
 
-    // 面板已打开，此刻该分镜的视频任务启动：只查打开时刻的实现会在这里放过写入
     rerender(
       <ShotDetail
         segment={makeScene(4)}
@@ -202,8 +188,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   });
 
   it("prop 还没跟上、但 store 已记录该分镜在跑时，提交仍被拒", () => {
-    // 提交时刻复核的存在理由：prop 反映的是上次渲染，store 更新到重渲染提交之间用户仍可能
-    // 点下去。故走 tasks-store 的 isResourceBusy 新鲜读，而不是只看 busy prop。
     const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
@@ -239,8 +223,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   });
 
   it("同集宫格任务在跑时提交被拒（grid 按 scriptFile 判，归不进分镜粒度）", () => {
-    // grid 任务的 resource_id 是 grid_id，isResourceBusy 的分镜粒度判定看不到它；
-    // 而切割阶段会覆写本集多个分镜、与改时长并发写同一份剧本。
     const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
@@ -276,8 +258,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   });
 
   it("prop 还没跟上、但 store 已记录该分镜在跑时，面板打不开", () => {
-    // 打开时刻同样要新鲜复核：渲染完成到用户点击之间任务可能才启动，此时 busy prop
-    // 还停留在上次渲染，只看它会让面板照常展开。
     const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
 
@@ -313,8 +293,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   });
 
   it("任务结束后旧面板不自行重现", () => {
-    // 只派生可见性（open && !locked）会在 locked 回落时让旧面板连同未提交草稿一起回来。
-    // 转入锁定态必须真正清掉 open 与 draftSeconds。
     const onUpdatePrompt = saved();
     const props = {
       segment: makeScene(4),
@@ -337,7 +315,6 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     rerender(<ShotDetail {...props} generatingVideo />);
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
 
-    // 任务结束：面板须保持关闭，等用户自己再点开
     rerender(<ShotDetail {...props} />);
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(onUpdatePrompt).not.toHaveBeenCalled();
@@ -350,11 +327,147 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
   });
 
   it("时长由端点固定时不说成「未配置」", () => {
-    // 这份 workflow 的配置是完整的，只是片长不由 ArcReel 驱动。
     renderDetail({ durationOptions: [], durationEndpointFixed: true });
 
     expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAccessibleDescription(
       "时长由端点固定：每段成片多长由 workflow 决定。",
     );
   });
+});
+
+
+it("挂尾帧后保留越界秒数并显示尾帧成因，只提供带尾帧档位", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini", model: "omni", supported_durations: [4, 6, 8], max_duration: 8,
+    max_reference_images: 3, first_frame: true, last_frame: true, source: "registry", voice_consistency: "soft",
+    duration_constraints: { resolution: null, uses_reference_images: false, allowed: [4, 6, 8], excluded: {} },
+    end_frame_unit_durations: {
+      without_end_frame: [4, 6, 8], with_end_frame: [4, 6], excluded: { "8": "end_frame" }, problem: null,
+    },
+  });
+  const onUpdatePrompt = saved();
+  renderDetail({ segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, onUpdatePrompt, durationOptions: [4, 6, 8] });
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveTextContent("首尾帧"));
+  expect(onUpdatePrompt).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /^8 秒/ }));
+  expect(screen.queryByRole("radio", { name: /8 秒/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: /6 秒/ })).toBeInTheDocument();
+});
+
+it("已有尾帧的分镜在能力查询未返回或失败时禁用时长选择，不回落父级普通档位", async () => {
+  let resolveCaps: (value: Awaited<ReturnType<typeof API.getVideoCapabilities>>) => void = () => {};
+  vi.spyOn(API, "getVideoCapabilities").mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveCaps = resolve;
+    }),
+  );
+  const { unmount } = renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [4, 6, 8] },
+    8,
+  );
+  const loadingPill = screen.getByRole("button", { name: /^8 秒/ });
+  expect(loadingPill).toBeDisabled();
+  expect(loadingPill).toHaveAccessibleDescription("检查中…");
+  fireEvent.click(loadingPill);
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+
+  resolveCaps({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: { resolution: null, uses_reference_images: false, allowed: [4, 6, 8], excluded: {} },
+    end_frame_unit_durations: {
+      without_end_frame: [4, 6, 8],
+      with_end_frame: [4, 6],
+      excluded: { "8": "end_frame" },
+      problem: null,
+    },
+  });
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toBeEnabled());
+  unmount();
+
+  vi.spyOn(API, "getVideoCapabilities").mockRejectedValueOnce(new Error("network down"));
+  renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [4, 6, 8] },
+    8,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveAccessibleDescription(/未能获取首尾帧可用时长/),
+  );
+  expect(screen.getByRole("button", { name: /^8 秒/ })).toBeDisabled();
+});
+
+it("尾帧与分辨率交集为空时保持禁用，同时显示尾帧越界成因与移除尾帧指引", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: {
+      resolution: "1080p",
+      uses_reference_images: false,
+      allowed: [8],
+      excluded: { "4": "resolution", "6": "resolution" },
+    },
+    end_frame_unit_durations: {
+      without_end_frame: [8],
+      with_end_frame: [],
+      excluded: { "4": "resolution", "6": "resolution", "8": "end_frame" },
+      problem: { code: "video_end_frame_durations_incompatible", params: {}, action: "fix_input" },
+    },
+  });
+  renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [8] },
+    8,
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveTextContent("移除尾帧"));
+  const pill = screen.getByRole("button", { name: /^8 秒/ });
+  expect(pill).toBeDisabled();
+  expect(pill).toHaveAccessibleDescription(/移除尾帧/);
+  expect(pill).not.toHaveAccessibleDescription(/未配置可用时长/);
+});
+
+it("尾帧与分辨率交集为空但已存秒数本就被分辨率排除时保留分辨率成因", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: {
+      resolution: "1080p",
+      uses_reference_images: false,
+      allowed: [8],
+      excluded: { "4": "resolution", "6": "resolution" },
+    },
+    end_frame_unit_durations: {
+      without_end_frame: [8],
+      with_end_frame: [],
+      excluded: { "4": "resolution", "6": "resolution", "8": "end_frame" },
+      problem: { code: "video_end_frame_durations_incompatible", params: {}, action: "fix_input" },
+    },
+  });
+  renderDetail(
+    { segment: { ...makeScene(4), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [8] },
+    4,
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: /^4 秒/ })).toHaveTextContent("当前分辨率"));
+  const pill = screen.getByRole("button", { name: /^4 秒/ });
+  expect(pill).toBeDisabled();
+  expect(pill).toHaveAccessibleDescription(/当前分辨率/);
 });

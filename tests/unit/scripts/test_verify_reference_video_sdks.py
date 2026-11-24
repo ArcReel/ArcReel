@@ -105,9 +105,7 @@ def test_render_report_contains_header_and_rows():
 
     assert "# Reference-to-Video SDK 验证报告" in md
     assert "2026-04-20" in md
-    # Table header
     assert "| Provider | Model | Refs | Duration | Multi-shot | Result | Elapsed | Bytes | Note |" in md
-    # Rows
     assert "| ark |" in md
     assert "| sora |" in md
     assert "FAIL" in md
@@ -128,7 +126,6 @@ class _FakeBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
-        # 模拟落盘：写入非空 dummy 字节，让 run_once 的落盘校验通过
         await write_backend_output(request.output_path, b"\x00fake-video-payload")
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -142,7 +139,6 @@ class _NoWriteFakeBackend(_FakeBackend):
     """模拟：backend 返回成功但未落盘文件，用于 false-positive 校验。"""
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 不写 output_path
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=self.name,
@@ -172,7 +168,6 @@ async def test_run_once_success(tmp_path: Path):
     assert result.refs == 3
     assert result.duration == 5
     assert result.error is None
-    # Fake backend 收到 3 张 ref
     req = _FakeBackend._calls[-1]
     assert req.reference_images is not None
     assert len(req.reference_images) == 3
@@ -296,7 +291,6 @@ async def test_run_with_backend_returns_2_on_failure(tmp_path: Path, monkeypatch
         work_dir=tmp_path / "work",
     )
     assert code == 2
-    # 失败时也应写报告（记录错误）
     reports = list((tmp_path / "reports").glob("reference-video-sdks-*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
@@ -333,7 +327,6 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
     report_dir = tmp_path / "reports"
     work_dir = tmp_path / "work"
 
-    # 第一次跑
     await mod.run_with_backend(
         provider=mod.Provider.ARK,
         refs=3,
@@ -342,7 +335,6 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
         report_dir=report_dir,
         work_dir=work_dir,
     )
-    # 第二次跑（同一天，会追加）
     await mod.run_with_backend(
         provider=mod.Provider.GROK,
         refs=3,
@@ -354,7 +346,6 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
     reports = list(report_dir.glob("reference-video-sdks-*.md"))
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
-    # 第一次和第二次的 provider 行都应存在
     assert "| ark |" in content
     assert "| grok |" in content
 

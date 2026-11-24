@@ -40,11 +40,8 @@ logger = logging.getLogger(__name__)
 _METADATA_KEY = "metadata"
 _GENERATED_ASSETS_KEY = "generated_assets"
 
-# 剧本里不属于「剧本层字段」的顶层键：当前骨架的条目数组单独按条目比对；其他骨架的残留数组
-# （如参考生视频剧本里遗留的 shots）不参与比对，否则其中的生成产物回写会被报成集更新。
 _NON_DOCUMENT_KEYS = frozenset(SKELETONS) | {_METADATA_KEY}
 
-# project.json 里不属于「项目设置」的顶层键：它们各自单独投影，或不参与比对。
 _NON_SETTINGS_KEYS = frozenset(
     {spec.bucket_key for spec in ASSET_SPECS.values()} | {"episodes", "overview", _METADATA_KEY}
 )
@@ -198,7 +195,6 @@ def _diff_assets(
     label_key: str,
 ) -> list[dict[str, Any]]:
     def focus(entity_id: str) -> dict[str, Any]:
-        # 衍生没有自己的卡片，定位到本体卡；资产名不含分隔符，本体的 id 原样保留。
         owner = entity_id.partition(DERIVATIVE_ID_SEPARATOR)[0]
         return {"pane": pane, "anchor_type": asset_type, "anchor_id": owner}
 
@@ -257,7 +253,6 @@ def _diff_scripts(previous: Mapping[str, Any], current: Mapping[str, Any]) -> li
     changes: list[dict[str, Any]] = []
     for script_file in sorted(previous.keys() | current.keys()):
         if script_file not in previous or script_file not in current:
-            # 剧本文件整份出现或消失，不逐条报条目增删。
             present = current[script_file] if script_file in current else previous[script_file]
             changes.extend(_script_level_change(present, script_file))
             continue
@@ -289,7 +284,6 @@ def _script_level_change(script: Mapping[str, Any], script_file: str) -> list[di
     episode = script["episode"]
     if not isinstance(episode, int):
         return []
-    # script_file 与集条目同口径（相对项目根），同一集两路报出的集更新载荷一致。
     return [_episode_change("updated", episode, script_file=f"scripts/{script_file}", important=True)]
 
 

@@ -59,7 +59,6 @@ class FileViewEntry:
     size: int
     modified_at: str
     reference: FileReference | None = None
-    #: 远端内容版本的工作文件，本地缓存已清理：内容在对象存储里，读取时取回。
     remote_only: bool = False
 
     def to_dict(self) -> dict[str, object]:
@@ -86,9 +85,7 @@ class RemoteFile:
 
     path: str
     stored: ObjectLocator
-    #: 版本记录的创建时间（UTC ISO 8601）。
     modified_at: str
-    #: 对象登记的字节数；未查询或没有登记时为 0。
     size: int = 0
 
 
@@ -170,7 +167,7 @@ def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
             return False
         try:
             _parts(path)
-        except FileNotFoundError:  # 版本记录里的脏路径、基础设施路径
+        except FileNotFoundError:
             return False
         return not os.path.lexists(project_dir / path)
 
@@ -233,7 +230,7 @@ def list_directory(
                 continue
             try:
                 info = entry.stat(follow_symlinks=False)
-            except FileNotFoundError:  # 生成任务或回收站操作在扫描途中移走了它
+            except FileNotFoundError:
                 continue
             if entry.is_dir(follow_symlinks=False):
                 size = _visible_size(Path(entry.path), child) + remote_below.get(entry.name, 0)
@@ -270,14 +267,13 @@ def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
         parts = _parts(rel)
         if not parts:
             return False
-        _resolve(project_dir, parts[:-1])  # 父目录同样不跟随符号链接
+        _resolve(project_dir, parts[:-1])
     except FileNotFoundError:
         return False
     if (project_dir / rel).is_symlink() or rel not in remote_work_file_digests(project_dir):
         return False
     if not deleting:
         return True
-    # 删除会被拒绝的文件（当前版本快照、被引用的正式文件）不为此下载
     reference = ReferenceIndex.build(project_dir).reference_of(rel)
     return reference.role is FileRole.HISTORY and not reference.current
 

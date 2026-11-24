@@ -35,21 +35,12 @@ from lib.project.resource_paths import (
     version_snapshot_dir,
 )
 
-#: 引用与产物 id 里分隔本体与衍生的字符。``/`` 已是资产名禁用字符，拼接无歧义。
 DERIVATIVE_ID_SEPARATOR = "/"
 
-#: 衍生资产图在队列与图片编辑 API 里的类型名：既是队列 task_type，也是 ``image_edit``
-#: 请求体里的 ``resource_type``。两处必然同名（``TaskSpec`` 按同一张表判 id 段数），
-#: 故只此一份；落盘与版本管理用的资源类型是另一个概念，见
-#: ``resource_paths.CHARACTER_DERIVATIVE_RESOURCE_TYPE``。
 DERIVATIVE_TASK_TYPE = "character_derivative"
 
-#: 衍生资产图沿用哪一类资产的 spec。机制按 ``AssetSpec.supports_derivatives`` 通用建模，
-#: 当前只有 character 开启，落盘与产物键因此固定在这一类上。
 DERIVATIVE_ASSET_TYPE = "character"
 
-#: 本体资产图作为编辑输入时，在产物依据里的角色与形态。规划侧与执行侧共用同一对取值，
-#: 两侧不一致会让每一张衍生图恒判过期。
 DERIVATIVE_SOURCE_ROLE = "derivative_source"
 DERIVATIVE_SOURCE_KIND = "sheet"
 

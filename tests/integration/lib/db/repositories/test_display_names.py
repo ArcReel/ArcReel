@@ -37,5 +37,4 @@ async def test_catalog_names_agent_providers_by_credential_and_marks_deleted_one
 
         assert names.provider(f"agent-{credential.id}") == "我的 DeepSeek"
         assert names.provider(f"agent-{credential.id + 1}") == _("deleted_agent_provider_display_name", locale=locale)
-        # 不是 agent-<数字> 的未知 id 仍是泛称「已删除的供应商」
         assert names.provider("agent-plan") == _("deleted_provider_display_name", locale=locale)

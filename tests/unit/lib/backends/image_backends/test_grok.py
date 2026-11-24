@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from base64 import b64encode
 from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,12 +13,10 @@ import pytest
 import respx
 
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from lib.backends.image_errors import ImageCapabilityError
+from tests.factories import image_bytes
 from tests.fakes import blocking_file_read_gate
 from tests.http_capture import capture_http
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @contextmanager
@@ -49,11 +48,6 @@ def backend_pro(patch_xai_sdk):
     return GrokImageBackend(api_key="fake-xai-key", model="grok-imagine-image-pro")
 
 
-# ---------------------------------------------------------------------------
-# 属性测试
-# ---------------------------------------------------------------------------
-
-
 class TestProperties:
     def test_name(self, grok_backend):
         assert grok_backend.name == "grok"
@@ -72,15 +66,9 @@ class TestProperties:
 
     @pytest.mark.parametrize("model", ["grok-imagine-image", "grok-imagine-image-pro"])
     def test_declares_grok_reference_image_limit(self, patch_xai_sdk, model):
-        # xAI 官方上限：多图编辑单请求最多 5 张源图。
         from lib.backends.image_backends.grok import GrokImageBackend
 
         assert asyncio.run(GrokImageBackend(api_key="fake-xai-key", model=model).reference_image_limit()) == 5
-
-
-# ---------------------------------------------------------------------------
-# 构造函数测试
-# ---------------------------------------------------------------------------
 
 
 class TestInit:
@@ -97,11 +85,6 @@ class TestInit:
 
             with pytest.raises(ValueError, match="XAI_API_KEY"):
                 GrokImageBackend(api_key="")
-
-
-# ---------------------------------------------------------------------------
-# generate() T2I 测试
-# ---------------------------------------------------------------------------
 
 
 class TestGenerateT2I:
@@ -124,7 +107,6 @@ class TestGenerateT2I:
             )
             result = await grok_backend.generate(request)
 
-        # 验证 SDK 调用参数（目录取值 "2K" 下发前转成 SDK 接受的小写 "2k"）
         grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
@@ -135,20 +117,14 @@ class TestGenerateT2I:
         assert result.provider == "grok"
         assert result.model == "grok-imagine-image"
         assert result.image_uri == "https://example.com/generated.png"
-        # 验证文件已写入
         assert output.read_bytes() == fake_image_bytes
-
-
-# ---------------------------------------------------------------------------
-# generate() I2I 测试
-# ---------------------------------------------------------------------------
 
 
 class TestGenerateI2I:
     async def test_i2i_sends_image_urls(self, grok_backend, tmp_path):
         """I2I 将参考图转为 data URI 列表传给 image_urls。"""
         ref_image = tmp_path / "ref.png"
-        ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
+        ref_image.write_bytes(image_bytes())
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -176,9 +152,9 @@ class TestGenerateI2I:
     async def test_i2i_multiple_refs(self, grok_backend, tmp_path):
         """多张参考图全部通过 image_urls 传递。"""
         ref1 = tmp_path / "ref1.png"
-        ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
+        ref1.write_bytes(image_bytes())
         ref2 = tmp_path / "ref2.jpg"
-        ref2.write_bytes(b"\xff\xd8\xff\xe0fake2")
+        ref2.write_bytes(image_bytes(1, fmt="JPEG"))
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -207,7 +183,7 @@ class TestGenerateI2I:
         refs = []
         for index in range(7):
             ref_path = tmp_path / f"ref{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([index]))
+            ref_path.write_bytes(image_bytes(index))
             refs.append(ReferenceImage(path=str(ref_path)))
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -235,7 +211,7 @@ class TestGenerateI2I:
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
         """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
         ref_image = tmp_path / "ref.png"
-        ref_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        ref_image.write_bytes(image_bytes())
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -259,32 +235,20 @@ class TestGenerateI2I:
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
 
-    async def test_i2i_skips_missing_ref(self, grok_backend, tmp_path):
-        """参考图不存在时退化为 T2I。"""
-        output = tmp_path / "output.png"
-        mock_response = MagicMock()
-        mock_response.respect_moderation = True
-        mock_response.url = "https://example.com/generated.png"
-        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
-
-        fake_image_bytes = b"\x89PNG\r\n\x1a\n"
-
-        with _image_download(mock_response.url, fake_image_bytes):
-            request = ImageGenerationRequest(
-                prompt="A cat",
-                output_path=output,
-                reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
-            )
+    async def test_unreadable_references_abort_without_falling_back_to_text(self, grok_backend, tmp_path):
+        corrupt = tmp_path / "corrupt.png"
+        corrupt.write_bytes(b"not an image")
+        request = ImageGenerationRequest(
+            prompt="A cat",
+            output_path=tmp_path / "out.png",
+            reference_images=[ReferenceImage(path=str(corrupt)), ReferenceImage(path=str(tmp_path / "missing.png"))],
+        )
+        grok_backend._client.image.sample = AsyncMock()
+        with pytest.raises(ImageCapabilityError) as caught:
             await grok_backend.generate(request)
-
-        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
-        assert "image_urls" not in call_kwargs
-        assert "image_url" not in call_kwargs
-
-
-# ---------------------------------------------------------------------------
-# 审核测试
-# ---------------------------------------------------------------------------
+        assert caught.value.params["names"] == "corrupt.png, missing.png"
+        assert caught.value.code == "image_reference_images_unreadable"
+        grok_backend._client.image.sample.assert_not_awaited()
 
 
 class TestModeration:
@@ -301,11 +265,6 @@ class TestModeration:
         )
         with pytest.raises(RuntimeError, match="内容审核"):
             await grok_backend.generate(request)
-
-
-# ---------------------------------------------------------------------------
-# resolution 小写转换测试
-# ---------------------------------------------------------------------------
 
 
 class TestResolutionLowercase:
@@ -350,11 +309,6 @@ class TestResolutionLowercase:
         assert captured["resolution"] == "2k"
 
 
-# ---------------------------------------------------------------------------
-# aspect_ratio 校验测试
-# ---------------------------------------------------------------------------
-
-
 class TestAspectRatioValidation:
     def test_supported_ratios_pass_through(self):
         from lib.backends.image_backends.grok import _validate_aspect_ratio
@@ -365,5 +319,67 @@ class TestAspectRatioValidation:
     def test_unsupported_ratio_passed_through_with_warning(self):
         from lib.backends.image_backends.grok import _validate_aspect_ratio
 
-        # 不支持的比例透传给 API，不做映射
         assert _validate_aspect_ratio("5:4") == "5:4"
+
+
+@pytest.mark.parametrize(
+    ("size", "reference_count", "quality", "amount"),
+    [
+        ("1K", 0, "low", 0.04),
+        ("2K", 0, "low", 0.06),
+        ("1K", 1, "medium", 0.07),
+        ("2K", 1, "medium", 0.09),
+    ],
+)
+async def test_default_quality_prices_the_actual_request(
+    grok_backend, tmp_path, size, reference_count, quality, amount
+):
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.billing.catalog_pricing import price_builtin_call
+    from lib.billing.metering import Priced
+
+    grok_backend._model = "grok-imagine-image-2.0"
+    ref = tmp_path / "ref.png"
+    ref.write_bytes(image_bytes())
+    request = ImageGenerationRequest(
+        prompt="cat",
+        output_path=tmp_path / "out.png",
+        image_size=size,
+        reference_images=[ReferenceImage(path=str(ref))] if reference_count else [],
+    )
+    grok_backend._client.image.sample = AsyncMock(
+        return_value=MagicMock(
+            respect_moderation=True,
+            url="https://example.com/generated.png",
+        )
+    )
+    with _image_download("https://example.com/generated.png", b"image"):
+        result = await grok_backend.generate(request)
+    estimate = grok_backend.estimate_usage(
+        ImageRequestFacts(
+            model=grok_backend.model,
+            aspect_ratio=request.aspect_ratio,
+            image_size=size,
+            reference_count=reference_count,
+        )
+    )
+    expected_request = {
+        "prompt": "cat",
+        "model": grok_backend.model,
+        "aspect_ratio": request.aspect_ratio,
+        "resolution": size.lower(),
+    }
+    if reference_count:
+        expected_request["image_urls"] = ["data:image/png;base64," + b64encode(image_bytes()).decode()]
+    grok_backend._client.image.sample.assert_awaited_once_with(**expected_request)
+    for usage, estimating in [(estimate, True), (result.usage, False)]:
+        assert usage is not None
+        assert usage.dimensions == {"resolution": size, "quality": quality}
+        assert price_builtin_call(
+            provider="grok",
+            model=grok_backend.model,
+            media_type="image",
+            requests=(usage,),
+            provider_multiplier=1.0,
+            estimate=estimating,
+        ) == Priced(pytest.approx(amount), "USD")

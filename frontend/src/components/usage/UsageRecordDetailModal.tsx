@@ -48,7 +48,6 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** 供应商模型 Sheet 的地址：自定义供应商的记录写的是 `custom-<id>`。 */
 function providerModelPath(provider: string, model: string): string {
   const custom = /^custom-(\d+)$/.exec(provider);
   return custom
@@ -56,10 +55,6 @@ function providerModelPath(provider: string, model: string): string {
     : providerSettingsPath({ preset: provider, model });
 }
 
-/**
- * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
- * 旧记录只显示模型名。
- */
 function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
   const { t } = useTranslation("dashboard");
   if (!linkable) return model;
@@ -82,9 +77,7 @@ function Field({
 }: {
   label: string;
   value: ReactNode;
-  /** 悬停、点按标签或按 Enter/Space 时显示的说明。 */
   hint?: string;
-  /** 从属于上一行的明细（如缓存写入的两档）。 */
   indent?: boolean;
 }) {
   return (
@@ -104,7 +97,6 @@ function Field({
   );
 }
 
-/** 项目内相对路径的缩略图；文件已不存在时换成占位，历史记录也能照常打开。 */
 function Thumbnail({
   projectName,
   path,
@@ -124,7 +116,6 @@ function Thumbnail({
         </div>
       ) : (
         <img
-          // 用量记录引用的图可能已被覆盖或删除，这里没有指纹可用：显式不带版本，走服务端的协商缓存
           src={API.getFileUrl(projectName, path, null, { width: 320 })}
           alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
@@ -172,7 +163,7 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
               key={image.path}
               projectName={detail.project_name}
               path={image.path}
-              caption={image.label ?? image.role ?? null}
+              caption={image.label ?? t("usage_field_reference_image")}
             />
           ))}
           {inputs?.start_image && (
@@ -238,7 +229,6 @@ function UsageGroup({ detail }: { detail: UsageRecordDetail }) {
     return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
   const hasWrite = write5m !== null || write1h !== null;
-  // 记录里的总输入含缓存读写；对外的「输入」只指没有命中也没有写入缓存的那部分。
   const uncachedInput =
     input === null ? null : Math.max(0, input - (cacheRead ?? 0) - (write5m ?? 0) - (write1h ?? 0));
   const show = (value: number | null) => (value === null ? "—" : formatTokens(value));
@@ -283,10 +273,19 @@ export function UsageRecordDetailModal({
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
-  const domainKey = detail?.error_code && detail.error_params
-    ? [`errors:${detail.error_code}`, `errors:task_fail_${detail.error_code}`].find((key) => i18n.exists(key))
-    : undefined;
+  const registeredErrorKey = (value: string) =>
+    [`errors:${value}`, `errors:task_fail_${value}`].find((key) => i18n.exists(key));
+  const domainKey = detail?.error_code && detail.error_params ? registeredErrorKey(detail.error_code) : undefined;
+  const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
   const domainParams = { ...detail?.error_params };
+  const { limit, count } = domainParams;
+  if ((detail?.error_code === "image_reference_images_exceeded" || detail?.error_code === "video_reference_images_exceeded")
+    && !domainParams.names && typeof limit === "number" && typeof count === "number") {
+    domainParams.names = count === limit + 1 ? `#${count}` : `#${limit + 1}–#${count}`;
+  }
+  const previousStoryboardHint = detail?.error_code === "image_reference_images_exceeded" && domainParams.previous_storyboard
+    ? t("errors:previous_storyboard_limit_hint", domainParams)
+    : null;
   const nested = domainParams.detail;
   if (nested && typeof nested === "object" && "key" in nested && "params" in nested
     && typeof nested.key === "string" && nested.params && typeof nested.params === "object") {
@@ -364,10 +363,10 @@ export function UsageRecordDetailModal({
                         {phraseKey
                           ? t(`dashboard:${phraseKey}`)
                           : domainKey
-                            ? t(domainKey, domainParams)
+                            ? [t(domainKey, domainParams), previousStoryboardHint].filter(Boolean).join(" ")
                             : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
-                      {phraseKey && detail.error_message && (
+                      {phraseKey && detail.error_message && !messageIsDomainKey && (
                         <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>
                       )}
                       {typeof retryAfter === "number" && (

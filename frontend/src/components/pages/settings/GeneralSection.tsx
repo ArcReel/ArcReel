@@ -14,10 +14,6 @@ function isSupportedLanguage(value: unknown): value is SupportedLanguage {
   return SUPPORTED_LANGUAGES.includes(value as SupportedLanguage);
 }
 
-/**
- * 全局设置「通用」：界面语言、主题与重看新手引导。
- * 各项都立即生效：界面语言与主题是本机偏好，不经后端保存，选中后整页随即切换，因此这个视图没有保存栏。
- */
 export function GeneralSection() {
   const { t, i18n } = useTranslation(["dashboard", "onboarding"]);
   const startTour = useOnboardingStore((s) => s.start);

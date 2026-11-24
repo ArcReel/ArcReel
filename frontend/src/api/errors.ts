@@ -1,7 +1,3 @@
-/**
- * API 错误契约：后端错误响应的结构、类型守卫、错误类与错误说明的格式化。
- * 对外经 `@/api` 再导出，调用方继续从 `@/api` 导入。
- */
 
 import type {
   FailureObservation,
@@ -11,9 +7,7 @@ import i18n from "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
 import { findEpisodeItem } from "@/utils/episode-item";
 
-/** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  /** 后端附加的诊断或修复信息；调用方可按请求语境解析，永不并进 detail 摘要。 */
   diagnostic?: unknown;
   detail:
     | string
@@ -72,7 +66,6 @@ export class ScriptEditCommandError extends Error {
   }
 }
 
-/** Preserves the structured speech blocker for UI actions and diagnostics. */
 export class SpeechAdmissionError extends Error {
   readonly code = "speech_admission_blocked" as const;
 
@@ -82,23 +75,18 @@ export class SpeechAdmissionError extends Error {
   }
 }
 
-/**
- * 请求失败的通用错误：`message` 是后端给出的产品语言摘要，可直接展示给使用者；
- * `diagnostic` 是可选的诊断或修复信息，由调用方按请求语境解析，不拼进 `message`。
- */
 export class ApiRequestError extends Error {
   constructor(
     message: string,
     public readonly diagnostic?: unknown,
-    /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
     public readonly status?: number,
+    public readonly detail?: unknown,
   ) {
     super(message);
     this.name = "ApiRequestError";
   }
 }
 
-/** Preserves reference request blockers so the UI can show a repair action. */
 export class ReferenceProjectionError extends Error {
   readonly code = "reference_request_projection_blocked" as const;
 
@@ -109,14 +97,12 @@ export class ReferenceProjectionError extends Error {
   }
 }
 
-/** Structured detail returned when the local Agent process cannot start. */
 export interface AgentFailureDetail {
   code: "agent_startup_failed";
   message: string;
   failure: FailureObservation;
 }
 
-/** Keeps the redacted failure observation attached while remaining a normal Error. */
 export class AgentFailureError extends Error {
   readonly code = "agent_startup_failed" as const;
 
@@ -129,11 +115,6 @@ export class AgentFailureError extends Error {
   }
 }
 
-/**
- * Error thrown when uploading a source file conflicts with an existing file
- * (HTTP 409). Carries the existing filename and a server-suggested alternative
- * so callers can prompt the user to retry with `on_conflict=rename|replace`.
- */
 export class ConflictError extends Error {
   constructor(
     public readonly existing: string,
@@ -145,26 +126,17 @@ export class ConflictError extends Error {
   }
 }
 
-/** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
 export interface ImportErrorPayload {
   detail?: string | { msg?: string }[];
   errors?: string[];
   warnings?: string[];
   conflict_project_name?: string;
-  /** 导入包升级时有调整或没能带入的内容：带上 `migration_report`，确认后重新提交。 */
   confirmation_required?: boolean;
   migration_report?: unknown;
-  /** 导入包的集列表（集 ID 与标题），供确认窗显示集名。 */
   episodes?: unknown;
   diagnostics?: unknown;
 }
 
-/**
- * 从后端 detail 中取一句可读的说明。
- *
- * 后端把 `{ code, message, ... }` 这样的信封当 detail 抛出的场合（如批量入队中途失败后的
- * 撤销结果），只按字符串与数组取字会把已翻译的说明整段丢掉，用户只收到一句「请求失败」。
- */
 export function messageFromDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail || fallback;
   if (Array.isArray(detail) && detail.length > 0) {
@@ -285,7 +257,6 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
     parse_failed: "speech_admission_parse_failed",
     empty_speaker: "speech_admission_empty_speaker",
   }[problem.code];
-  // 文案里称呼单元用它在本集里的当前位置；单元已不在剧本里时写「已删除」。
   const position = findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
   return i18n.t(`dashboard:${key}`, { position: position ?? i18n.t("common:deleted"), location });
 }

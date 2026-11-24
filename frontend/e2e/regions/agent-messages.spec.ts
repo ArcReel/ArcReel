@@ -4,14 +4,11 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 
-// Agent 面板消息区：滚动跟随与「跳到最新」、气泡与正文限宽、Markdown 代码块与宽表格、
-// 原地编辑与图片放大。会话是手写的压力数据：长文本、长链接、多轮对话。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSION_ID = "session-stress";
 const SESSIONS_PATH = "/api/v1/projects/demo/assistant/sessions";
 const PANEL_WIDTH_KEY = "arcreel_assistant_panel_width";
 
-// 160×96 的双色方格 PNG，缩略图里看得出是一张图。
 const IMAGE_DATA =
   "iVBORw0KGgoAAAANSUhEUgAAAKAAAABgCAIAAAAVRe7OAAAA+UlEQVR42u3bQQ0AIAwDwKnihQI08EAVeidjYVxSA+29G3vdkox5SvJb3wAMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwbcCtjQvfsCBgwYMGDAgAEDBgwYMGDAgAEDBgwYMGDAgAEDBgwYMGDAgAEDBgwYMGDAgAEDBgwYMGDAgAEDBgwYMGDAgAED7gVsaA9/wIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwIABAwYMGDBgwM/0TQmWp5SVOq3vAAAAAElFTkSuQmCC";
 
@@ -99,7 +96,6 @@ function buildEntries(): Entry[] {
 }
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   [`GET ${SESSIONS_PATH}`]: {
     status: 200,
@@ -139,14 +135,12 @@ const jumpToLatest = (page: Page) => page.getByRole("button", { name: "跳到最
 async function messagesReady(page: Page) {
   await transcript(page).waitFor();
   await page.getByText("开场三个镜头已经改好").waitFor();
-  // Markdown 渲染器按需加载，等它把代码块与表格渲染出来
   await page.getByRole("region", { name: "代码块" }).waitFor();
   await page.getByRole("table", { name: "表格" }).waitFor();
   // 代码块的高亮组件按需加载，加载完会替换掉先渲染的代码块；等它落定再交互与截图
   await page.waitForLoadState("networkidle");
 }
 
-/** 视口停在最底部（误差 1px 以内）。 */
 async function expectAtEnd(page: Page) {
   await expect
     .poll(() =>
@@ -186,7 +180,6 @@ defineRegionScenarios("Agent 消息区", [
       await jumpToLatest(page).click();
       await expectAtEnd(page);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "false");
-      // 停在按钮出现的状态做探测与截图
       await transcript(page).hover();
       await page.mouse.wheel(0, -1600);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "true");
@@ -203,7 +196,6 @@ defineRegionScenarios("Agent 消息区", [
       const code = page.getByRole("region", { name: "代码块" });
       await code.scrollIntoViewIfNeeded();
       await expect.poll(() => code.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-      // 键盘聚焦后用方向键横向滚动
       await code.focus();
       await page.keyboard.press("ArrowRight");
       await expect.poll(() => code.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
@@ -252,8 +244,6 @@ defineRegionScenarios("Agent 消息区", [
   },
 ]);
 
-// 代码块主体的高亮分块按需加载，到达时整块替换先渲染的占位。扣住分块，先聚焦占位里的
-// 代码块再放行，焦点要留在替换后的代码块上，而不是落回 body。
 test("代码块高亮分块晚于聚焦到达时，焦点留在代码块上", async ({ page, api }) => {
   api.override(API);
   let release!: () => void;
@@ -279,7 +269,6 @@ test("代码块高亮分块晚于聚焦到达时，焦点留在代码块上", as
 
   release();
   await chunkDelivered;
-  // 等占位节点被替换掉，再看焦点落在哪里
   await expect.poll(() => placeholder?.evaluate((el) => el.isConnected)).toBe(false);
   await expect(code).toBeFocused();
 });

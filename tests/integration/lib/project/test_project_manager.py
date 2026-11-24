@@ -169,7 +169,6 @@ class TestProjectManager:
         project_dir = pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        # products 与其他三类资产一样属于项目脚手架
         assert (project_dir / "products").is_dir()
 
         _write(project_dir / "source" / "a.txt", "source")
@@ -236,7 +235,6 @@ class TestProjectManager:
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "")
 
-        # 空 title 直接保留为空字符串,由前端 i18n 兜底,不再 fallback 为 project_name(slug)
         assert project["title"] == ""
 
     def test_create_project_metadata_preserves_cjk_title(self, tmp_path):
@@ -254,7 +252,6 @@ class TestProjectManager:
         third = pm.generate_project_name("第1集")
 
         assert first.startswith("my-demo-project-")
-        # CJK 标题 / 只剩孤立数字的标题统一塌成中性前缀 proj-,避免误导性 slug
         assert second.startswith("proj-")
         assert third.startswith("proj-")
         assert first != second != third
@@ -263,8 +260,6 @@ class TestProjectManager:
         assert pm.normalize_project_name(third) == third
 
     def test_generate_project_name_truncates_before_letter_check(self, tmp_path):
-        # 长 ASCII 标题前 24 字符全是数字/连字符、字母被截掉时,应塌成 proj-,
-        # 而不是返回 "1234567890-1234567890-12" 这种纯数字 slug。
         pm = ProjectManager(tmp_path / "projects")
         candidate = pm.generate_project_name("1234567890-1234567890-1234-letters")
         assert candidate.startswith("proj-")
@@ -280,7 +275,7 @@ class TestProjectManager:
             "content_mode": "narration",
             "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
         }
-        path = pm.save_script("demo", script, "episode_1.json", validate=False)  # helper 测试用简化替身
+        path = pm.save_script("demo", script, "episode_1.json", validate=False)
         assert path.name == "episode_1.json"
 
         loaded = pm.load_script("demo", "episode_1.json")
@@ -298,7 +293,6 @@ class TestProjectManager:
         }
         pm.save_script("demo", drama_script, "episode_2.json", validate=False)
 
-        # update_scene_asset + pending helpers
         narration_script = pm.load_script("demo", "episode_1.json")
         narration_script["segments"][0]["generated_assets"] = {}
         pm.save_script("demo", narration_script, "episode_1.json", validate=False)
@@ -316,7 +310,6 @@ class TestProjectManager:
         pending_video = pm.get_pending_scenes("demo", "episode_1.json", "video_clip")
         assert len(pending_video) == 1
 
-        # get_scenes_needing_storyboard
         drama = pm.load_script("demo", "episode_2.json")
         drama["scenes"][0]["generated_assets"] = {"storyboard_image": None}
         pm.save_script("demo", drama, "episode_2.json", validate=False)
@@ -342,7 +335,6 @@ class TestProjectManager:
         }
         pm.save_script("demo", drama_script, "episode_1.json", validate=False)
 
-        # update_scene_asset 走 drama/scenes 分支（else: scene_id）
         pm.update_scene_asset("demo", "episode_1.json", "001", "storyboard_image", "sb/001.png")
         loaded = pm.load_script("demo", "episode_1.json")
         assert loaded["scenes"][0]["generated_assets"]["storyboard_image"] == "sb/001.png"
@@ -386,10 +378,9 @@ class TestProjectManager:
                 ],
             },
             "episode_1.json",
-            validate=False,  # helper 测试用简化替身
+            validate=False,
         )
 
-        # 空 updates 提前返回
         assert pm.batch_update_scene_assets("demo", "episode_1.json", []) == {}
 
         pm.batch_update_scene_assets(
@@ -405,7 +396,6 @@ class TestProjectManager:
         assert by_id["001"]["generated_assets"]["storyboard_image"] == "sb/001.png"
         assert by_id["002"]["generated_assets"]["video_clip"] == "v/002.mp4"
 
-        # narration/segments 分支：同 helper 走 segment_id 索引
         pm.save_script(
             "demo",
             {
@@ -450,11 +440,10 @@ class TestProjectManager:
                 "episode_1.json",
                 [
                     ("001", "storyboard_image", "sb/001.png"),
-                    ("999", "video_clip", "ignored.mp4"),  # 不存在 → 抛错
+                    ("999", "video_clip", "ignored.mp4"),
                 ],
             )
 
-        # 整体回滚:命中的 "001" 也未持久化(与 update_scene_asset 单个版本同款 with 体内抛错跳过写回)
         loaded = pm.load_script("demo", "episode_1.json")
         assert loaded["scenes"][0]["generated_assets"] == {}
 
@@ -494,18 +483,16 @@ class TestProjectManager:
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
         bad = {
-            "episode": 1,  # 与文件名 episode_10.json 错配
+            "episode": 1,
             "title": "第十集错误标题",
             "content_mode": "narration",
             "summary": "摘要",
             "novel": {"title": "小说", "chapter": "第一章"},
             "segments": [],
         }
-        # bad 结构合法（仅 episode 错配）：守卫放行后由一致性校验 fail-fast，验证守卫不误伤
         with pytest.raises(ValueError, match="不一致"):
             pm.save_script("demo", bad, "episode_10.json")
 
-        # 关键断言：文件不应被写入磁盘（原子性保持）
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_10.json").exists()
 
@@ -524,7 +511,6 @@ class TestProjectManager:
         pm.save_script("demo", script, "episode_1.json", validate=False)
 
         [entry] = pm.load_project("demo")["episodes"]
-        # True == 1，按值比分不出来：集号的类型本身就是断言的一部分。
         assert (type(entry["episode"]), entry["episode"], entry["script_file"]) == (int, 1, "scripts/episode_1.json")
 
     def test_filename_whose_episode_number_is_not_positive_is_rejected(self, tmp_path):
@@ -557,7 +543,6 @@ class TestProjectManager:
                 "source_origin": "none",
                 "title": "Episode 1",
                 "script_file": "scripts/episode_1.json",
-                # 剧本落盘时记下本集条目编号用过的最大号
                 "item_id_high_water": 1,
             }
         ]
@@ -603,21 +588,18 @@ class TestProjectManager:
         }
         pm.save_script("demo", ep1, "episode_1.json", validate=False)
 
-        # 伪造错误脚本：文件名是 episode_10.json，但内部 episode=1（AI 幻觉场景）
         corrupted = {
             "episode": 1,
             "title": "第十集错误标题",
             "content_mode": "narration",
             "segments": [{"segment_id": "E10S01", "duration_seconds": 4}],
         }
-        # 绕过 save_script 的潜在未来校验，直接落盘模拟历史产物
         scripts_dir = pm.get_project_path("demo") / "scripts"
         (scripts_dir / "episode_10.json").write_text(json.dumps(corrupted, ensure_ascii=False), encoding="utf-8")
 
         with pytest.raises(ValueError, match="不一致"):
             pm.sync_episode_from_script("demo", "episode_10.json")
 
-        # project.json 中第 1 集条目必须保持不被污染
         proj = pm.load_project("demo")
         ep1_entry = next(ep for ep in proj["episodes"] if ep["episode"] == 1)
         assert ep1_entry["title"] == "第一集原标题"
@@ -637,21 +619,17 @@ class TestProjectManager:
         }
         pm.save_script("demo", script, "episode_1.json", validate=False)
 
-        # 纯文件名
         loaded1 = pm.load_script("demo", "episode_1.json")
         assert loaded1["episode"] == 1
 
-        # 带 scripts/ 前缀（前端传入的格式）
         loaded2 = pm.load_script("demo", "scripts/episode_1.json")
         assert loaded2["episode"] == 1
 
-        # save_script 也应兼容带前缀的文件名
         script["title"] = "修改后"
         pm.save_script("demo", script, "scripts/episode_1.json", validate=False)
         loaded3 = pm.load_script("demo", "episode_1.json")
         assert loaded3["title"] == "修改后"
 
-        # update_scene_asset 也应兼容
         pm.update_scene_asset(
             "demo", "scripts/episode_1.json", "E1S01", "storyboard_image", "storyboards/scene_E1S01.png"
         )
@@ -708,7 +686,6 @@ class TestProjectManager:
         assert isinstance(first_stamp, str)
         assert first_stamp
 
-        # 清空参考音频也须刷新 voice_updated_at（存量过渡横幅的判定基准）
         pm.update_character_reference_audio("demo", "Alice", "")
         cleared = pm.get_project_character("demo", "Alice")
         assert cleared["reference_audio"] == ""
@@ -717,17 +694,14 @@ class TestProjectManager:
         assert second_stamp
         assert second_stamp != first_stamp
 
-        # scene lifecycle
         pm.add_scenes_batch("demo", {"客厅": {"description": "宽敞的客厅"}})
         pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
         assert pm.get_scene("demo", "客厅")["scene_sheet"].endswith("客厅.png")
 
-        # prop lifecycle
         pm.add_props_batch("demo", {"玉佩": {"description": "古玉"}})
         pm.update_prop_sheet("demo", "玉佩", "props/玉佩.png")
         assert pm.get_prop("demo", "玉佩")["prop_sheet"].endswith("玉佩.png")
 
-        # direct add_* return bool
         assert pm.add_character("demo", "Bob", "side", "") is True
         assert pm.add_character("demo", "Bob", "side", "") is False
         assert pm.add_project_scene("demo", "卧室", "宁静的卧室") is True
@@ -737,9 +711,7 @@ class TestProjectManager:
 
         added_chars = pm.add_characters_batch("demo", {"Bob": {"description": "d"}, "C": {"description": "d"}})
         assert added_chars == 1
-        added_scenes = pm.add_scenes_batch(
-            "demo", {"卧室": {"description": "d"}, "书房": {"description": "d"}}
-        )  # 卧室已存在
+        added_scenes = pm.add_scenes_batch("demo", {"卧室": {"description": "d"}, "书房": {"description": "d"}})
         assert added_scenes == 1
         added_props = pm.add_props_batch("demo", {"玉佩": {"description": "d"}, "铜钱": {"description": "d"}})
         assert added_props == 1
@@ -868,7 +840,6 @@ class TestProjectManager:
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview
         assert overview["language"] == "zh"
-        # 顶层 source_language 必须由 generate_overview 写入,与 overview.language 同源
         assert pm.load_project("demo")["source_language"] == "zh"
 
         with warnings.catch_warnings(record=True) as captured:
@@ -910,7 +881,7 @@ class TestProjectManager:
         _write(pm.get_project_path("demo") / "source" / "1.txt", "source body")
 
         async def _fake_create_backend(*args, **kwargs):
-            return _FakeTextBackend(language="chinese"), "gemini-aistudio"  # 非枚举值
+            return _FakeTextBackend(language="chinese"), "gemini-aistudio"
 
         monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
         with pytest.raises(ValidationError):
@@ -1004,7 +975,6 @@ class TestPathTraversalProtection:
     def test_get_project_path_rejects_traversal(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
-        # normalize_project_name 的正则先拦截
         with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.get_project_path("../etc")
         with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
@@ -1040,7 +1010,6 @@ class TestPathTraversalProtection:
         project_dir = pm.get_project_path("demo")
         scripts_dir = project_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
-        # 正常文件名不应被拦截
         real = pm._safe_subpath(scripts_dir, "episode_1.json")
         assert real.endswith("episode_1.json")
 
@@ -1083,7 +1052,7 @@ class TestScenePropLifecycle:
         pm.create_project_metadata("demo", "Demo")
 
         assert pm.add_project_scene("demo", "客厅", "宽敞的客厅") is True
-        assert pm.add_project_scene("demo", "客厅", "宽敞的客厅") is False  # 重复返回 False
+        assert pm.add_project_scene("demo", "客厅", "宽敞的客厅") is False
 
         project = pm.load_project("demo")
         assert "客厅" in project["scenes"]
@@ -1096,7 +1065,7 @@ class TestScenePropLifecycle:
         pm.create_project_metadata("demo", "Demo")
 
         assert pm.add_prop("demo", "玉佩", "一块古玉") is True
-        assert pm.add_prop("demo", "玉佩", "一块古玉") is False  # 重复返回 False
+        assert pm.add_prop("demo", "玉佩", "一块古玉") is False
 
         project = pm.load_project("demo")
         assert "玉佩" in project["props"]
@@ -1113,16 +1082,14 @@ class TestScenePropLifecycle:
         assert added == 1
 
         project = pm.load_project("demo")
-        # 已有的不被覆盖
         assert project["scenes"]["客厅"]["description"] == "已有的客厅"
-        # 新的被添加
         assert "书房" in project["scenes"]
 
     def test_add_props_batch_skips_existing(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
-        pm.add_prop("demo", "玉佩", "已有的玉佩")  # add_prop 无命名冲突
+        pm.add_prop("demo", "玉佩", "已有的玉佩")
 
         added = pm.add_props_batch("demo", {"玉佩": {"description": "新描述"}, "宝剑": {"description": "宝剑"}})
         assert added == 1
@@ -1141,7 +1108,6 @@ def test_read_source_files_raises_on_non_utf8(tmp_path):
     project_dir = pm.projects_dir / "demo"
     (project_dir / "source").mkdir(parents=True)
     bad = project_dir / "source" / "broken.txt"
-    # 使用种子化 PRNG 生成高熵随机字节，确保触发 decode_txt 的 5% 乱码阈值
     bad.write_bytes(random.Random(42).randbytes(4000))
 
     with pytest.raises(SourceDecodeError) as exc_info:

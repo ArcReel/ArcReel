@@ -14,14 +14,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-#: 内置供应商守卫的前缀：与自定义供应商的端点键区分开，内置与自定义之间切换不会因端点同名而放行。
 BUILTIN_GUARD_PREFIX = "builtin:"
 
-# 自定义守卫里路径覆盖部分的分隔，与 lib.custom_provider.path_overrides.endpoint_guard 一致。
 _PATHS_SEPARATOR = " paths="
 
-#: 拆分后退役的端点名 → 协议等价的后继端点。后继共用创建任务与轮询接口，只是请求体与计量不同，提交时挂旧端点的
-#: 任务经任一后继都能取回结果。拆分一个端点时在这里登记一行；后继之间互换不在此列，仍按换了端点拒绝。
 RETIRED_ENDPOINT_SUCCESSORS: Mapping[str, frozenset[str]] = {
     "grok-video": frozenset({"grok-video-classic", "grok-video-mixed"}),
     "vidu-video": frozenset(

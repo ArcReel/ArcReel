@@ -7,10 +7,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-# 官方 OpenAI 端点：既是 is_official_openai_base_url 的判定基准，也是上层
-# 客户端工厂在 base_url 为空时须显式回填的默认值——AsyncOpenAI 对空 base_url
-# 会回落读取 OPENAI_BASE_URL 环境变量，显式传入官方值即断掉该回落。单一来源，
-# 勿散落字面量。
 OFFICIAL_OPENAI_HOSTNAME = "api.openai.com"
 OFFICIAL_OPENAI_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}/v1"
 
@@ -18,8 +14,6 @@ OFFICIAL_OPENAI_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}/v1"
 # 也是用户从供应商文档复制整条 Messages 端点时的唯一后缀形态，只有它能被无歧义地剥掉。
 ANTHROPIC_MESSAGES_PATH = "/v1/messages"
 
-# 官方 Anthropic 端点：anthropic SDK 对空 base_url 会回落读取 ANTHROPIC_BASE_URL 环境变量，
-# base_url 为空时显式回填它以断掉该回落（同 OFFICIAL_OPENAI_BASE_URL）。
 OFFICIAL_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 
 
@@ -38,7 +32,6 @@ def is_official_openai_base_url(base_url: str | None) -> bool:
     effective = (base_url or "").strip()
     if not effective:
         return True
-    # hostname 自带小写化与去端口；无 scheme 时 hostname 为 None → 保守判非官方
     return urlparse(effective).hostname == OFFICIAL_OPENAI_HOSTNAME
 
 
@@ -87,8 +80,6 @@ def ensure_google_base_url(url: str | None) -> str | None:
     if not url:
         return None
     url = url.rstrip("/")
-    # 剥离末尾的版本路径（/v1, /v1beta, /v1alpha 等）
-    # 用 [a-zA-Z] 代替 \w：\d+\w* 的重叠会触发 CodeQL polynomial regex 警告
     url = re.sub(r"/v\d+[a-zA-Z]*$", "", url)
     if not url.endswith("/"):
         url += "/"
@@ -121,7 +112,6 @@ def normalize_anthropic_base_url(raw: str) -> str:
     """
     stripped = raw.strip().rstrip("/")
     if stripped.endswith(ANTHROPIC_MESSAGES_PATH):
-        # 剥掉端点后再去一次尾斜杠：``https://x//v1/messages`` 的存储值须是 ``https://x``。
         stripped = stripped[: -len(ANTHROPIC_MESSAGES_PATH)].rstrip("/")
     return stripped
 
@@ -136,15 +126,13 @@ def validate_anthropic_base_url(raw: str) -> str:
     normalized = normalize_anthropic_base_url(raw)
     if not normalized:
         raise InvalidAnthropicBaseUrlError("base_url is empty")
-    # 按字符拦而不看 urlparse 的 query / fragment 是否非空：空 query 的 ``https://x/a?``
-    # 同样会让 CLI 拼出 ``https://x/a?/v1/messages``；与前端拦截规则逐字一致。
     if "?" in normalized or "#" in normalized:
         raise InvalidAnthropicBaseUrlError("base_url must not carry query or fragment")
     parsed = urlparse(normalized)
     try:
         has_userinfo = bool(parsed.username or parsed.password)
         host = parsed.hostname
-        _ = parsed.port  # netloc 惰性解析，非法端口在这一步才抛 ValueError
+        _ = parsed.port
         httpx.URL(normalized)
     except (ValueError, httpx.InvalidURL) as exc:
         raise InvalidAnthropicBaseUrlError("base_url is not a parsable URL") from exc

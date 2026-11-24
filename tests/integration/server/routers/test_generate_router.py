@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -13,7 +14,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
-from tests.fakes import use_generation_queue, use_project_manager
+from tests.fakes import use_generation_queue, use_image_admission_context, use_project_manager
+from tests.integration.server.services.tasks.generation_tasks_support import FakeGenerator, fake_resolve_ctx
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -38,8 +40,6 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定——
-            # 产物清单是读取已生成产物的唯一口径，二者缺一都不是真实形态。
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
             "generation_mode": "storyboard",
@@ -193,18 +193,13 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user
     use_project_manager(monkeypatch, fake_pm)
     monkeypatch.setattr("lib.generation.generation_queue.get_generation_queue", lambda: fake_queue)
     use_generation_queue(monkeypatch, fake_queue)
-    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
     monkeypatch.setattr(generate, "require_video_bucket_capability", _noop_bucket_precheck)
-    # 音频开关预检同理，行为由 test_validators_audio_switch 覆盖
     monkeypatch.setattr(generate, "require_audio_switch_supported", _noop_bucket_precheck)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id=user_id, sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
-    # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -232,13 +227,177 @@ class TestGenerateRouter:
             assert body["task_id"] == "task-1"
             assert "message" in body
 
-            # Verify enqueue was called correctly
             call = fake_queue.calls[0]
             assert call["project_name"] == "demo"
             assert call["task_type"] == "storyboard"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
+
+    @pytest.mark.parametrize(
+        ("route", "payload", "excess"),
+        [
+            ("storyboard/E1S01", {"script_file": "episode_1.json", "prompt": "雨夜"}, "Alice"),
+            ("product/保温杯", None, "保温杯"),
+            ("character/Alice/derivatives/winter", None, "Alice"),
+        ],
+    )
+    def test_single_image_generation_exposes_limit_diagnostic(self, tmp_path, monkeypatch, route, payload, excess):
+        fake_pm = _FakePM(_prepare_files(tmp_path))
+        fake_pm.project["characters"]["Alice"]["derivatives"] = {"winter": {"description": "Winter coat"}}
+        fake_pm.script["segments"][0]["characters_in_segment"] = ["Alice"]
+        use_image_admission_context(
+            monkeypatch,
+            fake_resolve_ctx(FakeGenerator(), image_max_reference_images=0),
+        )
+        fake_queue = _FakeQueue()
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            result = client.post(f"/api/v1/projects/demo/generate/{route}", json=payload)
+
+        assert result.status_code == 400, result.text
+        assert result.json()["detail"] == i18n_message(
+            "image_reference_images_exceeded", model="GPT Image 2", count=1, limit=0, names=excess
+        )
+        assert result.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {"model": "gpt-image-2", "count": 1, "limit": 0, "names": excess},
+        }
+        assert fake_queue.calls == []
+
+    @pytest.mark.parametrize("previous_state", ["active-pending", "available"])
+    def test_storyboard_counts_active_or_available_previous_image_against_limit(
+        self, tmp_path, monkeypatch, previous_state
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        first, target, _ = fake_pm.script["segments"]
+        target["products_in_shot"] = ["保温杯"]
+        fake_queue = _FakeQueue()
+        if previous_state == "active-pending":
+            first["generated_assets"] = {}
+            (project_path / "storyboards" / "scene_E1S01.png").unlink()
+            fake_queue.active_by_user["default"] = [{"task_id": "prev-1", "resource_id": "E1S01", "status": "running"}]
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {
+                "model": "gpt-image-2",
+                "count": 5,
+                "limit": 4,
+                "names": "E1S01",
+                "previous_storyboard": "E1S01",
+            },
+        }
+        assert fake_queue.calls == []
+        assert fake_queue.active_queries == [
+            {
+                "project_name": "demo",
+                "task_type": "storyboard",
+                "resource_ids": ["E1S01"],
+                "script_file": "episode_1.json",
+                "user_id": "default",
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        "previous",
+        ["first-shot", "chapter-break", "previous-idle", "available-no-double-count", "shared-path-no-double-count"],
+    )
+    def test_storyboard_admits_four_planned_references(self, tmp_path, monkeypatch, previous):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        first, target, _ = fake_pm.script["segments"]
+        fake_queue = _FakeQueue()
+        segment_id = "E1S02"
+        if previous == "first-shot":
+            segment_id = "E1S01"
+            first["characters_in_segment"] = ["Alice"]
+            first["scenes"] = ["祠堂"]
+            first["props"] = ["玉佩"]
+            first["products_in_shot"] = ["保温杯"]
+        elif previous == "chapter-break":
+            target["products_in_shot"] = ["保温杯"]
+            target["segment_break"] = True
+            fake_queue.active_by_user["default"] = [{"task_id": "prev-1", "resource_id": "E1S01", "status": "queued"}]
+        elif previous == "previous-idle":
+            target["products_in_shot"] = ["保温杯"]
+            first["generated_assets"] = {}
+            (project_path / "storyboards" / "scene_E1S01.png").unlink()
+        elif previous == "available-no-double-count":
+            target["products_in_shot"] = ["保温杯"]
+            target["props"] = []
+            fake_queue.active_by_user["default"] = [
+                {"task_id": "prev-regen", "resource_id": "E1S01", "status": "running"}
+            ]
+        elif previous == "shared-path-no-double-count":
+            target["products_in_shot"] = ["保温杯"]
+            first["generated_assets"] = {}
+            fake_pm.project["products"]["保温杯"]["reference_images"] = ["storyboards/scene_E1S01.png"]
+            fake_queue.active_by_user["default"] = [
+                {"task_id": "prev-regen", "resource_id": "E1S01", "status": "running"}
+            ]
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            response = client.post(
+                f"/api/v1/projects/demo/generate/storyboard/{segment_id}",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["task_id"] == "task-1"
+        assert [call["resource_id"] for call in fake_queue.calls] == [segment_id]
+
+    def test_storyboard_reloads_script_when_previous_finishes_before_queue_probe(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+
+        class _SnapshotPM(_FakePM):
+            def load_script(self, project_name, script_file):
+                return json.loads(json.dumps(super().load_script(project_name, script_file)))
+
+        fake_pm = _SnapshotPM(project_path)
+        first, target, _ = fake_pm.script["segments"]
+        first["generated_assets"] = {}
+        target["products_in_shot"] = ["保温杯"]
+        previous_path = project_path / "storyboards" / "scene_E1S01.png"
+        previous_path.unlink()
+
+        class _CommitDuringProbeQueue(_FakeQueue):
+            async def get_active_tasks_for_resources(self, **kwargs):
+                def _commit_previous():
+                    previous_path.write_bytes(b"png")
+                    first["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+                    fake_pm.register_storyboards()
+
+                await asyncio.to_thread(_commit_previous)
+                return await super().get_active_tasks_for_resources(**kwargs)
+
+        fake_queue = _CommitDuringProbeQueue()
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {
+                "model": "gpt-image-2",
+                "count": 5,
+                "limit": 4,
+                "names": "E1S01",
+                "previous_storyboard": "E1S01",
+            },
+        }
+        assert fake_queue.calls == []
 
     def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
         """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""
@@ -680,7 +839,6 @@ class TestGenerateRouter:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
-        # 分镜图在盘上，但没有进产物清单——准入口径是产物清单登记。
         client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
 
         with client:
@@ -793,14 +951,12 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 400, video.text
-            # detail 走 i18n 不直接暴露内部 str(e)
             assert (
                 "segments" not in video.json()["detail"]
                 or "script" in video.json()["detail"].lower()
                 or "kịch bản" in video.json()["detail"]
                 or "损坏" in video.json()["detail"]
             )
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
@@ -833,7 +989,6 @@ class TestGenerateRouter:
             )
             assert video.status_code == 404, video.text
             assert str(missing_script_path) not in video.text
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_video_missing_segment_404(self, tmp_path, monkeypatch):
@@ -842,7 +997,6 @@ class TestGenerateRouter:
         数据撞名),也不能把不存在的 segment 当成校验通过而入队。
         """
         project_path = _prepare_files(tmp_path)
-        # default 路径恰好存在的场景：撞上一个不存在 segment 的默认文件名
         (project_path / "storyboards" / "scene_E1S99.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
@@ -858,7 +1012,6 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 404, video.text
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
@@ -880,7 +1033,6 @@ class TestGenerateRouter:
             assert call["task_type"] == "character"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
-            # 描述只取存储的条目，入队不带 prompt 快照。
             assert call["payload"] == {}
 
     @pytest.mark.parametrize(
@@ -1008,21 +1160,18 @@ class TestGenerateRouter:
         client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
-            # Bad storyboard prompt (structured but missing scene)
             bad_prompt = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": {"composition": {}}},
             )
             assert bad_prompt.status_code == 400
 
-            # Nonexistent segment
             not_found = client.post(
                 "/api/v1/projects/demo/generate/storyboard/MISSING",
                 json={"script_file": "episode_1.json", "prompt": "test"},
             )
             assert not_found.status_code == 404
 
-            # Video without storyboard
             (project_path / "storyboards" / "scene_E1S01.png").unlink()
             no_storyboard = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
@@ -1030,22 +1179,18 @@ class TestGenerateRouter:
             )
             assert no_storyboard.status_code == 400
 
-            # Bad video prompt
             bad_video_prompt = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={"script_file": "episode_1.json", "prompt": {"action": ""}},
             )
             assert bad_video_prompt.status_code in (400, 500)
 
-            # Empty string prompt for storyboard route (segment exists, prompt is empty str)
             empty_storyboard_prompt = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": ""},
             )
             assert empty_storyboard_prompt.status_code == 400
 
-            # Whitespace-only string prompt for video route — ensure storyboard exists first
-            # so we hit the prompt check, not the missing-storyboard check
             (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
             empty_video_prompt = client.post(
                 "/api/v1/projects/demo/generate/video/E1S02",
@@ -1053,21 +1198,18 @@ class TestGenerateRouter:
             )
             assert empty_video_prompt.status_code == 400
 
-            # Missing character
             fake_pm.project["characters"] = {}
             missing_char = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
             )
             assert missing_char.status_code == 404
 
-            # Missing scene
             fake_pm.project["scenes"] = {}
             missing_scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
             )
             assert missing_scene.status_code == 404
 
-            # Missing prop
             fake_pm.project["props"] = {}
             missing_prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
@@ -1210,7 +1352,6 @@ class TestVideoRouteGate:
     def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
         """残留分镜图不改变判定：生成模式以 project.json 为唯一真相源，不按磁盘产物换路径。"""
         project_path = _prepare_files(tmp_path)
-        # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
         fake_pm = self._reference_pm(project_path, storyboard_script=True)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -1536,3 +1677,50 @@ class TestDedupedPassthrough:
             )
             assert resp.status_code == 200, resp.text
             assert resp.json()["deduped"] is True
+
+
+@pytest.mark.parametrize("submitted_duration", [None, 6])
+def test_end_frame_out_of_range_duration_refused_before_enqueue_and_http(
+    tmp_path, monkeypatch, db_engine, respx_mock, submitted_duration
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from arcreel_catalog_core import DurationConstraints
+    from lib.catalog.query import catalog_data
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            "gemini-vertex",
+            "veo-3.1-generate-001",
+            duration_constraints=DurationConstraints(with_end_frame=(4, 6)),
+        ),
+    )
+    project_path = _prepare_files(tmp_path)
+    fake_pm = _FakePM(project_path)
+    fake_pm.project["video_provider_i2v"] = "gemini-vertex/veo-3.1-generate-001"
+    item = fake_pm.script["segments"][0]
+    item.update(duration_seconds=8, end_frame_image="end_frames/scene_E1S01.png")
+    (project_path / "end_frames").mkdir()
+    from PIL import Image
+
+    Image.new("RGB", (8, 8)).save(project_path / item["end_frame_image"])
+    fake_queue = _FakeQueue()
+    monkeypatch.setattr(
+        generate,
+        "ConfigResolver",
+        lambda _factory: ConfigResolver(async_sessionmaker(db_engine, expire_on_commit=False)),
+    )
+    with _client(monkeypatch, fake_pm, fake_queue) as client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/video/E1S01",
+            json={"script_file": "episode_1.json", "prompt": "转身", "duration_seconds": submitted_duration},
+        )
+    assert response.status_code == 422, response.text
+    assert "首尾帧" in response.json()["detail"]
+    assert fake_queue.calls == []
+    assert len(respx_mock.calls) == 0
+    assert item["duration_seconds"] == 8

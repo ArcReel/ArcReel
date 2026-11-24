@@ -18,6 +18,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.providers import PROVIDER_GROK
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
 
@@ -48,7 +49,6 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
-        # 通道实现了参考图且不设上限；各型号的上限来自条目
         assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.backends.video_backends.grok.create_grok_client")
@@ -190,7 +190,7 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         image_path = tmp_path / "start.png"
-        image_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        image_path.write_bytes(image_bytes())
 
         mock_response = MagicMock()
         mock_response.url = "https://vidgen.x.ai/test/video.mp4"
@@ -225,18 +225,18 @@ class TestGrokVideoBackend:
     @pytest.mark.parametrize(
         ("raw_duration", "expected"),
         [
-            (15, 15),  # 整数直接收窄
-            ("15.0", 15),  # 浮点字符串先经 float 解析
-            (7.8, 8),  # 浮点 half-up 取整，与 dashscope 计费口径一致
-            (4.4, 4),  # half-up：不足半秒舍去
-            (0, 5),  # 零值回落请求时长
-            (-10, 5),  # 负值回落请求时长
-            (0.3, 5),  # 取整到 0 同样回落，保持结果恒为正
-            ("unknown", 5),  # 不可解析回落请求时长
-            (float("inf"), 5),  # 溢出回落请求时长
-            (1e100, 5),  # 超出合理上限回落请求时长，防 DB Integer 列溢出
-            (86400.9, 5),  # 上限基于取整前原始值：小数已超 24h 不得因取整落回上限内
-            (None, 5),  # 缺失回落请求时长
+            (15, 15),
+            ("15.0", 15),
+            (7.8, 8),
+            (4.4, 4),
+            (0, 5),
+            (-10, 5),
+            (0.3, 5),
+            ("unknown", 5),
+            (float("inf"), 5),
+            (1e100, 5),
+            (86400.9, 5),
+            (None, 5),
         ],
     )
     async def test_duration_narrowed_to_int_with_fallback(self, video_output_path: Path, raw_duration, expected):
@@ -270,7 +270,7 @@ class TestGrokVideoBackend:
 
 
 def _png(path: Path) -> Path:
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    path.write_bytes(image_bytes())
     return path
 
 
@@ -318,7 +318,6 @@ class TestGrokVideo15Models:
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is True
-        # 官方参考生视频页给 1.5 的上限是 14（经典版 7），来自条目
         assert caps.max_reference_images == 14
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
@@ -556,7 +555,7 @@ async def test_mixed_inputs_follow_endpoint_after_model_rename(endpoint, tmp_pat
     from lib.backends.video_backends.grok import GROK_BACKENDS
 
     image = tmp_path / "in.png"
-    image.write_bytes(b"image")
+    image.write_bytes(image_bytes())
     request = VideoGenerationRequest(
         prompt="test", output_path=tmp_path / "out.mp4", resolution="720p", start_image=image, reference_images=[image]
     )

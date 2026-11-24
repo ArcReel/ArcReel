@@ -3,7 +3,9 @@
 import asyncio
 import json
 
+import portalocker
 import pytest
+import time_machine
 
 from lib.db.models.task import Task
 from lib.db.repositories.task_repo import TaskNotCancellableError
@@ -33,12 +35,26 @@ class TestGenerationQueue:
 
         monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
         reset_for_tests()
-        async with generation_admission_lock(
-            project_name="admission-demo",
-            script_file="scripts/episode_01.json",
-            resource_id="E1S01",
+        lock_contended = asyncio.Event()
+        lock = portalocker.lock
+
+        def observe_lock_attempt(handle, flags):
+            try:
+                lock(handle, flags)
+            except portalocker.AlreadyLocked:
+                lock_contended.set()
+                raise
+
+        monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
+        async with (
+            asyncio.TaskGroup() as tasks,
+            generation_admission_lock(
+                project_name="admission-demo",
+                script_file="scripts/episode_01.json",
+                resource_id="E1S01",
+            ),
         ):
-            enqueue = asyncio.create_task(
+            enqueue = tasks.create_task(
                 queue.enqueue_task(
                     project_name="admission-demo",
                     task_type="tts",
@@ -48,10 +64,10 @@ class TestGenerationQueue:
                     provider_id="audio-provider",
                 )
             )
-            await asyncio.sleep(0.1)
+            await asyncio.wait_for(lock_contended.wait(), timeout=5)
             assert not enqueue.done()
 
-        result = await enqueue
+        result = enqueue.result()
         assert result["deduped"] is False
 
     async def test_enqueue_dedupe_claim_and_succeed(self, queue):
@@ -90,7 +106,6 @@ class TestGenerationQueue:
         assert done["status"] == "succeeded"
         assert done["result"]["file_path"] == "storyboards/scene_E1S01.png"
 
-        # 终态后允许再次入队
         second = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
@@ -280,28 +295,28 @@ class TestGenerationQueue:
         assert seen_options[0].to_payload() == {}
 
     async def test_worker_lease_takeover(self, queue):
-        first_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-a",
-            ttl_seconds=1,
-        )
-        assert first_ok
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock:
+            first_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-a",
+                ttl_seconds=1,
+            )
+            assert first_ok
 
-        second_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-b",
-            ttl_seconds=1,
-        )
-        assert not second_ok
+            second_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-b",
+                ttl_seconds=1,
+            )
+            assert not second_ok
 
-        await asyncio.sleep(1.2)
-
-        takeover_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-b",
-            ttl_seconds=1,
-        )
-        assert takeover_ok
+            clock.shift(1)
+            takeover_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-b",
+                ttl_seconds=1,
+            )
+            assert takeover_ok
 
     async def test_claim_next_task_respects_dependencies_without_blocking_other_heads(self, queue):
         head_one = await queue.enqueue_task(
@@ -408,8 +423,6 @@ class TestGenerationQueue:
         assert third_task is not None
         assert second_task["status"] == "failed"
         assert third_task["status"] == "failed"
-        # 每层只记直接阻塞方 task_id，reason 沿链条原样传递根因（不随层数重新嵌套）——
-        # 避免深层依赖链把上一层的完整编码串再嵌套进新一层 JSON 造成的近指数增长。
         expected_second = encode_failure(
             "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
         )
@@ -506,7 +519,6 @@ class TestGenerationQueue:
             payload={},
             script_file="ep1.json",
         )
-        # 入队的 task 此时是 queued,但 persist 不校验 status(独立 commit)
         await queue.persist_provider_job_id(enqueued["task_id"], "job-abc-123")
         task = await queue.get_task(enqueued["task_id"])
         assert task is not None
@@ -624,7 +636,6 @@ def stub_enqueue_resolution(monkeypatch):
             return {}
 
         def get_project_path(self, project_name):
-            # 项目不在磁盘上：迁移守卫按「无从判定」放行
             raise FileNotFoundError(project_name)
 
     monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)

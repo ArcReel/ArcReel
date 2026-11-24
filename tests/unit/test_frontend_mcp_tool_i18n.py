@@ -21,7 +21,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
 LOCALES = ("zh", "en", "vi")
 
-# Match either single- or double-quoted keys: 'tool_name_foo' or "tool_name_foo".
 _KEY_RE = re.compile(r"""['"](tool_name_[a-z0-9_]+)['"]\s*:""")
 
 
@@ -55,7 +54,6 @@ def test_no_orphan_tool_name_keys_in_any_locale() -> None:
 
 
 SUMMARIES_TS = "frontend/src/components/copilot/chat/arcreel-tool-summaries.ts"
-# ARCREEL_TOOL_SUMMARIES 的条目一行一个：两格缩进 + 工具 id + 冒号。
 _SUMMARY_KEY_RE = re.compile(r"^  ([a-z0-9_]+):", re.MULTILINE)
 
 

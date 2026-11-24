@@ -38,7 +38,6 @@ class TestCreateAdProjectMetadata:
             {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "none"}
         ]
 
-        # 落盘后的 project.json 与返回值一致
         on_disk = pm.load_project("demo-ad")
         assert on_disk["target_duration"] == 30
         assert on_disk["episodes"] == project["episodes"]

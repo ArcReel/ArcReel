@@ -22,6 +22,7 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import DurationConstraints
+from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoAudioMode
 from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
@@ -45,7 +46,6 @@ from lib.speech.character_voice import CharacterVoiceBinding, character_voice_bi
 
 logger = logging.getLogger(__name__)
 
-# 布尔字符串解析的 truthy 值集合
 _TRUTHY = frozenset({"true", "1", "yes"})
 
 
@@ -78,7 +78,7 @@ def _parse_bool(raw: str) -> bool:
 
 def _parse_int(raw: object, default: int) -> int:
     """将配置值解析为正整数；空串 / 非数字 / 非正一律回 default（容错，不抛）。"""
-    if isinstance(raw, bool):  # bool 是 int 子类，显式排除避免 True→1
+    if isinstance(raw, bool):
         return default
     if isinstance(raw, int):
         return raw if raw > 0 else default
@@ -88,7 +88,6 @@ def _parse_int(raw: object, default: int) -> int:
     return default
 
 
-# 参考上传副本上限的 per-provider 覆盖 key（裸 API PATCH /providers/{id}/config 可设置）。
 _REFERENCE_TOTAL_MAX_BYTES_KEY = "reference_total_max_bytes"
 _REFERENCE_SINGLE_MAX_BYTES_KEY = "reference_single_max_bytes"
 
@@ -176,14 +175,9 @@ class _LayeredBackendKeys:
     project_default_key: str | None = None
     global_bucket_key: str | None = None
     global_default_key: str | None = None
-    # 这份键位所属的任务类型桶，供自动推断层按桶过滤自定义默认模型。视频与文本 / 音频留空：
-    # 前者的自定义默认在保存期就是同一 media_type 至多一个，后两者无桶。
     generation_type: str | None = None
 
 
-# 图片桶（t2i / i2i）键位。桶为可选覆盖，空桶回退默认层：项目默认层用 project.json 的
-# default_image_backend 字段（与文本档位的 default_text_backend 同名同位），全局默认层用
-# default_image_backend 设置键。
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="image",
@@ -197,8 +191,6 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 }
 
 
-# 视频桶（i2v / r2v）键位。空桶回退默认层（docs/adr/0054 语义）。默认层零迁移：项目默认层
-# 复用既有 video_backend 字段，全局默认层复用 default_video_backend 键。
 _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="video",
@@ -211,8 +203,6 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 }
 
 
-# 不定桶视频键位：与 ``_VIDEO_LAYERED_KEYS`` 同源同层，只去掉桶层（None 由骨架跳过）。供不承诺
-# 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
     project_default_key="video_backend",
@@ -220,40 +210,24 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 )
 
 
-# 音频键位。音频无任务类型桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
-# audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
     project_default_key="audio_backend",
     global_default_key="default_audio_backend",
 )
 
-#: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考生视频无参考图视频单元的降级执行）、
-#: r2v（参考生视频中有参考图的视频单元）。t2v 不设桶（docs/adr/0054）。
 VideoGenerationType = Literal["i2v", "r2v"]
 
-#: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
-#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按视频单元是否携带参考图分流
-#: （``lib.script.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
-#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.backends.generation_type_buckets）
-#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.backends.video_backends 的依赖闭包内，不得经
-#: 桶判定模块间接引入 lib.custom_provider。
 VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoGenerationType] = {
     "video": "i2v",
     "reference_video": "r2v",
 }
 
-#: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
-#: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
-#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
-#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.script.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoGenerationType] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
 }
 
-#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，生成模式字段
-#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有生成模式可依。
 _DEFAULT_VIDEO_BUCKET: VideoGenerationType = "i2v"
 
 
@@ -374,15 +348,12 @@ def builtin_video_audio_track(
     return caps.audio_track_for_route(generation_type).value
 
 
-# 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
 _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.SIMPLE: "text_backend_simple",
     TextTaskTier.COMPLEX: "text_backend_complex",
 }
 
 
-# 文本档位（docs/adr/0051）键位。档位即桶，项目级与全局同名同构，故桶层两侧同键；默认层
-# 两侧同用 default_text_backend。
 _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
     tier: _LayeredBackendKeys(
         media_type="text",
@@ -395,11 +366,8 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 }
 
 
-#: 自动选模预览的用途（``ConfigResolver.auto_resolved_backends``）。
 AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text"]
 
-#: 用途 → 执行期解析该用途时消费的键位。自动推断层只读键位的 media_type 与 generation_type，
-#: 预览取同一份键位即与执行同口径；文本各档位这两项相同，合为一个用途。
 _AUTO_RESOLVE_PURPOSE_KEYS: dict[AutoResolvePurpose, _LayeredBackendKeys] = {
     "t2i": _IMAGE_LAYERED_KEYS["t2i"],
     "i2i": _IMAGE_LAYERED_KEYS["i2i"],
@@ -409,7 +377,6 @@ _AUTO_RESOLVE_PURPOSE_KEYS: dict[AutoResolvePurpose, _LayeredBackendKeys] = {
 }
 
 
-#: 请求里不下发 ``generate_audio`` 开关、供应商恒按含音档出账的 video provider。
 _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
 
 
@@ -424,7 +391,6 @@ def _video_audio_always_billed(provider_id: str) -> bool:
     return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
 
 
-#: 声音一致性三级标识。前端 `VoiceConsistencyTier` 与之一一对应，档位增减须两侧同步。
 VoiceConsistency = Literal["native", "soft", "none"]
 
 
@@ -520,16 +486,6 @@ def _clean_resolution(value: object, *, field: str, setting: str = "resolution")
     return value.strip() or None
 
 
-# ---------------------------------------------------------------------------
-# 时长联动约束
-#
-# 时长并非只由 supported_durations 决定：部分型号（当前是 Veo 全系与 MiniMax 海螺）在高分辨率
-# 或参考图路径下把时长收窄到单一取值，声明在模型目录上（单一真相源）。这里是
-# 后端唯一的消费入口——候选集合在交给 LLM、写进动态 schema、或作为默认值取首项之前都经此收窄，
-# 否则产出的时长在执行期必然被 backend 拒。
-# ---------------------------------------------------------------------------
-
-
 def constrain_durations(
     provider_id: str | None,
     model_id: str | None,
@@ -537,8 +493,9 @@ def constrain_durations(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
+    uses_end_frame: bool = False,
 ) -> list[int]:
-    """按内置型号在目录上声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
+    """按内置型号在目录上声明的「分辨率↔时长」「参考图↔时长」「尾帧↔时长」约束收窄候选。
 
     型号不在目录中时返回原候选。自定义供应商的约束经 :meth:`ConfigResolver.video_duration_constraints`
     取得后交给 :func:`apply_duration_constraints`。
@@ -548,6 +505,7 @@ def constrain_durations(
         builtin_duration_constraints(provider_id, model_id),
         resolution=resolution,
         uses_reference_images=uses_reference_images,
+        uses_end_frame=uses_end_frame,
     )
 
 
@@ -559,6 +517,7 @@ def builtin_duration_constraints(provider_id: str | None, model_id: str | None) 
     return DurationConstraints(
         by_resolution={res: tuple(allowed) for res, allowed in model_info.duration_resolution_constraints.items()},
         with_reference_images=tuple(model_info.reference_image_durations),
+        with_end_frame=tuple(model_info.end_frame_durations),
     )
 
 
@@ -568,10 +527,11 @@ def apply_duration_constraints(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
+    uses_end_frame: bool = False,
 ) -> list[int]:
     """按时长联动约束收窄候选。
 
-    两条约束各自独立触发、可同时生效，取交集。没有约束时返回原候选。交集为空时返回空集，由消费方按
+    三条约束各自独立触发、可同时生效，取交集。没有约束时返回原候选。交集为空时返回空集，由消费方按
     阶段处理。分辨率键按小写比较。
     """
     if not durations or constraints is None:
@@ -579,18 +539,17 @@ def apply_duration_constraints(
     allowed = list(durations)
     if uses_reference_images and constraints.with_reference_images:
         allowed = [d for d in allowed if d in constraints.with_reference_images]
+    if uses_end_frame and constraints.with_end_frame:
+        allowed = [d for d in allowed if d in constraints.with_end_frame]
     by_resolution = constraints.by_resolution.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
     return allowed
 
 
-#: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
-#: 「型号全集就不含」不在此列——那不是收窄，消费方按不在 ``supported_durations`` 内判定。
-DurationExclusionReason = Literal["resolution", "reference"]
+DurationExclusionReason = Literal["resolution", "reference", "end_frame"]
 
 
-#: 端点固定标志的成因值：能力载荷里 ``*_endpoint_fixed_reason`` 的唯一取值，标志为假时成因为 None。
 DURATION_ENDPOINT_FIXED_REASON = "endpoint"
 
 
@@ -735,9 +694,6 @@ class ConfigResolver:
     - 内置优先级解析（全局配置 → 项目级覆盖）
     """
 
-    # ── 唯一的默认值定义点 ──
-    # 与 Seedance / Grok 默认开启、storyboard 用户期望一致。
-    # server/routers/system_config.py 与 lib/generation/media_generator.py 均通过引用此常量读取。
     _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(
@@ -748,8 +704,6 @@ class ConfigResolver:
     ) -> None:
         self._session_factory = session_factory
         self._bound_session = _bound_session
-
-    # ── Session 管理 ──
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[ConfigResolver]:
@@ -768,8 +722,6 @@ class ConfigResolver:
         else:
             async with self._session_factory() as session:
                 yield session, ConfigService(session)
-
-    # ── 公开 API ──
 
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
         """解析 video_generate_audio。
@@ -872,8 +824,6 @@ class ConfigResolver:
         from_project = _resolution_from_project(project, provider_id, model_id)
         if from_project:
             return from_project
-        # 仅自定义供应商才有 DB 侧默认；预置供应商在此直接 None，避免为热路径上的
-        # 每次生成任务白开一个 session（原独立模块正是先判 is_custom_provider 再触 DB）。
         if not provider_id or not model_id or not is_custom_provider(provider_id):
             return None
         async with self._open_session() as (session, _svc):
@@ -1006,27 +956,27 @@ class ConfigResolver:
                 model_id, model.capability_overrides, entry_binding=model.entry_binding
             ).duration_constraints
 
-    async def video_audio_track(
+    async def video_audio_facts(
         self,
         provider_id: str,
         model_id: str,
         *,
         generation_type: VideoGenerationType,
         builtin_endpoint: str | None = None,
-    ) -> str | None:
-        """视频模型在该任务类型桶上的成片音轨形态（``VideoAudioMode`` 的字面量）；没有信号时为 None。
-
-        内置模型见 :func:`builtin_video_audio_track`。自定义供应商的模型只认用户对音轨形态的能力覆盖，与
-        :meth:`video_capabilities_for_model` 派生声音一致性同一口径；没有覆盖、模型行或端点解析不出时为 None，
-        调用方按「无信号不收紧」处理，引用失效由能力解析报错，这里不重复。
-        """
+    ) -> VideoAudioFacts | None:
+        """独立返回端点是否下发音轨开关与模型是否有声；无法解析身份时为 None。"""
         if not is_custom_provider(provider_id):
-            return builtin_video_audio_track(
+            mode = builtin_video_audio_track(
                 provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
             )
+            if mode is None:
+                return None
+            audio = VideoAudioMode(mode)
+            return VideoAudioFacts(audio.has_audio_track, audio.audio_switch_controllable)
         from lib.custom_provider.capabilities import (
-            overridden_audio_track,
-            synthesize_video_capabilities_with_overrides,
+            synthesize_video_capabilities,
+            system_video_capabilities,
+            video_audio_facts,
         )
         from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
         from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -1039,16 +989,22 @@ class ConfigResolver:
                 if model is None:
                     return None
                 endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps, applied_overrides = synthesize_video_capabilities_with_overrides(
+                caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
                     endpoint_spec=endpoint_spec,
                     entry_binding=model.entry_binding,
                 )
+                channel = system_video_capabilities(
+                    endpoint=model.endpoint,
+                    model_id=model_id,
+                    endpoint_spec=endpoint_spec,
+                    entry_binding=model.entry_binding,
+                )
             except ValueError:
                 return None
-        return overridden_audio_track(caps, applied_overrides, generation_type)
+        return video_audio_facts(channel, caps, generation_type)
 
     async def video_capabilities_for_model(
         self,
@@ -1164,8 +1120,6 @@ class ConfigResolver:
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         async with self._open_session() as (session, svc):
             return await self._resolve_reference_payload_limits(svc, session, provider_id)
-
-    # ── 内部解析方法（可独立测试，接收已创建的 svc） ──
 
     async def _resolve_video_generate_audio(
         self,
@@ -1303,8 +1257,6 @@ class ConfigResolver:
         if not is_custom_provider(selected.provider_id):
             return
 
-        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-        # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider.default_models import lacks_bucket
 
         try:
@@ -1394,8 +1346,6 @@ class ConfigResolver:
                 catalog.require_callable(provider_id, model_id, "video")
             return None
 
-        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-        # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider.default_models import requested_model
 
         try:
@@ -1431,8 +1381,6 @@ class ConfigResolver:
         provider_id, model_id = selected.provider_id, selected.model_id
         model = await self._ensure_video_identity_resolvable(session, selected, generation_type)
         if model is not None:
-            # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-            # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
             from lib.custom_provider.capabilities import synthesize_video_capabilities
 
             try:
@@ -1480,9 +1428,6 @@ class ConfigResolver:
         if not is_custom_provider(selected.provider_id):
             return selected
 
-        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-        # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
-        # 也就不必为此拉起整个装配层。
         from lib.custom_provider.default_models import requested_model, resolve_default_model
 
         try:
@@ -1571,20 +1516,13 @@ class ConfigResolver:
         generation_type: VideoGenerationType | None = None,
         builtin_endpoint: str | None = None,
     ) -> dict:
-        # 音轨形态按执行子路径分叉（可灵 v3-omni 的多图主体子路径不带音轨开关），故能力解析需要
-        # 知道落哪个桶；未显式给定时按项目路线定桶，与 `_resolve_video_capabilities_from_project`
-        # 同一条规则。
         if generation_type is None:
             generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
         effective = await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
         provider_id, model_id = effective.provider_id, effective.model_id
         if is_custom_provider(provider_id):
-            # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-            # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；注册表分支不用它，
-            # 也就不必为此拉起整个装配层。
             from lib.custom_provider.capabilities import (
-                overridden_audio_track,
-                synthesize_video_capabilities_with_overrides,
+                synthesize_video_capabilities,
             )
             from lib.custom_provider.model_facts import comfyui_duration_override, video_model_facts
 
@@ -1598,16 +1536,12 @@ class ConfigResolver:
             if model is None:
                 raise ValueError(f"custom model not found after identity resolution: {provider_id}/{model_id}")
 
-            # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
-            # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查
-            # provider 行、不构造 SDK client，故逐视频单元解析无 DB/网络/client 构造副作用
-            # （也不因 api_key 缺失而抛）。
             try:
                 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
                 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
                 endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps, applied_overrides = synthesize_video_capabilities_with_overrides(
+                caps = synthesize_video_capabilities(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
@@ -1623,28 +1557,14 @@ class ConfigResolver:
             reference_audio_mode = caps.reference_audio_mode
             max_reference_audio_count = caps.max_reference_audio_count
             reference_audio_per_image = caps.reference_audio_per_image
-            # 自定义供应商没有执行档：计价参数不因默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
-            # 自定义供应商的音轨形态只认用户的能力覆盖（docs/adr/0104）。与上一行 default_tier_generates_audio
-            # 同口径：没有覆盖时假定有声，不凭空判定为真无声模型。
-            audio_track = overridden_audio_track(caps, applied_overrides, generation_type)
-            has_audio = audio_track != "always_off" if audio_track is not None else True
-            # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
-            # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
-            # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
-            # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
+            has_audio = caps.audio_track_for_route(generation_type).has_audio_track
             durations_optional = endpoint_spec.duration_tier_optional
             if endpoint_spec.endpoint_durations is not None:
-                # ComfyUI 端点：时长只从节点绑定推导（docs/adr/0082），不看条目、不按名字回落。用户在 workflow
-                # 原生时长之外增删的档位存为 ``durations`` 覆盖，是这一端点唯一接受的覆盖（docs/adr/0104）。
-                # 档位的真相源仍是端点：端点说这一维给不出档位时（空集），覆盖一律作废，时长控件禁着、
-                # 剧本规划借固定篇幅。
                 override = comfyui_duration_override(model.capability_overrides, model_id=model_id)
                 endpoint_durations = list(endpoint_spec.endpoint_durations)
                 supported_durations = override if override and endpoint_durations else endpoint_durations
             else:
-                # 其余端点：能力覆盖 > 对应条目 > 按名字推断的预设（对应不上条目时），回落结果只在这里现算，
-                # 不写回任何字段（docs/adr/0105）。
                 supported_durations = list(
                     video_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).durations
                 )
@@ -1657,9 +1577,6 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
-            # 视频能力位与参考图上限取调用通道声明与模型条目两侧求值的生效值，与执行闸门、能力闸
-            # （`_ensure_video_bucket_capability`）与桶候选下拉（`lib.backends.generation_type_buckets`）同一求值规则；
-            # 给出 `builtin_endpoint` 时按构造后端的端点求值，其余读点读模型当前挂接的端点。
             try:
                 builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
             except ValueError as exc:
@@ -1671,8 +1588,6 @@ class ConfigResolver:
             reference_audio_mode = builtin_caps.reference_audio_mode
             max_reference_audio_count = builtin_caps.max_reference_audio_count
             reference_audio_per_image = builtin_caps.reference_audio_per_image
-            # 音轨与上面几维同源同一个 VideoCapabilities，只是要按任务类型落的桶取路径分支：参考
-            # 路线无音轨的子路径（可灵 v3-omni 多图主体）据此如实派生出 voice_consistency=none。
             has_audio = builtin_caps.audio_track_for_route(generation_type) != "always_off"
             try:
                 default_tier_generates_audio = builtin_effective_generate_audio_for_model(
@@ -1691,18 +1606,10 @@ class ConfigResolver:
                 message=f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities",
             )
 
-        # 空集时 ``max_duration`` 为 0，与 ``supported_durations == []`` 同义：这一维不由 ArcReel
-        # 驱动，消费方不该从它派生任何可选档位，界面据此禁用时长控件。
         max_duration = max(supported_durations, default=0)
         duration_endpoint_fixed = not supported_durations and durations_optional
 
-        # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
-        # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
-        # 恒含音出账与默认执行档判定），两者不等价，故并列透出，消费方按语义各取一个：判「本集要不要
-        # 组装参考音频」只能读前者。
         requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
-        # 恒含音出账的 provider 无视请求值；其余 backend 只有在项目请求开启、且无上下文能力
-        # 接口确认默认执行档会产出人声时，计价参数才为 True。
         generate_audio = (
             True
             if _video_audio_always_billed(provider_id)
@@ -1711,9 +1618,6 @@ class ConfigResolver:
 
         default_duration: int | None = None
         content_mode: str | None = None
-        # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
-        # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
-        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode.episode_target_duration 的读时守卫。
         episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")
@@ -1747,8 +1651,6 @@ class ConfigResolver:
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
-            # 档位是空集且该端点允许空集 = 这一维由端点固定（GLOSSARY.md「维度由端点固定」）。
-            # 消费方据此区分「这一维在该端点上不存在」与「档位声明缺失」——后者已在上面 fail loud。
             "duration_endpoint_fixed": duration_endpoint_fixed,
             "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(duration_endpoint_fixed),
             "default_duration": default_duration,
@@ -1786,7 +1688,6 @@ class ConfigResolver:
         cred_repo = CredentialRepository(session)
         active = await cred_repo.get_active(provider_id)
         if active:
-            # 凭证叠加会探测 Vertex 凭证文件是否存在，放进工作线程。
             await asyncio.to_thread(active.overlay_config, config)
         return config, active.id if active else None
 
@@ -1799,7 +1700,6 @@ class ConfigResolver:
         try:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
-            # 未知 / 自定义供应商（_validate_provider 抛 ValueError）→ 回退保守通用默认
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
         single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
@@ -1818,7 +1718,6 @@ class ConfigResolver:
             for provider_id, cred in active_creds.items():
                 cred.overlay_config(configs.setdefault(provider_id, {}))
 
-        # 凭证叠加会探测 Vertex 凭证文件是否存在，整批放进工作线程。
         await asyncio.to_thread(overlay_all)
         return configs
 
@@ -1886,7 +1785,6 @@ class ConfigResolver:
         resolved: dict[AutoResolvePurpose, tuple[str, str] | None] = {}
         for purpose, keys in _AUTO_RESOLVE_PURPOSE_KEYS.items():
             try:
-                # 逐项串行：同一 session 不支持并发查询
                 resolved[purpose] = await self._auto_resolve_backend(
                     svc, session, keys.media_type, keys.generation_type
                 )
@@ -1914,8 +1812,6 @@ class ConfigResolver:
         一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
         """
 
-        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-        # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.config.recommended_models import FROZEN_SETTING_KEY, auto_fallback_allowed
         from lib.custom_provider import make_provider_id
         from lib.custom_provider.default_models import callable_models, filter_by_bucket
@@ -1928,7 +1824,6 @@ class ConfigResolver:
             )
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        # 自定义供应商的默认模型同样跳过所对应条目已下线的
         defaults = callable_models([model for model in custom_models if model.is_default], media_type)
         candidates = await filter_by_bucket(session, defaults, generation_type)
         if candidates:

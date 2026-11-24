@@ -6,13 +6,6 @@ interface IconProps {
 
 type IconLoader = () => Promise<{ default: ComponentType<IconProps> }>;
 
-/**
- * iconKey → @lobehub/icons 子组件路径。
- *
- * 与 lib/agent/agent_provider_catalog.py 的 PresetProvider.icon_key 一一对应。
- * 优先使用 Color 变体；当上游包没有提供 Color 时回退 Mono。
- * 新增供应商时如缺失映射，组件会 fallback 到 monogram。
- */
 const ICON_LOADERS: Record<string, IconLoader> = {
   Anthropic: () => import("@lobehub/icons/es/Anthropic/components/Mono"),
   Aws: () => import("@lobehub/icons/es/Aws/components/Color"),
@@ -43,7 +36,6 @@ const ICON_LOADERS: Record<string, IconLoader> = {
   Zhipu: () => import("@lobehub/icons/es/Zhipu/components/Color"),
 };
 
-/** iconKey → 本地静态资源(用于 lobehub 未收录的品牌). */
 const STATIC_ICON_SRC: Record<string, string> = {
   ArcReel: "/apple-touch-icon.png",
 };
@@ -72,14 +64,12 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
         if (!cancelled) setLoaded({ key: iconKey, component: m.default });
       })
       .catch(() => {
-        /* fall through to monogram */
       });
     return () => {
       cancelled = true;
     };
   }, [iconKey]);
 
-  // 本地静态图标(品牌 logo 未上 lobehub 时使用)
   const staticSrc = iconKey ? STATIC_ICON_SRC[iconKey] : undefined;
   if (staticSrc)
     return (
@@ -99,7 +89,6 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
         <Icon size={size} />
       </span>
     );
-  // Monogram fallback
   const letter = (iconKey?.[0] ?? "?").toUpperCase();
   return (
     <span

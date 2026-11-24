@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -66,7 +67,6 @@ class FileRole(StrEnum):
     INFRASTRUCTURE = "infrastructure"
 
 
-#: 同一路径被多处引用时取优先级最高的角色。
 _ROLE_PRIORITY = {
     FileRole.STRUCTURE: 4,
     FileRole.REFERENCED: 3,
@@ -106,7 +106,6 @@ class FileOwner:
 class FileReference:
     role: FileRole
     owner: FileOwner | None = None
-    #: 历史版本快照里的当前版本：版本管理拒绝删除它。
     current: bool = False
 
 
@@ -118,12 +117,10 @@ _AGENT_CONFIG = FileReference(FileRole.AGENT_CONFIG)
 
 _TIMELINE_PATH_RE = re.compile(r"^edit_timelines/episode_[1-9]\d*/(tl-[0-9a-f]{8})\.json$")
 _RENDER_RECORD_SUFFIX = ".render.json"
-#: 剧本条目数组与各自的 ID 字段；参考生视频的条目是视频单元。
 _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
 _ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
-#: 每集草稿目录里由工作流持有的文件：隔离草稿，以及分集视图会读取的脚本规划（含旧版 ``.md``）。
 _EPISODE_DRAFT_FILENAMES = tuple(
     dict.fromkeys(
         (
@@ -176,7 +173,6 @@ class ReferenceIndex:
         self._refs: dict[str, FileReference] = {}
         self._resources: set[tuple[str, str]] = set()
         self._item_episodes: dict[str, int] = {}
-        #: 整本源文文件名主体 → 角色；上传时保留的原始文件 ``source/raw/<主体>.<原扩展名>`` 跟随它。
         self._source_stems: dict[str, FileReference] = {}
 
     @classmethod
@@ -193,8 +189,6 @@ class ReferenceIndex:
         index._index_versions(project_dir)
         index._index_grid_records(project_dir)
         return index
-
-    # ------------------------------------------------------------------ 查询
 
     def reference_of(self, rel: str) -> FileReference:
         """项目内相对 POSIX 路径（文件）的角色与所属对象。"""
@@ -216,10 +210,8 @@ class ReferenceIndex:
                 FileRole.STRUCTURE, FileOwner("timeline", id=PurePosixPath(timeline).stem, episode=episode)
             )
         if parts[:2] == ("source", "raw") and len(parts) == 3:
-            # 原始上传件随规范化文本一起增删；对应的源文件未纳入整本源文时同样交给分集视图。
             return self._source_stems.get(PurePosixPath(rel).stem, FileReference(FileRole.UNREFERENCED, _SOURCE))
         if is_whole_source_file_path(rel):
-            # 未纳入整本源文、也不是任何一集原文的源文件：由分集视图处理。
             return FileReference(FileRole.UNREFERENCED, _SOURCE)
         return _UNREFERENCED
 
@@ -240,8 +232,6 @@ class ReferenceIndex:
         if resource_type in _ASSET_RESOURCE_TYPES:
             resource_id = normalize_asset_name(resource_id)
         return (resource_type, resource_id) in self._resources
-
-    # ------------------------------------------------------------------ 构建
 
     def _canonical(self, rel: str) -> str:
         """采用磁盘上的实际名称，统一大小写及 Unicode 别名，不合并独立存在的文件。"""
@@ -274,6 +264,10 @@ class ReferenceIndex:
                 parts.append(actual.name)
                 directory = actual
         except (FileNotFoundError, NotADirectoryError):
+            return rel
+        except OSError as exc:
+            if exc.errno != errno.ENAMETOOLONG:
+                raise
             return rel
         return "/".join(parts)
 
@@ -341,7 +335,6 @@ class ReferenceIndex:
                 self._item_episodes[item_id] = episode
                 if array_key == "video_units":
                     owner = FileOwner("reference_unit", id=item_id, episode=episode)
-                    # 视频单元也有自己的旁白配音。
                     self._resources.update({("reference_videos", item_id), ("audio", item_id)})
                 else:
                     owner = FileOwner("segment", id=item_id, episode=episode)
@@ -350,7 +343,6 @@ class ReferenceIndex:
                 for field in ("storyboard_image", "storyboard_last_image", "video_clip", "narration_audio"):
                     self._mark(assets.get(field), FileRole.REFERENCED, owner)
                 self._mark(item.get("end_frame_image"), FileRole.REFERENCED, owner)
-                # 缩略图由视频派生，可重新生成。
                 self._mark(assets.get("video_thumbnail"), FileRole.DERIVED, owner)
                 grid_id = assets.get("grid_id")
                 if isinstance(grid_id, str) and grid_id:
@@ -378,7 +370,6 @@ class ReferenceIndex:
             if origin is SourceOrigin.NONE:
                 continue
             owner = FileOwner("episode", episode=entry["episode"])
-            # 切出集的集文件由账本派生；自带原文的集文件就是该集的源文。
             role = FileRole.DERIVED if origin is SourceOrigin.WHOLE_SOURCE else FileRole.STRUCTURE
             self._mark(episode_source_relpath(entry["episode"]), role, owner)
 

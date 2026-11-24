@@ -38,24 +38,16 @@ PROJECT = {
     "props": {},
 }
 
-#: 一张场景资产都没登记的项目：正文没有场景可引用时不发「本单元未引用场景」，与场景无关的
-#: 语法 / 声音用例据此保持单一关注点。
 PROJECT_WITHOUT_SCENES = {**PROJECT, "scenes": {}}
 
-#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
-#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。预览入口的 ``settings`` 必填，
-#: 这些用例照样要给一档，取字段默认即可。
 _SOFT = VoiceRenderSettings()
 
 
 def keys(preview) -> list[str]:
     return [w["key"] for w in preview.warnings]
-
-
-# ---------- 行内记号匹配原语 ----------
 
 
 def marks(line: str) -> list[tuple[str, str]]:
@@ -80,11 +72,11 @@ def test_dialogue_mark_accepts_wrapped_bare_both_colons_and_inline(line: str):
 @pytest.mark.parametrize(
     "line",
     [
-        "@[张三]：我来了",  # 无花括号
-        "@[张三]：{我来了",  # 未闭合
-        "@[ ]：{我来了}",  # speaker 位全为空白
-        "@[张三]：{}",  # 空台词
-        "@[张三]：{   }",  # 台词只有空白
+        "@[张三]：我来了",
+        "@[张三]：{我来了",
+        "@[ ]：{我来了}",
+        "@[张三]：{}",
+        "@[张三]：{   }",
     ],
 )
 def test_line_without_valid_mark_derives_nothing(line: str):
@@ -100,7 +92,6 @@ def test_blank_speaker_degrades_to_warning_instead_of_raising():
     """speaker 位空白不得构造非法 Utterance——只读派生要出 warning，不能抛校验错。"""
     preview = build_script_preview("中景。\n@[ ]：{我来了}", PROJECT_WITHOUT_SCENES, _SOFT)
     assert preview.utterances == []
-    # 未成记号 → 花括号未识别 warning；空白名同时作为未登记 mention 被点名。
     assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_BRACES_NOT_SPEECH]
 
 
@@ -120,9 +111,6 @@ def test_blank_braces_degrade_to_warning():
     preview = build_script_preview("中景。\n@[张三]：{}\n{   }", PROJECT_WITHOUT_SCENES, _SOFT)
     assert preview.utterances == []
     assert keys(preview) == [WARN_BRACES_NOT_SPEECH, WARN_BRACES_NOT_SPEECH]
-
-
-# ---------- 派生 ----------
 
 
 def test_normative_lines_derive_dialogue_and_voiceover():
@@ -159,14 +147,10 @@ def test_script_without_dialogue_symbols_derives_nothing():
     assert [r.name for r in derive_references_from_text(text, PROJECT)[0]] == ["张三", "酒馆"]
 
 
-# ---------- speaker 位不计入参考图 ----------
-
-
 def test_speaker_position_is_excluded_from_references():
     text = "@[酒馆] 内景，人声嘈杂。\n@[张三]：{我来了}"
     preview = build_script_preview(text, PROJECT, _SOFT)
     assert [r.name for r in derive_references_from_text(text, PROJECT)[0]] == ["酒馆"]
-    # 纯画外角色没有参考图，但 utterance 照常
     assert [u.speaker for u in preview.utterances] == ["张三"]
 
 
@@ -197,9 +181,6 @@ def test_dialogue_only_line_derives_utterance_without_reference():
     assert extract_mentions(text) == []
 
 
-# ---------- 降级可见性 warning ----------
-
-
 def test_warn_unit_without_scene_when_project_has_scene_assets():
     """未引用场景的单元，画面地点由模型自由决定——项目登记了场景才发得出这条提示。"""
     preview = build_script_preview("中景，@[张三] 推门。", PROJECT, _SOFT)
@@ -223,7 +204,6 @@ def test_scene_warning_ignores_reference_image_clipping():
         "@[张三] 推门进 @[酒馆]。",
         PROJECT,
         _SOFT,
-        max_reference_images=1,  # 只留 @[张三]，@[酒馆] 的图被裁掉
     )
     assert keys(preview) == []
 
@@ -252,7 +232,6 @@ def test_warn_unregistered_speaker():
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
 
-#: 张三带一个已登记衍生的项目载荷（无场景，避免叠上「未引用场景」warning）。
 PROJECT_WITH_DERIVATIVE = {
     **PROJECT_WITHOUT_SCENES,
     "characters": {**PROJECT["characters"], "张三": {"derivatives": {"劲装": {}}}},
@@ -327,7 +306,6 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
         VoiceRenderSettings(
             voice_consistency="native",
             max_reference_audio=3,
-            # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
             audio_ready=set(),
         ),
     )
@@ -357,7 +335,6 @@ def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered
     )
     assert keys(preview) == []
 
-    # 执行层口径：audio_ready 由 resolve_reference_audio_paths 按资产表的 key 建，同样可能是任一形式
     bindings = derive_voice_bindings(
         preview.utterances,
         project["characters"],
@@ -402,21 +379,6 @@ def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachme
     assert preview.warnings[0]["params"] == {"name": "张三"}
 
 
-def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
-    """执行层会先把 references 裁到能力上限再渲染（图片N 编号与实际发出的参考图严格等长），
-    预览须按同一条裁剪线判定，否则超限角色的图被裁掉后预览仍显示音频已绑定，执行时才降级。"""
-    # 张三写在描述位上才会派生参考图；上限 1 只留 @[酒馆]，张三的图被裁掉才是告警的唯一致因。
-    text = "@[酒馆] 内景，@[张三] 推门。\n@[张三]：{我来了}"
-    preview = build_script_preview(
-        text,
-        PROJECT,
-        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
-        max_reference_images=1,  # 只留 @[酒馆]，张三的图被裁掉
-    )
-    assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
-    assert preview.warnings[0]["params"] == {"name": "张三"}
-
-
 def test_preview_does_not_clip_references_when_model_accepts_none():
     """上限为 0 时执行层不裁参考图，原样交给执行时的校验拒绝；预览按同一条裁剪线，不把音频降级归咎于裁图。"""
     text = "@[酒馆] 内景，@[张三] 推门。\n@[张三]：{我来了}"
@@ -424,7 +386,6 @@ def test_preview_does_not_clip_references_when_model_accepts_none():
         text,
         PROJECT,
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
-        max_reference_images=0,
     )
     assert keys(preview) == []
 
@@ -472,9 +433,6 @@ def test_silent_model_notice_not_emitted_without_any_utterance():
         "开场。", PROJECT_WITHOUT_SCENES, VoiceRenderSettings(voice_consistency="none", model_id="m")
     )
     assert preview.warnings == []
-
-
-# ---------- 本集无声（requested_generate_audio=False） ----------
 
 
 def test_silent_episode_drops_audio_bindings_on_native_model():
@@ -528,8 +486,6 @@ def test_silent_episode_keeps_utterances_for_lip_sync():
     assert [u.text for u in preview.utterances] == ["我来了"]
 
 
-# ---------- i18n ----------
-
 WARNING_KEYS = [
     WARN_UNREGISTERED_MENTION,
     WARN_UNCLOSED_BRACE,
@@ -561,7 +517,6 @@ def test_warning_messages_render_in_all_locales(locale: str, key: str):
     assert key in MESSAGES[locale]
     text = _(key, locale=locale, **WARNING_PARAMS[key])
     assert text != key
-    # 占位符全部被替换（转义的示例语法 `{{台词}}` 渲染成字面花括号，不算残留占位符）
     for param in WARNING_PARAMS[key]:
         assert f"{{{param}}}" not in text
 

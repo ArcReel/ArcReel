@@ -47,7 +47,6 @@ const NARRATION_MISSING: EditTimelineIssueRef = {
   unit_id: "E1S04",
 };
 
-/** 本集正式脚本：E1S04 排第 3 个、E1S03 排第 4 个，阻断原因按位置称呼分镜。 */
 function seedEpisodeScript() {
   useProjectsStore.setState({
     currentScripts: {
@@ -220,10 +219,22 @@ describe("RenderDialog", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
 
-    accept({ task_id: "task-1", deduped: false, artifact_path: "renders/x.mp4" });
-    expect(await screen.findByText("正在渲染成片…")).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByRole("dialog");
+    const runningText = "正在渲染成片…";
+    const observer = new MutationObserver(() => {
+      if (within(dialog).queryByText(runningText) === null) return;
+      observer.disconnect();
+      const target = document.activeElement ?? dialog;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    observer.observe(dialog, { subtree: true, childList: true, characterData: true });
+    try {
+      accept({ task_id: "task-1", deduped: false, artifact_path: "renders/x.mp4" });
+      expect(await screen.findByText(runningText)).toBeInTheDocument();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it("提交被入队前检查拒绝时显示原因", async () => {

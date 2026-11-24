@@ -19,10 +19,6 @@ from tests.integration.server.agent_tool_support import (
     said,
 )
 
-# ---------------------------------------------------------------------------
-# split_narration_segments
-# ---------------------------------------------------------------------------
-
 
 async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:
     nr_source(fake_ctx)
@@ -31,11 +27,9 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_req
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
-    # episode 注入 segment_id 前缀、资产候选与能力档位进 prompt
     assert "E1S" in prompt_text
     assert "张三" in prompt_text
     assert "4" in prompt_text
-    # 未传 instructions 时无附加指令分节
     assert "# 附加指令" not in prompt_text
 
 
@@ -102,9 +96,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
     assert script_plan_path.exists()
     saved = json.loads(script_plan_path.read_text(encoding="utf-8"))
-    # 模型写的编号只是占位，落盘时由服务端发号：夹具剧本已用过 E1S01
     assert [s["segment_id"] for s in saved["segments"]] == ["E1S02", "E1S03"]
-    # novel_text 逐字保留
     assert saved["segments"][0]["novel_text"] == "张三走向村口。"
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
@@ -137,7 +129,6 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 
     class _Generator:
         async def generate(self, _request, project_name=None):
-            # 等待供应商期间的改写来自别的写方，不在被测调用的事件循环上。
             await asyncio.to_thread(episode_source.write_text, "等待供应商期间改过的原文。", encoding="utf-8")
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest

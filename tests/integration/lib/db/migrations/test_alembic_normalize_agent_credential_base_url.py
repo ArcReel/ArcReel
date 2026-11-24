@@ -53,6 +53,5 @@ def test_upgrade_normalizes_legacy_base_urls(
         2: "https://api.minimaxi.com/anthropic",
         3: "https://x",
         4: "https://api.deepseek.com/anthropic",
-        # 带 query 的值只做同样三步、不在迁移里拒绝：它由测试连接的入口校验拦下，用户须自行改地址。
         5: "https://relay.example.com/a?api_key=sk-x",
     }

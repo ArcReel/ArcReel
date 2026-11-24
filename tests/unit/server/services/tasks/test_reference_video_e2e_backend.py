@@ -86,7 +86,6 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         encoding="utf-8",
     )
 
-    # 剧本的取证链（分集原文 → script_plan）齐备，补录才登记得出剧本这条产物。
     (proj_dir / "source").mkdir()
     (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (proj_dir / "drafts" / "episode_1").mkdir(parents=True)
@@ -103,7 +102,6 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
 
     custom_pm = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, custom_pm)
-    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
     use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(4,)))
 
     app = FastAPI()
@@ -118,7 +116,6 @@ async def test_end_to_end_generate_unit_to_executor(
 ):
     client, proj_dir = seeded_client
 
-    # 1) 建 unit
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "Shot 1 (3s): @张三 推门进 @酒馆", "duration_seconds": 4},
@@ -126,7 +123,6 @@ async def test_end_to_end_generate_unit_to_executor(
     assert resp.status_code == 201, resp.text
     uid = resp.json()["unit"]["unit_id"]
 
-    # 2) Patch GenerationQueue.enqueue_task 直接返回 task dict（跳过 DB）
     captured_payload: dict = {}
 
     async def _fake_enqueue(**kwargs):
@@ -142,7 +138,6 @@ async def test_end_to_end_generate_unit_to_executor(
     assert captured_payload["task_type"] == "reference_video"
     assert captured_payload["resource_id"] == uid
 
-    # 3) Mock resolve_generation_context → 直接执行 executor
     from lib.config.resolver import ProviderModel
     from server.services.tasks.generation_context import GenerationContext, VideoLaneResult
 
@@ -184,7 +179,6 @@ async def test_end_to_end_generate_unit_to_executor(
 
     use_video_thumbnail_extractor(monkeypatch, _fake_extract)
 
-    # 4) Dispatch 到 execute_generation_task
     from server.services.tasks.generation_tasks import execute_generation_task
 
     result = await execute_generation_task(
@@ -199,7 +193,6 @@ async def test_end_to_end_generate_unit_to_executor(
     assert result["resource_id"] == uid
     assert result["file_path"].endswith(f"{uid}.mp4")
 
-    # 5) 校验 unit.generated_assets 已更新
     script = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     u = next(u for u in script["video_units"] if u["unit_id"] == uid)
     assert u["generated_assets"]["status"] == "completed"

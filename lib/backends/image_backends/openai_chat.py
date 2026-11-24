@@ -18,30 +18,29 @@ from typing import Any, ClassVar
 from openai.types.chat import ChatCompletion, ChatCompletionContentPartImageParam, ChatCompletionContentPartParam
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE
-from lib.backends.backend_runtime import with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-#: image_config.image_size 只下传档位词（1K / 2K / 4K …）；自定义 WxH 没有对应取值，不下传。
 _IMAGE_SIZE_TIERS = {k.lower(): k for k in IMAGE_TIER_SHORT_EDGE}
-#: content 里内联的 Markdown 图片：``![alt](url)``，url 可以是 data URI 或 http(s) 地址。
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*([^)\s]+)\s*\)")
 
 
-def _image_config(request: ImageGenerationRequest) -> dict[str, str]:
+def _image_config(request: ImageGenerationRequest | ImageRequestFacts) -> dict[str, str]:
     config = {"aspect_ratio": request.aspect_ratio}
     tier = _IMAGE_SIZE_TIERS.get((request.image_size or "").strip().lower())
     if tier:
@@ -66,7 +65,6 @@ def _extract_image_url(message: Any) -> str | None:
 
 async def _save_image(url: str, output_path: Path) -> None:
     if not url.startswith("data:"):
-        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Chat Completions 图像")
         return
 
@@ -81,7 +79,6 @@ async def _save_image(url: str, output_path: Path) -> None:
 class OpenAIChatImageBackend:
     """经 Chat Completions 出图，支持文生图与图生图。"""
 
-    # 同一个协议背后挂的是各家模型，通道本身不限张数，上限取条目，未收录时交由上游裁决。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -112,6 +109,15 @@ class OpenAIChatImageBackend:
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        config = _image_config(facts)
+        return per_image_usage(
+            output_images=1,
+            input_images=facts.reference_count,
+            dimensions={"resolution": config["image_size"]} if "image_size" in config else None,
+        )
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         content: list[ChatCompletionContentPartParam] = [{"type": "text", "text": request.prompt}]
         content.extend(await asyncio.to_thread(self._reference_parts, request))
@@ -125,12 +131,19 @@ class OpenAIChatImageBackend:
         await _save_image(url, request.output_path)
         logger.info("Chat Completions 出图完成: %s", request.output_path)
 
-        # 按现有字段上报总输入与总输出（读侧把两类相加，见 usage_repo）。
         usage = response.usage
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider_name,
             model=self._model,
+            usage=self.estimate_usage(
+                ImageRequestFacts(
+                    model=self._model,
+                    aspect_ratio=request.aspect_ratio,
+                    image_size=request.image_size,
+                    reference_count=sum(part["type"] == "image_url" for part in content),
+                )
+            ),
             text_input_tokens=usage.prompt_tokens if usage is not None else None,
             image_output_tokens=usage.completion_tokens if usage is not None else None,
         )
@@ -147,20 +160,7 @@ class OpenAIChatImageBackend:
         )
 
     def _reference_parts(self, request: ImageGenerationRequest) -> list[ChatCompletionContentPartImageParam]:
-        parts: list[ChatCompletionContentPartImageParam] = []
-        for ref in request.reference_images:
-            ref_path = Path(ref.path)
-            try:
-                data_uri = image_to_base64_data_uri(ref_path)
-            except FileNotFoundError:
-                logger.warning("参考图不存在，跳过: %s", ref_path)
-                continue
-            parts.append({"type": "image_url", "image_url": {"url": data_uri}})
-        if request.reference_images and not parts:
-            # 用户提交的是图生图却没有一张可用素材：报错而不是悄悄降级成文生图
-            raise ImageCapabilityError(
-                "image_endpoint_mismatch_no_i2i",
-                model=self._model,
-                detail="all reference images failed to open",
-            )
-        return parts
+        return [
+            {"type": "image_url", "image_url": {"url": image.data_uri()}}
+            for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+        ]

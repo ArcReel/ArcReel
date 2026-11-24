@@ -272,10 +272,8 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     assert job["state"] == "pending"
     assert job["usable"] is False
     assert job["content_version_id"] == version_a["id"]
-    # 取得素材 ID 之前，选定的入库任务已可查询
     assert [link["state"] for link in _panel(api)["links"]] == ["pending"]
 
-    # 入库期间改选到 B：B 不继承 A 的入库任务
     _upload_sheet(api, image_b)
     panel_b = _panel(api)
     assert panel_b["content_version"]["id"] != version_a["id"]
@@ -287,7 +285,6 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     t0 = utc_now()
     await _run(sessions, control, t0)
 
-    # 中转上传的是提交时冻结的 A，不是此刻选中的 B
     assert list(bucket["objects"].values()) == [image_a]
     (relay_key, expires) = bucket["presigned"][0]
     assert relay_key.startswith("arcreel-relay/")
@@ -303,7 +300,6 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     link = await _link(sessions, job["id"])
     assert (link.state, link.provider_asset_id) == ("processing", "asset-20261103-a")
 
-    # 刚取得素材 ID：中转副本不能删
     await _run(sessions, control, t0 + timedelta(minutes=1))
     assert (await _link(sessions, job["id"])).state == "processing"
     assert bucket["delete_calls"] == []
@@ -312,9 +308,8 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     link = await _link(sessions, job["id"])
     assert link.state == "active"
     assert link.selected is True
-    assert bucket["delete_calls"] == []  # 定论后仍保留到最短保留期
+    assert bucket["delete_calls"] == []
 
-    # 生成侧按内容版本与调用范围查到 A 的可用关联；B 没有
     async with sessions() as session:
         account = await AssetLibraryRepository(session).get_account(account_id)
         assert account is not None
@@ -327,21 +322,18 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     assert found_a.id == job["id"]
     assert found_b is None
 
-    # 切回 A：面板显示 A 仍可用的关联
     resp = api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
     assert resp.status_code == 200, resp.text
     [shown] = _panel(api)["links"]
     assert (shown["id"], shown["state"], shown["usable"]) == (job["id"], "active", True)
     assert shown["provider_asset_id"] == "asset-20261103-a"
 
-    # 最短保留期过后实际清理中转副本，正式图片与版本快照不受影响
     await _run(sessions, control, t0 + timedelta(hours=2))
     assert bucket["delete_calls"] == [relay_key]
     assert bucket["objects"] == {}
     [relay] = await _relays(sessions)
     assert relay.state == "deleted"
     assert _panel(api)["content_version"]["id"] == version_a["id"]
-    # 签名地址与控制面密钥不进日志
     assert "X-Tos-Signature" not in caplog.text
     assert SK not in caplog.text
 
@@ -370,7 +362,6 @@ async def test_formal_object_is_presigned_directly_and_never_swept_as_relay(api,
     assert (await _link(sessions, job["id"])).state == "active"
     assert bucket["delete_calls"] == []
     assert list(bucket["objects"]) == [("relay-bucket", formal_key)]
-    # 保留期过后入库任务撤下自己的引用，项目仍在使用，对象保留
     assert await _holders(sessions) == {("demo", "active")}
 
 
@@ -419,7 +410,6 @@ async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source
         assert bucket["delete_calls"] == [formal_key]
         return
 
-    # 地址过期再过宽限期，供应商已无法取图：撤下入库任务的引用，对象失去全部引用后回收
     await _run(sessions, control, t0 + ingest.RELAY_URL_TTL + timedelta(hours=1, minutes=1))
     assert await _holders(sessions) == set()
     assert bucket["delete_calls"] == [formal_key]
@@ -438,7 +428,7 @@ async def test_relay_read_of_a_remote_version_is_not_evicted_between_fetch_and_r
     _upload_sheet(api, solid_png_bytes((90, 30, 60), size=(400, 400)))
 
     async def _unavailable(*_args: Any, **_kwargs: Any) -> bool:
-        return False  # 正式对象此刻不能签名，入库回落中转副本
+        return False
 
     fetch = ingest.ensure_content_version_file
     cleanups: list[Any] = []
@@ -466,7 +456,6 @@ async def test_unlink_releases_only_the_relation_and_late_result_does_not_restor
     _upload_sheet(api, solid_png_bytes((1, 2, 3), size=(400, 400)))
     job = _start_upload(api, account_id)
 
-    # 同一范围已有选定任务时不能重复上传
     resp = api.post(LINKS, json={"resource_type": "characters", "resource_id": "Alice", "account_id": account_id})
     assert resp.status_code == 409
 
@@ -476,16 +465,13 @@ async def test_unlink_releases_only_the_relation_and_late_result_does_not_restor
     assert api.delete(f"{LINKS}/{job['id']}").status_code == 204
     assert _panel(api)["links"] == []
 
-    # 迟到的可用结果只更新事实，不恢复关系
     await _run(sessions, control, t0 + timedelta(minutes=1))
     link = await _link(sessions, job["id"])
     assert (link.state, link.selected) == ("active", False)
     assert _panel(api)["links"] == []
-    # 解除关联不删除供应商素材，也不删 ArcReel 图片
     assert control.actions("DeleteAsset") == []
     assert _panel(api)["content_version"] is not None
 
-    # 解除后可以重新上传，得到新的入库任务
     again = _start_upload(api, account_id)
     assert again["id"] != job["id"]
 
@@ -537,7 +523,6 @@ async def test_uncertain_submission_is_recovered_by_name_without_recreating(api,
     panel = _panel(api)["links"][0]
     assert (panel["state"], panel["usable"]) == ("uncertain", False)
 
-    # 下一轮按提交时的名称查回素材 ID，不再发 CreateAsset
     control.listed_assets = [
         {"Id": "asset-recovered", "Name": link.submit_name, "Status": "Processing"},
         {"Id": "asset-other", "Name": f"{link.submit_name}-copy", "Status": "Active"},
@@ -621,13 +606,11 @@ async def test_reconfirmed_binding_after_key_change_does_not_select_the_old_acco
             await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_b)
             is None
         )
-        # 旧关联不删除、不改写，仍属于原账号身份的范围
         kept = await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_a)
     assert kept is not None
     assert kept.id == job["id"]
     assert scope_of(kept) == scope_a
 
-    # 面板把旧关联单列为另一范围，账号行可以为新身份重新上传
     panel = _panel(api)
     [shown] = panel["links"]
     [account] = panel["accounts"]
@@ -680,14 +663,12 @@ async def test_provider_rejection_keeps_reason_and_relay_is_cleaned_with_retry(a
     assert shown["error_code"] == "InputImageSensitiveContentDetected"
     assert shown["error_message"] == "image rejected"
 
-    # 删除失败保留定位与原因，退避后重试成功
     bucket["fail_delete"] = True
     await _run(sessions, control, t0 + timedelta(hours=2))
     [relay] = await _relays(sessions)
     assert (relay.state, relay.last_error, relay.delete_attempts) == ("retained", "provider:InternalError", 1)
     await _run(sessions, control, t0 + timedelta(hours=2, minutes=1))
-    assert len(bucket["delete_calls"]) == 1  # 退避期内不重试
-    # 删除重试次数累积很多后，退避仍停在上限，不因溢出中断整轮处理
+    assert len(bucket["delete_calls"]) == 1
     async with sessions() as session:
         stored = await session.get(RelayObject, relay.id)
         assert stored is not None
@@ -911,8 +892,6 @@ async def test_upload_requires_an_image_and_object_storage(api, sessions, bucket
     assert _panel(api)["links"] == []
 
 
-# ── 从素材库选择已有图片 ─────────────────────────────────────────────
-
 ASSET_URL = "https://ark-asset.cn-beijing.volcengine.example/asset-20261103-b.png"
 ASSET_SIGNATURE = "X-Tos-Signature=TEST-SIGNATURE-0003"
 IMPORT = f"{LINKS}/import"
@@ -964,7 +943,7 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
 ):
     """导入闭环：取回素材原图保存为成品新版本，关联属于这个版本且可用；切回旧版本不继承关联。"""
     caplog.set_level(logging.INFO)
-    account_id = await _configure(sessions, object_storage=False)  # 导入不经对象存储中转
+    account_id = await _configure(sessions, object_storage=False)
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
     image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
     if large_original:
@@ -982,12 +961,10 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
         resp = _import(api, account_id)
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    # 只按 GetAsset 返回的地址取图，查询带账号的供应商项目
     assert [b["ProjectName"] for b in control.actions("GetAsset")] == ["film"]
     assert download.call_count == 1
     assert ASSET_SIGNATURE in str(download.calls.last.request.url)
 
-    # 正式内容是素材原图，按手动上传成品记入版本历史
     sheet = project.get_project_path("demo") / "characters" / "Alice.png"
     assert sheet.read_bytes() == image_b
     history = _versions(api)
@@ -996,7 +973,6 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
     assert record["source"] == "manual_upload"
     assert record["content_version_id"] == body["content_version"]["id"] != version_a["id"]
 
-    # 关联属于新内容版本，保留账号范围，可用于生成
     link = body["link"]
     assert (link["state"], link["usable"], link["provider_asset_id"]) == ("active", True, "asset-20261103-b")
     assert (link["site"], link["region"], link["provider_project_name"]) == ("volcengine", "cn-beijing", "film")
@@ -1012,13 +988,11 @@ async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
     assert found is not None
     assert found.id == link["id"]
 
-    # 切回 A：A 没有关联；再切回导入的版本，关联仍在
     assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/1").status_code == 200
     assert _panel(api)["links"] == []
     assert api.post("/api/v1/projects/demo/versions/characters/Alice/restore/2").status_code == 200
     assert [shown["id"] for shown in _panel(api)["links"]] == [link["id"]]
 
-    # 签名地址与控制面密钥不进响应与日志
     assert ASSET_SIGNATURE not in resp.text
     assert "TEST-SIGNATURE" not in caplog.text
     assert SK not in caplog.text
@@ -1198,10 +1172,6 @@ async def test_import_follows_the_storage_choice_and_keeps_the_original_bytes(
     assert [kept.id for kept in await _all_links(sessions)] == [link.id]
 
 
-# ── 角色衍生图 ───────────────────────────────────────────────────────
-# 衍生图走自己的手动上传成品路径（规范路径固定为 .png），关联编排与资产图共用；
-# 这里只覆盖衍生特有的部分：落盘与版本、PNG 封装下的原像素保真、关联可用与解除，以及提交钩子的回滚。
-
 DERIVATIVE = {"resource_type": "character_derivatives", "resource_id": "Alice/战斗装"}
 DERIVATIVE_SHEET = Path("characters") / "derivatives" / "Alice" / "战斗装.png"
 
@@ -1270,7 +1240,6 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
     assert resp.status_code == 201, resp.text
     body = resp.json()
 
-    # 衍生规范路径是 .png：PNG 原样保存，JPEG 只换封装，像素与素材一致
     saved = (project.get_project_path("demo") / DERIVATIVE_SHEET).read_bytes()
     if original_format == "png":
         assert saved == original
@@ -1288,7 +1257,6 @@ async def test_derivative_import_saves_original_pixels_as_uploaded_version_with_
     assert [shown["id"] for shown in _derivative_panel(api)["links"]] == [link["id"]]
     assert ASSET_SIGNATURE not in resp.text
 
-    # 切回旧版本不继承关联；回到导入的版本后解除，只解除关系，图片仍在
     assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/1").status_code == 200
     assert _derivative_panel(api)["links"] == []
     assert api.post("/api/v1/projects/demo/versions/character-derivative/Alice/战斗装/restore/2").status_code == 200
@@ -1375,11 +1343,6 @@ async def test_derivative_import_failing_after_link_keeps_selected_version_and_n
     assert await _all_links(sessions) == []
 
 
-# ── Agent 工具 ───────────────────────────────────────────────────────
-# 工具经两宿主的真实 adapter 调用，与 Web 共用同一组关联记录；领域规则已由上面的 Web 用例覆盖，
-# 这里只验证明确指令、立即返回、两宿主结果一致，以及结果里不带密钥与签名。
-
-
 @pytest.fixture
 def agent_services(project, sessions) -> Services:
     return Services(
@@ -1434,7 +1397,6 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
     target = {"resource_type": "character", "resource_id": "Alice", "account_id": account_id}
 
-    # 没有用户明确要求（例如只是生成被拒）时，入口拒绝，不创建入库任务
     refused, refused_json = await _embedded(agent_services, "upload_to_provider_asset_library", target)
     assert refused.isError is True
     assert refused_json["problem"]["code"] == "invalid_request"
@@ -1445,11 +1407,9 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     )
     assert started.isError is False
     job = started_json["provider_asset_link"]
-    # 不等待供应商：后台尚未推进，返回的是待上传的任务
     assert (job["state"], job["usable"], job["polling"]) == ("pending", False, True)
     assert [link["id"] for link in _panel(api)["links"]] == [job["id"]]
 
-    # 同一范围重复上传：沿用领域层的冲突判断与错误码
     again = await _remote(agent_services, "upload_to_provider_asset_library", {**target, "user_requested": True})
     assert again.isError is True
     assert again.structuredContent is not None
@@ -1481,7 +1441,6 @@ async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(a
     assert _panel(api)["content_version"] is not None
     assert control.actions("DeleteAsset") == []
 
-    # 工具结果不带控制面密钥、对象存储密钥或签名地址
     for result in (started, again, embedded, remote, released):
         text = _tool_text(result)
         assert SK not in text
@@ -1560,7 +1519,6 @@ async def test_agent_selects_a_library_image_for_a_character_derivative(
     assert "TEST-SIGNATURE" not in _tool_text(selected)
 
 
-#: 前端按码给出本地化原因的码表，前端测试核对同一份文件。
 _LOCAL_FAILURES_CONTRACT = (
     Path(__file__).resolve().parents[4]
     / "frontend"

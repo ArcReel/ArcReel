@@ -23,11 +23,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 公开端点：拿到 token 之前必须可达，注册时不挂 Bearer 依赖。
 public_router = APIRouter()
-
-
-# ==================== 响应模型 ====================
 
 
 class TokenResponse(BaseModel):
@@ -42,9 +38,6 @@ class VerifyResponse(BaseModel):
 
 class AuthStatusResponse(BaseModel):
     enabled: bool
-
-
-# ==================== 路由 ====================
 
 
 @public_router.get("/auth/status", response_model=AuthStatusResponse)

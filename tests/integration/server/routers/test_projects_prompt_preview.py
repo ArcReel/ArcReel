@@ -54,12 +54,10 @@ class TestPromptPreviewEndpoint:
             "text": "Style: Anime\n\n最终提示词",
             "unavailable": None,
             "is_text_form": True,
-            # 渲染时的提示与不可用原因同口径：按请求语言渲染成成品文案，不把裸 key 推给前端
             "warnings": ["参考图数量 8 超出 Vidu Q2 Image 上限 7，已取前 7 张"],
         }
         assert body["video"]["text"] is None
         assert body["video"]["warnings"] == []
-        # 不可用原因是后端按请求语言渲染的成品文案，不把裸 key 推给前端
         assert body["video"]["unavailable"] == "该分镜还没有填写提示词"
 
     def test_refused_generation_input_renders_its_gaps(self, tmp_path, monkeypatch):

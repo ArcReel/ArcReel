@@ -29,9 +29,9 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.providers import PROVIDER_OPENROUTER
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
 
-# 1x1 PNG 头部若干字节，够 save_image_from_response_item 写盘断言用
 _PNG_1PX = base64.b64encode(
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
 ).decode("ascii")
@@ -53,7 +53,6 @@ def _enum(name: str, *values: str) -> dict:
     return {name: {"type": "enum", "values": list(values)}}
 
 
-# 与 OpenRouter 目录返回同构的 supported_parameters 样本
 _GEMINI_LIKE = {
     "id": "google/gemini-3.1-flash-image",
     "supported_parameters": {
@@ -83,7 +82,7 @@ _GROK_LIKE = {
 
 def _make_ref(tmp_path: Path, name: str = "ref.png") -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake-ref-bytes")
+    p.write_bytes(image_bytes())
     return ReferenceImage(path=str(p))
 
 
@@ -133,7 +132,6 @@ def _ref_range(model_id: str, low: int, high: int) -> dict:
         pytest.param((_ref_range("m", 0, 20),), 200, 16, id="declared-above-endpoint-cap"),
         pytest.param((), 200, 16, id="model-not-in-catalog"),
         pytest.param((), 500, 16, id="catalog-unavailable"),
-        # 收录却没声明参考图：不报 0（0 = 不裁剪），由 generate 按不支持图生图报错
         pytest.param(({"id": "m", "supported_parameters": {}},), 200, 16, id="no-input-references"),
     ],
 )
@@ -150,12 +148,10 @@ def test_unknown_model_falls_back_to_size(tmp_path: Path):
         _run(_request(tmp_path))
     req_json = request_json(only_request(route))
     assert req_json["model"] == "openai/gpt-image-2"
-    assert req_json["size"] == "1008x1792"  # 1K 档短边 1024、9:16，取比例零偏差的最近对齐解
+    assert req_json["size"] == "1008x1792"
     assert "resolution" not in req_json
     assert "aspect_ratio" not in req_json
-    # 没有声明依据的参数不带：quality 也不发（1K 档在 OpenAI 口径下本会映射出 quality）
     assert "quality" not in req_json
-    # 纯 T2I 不带参考图字段
     assert "input_references" not in req_json
 
 
@@ -177,7 +173,6 @@ def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
         _run(_request(tmp_path, image_size="2K"), model="google/gemini-3.1-flash-image")
     req_json = request_json(only_request(route))
     assert req_json["aspect_ratio"] == "9:16"
-    # 2K 档短边 1440 → 枚举里 ≥ 请求值的最小档 2K
     assert req_json["resolution"] == "2K"
     assert "size" not in req_json
 
@@ -224,9 +219,7 @@ def test_resolution_model_nearest_ratio_and_omit_low_quality(tmp_path: Path):
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path, aspect_ratio="2:3", image_size="4K"), model="x-ai/grok-imagine-image-2.0")
     req_json = request_json(only_request(route))
-    # 2:3≈0.667：1:1=1.0 差 0.333，9:16≈0.563 差 0.104 → 取 9:16
     assert req_json["aspect_ratio"] == "9:16"
-    # 4K 档短边 2160 超出枚举（最高 2K）→ 不降档原则失败后取最大档 2K
     assert req_json["resolution"] == "2K"
     assert "quality" not in req_json
     assert "size" not in req_json
@@ -306,7 +299,7 @@ def test_i2i_sends_data_uri_references(tmp_path: Path):
     assert refs_payload[0]["type"] == "image_url"
     url = refs_payload[0]["image_url"]["url"]
     assert url.startswith("data:image/png;base64,")
-    assert base64.b64decode(url.split(",", 1)[1]) == b"\x89PNG\r\nfake-ref-bytes"
+    assert base64.b64decode(url.split(",", 1)[1]) == image_bytes()
 
 
 def test_missing_ref_files_raise_rather_than_silent_t2i(tmp_path: Path):
@@ -347,7 +340,12 @@ def test_refs_over_declared_max_rejected_without_submitting(tmp_path: Path):
         with pytest.raises(ImageCapabilityError) as ei:
             _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
     assert ei.value.code == "image_reference_images_exceeded"
-    assert ei.value.params == {"model": "x-ai/grok-imagine-image-2.0", "limit": 3, "count": 5}
+    assert ei.value.params == {
+        "model": "x-ai/grok-imagine-image-2.0",
+        "limit": 3,
+        "count": 5,
+        "names": "ref-3.png, ref-4.png",
+    }
     assert not route.called
 
 

@@ -57,7 +57,6 @@ async def test_db_session_store_passes_sdk_conformance():
             register_db_models()
 
             await conn.run_sync(Base.metadata.create_all)
-        # PG enforces FK constraints; seed the conformance user.
         if pg_url:
             async with engine.begin() as conn:
                 await conn.execute(
@@ -71,10 +70,8 @@ async def test_db_session_store_passes_sdk_conformance():
         return DbSessionStore(factory, user_id="conformance")
 
     try:
-        # 一致性套件以抛异常报告失败；显式断言无返回，免得用例体被清空也没人发现。
         assert await run_session_store_conformance(make_store) is None
     finally:
-        # On PG, drop the per-store schemas before disposing the engines.
         if pg_url:
             for engine, schema in zip(engines, schemas, strict=True):
                 async with engine.begin() as conn:

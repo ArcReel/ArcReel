@@ -1,11 +1,3 @@
-/**
- * Project-related type definitions.
- *
- * Maps to backend models in:
- * - lib/project/project_manager.py (ProjectOverview, project.json structure)
- * - lib/workflow/workflow_state.py (ProjectStatus / EpisodeMeta read-time fields, from the project summary)
- * - server/routers/projects.py (ProjectSummary list response)
- */
 
 import type { VoiceConsistencyTier } from "@/types/provider";
 import type { NarrationDelivery } from "@/types/workflow";
@@ -19,24 +11,14 @@ export interface ProjectOverview {
   generated_at?: string;
 }
 
-/**
- * 角色的一个衍生：本体之外的另一套持续外观（换装、变身、易容等）。与本体共享名字、声音
- * 与身份，只持有相对本体的变化描述与资产图，没有原图。资产图由本体资产图编辑生成，也可以上传成品替换。
- */
 export interface CharacterDerivative {
-  /** 相对本体的外观变化，采用图像编辑指令的口吻。 */
   description: string;
-  /** 衍生资产图相对路径；尚未生成时为空。 */
   character_sheet?: string;
-  /** 脚本里有没有写 `@[角色/衍生]` 或 `角色/衍生`。读时计算、不落盘，读取项目时随条目返回。 */
   referenced?: boolean;
 }
 
-/** 衍生的读取视图：登记字段加上「这张图相对本体现状是否已过期」。 */
 export interface CharacterDerivativeStatus extends CharacterDerivative {
-  /** 已登记的衍生图不再等于规范状态时为真；还没生成过则为假。 */
   stale: boolean;
-  /** 产物清单状态；登记文件不可读时为 missing。 */
   artifact_status?: "current" | "stale" | "missing" | "blocked";
 }
 
@@ -46,40 +28,29 @@ export interface Character {
   voice_style?: string;
   reference_image?: string;
   reference_audio?: string;
-  /** reference_audio 当前生效版本的设置/更新时间（ISO8601），由后端在写入时机械戳。 */
   voice_updated_at?: string;
-  /** 已确认到的声音版本（ISO8601，取关闭时的 voice_updated_at 原值）；
-   *  voice_updated_at 晚于此值即视为新版本。 */
   voice_notice_dismissed_at?: string;
-  /** 衍生表：衍生名 → 条目。衍生名只在本角色内唯一，脚本中写作 `@[角色/衍生]`。 */
   derivatives?: Record<string, CharacterDerivative>;
-  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
   aliases?: string[];
 }
 
 export interface Scene {
   description: string;
   scene_sheet?: string;
-  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
   aliases?: string[];
 }
 
 export interface Prop {
   description: string;
   prop_sheet?: string;
-  /** 别名：只供 AI 规划时认人参考，不参与引用。 */
   aliases?: string[];
 }
 
 export interface Product {
   description: string;
-  /** 标准商品资产图（可选，生成/上传后回写）。 */
   product_sheet?: string;
-  /** 品牌要素自由文本。 */
   brand?: string;
-  /** 用户上传的商品原图路径列表（保真验收锚点，系统级字段）。 */
   reference_images?: string[];
-  /** 卖点列表（Agent 起草、用户可改）。 */
   selling_points?: string[];
 }
 
@@ -98,40 +69,26 @@ export interface EpisodesSummary {
   completed: number;
 }
 
-/** One artifact group: available = current plus stale, stale counted separately */
 export interface ArtifactCount {
   total: number;
   available: number;
   stale: number;
 }
 
-/** Project summary projection, injected at read time by WorkflowStateService */
 export interface ProjectStatus {
-  /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
   needs_repair: boolean;
-  /** The migration failure message exactly as raised, or null when not blocked */
   repair_reason: string | null;
-  /** Asset sheet counts keyed by asset type (character / scene / prop / product) */
   assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
-  /** The whole source still has text not yet planned into episodes; recorded by ledger commands, not read from source */
   source_remaining: boolean;
 }
 
-/**
- * 集页面之外指称条目所需的结构（后端 `with_episode_item_refs`）：条目 ID 不给创作者看，
- * 界面拼成「标题 · 5」，标题为空时用播出位置。
- */
 export interface EpisodeItemRef {
   episode_title: string;
   episode_position: number;
-  /** 集内 ID，如 S01 / U02；只用于宫格这类不按位置指称的条目。 */
   item_id: string;
-  /** 分镜或视频单元在本集里的当前位置，从 1 起；条目已不在剧本里时为 null。 */
   item_position: number | null;
-  /** 正文前十几个字；条目已不在剧本里时为空串。 */
   item_excerpt: string;
-  /** 缩略图的项目内相对路径。 */
   item_thumbnail: string | null;
 }
 
@@ -139,38 +96,15 @@ export interface EpisodeMeta {
   episode: number;
   title: string;
   script_file: string;
-  /** Written by episode_planner at split time: ending hook / suspense */
   hook?: string;
-  /** 切出集在整本源文里的原文范围（规范化文本的码位偏移）；`end` 落在 `end_file` 里，缺省同 `source_file`。 */
   source_range?: { source_file?: string; start?: number; end?: number; end_file?: string };
-  /**
-   * 本集原文的来源：切自整本源文、自带原文（逐集上传或在集页填写）、无原文。
-   * 缺省按有无 source_range 推断。
-   */
   source_origin?: "whole_source" | "own" | "none";
-  /** 自带原文的集的源文件类型，只有剧情演绎项目记录。 */
   source_kind?: "novel" | "screenplay";
-  /**
-   * 集规划状态。只有 stale 对创作者有意义：这一集的原文已被重新规划或删改，
-   * 与产物过期（storyboards / videos 的 stale）是两件事。
-   */
   ledger_status?: "planned" | "consumed" | "stale";
-  /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
-  /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */
   prompt_authoring_instructions?: string;
-  /** 上一次 AI 规划脚本的附加指令，重新生成时预填 */
   script_plan_instructions?: string;
-  /**
-   * Per-episode fields below come from the project summary at read time, on the artifact
-   * manifest's terms — the same numbers the studio reads, never persisted to project.json.
-   * Optional because the fallback meta some canvases build has no summary behind it.
-   *
-   * item_count 是该集的内容规模：分镜图生视频是分镜数，参考生视频是视频单元数。
-   * 计数口径由项目的 generation_mode 决定，三种创作类型一致。
-   */
   item_count?: number;
-  /** Script progress derived from the script_plan and final-script artifact states */
   script_status?: "none" | "segmented" | "generated";
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
   duration_seconds?: number;
@@ -178,15 +112,12 @@ export interface EpisodeMeta {
   videos?: ArtifactCount;
 }
 
-/** 角色声音绑定方式；与后端 `lib.speech.character_voice.CharacterVoiceBinding` 一一对应，取值增减须两侧同步。 */
 export type CharacterVoiceBinding = "prompt" | "reference_audio";
 
-/** 未声明时的取值：提示词软约束。参考音频是可选增强，须由用户显式选择才生效。 */
 export const DEFAULT_CHARACTER_VOICE_BINDING: CharacterVoiceBinding = "prompt";
 
 export interface ModelSettingEntry {
   resolution?: string | null;
-  /** 图片画质；缺席、null 或空白都按未选择，此时后端按分辨率档位推出画质。 */
   quality?: string | null;
 }
 
@@ -198,56 +129,40 @@ export interface ProjectData {
   style_image?: string;
   style_description?: string;
   overview?: ProjectOverview;
-  aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
-  default_duration?: number | null;     // 新分镜的默认视频时长（秒），空值即由 AI 按内容决定；ad 项目不持有
-  episode_target_duration?: number | null;  // 单集成片目标时长（秒）软偏好，空值即未设目标；ad 项目不持有
-  /** 仅 ad：目标总时长（秒）。 */
+  aspect_ratio?: string | AspectRatio;
+  default_duration?: number | null;
+  episode_target_duration?: number | null;
   target_duration?: number;
-  /** 仅 ad：创作诉求短文本（可空）。 */
   brief?: string;
   schema_version?: number;
-  /** 整本源文的文件清单，按创作者排定的顺序。 */
   whole_source_files?: { source_file: string; source_kind?: "novel" | "screenplay" }[];
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;
   props?: Record<string, Prop>;
-  /** 商品资产（广告/短片项目使用，v1 单商品设定，字段形态为映射）。 */
   products?: Record<string, Product>;
-  /** Project summary projection, injected at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
-  /** 视频任务类型桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */
   video_provider_i2v?: string | null;
   video_provider_r2v?: string | null;
   image_backend?: string | null;
-  /** 项目默认图片模型；图片任务类型桶留空时回退到它，再回退全局层 */
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
-  /** 多宫格分镜装配开关；仅分镜图生视频有意义，随时可切。 */
   grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
-  /** 角色声音绑定方式：prompt（默认，按 voice_style 提示词软约束）/ reference_audio（挂角色参考音频）。 */
   character_voice_binding?: CharacterVoiceBinding;
-  /** 旁白交付方式（docs/adr/0089）：TTS 配音或后期配音，缺省按后期配音处理 */
   narration_delivery?: NarrationDelivery;
-  /** TTS 快照：provider/model、音色与语速。创建时以全局默认预填，之后不继承全局默认；
-   *  改为后期配音后保留。语速缺省表示不向供应商传语速 */
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;
-  /** 源文语言码（zh / en / vi / ru），由内容分析写入；界面只读，用于口播语速的单位名词 */
   source_language?: string | null;
-  /** 口播语速估算（阅读单位 / 秒）项目级覆盖；留空即按项目语言的默认速度估算 */
   speech_rate_units_per_second?: number | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
   model_settings?: Record<string, ModelSettingEntry>;
-  /** Legacy field: keyed by model_id only (before composite key refactor). Read-only at UI layer. */
   video_model_settings?: Record<string, { resolution?: string | null }>;
   metadata?: {
     created_at: string;
@@ -255,12 +170,6 @@ export interface ProjectData {
   };
 }
 
-/**
- * Summary shape returned by GET /api/v1/projects (list endpoint).
- *
- * Note: `status` may be an empty object `{}` when the project
- * has no project.json or encounters an error during loading.
- */
 export interface ProjectSummary {
   name: string;
   title: string;
@@ -269,7 +178,6 @@ export interface ProjectSummary {
   style_image?: string | null;
   thumbnail: string | null;
   status: ProjectStatus | Record<string, never>;
-  /** 项目内容最近一次修改的时刻；列表按它从近到远排序。读不到项目时为 null。 */
   last_activity_at: string | null;
 }
 
@@ -307,25 +215,13 @@ export interface ImportProjectResponse {
   diagnostics: ImportSuccessDiagnostics;
 }
 
-/** 时长被联动约束剔除的成因；「型号全集就不含」不在此列，按不在 supported_durations 内判定。 */
-export type DurationExclusionReason = "resolution" | "reference";
+export type DurationExclusionReason = "resolution" | "reference" | "end_frame";
 
-/**
- * 一次约束上下文下的时长收窄结果与成因，由服务端该桶的视频请求事实
- * （`lib/generation/video_request_facts.py`）算好回传；前端只查表，不持有收窄规则。
- */
 export interface DurationConstraints {
-  /** 求值用的生效分辨率；null = 未按分辨率收窄。 */
   resolution: string | null;
   uses_reference_images: boolean;
-  /** 收窄结果，升序。 */
   allowed: number[];
-  /**
-   * 剧本规划可选的档位，升序：通常等于 `allowed`；时长由端点固定时是规划借用的档位。内容确认按它
-   * 判越档，与服务端确认转换同一口径。只有项目端点给出。
-   */
   planning?: number[];
-  /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
 }
 
@@ -335,30 +231,26 @@ export interface VideoCapabilityProblem {
   action: string;
 }
 
-/**
- * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
- * 后端：server/routers/projects.py 的 /projects/{name}/video-capabilities，
- * 无项目变体 server/routers/providers.py 的 /providers/video-capabilities。
- */
 export interface VideoCapabilities {
   provider_id: string;
   model: string;
-  /** 型号声明的时长全集，不随约束上下文变化；收窄结果见 duration_constraints。 */
   supported_durations: number[];
   max_duration: number;
-  /** 参考图上限的生效值（模型条目与调用通道两侧求值 ⊕ 用户覆盖）：null 为未收录，0 为不接受参考图。 */
   max_reference_images: number | null;
-  /** 生效值（模型条目与调用通道两侧求值 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
   first_frame: boolean;
   last_frame: boolean;
   source: "registry" | "custom";
   default_duration?: number | null;
   content_mode?: string | null;
   generation_mode?: string | null;
-  /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
   voice_consistency: VoiceConsistencyTier;
   duration_constraints: DurationConstraints;
-  /** 时长这一维由端点固定（ComfyUI workflow 自己定片长）：档位为空集不是「声明缺失」。 */
+  end_frame_unit_durations?: {
+    without_end_frame: number[];
+    with_end_frame: number[];
+    excluded: Record<string, DurationExclusionReason>;
+    problem: VideoCapabilityProblem | null;
+  };
   duration_endpoint_fixed?: boolean;
   duration_endpoint_fixed_reason?: "endpoint" | null;
 }

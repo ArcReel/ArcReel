@@ -45,9 +45,6 @@ logger = logging.getLogger(__name__)
 
 _TARGET_VERSION = 9
 
-#: 本步可能遇到的两个参考生视频脚本规划草稿名，按查找顺序排列。起点低于 v8 的项目在 v7→v8
-#: 已被前置改名为 ``script_plan_*``；起点正好是 v8 的项目没经过那一步，草稿仍是 v8 的落盘事实
-#: ``step1_*``。两个名字都是历史事实，写死在这一步，不跟随当前命名。
 _REFERENCE_UNITS_FILENAMES = ("script_plan_reference_units.json", "step1_reference_units.json")
 
 
@@ -90,13 +87,10 @@ def _convert_unit(unit: object, location: str) -> dict[str, Any]:
     if not isinstance(unit, dict):
         raise ValueError(f"{location} 必须是对象")
     migrated = copy.deepcopy(unit)
-    # 时长曾挂在 shots[*].duration 上，此前只由加载链惰性收编——存量落盘里仍可能只有镜头时长。
-    # shots 在下面就被删掉，这里是最后一次能读到那份时长的时刻，故先收编再拼正文。
     migrate_unit_durations([migrated])
     text = _unit_text(migrated, location)
     migrated.pop("shots", None)
     migrated.pop("references", None)
-    # 旧标记只为镜头结构服务；它蕴含的 needs_replan 在下一行显式保留。
     if migrated.pop("migration_requires_content_replan", None) is True:
         migrated["needs_replan"] = True
     migrated["text"] = text
@@ -104,7 +98,6 @@ def _convert_unit(unit: object, location: str) -> dict[str, Any]:
 
 
 def _without_transition(unit: dict[str, Any]) -> dict[str, Any]:
-    # 转场到 v15→v16 才从条目上删除，自检的当前模型已不含它。
     return {key: value for key, value in unit.items() if key != "transition_to_next"}
 
 
@@ -143,7 +136,6 @@ def _migrate_script_unit(unit: object, location: str) -> dict[str, Any]:
         migrated["needs_replan"] = True
         text = migrated.get("text")
         if isinstance(text, str) and not text.strip():
-            # 没有正文的单元按待重新规划的空壳处理：空壳的编排时长为 0。
             migrated["duration_seconds"] = 0
     return migrated
 
@@ -240,7 +232,6 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
 
     plans: list[tuple[Path, dict[str, Any]]] = []
     if project.get("generation_mode") == "reference_video":
-        # 此循环只读：任一文件损坏时还没有备份或业务文件写入。
         for script_path, episode in _episode_entries(project_dir, project):
             label = script_path.name
             with _located(episode, label):
@@ -255,10 +246,8 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
                 if draft is not None:
                     plans.append((draft_path, migrate_reference_script_plan_draft(draft, location=draft_label)))
             except (OSError, ValueError) as exc:
-                # 损坏或打不开的脚本规划草稿原样保留、不改写，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
                 logger.warning("第 %s 集脚本规划草稿无法迁移，原样保留：%s（%s）", episode, draft_path, exc)
 
-    # 预检全部成功后才创建备份；所有文件（含 project.json）先备份完，再开始替换。
     for path, _payload in [*plans, (project_file, project)]:
         ensure_versioned_backup(path, 8)
     for path, payload in plans:

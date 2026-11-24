@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 def resolve_media_file(resource_type: str, resource_id: str, project_path: Path) -> tuple[Path, str]:
     """返回 (current_file_absolute, relative_file_path)；资源 ID 越界时抛出领域异常。"""
     relative = resource_relative_path(resource_type, resource_id)
-    # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
     try:
         current_file = safe_join(project_path, relative)
     except PathTraversalError as exc:
@@ -99,7 +98,6 @@ async def restore_typed_media_resource(
                 artifact_path=file_path,
             )
 
-            # 计算还原后文件的 fingerprint；fingerprint=0 通知前端该文件已失效（poster 消失直到重新生成）
             asset_fingerprints: dict[str, int] = {}
             if current_file.exists():
                 asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
@@ -107,7 +105,6 @@ async def restore_typed_media_resource(
                 asset_fingerprints[cleared[0]] = cleared[1]
 
             if video_kind is not None:
-                # current 路径不变时快照差分无法识别换版，显式事件让在线预览刷新媒体指纹。
                 emit_project_change_batch(
                     project_name,
                     [
@@ -148,7 +145,6 @@ async def restore_typed_media_resource(
             return await run_noninterruptible_sync(_sync)
 
     except ValueError as e:
-        # 非法项目名 / 越界 resource_id / 缺完整取证描述等坏请求，str(e) 可能含路径只进日志
         logger.warning("版本还原请求非法: %s", e)
         raise BadRequestError("request_invalid") from e
 

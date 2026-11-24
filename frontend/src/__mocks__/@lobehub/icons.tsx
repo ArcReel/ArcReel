@@ -11,9 +11,6 @@ const StubIcon = ({ size = 24 }: { size?: number }) => (
   <svg data-testid="lobehub-stub-icon" width={size} height={size} />
 );
 
-// Named exports used via `import { Jimeng } from "@lobehub/icons"`
 export const Jimeng = StubIcon;
 
-// Default export (covers deep subpath imports like
-// `import GeminiColor from "@lobehub/icons/es/Gemini/components/Color"`)
 export default StubIcon;

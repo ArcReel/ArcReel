@@ -1,7 +1,3 @@
-// Project change notification copy. `label.*` mirrors the stable `label_key`
-// carried by each change event (see lib/i18n/*/events.py); the remaining keys
-// build the sentence around it. Group sentences only render for counts above
-// one, so `entity.*` and `noun.*` use plural wording.
 import type enEvents from '../en/events';
 
 export default {
@@ -45,8 +41,6 @@ export default {
   "entity.overview": 'обзоры проекта',
   "entity.draft": 'результаты плана сценария',
   "entity.grid": 'многопанельные раскадровки',
-  // Task terminal states are refresh signals (important=false) and never reach
-  // notification copy; this entry only keeps the mapping exhaustive.
   "entity.task": 'задачи',
   "entity.fallback": 'элементы',
 

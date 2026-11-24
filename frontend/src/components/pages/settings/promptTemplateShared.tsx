@@ -9,14 +9,9 @@ export type Load<T> =
   | { status: "error"; message: string }
   | { status: "ready"; data: T };
 
-/**
- * 模版正文、片段正文共用的代码块外观：保留换行，长行折行而不横向撑开内容列。
- * 折不开的长串仍会横向滚动，所以代码块自身可聚焦，带聚焦环。
- */
 export const SOURCE_BLOCK_CLS =
   "relative overflow-x-auto rounded-md border border-border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-subtle-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
 
-/** 取值、枚举等短代码片段。 */
 export const CHIP_CLS =
   "rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-xs break-all text-subtle-foreground";
 
@@ -60,7 +55,6 @@ export function ErrorCard({
   );
 }
 
-/** 详情页的一节：标题与说明在卡片外，内容在卡片内。 */
 export function DetailSection({
   title,
   description,
@@ -81,7 +75,6 @@ export function DetailSection({
   );
 }
 
-/** 锁定标记：模版或片段声明 `protected`，不提供编辑入口。 */
 export function LockBadge() {
   const { t } = useTranslation("dashboard");
   return (

@@ -116,7 +116,7 @@ class TestProviderCRUD:
         assert updated is not None
         assert updated.display_name == "New Name"
         assert updated.api_key == "new-key"
-        assert updated.base_url == "https://old.com"  # unchanged
+        assert updated.base_url == "https://old.com"
 
     async def test_update_provider_nonexistent(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)

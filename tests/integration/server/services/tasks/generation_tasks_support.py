@@ -286,7 +286,6 @@ class SheetGenerator:
 
 class FakeGenerator:
     def __init__(self, project_path: Path | None = None):
-        # 传入项目目录时把产出落到产物的规范路径，让任务按生产口径登记清单
         self.project_path = project_path
         self.image_calls = []
         self.image_reference_bytes = []
@@ -296,8 +295,6 @@ class FakeGenerator:
 
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
-        # 落盘产出、读参考图与提交版本都在工作线程里做：MediaGenerator 的后端在线程里写产物，
-        # 正式提交回调也经 run_noninterruptible_sync 在线程里执行
         return await asyncio.to_thread(self._produce_and_commit, kwargs)
 
     def _produce_and_commit(self, kwargs) -> tuple[Path, int]:
@@ -308,7 +305,6 @@ class FakeGenerator:
                 for reference in kwargs.get("reference_images") or []
             ]
         )
-        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
         current = Path("/tmp/image.png")
         version = kwargs["commit_formal_output"](current, current, {})
         return current, version

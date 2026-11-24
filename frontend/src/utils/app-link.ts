@@ -23,22 +23,17 @@ export const LINK_UNIT_PARAM = "unit";
 const EPISODE_PATH = new RegExp(`^${ROUTE_APP}/projects/[^/]+/${WORKSPACE_ROUTE_EPISODES}/[^/]+$`, "i");
 
 export interface AppLink {
-  /** 规范化后的完整站内地址（以 `/` 开头，含原有查询参数），用作 `<a href>`，新开标签页也落到同一处。 */
   href: string;
-  /** 要跳转的路径与查询。单元链接的 `unit`、`t` 在这里已去掉：它们是一次性的定位指令，不留在地址栏里。 */
   to: string;
-  /** 链接指向的视频单元；起始时间缺省为 null。`project` 是链接所在项目的名称（已解码），项目名无法解码时为 null。 */
   unit: { id: string; seconds: number | null; project: string | null } | null;
 }
 
-/** 非负的十进制秒数；其余写法（负数、科学计数法、空串）一律视为没有写。 */
 export function parseSeconds(value: string | null): number | null {
   if (value === null || !/^\d+(\.\d+)?$/.test(value)) return null;
   const seconds = Number(value);
   return Number.isFinite(seconds) ? seconds : null;
 }
 
-/** 取集页路径 `/app/projects/{项目名}/...` 里的项目名并解码；解码失败返回 null。 */
 function decodeProjectSegment(pathname: string): string | null {
   const segment = pathname.split("/")[3] ?? "";
   try {
@@ -48,7 +43,6 @@ function decodeProjectSegment(pathname: string): string | null {
   }
 }
 
-/** 同源且在 `/app` 之下的链接才算应用内链接；其余（含协议相对地址、其他域名）返回 null，由调用方按外链处理。 */
 export function parseAppLink(href: string, origin: string): AppLink | null {
   let url: URL;
   try {

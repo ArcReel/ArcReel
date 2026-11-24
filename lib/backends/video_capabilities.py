@@ -12,7 +12,7 @@
 
 结果仍是一份 :class:`VideoCapabilities`，参考图与参考音频段数上限按 :meth:`InputLimit.to_json` 的形状存
 （``None`` 未收录、``0`` 不接受、其余为上限），读取时经 :func:`reference_image_limit` 与
-:func:`reference_audio_count_limit` 还原为 :class:`InputLimit`。任务类型桶的候选、执行时的校验、编排层的裁剪与
+:func:`reference_audio_count_limit` 还原为 :class:`InputLimit`。任务类型桶的候选、执行时的校验、编排层的数量检查与
 设置页都读这一个结果。
 
 能力覆盖整维替换生效值，在两侧求值之后生效（内置供应商下用户添加的模型见
@@ -34,7 +34,6 @@ from lib.backends.input_limits import InputLimit, effective_input_limit
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
 
-#: 对应不上条目的模型：模型事实一侧全部未收录，生效能力按保守回落取（见模块文档）。
 UNRECORDED_VIDEO_FACTS = VideoFacts()
 
 
@@ -85,6 +84,5 @@ def effective_video_capabilities(channel: VideoCapabilities, facts: VideoFacts) 
         max_reference_images=images.to_json(),
         reference_audio_mode=channel.reference_audio_mode if audio_open else ReferenceAudioMode.NONE,
         max_reference_audio_count=audio_count.to_json(),
-        # 不接受参考音频时总时长无从谈起，为 None；接受时 None 即两侧都没有声明总时长。
         max_reference_audio_total_seconds=total_seconds.maximum,
     )

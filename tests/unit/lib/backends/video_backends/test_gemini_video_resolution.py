@@ -6,6 +6,7 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.gemini import GeminiVideoBackend
+from tests.factories import image_bytes
 
 
 def _make_backend(model="veo-3.1-lite-generate-preview", backend_type="aistudio"):
@@ -72,12 +73,9 @@ async def test_duration_passthrough_str(tmp_path, seconds):
     assert cfg_call.kwargs["duration_seconds"] == str(seconds)
 
 
-# ── 时长不在 backend 另做检查：参考图 / 1080p·4k 的时长约束由上游判定 ──────────────────
-
-
 def _frame(tmp_path, name="frame.png"):
     p = tmp_path / name
-    p.write_bytes(b"fake-png-data")
+    p.write_bytes(image_bytes())
     return p
 
 
@@ -93,7 +91,7 @@ async def test_generate_passes_constrained_duration_through(tmp_path, resolution
         resolution=resolution,
         reference_images=[_frame(tmp_path, "ref.png")],
     )
-    with pytest.raises(RuntimeError):  # SDK mock 的 stop 哨兵，说明已走到调用点
+    with pytest.raises(RuntimeError):
         await backend.generate(req)
 
     backend._client.aio.models.generate_videos.assert_awaited_once()

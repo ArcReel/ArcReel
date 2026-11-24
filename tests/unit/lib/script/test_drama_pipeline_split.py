@@ -100,7 +100,6 @@ class TestDramaSceneContent:
         assert content.scene_description
 
     def test_content_scene_rejects_visual_fields(self):
-        # 视觉字段不属于 script_plan 内容；extra=forbid 应拒绝
         with pytest.raises(ValidationError):
             DramaSceneContent.model_validate(_content_scene(image_prompt={"scene": "x"}))
 
@@ -111,7 +110,6 @@ class TestDramaSceneContent:
             )
 
     def test_content_scene_rejects_empty_scene_id(self):
-        # 空 scene_id 应在 schema 层被拒：merge 把空 scene_id 当错误，提前到校验层 fail-fast
         with pytest.raises(ValidationError):
             DramaSceneContent.model_validate(_content_scene(scene_id=""))
 
@@ -125,9 +123,7 @@ class TestDramaSceneContent:
 class TestDramaNormalizedDurationEnum:
     def test_duration_constrained_to_supported(self):
         model = build_drama_normalized_script_model([4, 6, 8])
-        # 合法
         model.model_validate({"title": "t", "scenes": [_content_scene(duration_seconds=6)]})
-        # 非成员（5）应被枚举硬约束拒绝
         with pytest.raises(ValidationError):
             model.model_validate({"title": "t", "scenes": [_content_scene(duration_seconds=5)]})
 
@@ -142,12 +138,10 @@ class TestDramaSceneVisual:
             DramaSceneVisual.model_validate(_visual_scene(utterances=[]))
 
     def test_visual_scene_rejects_empty_scene_id(self):
-        # 对齐锚 scene_id 不得为空串，否则合并阶段才暴露
         with pytest.raises(ValidationError):
             DramaSceneVisual.model_validate(_visual_scene(scene_id=""))
 
     def test_visual_video_prompt_rejects_dialogue(self):
-        # drama 视觉层用 DramaVideoPrompt（无 dialogue）
         with pytest.raises(ValidationError):
             DramaSceneVisual.model_validate(
                 _visual_scene(
@@ -178,7 +172,7 @@ class TestEpisodeOutlineContext:
                     "hook": "少年坠崖",
                     "outline": {"story_beats": ["下山", "遇敌"], "next_episode_teaser": "神秘人相救"},
                 },
-                {"episode": 2, "title": "绝处逢生"},  # 旧式条目：无规划数据
+                {"episode": 2, "title": "绝处逢生"},
             ],
         }
 
@@ -227,7 +221,6 @@ class TestEpisodeOutlineContext:
         assert cur["story_beats"] == []
 
     def test_non_string_story_beats_items_filtered(self):
-        # list 内非字符串项（手编损坏）一并过滤，避免脏数据原样进 script_plan prompt
         project = {"episodes": [{"episode": 1, "hook": "钩子", "outline": {"story_beats": ["下山", 42, None, "遇敌"]}}]}
         cur, _ = episode_outline_context(project, 1)
         assert cur is not None

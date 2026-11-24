@@ -97,7 +97,6 @@ class AgentCredentialRepository(BaseRepository):
                 merged.pop(tier, None)
             else:
                 merged[tier] = ref
-        # JSON 列不跟踪原地修改，整体换成新字典；全部解除时存 NULL，与「没有绑定」同一形状。
         cred.tier_bindings = merged or None
         await self.session.flush()
         return cred

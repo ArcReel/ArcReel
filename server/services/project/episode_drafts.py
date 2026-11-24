@@ -91,7 +91,6 @@ class EpisodeDraftService:
                     {
                         "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[kind],
                         "editable_by": draft_owner(draft) if draft is not None else DRAFT_OWNER_USER,
-                        # 信封损坏本身就是一条待处置的违约。
                         "violation_count": len(draft.violations) if draft is not None else 1,
                     }
                 )

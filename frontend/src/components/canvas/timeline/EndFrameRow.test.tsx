@@ -70,8 +70,6 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
   );
 }
 
-// mock 的结果值用 satisfies 钉在 RefreshProjectResult 上：vi.fn() 本身不受 setState 的
-// 类型约束，联合成员改名时若不钉住，这里会静默停留在过期字面量上而测试照常通过。
 const refreshProject = vi.fn().mockResolvedValue("success" satisfies RefreshProjectResult);
 
 beforeEach(() => {
@@ -129,7 +127,6 @@ describe("EndFrameRow 摘要", () => {
   it("模型不支持不改写摘要：已设尾帧仍报「已设置」", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
-    // 摘要只说尾帧设没设，能力维度交给警告条，否则「已设置」被盖掉、用户看不出有东西要清。
     expect(await findByText("已设置")).toBeInTheDocument();
   });
 });
@@ -140,10 +137,8 @@ describe("EndFrameRow 能力警告", () => {
     const clear = vi.spyOn(API, "clearEndFrame").mockResolvedValue({ success: true });
     const { findByRole, getByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
 
-    // 收起状态即可见：不必展开就知道这条尾帧会让生成被拒。
     const alert = await findByRole("alert");
     expect(alert).toHaveTextContent(/当前模型不支持尾帧/);
-    // 由项目端点按 generation_mode 解析实际 i2v/r2v 桶，不用默认层覆盖。
     expect(capabilitiesSpy.mock.calls[0]?.[1]?.videoBackend).toBeUndefined();
     expect(getByRole("button", { name: /^尾帧/ })).toHaveAttribute("aria-expanded", "false");
 
@@ -156,7 +151,6 @@ describe("EndFrameRow 能力警告", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
-    // 清除尾帧是即时动作，成功不弹提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 
@@ -166,7 +160,6 @@ describe("EndFrameRow 能力警告", () => {
     await findByRole("alert");
 
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
-    // 能力不足靠警告表达，不靠灰化控件：后端硬失败仍在兜底。
     expect(getByRole("button", { name: "更换图片" })).toBeEnabled();
   });
 
@@ -178,13 +171,11 @@ describe("EndFrameRow 能力警告", () => {
     const { getByRole, findByText, findByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
 
-    // 入口可点
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     const chooseBtn = getByRole("button", { name: "选择图片" });
     expect(chooseBtn).toBeEnabled();
     fireEvent.click(chooseBtn);
 
-    // 选图器内部同样不得残留禁用：候选可选、确认可点。
     const candidate = await findByRole("button", { name: /^分镜 1$/ });
     expect(candidate).toBeEnabled();
     fireEvent.click(candidate);
@@ -192,15 +183,12 @@ describe("EndFrameRow 能力警告", () => {
     expect(confirmBtn).toBeEnabled();
     fireEvent.click(confirmBtn);
 
-    // 提交时刻的复核只看占用态，不再因能力不支持而拦截。
     await waitFor(() => {
       expect(select).toHaveBeenCalledWith(PROJECT, SHOT, SCRIPT, "storyboards/E1S01_v1.png");
     });
   });
 
   it("能力查询尚未落地时也不禁用写入控件", async () => {
-    // 能力维度整体不参与门控：「不支持」不拦，「还不知道支不支持」更没有可拦的理由，
-    // 否则换模型后凭能力管线又会短暂灰掉写入控件——这正是要清掉的半禁用残留。
     vi.spyOn(API, "getVideoCapabilities").mockReturnValue(new Promise(() => {}));
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("检查中…");
@@ -220,7 +208,6 @@ describe("EndFrameRow 能力警告", () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { findByText, queryByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
-    // 没有会被拒绝的东西，不打扰。
     expect(queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -232,7 +219,6 @@ describe("EndFrameRow 能力警告", () => {
     await findByText("已设置");
     expect(queryByRole("alert")).not.toBeInTheDocument();
 
-    // 能力覆盖写在供应商配置上、不落任何项目字段：没有 props 会变，靠失效信号驱动重取。
     spy.mockResolvedValue(caps(false));
     act(() => useCapabilitiesStore.getState().invalidate());
     expect(await findByRole("alert")).toHaveTextContent(/当前模型不支持尾帧/);
@@ -307,10 +293,8 @@ describe("EndFrameRow 占用态", () => {
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
 
-    // 选中本集分镜图（项目内通道）
     fireEvent.click(await findByRole("button", { name: /^分镜 1$/ }));
 
-    // 打开选图器之后该分镜才被入队——只查开窗时刻会漏掉这个窗口
     useTasksStore.setState({ tasks: [videoTask("queued")] });
 
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -337,7 +321,6 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
-    // 设置尾帧是即时动作，成功不弹提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 

@@ -35,6 +35,7 @@ from lib.backends.image_capabilities import (
 from lib.backends.resume_guard import builtin_endpoint_guard
 from lib.config.resolver import (
     ConfigResolver,
+    ImageBucketCapabilityError,
     VideoGenerationType,
     project_image_quality,
     video_bucket_for_generation_mode,
@@ -52,6 +53,7 @@ from lib.generation.video_request_facts import (
     evaluate_video_request_facts,
 )
 from lib.project.project_manager import get_project_manager
+from lib.prompts.reference_image_numbering import ReferenceImageSlot, require_reference_image_limit
 
 if TYPE_CHECKING:
     from lib.config.resolver import ProviderModel
@@ -87,8 +89,6 @@ class _BackendCache:
     async def get_or_create(self, key: _CacheKey, factory: Callable[[], Awaitable[Any]]) -> Any:
         if key in self._entries:
             return self._entries[key]
-        # 代数须在等锁前捕获：若在失效边界前排队等锁，即使失效后才拿到锁，也要按排队时的
-        # 旧代数与失效后的当前代数不符处理，避免用旧 resolver 构造的实例污染新代际缓存。
         generation = self._generation
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
@@ -261,6 +261,7 @@ class ImageLaneRequest:
     """声明当前任务需要 image lane。``generation_type`` 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
 
     generation_type: Literal["t2i", "i2i"] = "t2i"
+    references: tuple[ReferenceImageSlot, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,7 @@ class VideoLaneRequest:
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
     submitted_job: bool = False
+    uses_end_frame: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,9 +301,7 @@ class ImageLaneResult:
     backend 报告的实际身份——自定义供应商目标 model 被禁用回退时 ``backend_model`` 可能与
     ``provider_model.model_id`` 不同。``resolution`` 为 None 表示调用时不传 SDK 参数
     （``docs/adr/0019``）。``max_reference_images`` 是参考图上限生效值（条目与通道两侧求值，见
-    ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的裁剪上限，``None`` 表示不裁剪；
-    编排层据此在渲染「图N」编号前裁剪参考图序列。不接受参考图（上限为 0 或不支持图生图）时同样不裁剪，
-    参考图原样交给执行时的校验拒绝。``quality`` 是生效的画质（项目存值经
+    ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的数量上限。未收录时为 ``None``，不接受时为 0，渲染编号前按完整参考序列校验。``quality`` 是生效的画质（项目存值经
     ``lib.backends.image_capabilities.effective_image_quality`` 按有效画质可选值求得），``None`` 表示调用通道沿用
     按分辨率档位推出 ``quality`` 的既有做法。
     """
@@ -329,11 +329,7 @@ class VideoLaneResult:
     backend_model: str
     resolution: str | None
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-    # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
     requested_generate_audio_fallback: bool = True
-    # 续跑比对的协议标识：自定义供应商为 endpoint 键（有路径覆盖时连同覆盖，见
-    # CustomVideoBackend.endpoint_guard），内置供应商为模型挂接的内置调用端点（lib.backends.resume_guard）。
-    # 续跑据此与执行检查点冻结的标识比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
 
     @property
@@ -364,8 +360,8 @@ class VideoLaneResult:
 class AudioLaneResult:
     """audio lane 解析产物。音色目录与 backend 解析在同一 session 内交付。
 
-    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，
-    合成任务据此校验请求音色，二者不必再触达 backend 对象。
+    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，不必再触达
+    backend 对象。它只是候选，认不出的型号为空；合成任务不按它校验请求音色。
     """
 
     provider_model: ProviderModel
@@ -467,7 +463,12 @@ async def resolve_generation_context(
 
     async with resolver.session() as r:
         if image is not None:
-            resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            try:
+                resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            except ImageBucketCapabilityError as exc:
+                if image.generation_type == "i2i":
+                    require_reference_image_limit(image.references, 0, model=exc.model_id)
+                raise
             image_backend = await _get_or_create_image_backend(
                 resolved.provider_id,
                 {},
@@ -477,7 +478,6 @@ async def resolve_generation_context(
             )
             image_provider_model = resolved
             image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
-            # 画质与分辨率同一个键（按构造后的 backend 身份）；有效可选值为空时忽略存值。
             image_quality = effective_image_quality(
                 project_image_quality(project, resolved.provider_id, image_backend.model),
                 backend_image_quality_options(image_backend, provider_id=resolved.provider_id),
@@ -501,8 +501,6 @@ async def resolve_generation_context(
             request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
             if video.route is not None:
                 assert generation_type is not None
-                # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，参考生视频内降级到
-                # i2v 的镜头按 i2v 桶求值。
                 request_facts = await evaluate_video_request_facts(
                     project,
                     route=video.route,
@@ -510,6 +508,7 @@ async def resolve_generation_context(
                     identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
                     resolver=r,
                     builtin_endpoint=builtin_endpoint,
+                    uses_end_frame=video.uses_end_frame,
                 )
             requested_generate_audio_fallback = True
             if isinstance(request_facts, VideoRequestFacts):
@@ -545,8 +544,6 @@ async def resolve_generation_context(
             )
 
     if image_provider_model is not None:
-        # 参考图上限可能要向供应商的模型目录查询（如 OpenRouter），放在 resolver session 之外，
-        # 不让一次外部请求占着数据库连接。
         image_result = ImageLaneResult(
             provider_model=image_provider_model,
             backend_name=image_backend.name,
@@ -554,7 +551,7 @@ async def resolve_generation_context(
             resolution=image_resolution,
             max_reference_images=(
                 await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
-            ).clamp_bound(),
+            ).to_json(),
             quality=image_quality,
         )
 

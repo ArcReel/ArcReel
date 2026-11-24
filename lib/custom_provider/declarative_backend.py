@@ -37,12 +37,11 @@ from arcreel_market_core.endpoint_definition import (
 )
 from arcreel_market_core.validation_messages import ValidationMessage
 from arcreel_market_core.video_backend_contract import (
-    IMAGE_MIME_TYPES,
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
-    VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -52,6 +51,8 @@ from lib.backends.backend_runtime import (
     faststart_video_artifact,
     notify_provider_response_to,
     poll_with_retry,
+    read_reference_images,
+    read_video_image_slots,
     request_with_scoped_credentials,
     should_retry_poll,
     should_retry_submit,
@@ -61,6 +62,7 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.image_errors import ImageCapabilityError
 from lib.backends.video_backends.metering import video_usage
 from lib.billing.metering import Usage
 from lib.config.url_utils import strip_base_url_version
@@ -90,7 +92,6 @@ def _url_without_auth_query(rendered: RenderedRequest) -> str:
     return f"{head}?{'&'.join(kept)}" if kept else head
 
 
-#: 超过该长度且全由 base64 字符组成的字符串按素材摘要处理。真实提示词带空格与标点，不会命中。
 _BASE64_LOG_THRESHOLD = 256
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/=\r\n]+")
 
@@ -141,9 +142,7 @@ def _headers_with_auth_masked(headers: Mapping[str, str], auth: Mapping[str, Any
     return {name: "***" if name.lower() in auth_names else value for name, value in headers.items()}
 
 
-#: 定义里会渲染出 URL 的三节。
 REQUEST_SECTIONS = ("submit", "poll", "result")
-#: 直接以 base_url + 显式版本段起头的 URL 模板。
 _VERSIONED_BASE_URL = re.compile(r"^\s*\{\{\s*base_url\s*\}\}/v\d")
 
 
@@ -181,7 +180,6 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     return stripped
 
 
-#: 有覆盖的节在模板里引用的域名变量：供应商填写的原样 base_url。
 OVERRIDE_BASE_URL = "override_base_url"
 
 
@@ -216,7 +214,6 @@ class JobState:
 
     body: object
     status: ProviderJobStatus
-    #: 供应商原样回报的状态串。状态由 ``failure`` 判定或由调用方给定时为 ``None``。
     provider_status: str | None
     error: str | None
     result_id: str | None
@@ -343,9 +340,7 @@ class StateReader[StateT: JobState](Protocol):
     ) -> StateT: ...
 
 
-#: 一次请求地址的源：``(scheme, host, port)``，见 :func:`url_origin`。
 Origin = tuple[str, str, int | None]
-#: 模板素材输入：单个文件、文件列表或缺席。
 AssetPaths = Path | list[Path] | None
 
 
@@ -355,7 +350,6 @@ class JobCall:
 
     poll_timeout_seconds: float
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None
-    #: 留痕写入失败时日志里的调用标识。
     label: str | None
 
 
@@ -396,8 +390,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         self._base_url = normalize_declarative_base_url(base_url, definition)
         self._source_definition = definition
         self._model = model
-        # 有覆盖的节改写成相对原样 base_url 的地址，不经归一化（docs/adr/0101）；是否剥版本段
-        # 仍按原定义判定，没有覆盖的节行为不变。
         self._definition = apply_path_overrides(definition, path_overrides)
         self._provider = provider
         self._read_state = read_state
@@ -423,16 +415,45 @@ class DeclarativeJobEngine[StateT: JobState]:
         「必需图输入」端点的已付费任务判死在第一次轮询之前。
         """
         declarations = self._definition.get("inputs") or {}
+        if require_declared_inputs:
+            declared_sources = {declaration["source"] for declaration in declarations.values()}
+            if assets.get("reference_images") and "reference_images" not in declared_sources:
+                if definition_media_type(self._definition) == "image":
+                    raise ImageCapabilityError(
+                        "image_capability_missing_i2i", provider=self._provider, model=self._model
+                    )
+                raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
+            if assets.get("start_image") is not None and "start_image" not in declared_sources:
+                raise VideoCapabilityError("video_first_frame_unsupported", provider=self._provider, model=self._model)
+            if assets.get("end_image") is not None and "end_image" not in declared_sources:
+                raise VideoCapabilityError("video_last_frame_unsupported", provider=self._provider, model=self._model)
         try:
-            # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
-            # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
-            loaded = {
-                name: self._assets(paths) if isinstance(paths, list) else self._asset(paths)
-                for name, paths in assets.items()
-            }
+            references = assets.get("reference_images")
+            paths = references if isinstance(references, list) else []
+            if definition_media_type(self._definition) == "image":
+                images = {image.path: image for image in read_reference_images(paths, self._model)}
+            else:
+                start = assets.get("start_image")
+                end = assets.get("end_image")
+                images = read_video_image_slots(
+                    Path(start) if isinstance(start, (str, Path)) else None,
+                    Path(end) if isinstance(end, (str, Path)) else None,
+                    paths,
+                    self._model,
+                )
+            loaded = {}
+            for name, value in assets.items():
+                if name == "reference_audio_files":
+                    loaded[name] = self._audio_assets(value if isinstance(value, list) else [])
+                elif isinstance(value, list):
+                    loaded[name] = [
+                        AssetData(images[Path(path)].mime, images[Path(path)].content) for path in value
+                    ] or None
+                elif value is not None:
+                    loaded[name] = AssetData(images[Path(value)].mime, images[Path(value)].content)
+                else:
+                    loaded[name] = None
             encoded = encode_inputs(declarations, loaded)
-            # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
-            # 于是供应商收到一个残缺请求、照常建任务照常计费。
             missing = (
                 [name for name, value in encoded.items() if declarations[name].get("required") and not value]
                 if require_declared_inputs
@@ -446,7 +467,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             return build_context(
                 {
                     "api_key": self._api_key,
-                    # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
                     "base_url": (
                         normalize_declarative_base_url(submitted_base_url, self._source_definition)
                         if submitted_base_url
@@ -466,19 +486,11 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
     @staticmethod
-    def _asset(path: Path | None) -> AssetData | None:
-        if path is None:
-            return None
-        mime = (
-            IMAGE_MIME_TYPES.get(path.suffix.lower())
-            or mimetypes.guess_type(path.name)[0]
-            or "application/octet-stream"
-        )
-        return AssetData(mime, path.read_bytes())
-
-    @classmethod
-    def _assets(cls, paths: list[Path] | None) -> list[AssetData] | None:
-        return [asset for path in paths or [] if (asset := cls._asset(path)) is not None] or None
+    def _audio_assets(paths: list[Path]) -> list[AssetData] | None:
+        return [
+            AssetData(mimetypes.guess_type(path.name)[0] or "application/octet-stream", path.read_bytes())
+            for path in paths
+        ] or None
 
     def _render(self, section: Mapping[str, Any], context: Mapping[str, object]):
         try:
@@ -539,8 +551,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
-        # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；
-        # 这里按 str 收，与产物地址、result_id 的取值口径一致。
         task_id = str(job_id).strip() if job_id is not None and not isinstance(job_id, (list, dict)) else ""
         if not task_id:
             raise DeclarativeRuntimeError(
@@ -568,7 +578,6 @@ class DeclarativeJobEngine[StateT: JobState]:
                 }
             ),
         )
-        # 提交 / 轮询 / 二次取件都带着渲染出的 auth 节：重定向必须自己逐跳跟随，跨源卸凭证。
         return await request_with_scoped_credentials(
             client,
             rendered.method,
@@ -593,11 +602,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         :class:`ResumeExpiredError`。产物字段是否齐全由组装方判定。
         """
         poll_context = {**context, "task_id": job_id}
-        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那些主机。信任集只收
-        # 真实带凭证访问的请求源：提交源进入轮询前已带凭证访问过（续跑时它同样是任务所在的
-        # 供应商源），轮询与二次取件的源在各自成功取件后加入（见 fetch）。全绝对地址定义下
-        # 配置的 base_url 可能从未被请求，凭配置信任会把凭证发给一个从没验证过的源；其余
-        # （对象存储 / CDN）裸请求。
         trusted_origins = {
             url_origin(self._render({"method": "GET", "url": self._definition["submit"]["url"]}, context).url)
         }
@@ -627,8 +631,6 @@ class DeclarativeJobEngine[StateT: JobState]:
 
         async def poll_once() -> StateT:
             return self._extract_state(
-                # 缺省 true（404=任务已不存在，续跑一击判过期）；供应商对在跑任务可能瞬时 404 的
-                # 定义写 false，按瞬态错误重试到预算耗尽。
                 await fetch(
                     self._definition["poll"],
                     poll_context,
@@ -641,8 +643,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         final = await poll_with_retry(
             poll_fn=poll_once,
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
-            # 终态失败必须给出非空理由：返回 None 会让 poll_with_retry 认为任务仍在进行，
-            # 一路轮询到 max_wait 才超时，而供应商早已判负。
             is_failed=lambda state: _failure_reason(state) if state.status is ProviderJobStatus.FAILED else None,
             max_wait=call.poll_timeout_seconds,
             retry_if=should_retry_poll,
@@ -655,10 +655,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         async def fetch_result() -> object:
             return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
 
-        # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
-        # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成品。
-        # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
-        # 取件，恢复路径与下载失败完全一致，不必重新提交。
         try:
             result_body = await with_artifact_retry(
                 fetch_result,
@@ -691,8 +687,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         try:
             body = response.json()
         except ValueError as exc:
-            # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
-            # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
             await _notify(call, stage, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
@@ -721,9 +715,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         trusted_origins: Collection[Origin],
     ) -> None:
         """把产物地址下载到 ``output_path``，体积超过 ``max_bytes`` 即中止。"""
-        # 与已携带凭证访问过的某个源同源，才按 auth 节渲染凭证；其余（对象存储 / CDN 的
-        # 签名 URL）裸请求——附带凭证会破坏签名、并把 query 凭证写进第三方访问日志。
-        # 凭证的作用域取产物地址自身的源，一路带到重定向跟随处，换源即卸。
         credential_origin = url_origin(url)
         rendered = (
             self._render({"method": "GET", "url": url}, context) if credential_origin in trusted_origins else None
@@ -747,11 +738,9 @@ class DeclarativeJobEngine[StateT: JobState]:
                 max_wait=max_wait,
             )
         except NonRetryableError:
-            # 目的地不合规、超出体积上限：重新取件结果不会变，不落可重试下载
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
-        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
         await faststart_video_artifact(output_path)
 
 
@@ -796,7 +785,6 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        # 延迟导入：能力合成模块经 endpoints.py 反向依赖本模块，模块级导入会成环。
         from lib.custom_provider.capabilities import video_capabilities_from_definition
 
         return video_capabilities_from_definition(self._definition)
@@ -817,8 +805,6 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._engine.submit(client, context, _job_call(request))
-            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
-            # 把一笔已付费的任务误判成过期丢掉。
             await self._persist_provider_job_id(
                 request, job_id, provider=self._provider, endpoint=self._engine.base_url
             )
@@ -890,7 +876,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             duration_seconds=duration or request.duration_seconds,
             video_uri=video_url,
             task_id=job_id,
-            generate_audio=request.generate_audio,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
 
@@ -902,14 +890,15 @@ def declarative_video_usage(
     分辨率取请求档位，请求没给时取定义的 ``defaults.resolution``（与模板上下文同一个补缺规则）；是否有声按定义
     声明的音轨形态判定，开关可控时取请求值。
     """
-    # 延迟导入理由同 DeclarativeVideoBackend.video_capabilities。
     from lib.custom_provider.capabilities import video_capabilities_from_definition
 
     defaults = definition.get("defaults")
     default_resolution = defaults.get("resolution") if isinstance(defaults, Mapping) else None
     resolution = request.resolution or (default_resolution if isinstance(default_resolution, str) else None)
-    audio_track = video_capabilities_from_definition(definition).audio_track
-    audio = {VideoAudioMode.ALWAYS_OFF: False, VideoAudioMode.ALWAYS_ON: True}.get(audio_track, request.generate_audio)
+    caps = request.video_capabilities or video_capabilities_from_definition(definition)
+    audio = caps.audio_track_for_route("r2v" if request.reference_images else "i2v").output_audio(
+        request.generate_audio
+    )
     return video_usage(request, result, seconds=request.duration_seconds, resolution=resolution, audio=audio)
 
 

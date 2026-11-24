@@ -52,18 +52,15 @@ def _raise_draft_error(exc: DraftWorkflowError, episode: int) -> NoReturn:
     if exc.code in {"invalid_request", "doc_type_not_applicable"}:
         raise BadRequestError("draft_doc_type_not_applicable").with_diagnostic({"code": exc.code}) from exc
     if exc.failure is not None:
-        # 视频模型配置问题：草稿已写回，重判被挡在配置上，按问题码说清原因与该改的设置。
         failure = exc.failure
         raise UnprocessableError(failure.code, **failure.parameters()).with_diagnostic(
             {"code": failure.code, "params": failure.parameters()}
         ) from exc
     if exc.notice_key is not None:
-        # 草稿已写回，采用被正式剧本单元挡下：按界面单元称呼说明原因与出路，错误码仍是 draft_invalid。
         raise UnprocessableError(exc.notice_key, **exc.notice_params).with_diagnostic({"code": exc.code}) from exc
     if exc.code == "draft_repair_failed":
         logger.warning("草稿 AI 修复失败 episode=%s：%s", episode, exc.detail)
         raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": exc.code}) from exc
-    # detail 面向 Agent，可能带服务端路径：只进日志，响应只带错误码。
     logger.warning("草稿命令失败 episode=%s code=%s：%s", episode, exc.code, exc.detail)
     raise UnprocessableError("draft_save_failed").with_diagnostic({"code": exc.code}) from exc
 
@@ -117,7 +114,6 @@ async def save_episode_draft(
 ):
     """手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。"""
     try:
-        # 用户自己的保存按 webui 广播，前端不当成外部改动去通知或跳转。
         with project_change_source("webui"):
             result = await EpisodeDraftService(get_project_manager()).save_draft(
                 project_name, episode, doc_type, req.content, req.base_revision
@@ -139,7 +135,6 @@ def _raise_repair_problem(problem: ToolProblem, episode: int) -> NoReturn:
         raise UnprocessableError(problem.code, **(problem.params or {})).with_diagnostic(
             {"code": problem.code, "params": problem.params or {}}
         )
-    # 其余是提交失败（任务队列不可用等），草稿未动。
     logger.warning("草稿 AI 修复未能提交 episode=%s code=%s：%s", episode, problem.code, problem.detail)
     raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": problem.code})
 

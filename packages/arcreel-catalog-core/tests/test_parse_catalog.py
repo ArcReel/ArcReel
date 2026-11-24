@@ -319,3 +319,26 @@ def test_endpoint_declaration_is_optional_and_unknown_names_are_kept():
 
     assert [model.endpoint for model in providers["kling"].models] == ["kling-video-v9", "kling-image"]
     assert providers["gemini-aistudio"].models[0].endpoint is None
+
+
+def test_end_frame_duration_constraint_round_trips():
+    from arcreel_catalog_core import dump_entry
+
+    data = catalog()
+    data["entries"][1]["facts"]["duration_constraints"]["with_end_frame"] = [5]
+    entry = parse_catalog(data).entries[1]
+    assert isinstance(entry.facts, VideoFacts)
+    assert entry.facts.duration_constraints.with_end_frame == (5,)
+    assert parse_entry(dump_entry(entry)) == entry
+
+
+def test_unknown_duration_constraint_does_not_change_known_tiers():
+    """旧读器遇到新约束键沿用已识别的维度，不拒收整份数据。"""
+    data = catalog()
+    data["entries"][1]["facts"]["duration_constraints"]["future_input_path"] = {"new": "shape"}
+    facts = parse_catalog(data).entries[1].facts
+    assert isinstance(facts, VideoFacts)
+    assert facts.duration_constraints == DurationConstraints(
+        by_resolution={"1080p": (5,)},
+        with_reference_images=(5,),
+    )

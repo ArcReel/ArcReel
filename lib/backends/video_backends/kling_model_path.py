@@ -34,6 +34,7 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
 )
@@ -41,7 +42,6 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_model_path_video_url,
-    image_to_base64,
     is_kling_model_path_terminal,
     kling_model_path_base_url,
     kling_model_path_failure_reason,
@@ -64,15 +64,10 @@ TEXT_TO_VIDEO = "text-to-video"
 IMAGE_TO_VIDEO = "image-to-video"
 TASKS_PATH = "tasks"
 
-# 持久化 job_id 的前缀：新版 API 只有一个按 id 查询的 /tasks，不需要像旧版那样把子路径编进去；
-# 前缀用来认出旧版通道写下的 ``text2video:<id>:<audio>`` 一类 job_id，避免把它们发到新版查询端点。
 _JOB_ID_PREFIX = "tasks:"
 
-# 未指定分辨率时下发 720p：kling-4.0、kling-4.0-flash、kling-3.0-turbo 都接受，
-# 也避免上游按各自默认值（kling-4.0 默认 1080p）出片，与计量的分辨率档位对不上。
 _DEFAULT_RESOLUTION = "720p"
 
-# 通道对任何型号都发得出文生视频、首帧与尾帧；参考图与参考音频没有对应的请求字段。
 _CHANNEL_CAPABILITIES = VideoCapabilities(
     text_to_video=True,
     first_frame=True,
@@ -83,7 +78,7 @@ _CHANNEL_CAPABILITIES = VideoCapabilities(
 
 
 def _has_image(value: object) -> bool:
-    return isinstance(value, (str, Path)) and bool(str(value))
+    return value is not None
 
 
 def _route_for(request: VideoGenerationRequest) -> str:
@@ -125,7 +120,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         transport_layer: TransportLayer | None = None,
     ) -> None:
         if auth_mode != "bearer":
-            # 官方「接口鉴权」：Access Key / Secret Key 只适用于旧版设计标准的 API，新版只收 API Key。
             raise ValueError("可灵新版 API 只支持 API Key 鉴权，请到系统配置页填写可灵 Kling 的 API Key")
         super().__init__(
             auth_mode=auth_mode,
@@ -138,8 +132,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             transport_layer=transport_layer,
         )
         self._base_url = kling_model_path_base_url(base_url)
-
-    # ── 能力与计量 ──────────────────────────────────────────────────────
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
@@ -180,8 +172,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             reference_images=0,
         )
 
-    # ── 响应解读 ────────────────────────────────────────────────────────
-
     def _task_id_from(self, submit_payload: dict) -> str:
         return kling_model_path_task_id(submit_payload)
 
@@ -194,16 +184,18 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
     def _failure_reason(self, payload: dict) -> str | None:
         return kling_model_path_failure_reason(payload)
 
-    # ── 请求构造 ────────────────────────────────────────────────────────
-
     def _build_payload(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         """返回 (提交路径, 请求体)；发不出的输入在付费前拒绝，不静默丢弃。"""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        if request.reference_images and any(_has_image(p) for p in request.reference_images):
+        if request.reference_images:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        # 请求体没有音轨开关；静音请求只在能力被用户覆盖放宽时走到这里。
-        if not request.generate_audio:
+        if (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         caps = request.video_capabilities or self.video_capabilities
@@ -219,25 +211,16 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             settings["aspect_ratio"] = request.aspect_ratio
             return model_path, {"prompt": request.prompt, "settings": settings}
 
+        images = read_video_images(request, self.model)
         contents: list[dict] = []
         if request.prompt:
             contents.append({"type": "prompt", "text": request.prompt})
-        contents.append({"type": "first_frame", "url": self._encode_frame(Path(cast(Path, request.start_image)))})
+        contents.append({"type": "first_frame", "url": images[Path(cast(Path, request.start_image))].base64()})
         if _has_image(request.end_image):
             if not caps.last_frame:
                 raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-            contents.append({"type": "last_frame", "url": self._encode_frame(Path(cast(Path, request.end_image)))})
-        # 图生视频没有 aspect_ratio 字段，画面比例跟随首帧。
+            contents.append({"type": "last_frame", "url": images[Path(cast(Path, request.end_image))].base64()})
         return model_path, {"contents": contents, "settings": settings}
-
-    def _encode_frame(self, path: Path) -> str:
-        # 官方帧图字段接受 URL 或 base64；声明了帧图却不可读即中止，不静默退化成文生视频。
-        if not path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
-        try:
-            return image_to_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name) from exc
 
     @staticmethod
     def _safe_log_view(path: str, payload: dict) -> dict:
@@ -259,15 +242,12 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
 
-    # ── generate / resume ───────────────────────────────────────────────
-
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         path, payload = await asyncio.to_thread(self._build_payload, request)
         logger.info("调用 Kling 新版视频 API payload=%s", self._safe_log_view(path, payload))
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, path, payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
             await self._persist_provider_job_id(
                 request, encode_job_id(task_id), provider=PROVIDER_KLING, endpoint=self._base_url
             )
@@ -312,5 +292,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             duration_seconds=billed_seconds if billed_seconds is not None else request.duration_seconds,
             video_uri=download_url,
             task_id=task_id,
-            generate_audio=True,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )

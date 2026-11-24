@@ -18,10 +18,6 @@ from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
-# ---------------------------------------------------------------------------
-# Fake queue helpers
-# ---------------------------------------------------------------------------
-
 
 class _FakeQueue:
     """仅实现取消相关方法的最小 Fake。"""
@@ -62,11 +58,6 @@ class _FakeQueue:
         return self._cancel_all_result
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 def _make_app() -> FastAPI:
     """构建用于测试的最小 FastAPI 应用，注入假用户。"""
     app = FastAPI()
@@ -74,11 +65,6 @@ def _make_app() -> FastAPI:
     app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     return app
-
-
-# ---------------------------------------------------------------------------
-# Tests: cancel-preview
-# ---------------------------------------------------------------------------
 
 
 class TestCancelPreview:
@@ -109,11 +95,6 @@ class TestCancelPreview:
 
         assert resp.status_code == 400
         assert "不存在" in resp.json()["detail"]
-
-
-# ---------------------------------------------------------------------------
-# Tests: cancel
-# ---------------------------------------------------------------------------
 
 
 class TestCancelTask:
@@ -181,11 +162,6 @@ class TestCancelTask:
         assert resp.json()["skipped_terminal"][0]["error_message"] == expected
 
 
-# ---------------------------------------------------------------------------
-# Tests: running task is not cancellable (real queue)
-# ---------------------------------------------------------------------------
-
-
 class TestRunningTaskNotCancellable:
     @pytest.fixture
     async def running_task(self, db_factory, monkeypatch) -> tuple[GenerationQueue, str]:
@@ -244,11 +220,6 @@ class TestRunningTaskNotCancellable:
         assert child_row["status"] == "queued"
 
 
-# ---------------------------------------------------------------------------
-# Tests: cancel-all-preview
-# ---------------------------------------------------------------------------
-
-
 class TestCancelAllPreview:
     def test_returns_queued_count(self, monkeypatch):
         fake = _FakeQueue(cancel_all_preview_count=5)
@@ -271,11 +242,6 @@ class TestCancelAllPreview:
 
         assert resp.status_code == 200
         assert resp.json() == {"queued_count": 0}
-
-
-# ---------------------------------------------------------------------------
-# Tests: cancel-all
-# ---------------------------------------------------------------------------
 
 
 class TestCancelAllQueued:

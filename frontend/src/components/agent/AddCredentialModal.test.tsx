@@ -7,7 +7,6 @@ import type { PresetProvider } from "@/types/agent-credential";
 import { AddCredentialModal } from "./AddCredentialModal";
 
 beforeEach(() => {
-  // 默认 mock：没有自定义供应商，import 按钮不显示，不污染既有断言
   vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 });
 
@@ -89,7 +88,7 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getAllByTestId("preset-chip")[0]); // custom
+    fireEvent.click(screen.getAllByTestId("preset-chip")[0]);
     const input = screen.getByLabelText(
       /base[_ ]url|代理地址/i,
     ) as HTMLInputElement;
@@ -262,10 +261,8 @@ describe("AddCredentialModal", () => {
       /display[_ ]name|显示名/i,
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("DeepSeek");
-    // 用户改名
     fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
     expect(nameInput.value).toBe("My Custom Name");
-    // 切换到另一个 preset → displayName 跟随预设切换
     fireEvent.click(screen.getByRole("button", { name: /Moonshot/i }));
     expect(nameInput.value).toBe("Moonshot");
   });
@@ -310,7 +307,6 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    // 改一个非 api_key 字段触发 dirty,api_key 留空提交
     fireEvent.change(
       screen.getByLabelText(/display[_ ]name|显示名/i),
       { target: { value: "DS Prod 2" } },
@@ -406,7 +402,6 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // effect 跑完后仍无按钮（默认 mock 返回空数组）
       await waitFor(() => {
         expect(API.listCustomProviders).toHaveBeenCalled();
       });
@@ -481,7 +476,6 @@ describe("AddCredentialModal", () => {
       const payload = onSubmit.mock.calls[0][0];
       expect(payload.from_custom_provider_id).toBe(42);
       expect(payload.preset_id).toBe("__custom__");
-      // 预填地址未改动时交给服务端取供应商的当前地址
       expect(payload.base_url).toBeUndefined();
       expect(payload.api_key).toBeUndefined();
     });
@@ -525,7 +519,7 @@ describe("AddCredentialModal", () => {
       expect(apiKeyInput()).toBeEnabled();
     });
 
-    it("does not show import button in edit mode", async () => {
+    it("does not show import button in edit mode", () => {
       vi.spyOn(API, "listCustomProviders").mockResolvedValue({
         providers: [sampleProvider],
       });
@@ -542,9 +536,6 @@ describe("AddCredentialModal", () => {
         />,
       );
 
-      // edit 模式即使有可导入供应商也不显示按钮（避免误操作覆盖现有凭证）
-      // 等几个事件循环确保 effect 不会触发（edit 模式 effect 不该调 API）
-      await new Promise((r) => setTimeout(r, 0));
       expect(API.listCustomProviders).not.toHaveBeenCalled();
       expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
     });
@@ -569,7 +560,6 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // 初始 custom 模式：baseUrl 空 → 测试按钮禁用
       const btn = screen.getByTestId("test-connection");
       expect(btn).toBeDisabled();
     });
@@ -600,9 +590,7 @@ describe("AddCredentialModal", () => {
           }),
         );
       });
-      // TestResultPanel headline 渲染（test_ok 文案三语 OR-match）
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
-      // 结果面板只剩调用地址，没有发现端点行
       const panel = within(screen.getByRole("status"));
       expect(panel.getByText("https://api.deepseek.com/anthropic/v1/messages")).toBeInTheDocument();
       expect(panel.queryByText(/发现端点|Discovery endpoint|Endpoint discovery/i)).not.toBeInTheDocument();
@@ -617,7 +605,6 @@ describe("AddCredentialModal", () => {
       fireEvent.click(screen.getByTestId("test-connection"));
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
 
-      // 编辑态的父组件每次渲染都传新的 initial 字面量，不算重开
       rerender(<AddCredentialModal open {...props} initial={{}} />);
       expect(screen.getByText(/test[_ ]ok|连通正常|Kết nối/i)).toBeInTheDocument();
     });
@@ -778,5 +765,65 @@ describe("AddCredentialModal 模型下拉回退", () => {
     expect(screen.getByLabelText("密钥")).toHaveClass("font-mono");
     expect(document.getElementById("cred-model")).toHaveClass("font-mono");
     expect(screen.getByLabelText(/代理地址/).closest(".font-mono")).toBeNull();
+  });
+});
+
+describe("AddCredentialModal preset policy notice", () => {
+  it("appends a subtle policy notice with official terms link for ark-agent-plan only, not ark-coding-plan", () => {
+    const volcPresets: PresetProvider[] = [
+      {
+        id: "ark-agent-plan",
+        display_name: "Volcengine Ark Agent Plan",
+        icon_key: "Volcengine",
+        messages_url: "https://ark.cn-beijing.volces.com/api/plan",
+        discovery_url: null,
+        default_model: "doubao-seed-evolving",
+        suggested_models: ["doubao-seed-evolving", "kimi-k3"],
+        docs_url: null,
+        api_key_url: "https://console.volcengine.com/ark",
+        notes: "按月订阅的豆包/火山方舟 Agent 套餐。",
+        api_key_pattern: null,
+        is_recommended: false,
+      },
+      {
+        id: "ark-coding-plan",
+        display_name: "Volcengine Ark Coding Plan",
+        icon_key: "Volcengine",
+        messages_url: "https://ark.cn-beijing.volces.com/api/coding",
+        discovery_url: null,
+        default_model: "doubao-seed-code",
+        suggested_models: ["doubao-seed-code"],
+        docs_url: null,
+        api_key_url: "https://console.volcengine.com/ark",
+        notes: "火山方舟 Coding Plan 套餐。",
+        api_key_pattern: null,
+        is_recommended: false,
+      },
+    ];
+
+    render(
+      <AddCredentialModal
+        open
+        presets={volcPresets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Agent Plan/i }));
+    expect(screen.getByText("按月订阅的豆包/火山方舟 Agent 套餐。")).toBeInTheDocument();
+    expect(screen.getByText(/API Key 仅限本人单席位使用，个人版含数据授权。/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "查看服务条款" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://docs.volcengine.com/docs/ark/subscription-package-service-terms-conditions?lang=zh",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Coding Plan/i }));
+    expect(screen.getByText("火山方舟 Coding Plan 套餐。")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看服务条款" })).not.toBeInTheDocument();
   });
 });

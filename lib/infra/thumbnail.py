@@ -35,9 +35,7 @@ class FrameExtractionDeadlines:
 
 DEFAULT_DEADLINES = FrameExtractionDeadlines()
 
-#: 首帧缩略图长边上限（像素）
 VIDEO_THUMBNAIL_MAX_EDGE = 1280
-# 长边缩到不超过上限、不放大；短边按 -2 等比并取偶数
 VIDEO_THUMBNAIL_SCALE_FILTER = (
     f"scale=w='if(gte(iw,ih),min({VIDEO_THUMBNAIL_MAX_EDGE},iw),-2)'"
     f":h='if(gte(iw,ih),-2,min({VIDEO_THUMBNAIL_MAX_EDGE},ih))'"
@@ -257,7 +255,6 @@ async def extract_video_last_frame(
 
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
 
-    # 1. 先走快路径（只解复用数包），失败再回退到全量解码
     total_frames = await _probe_frame_count(ffmpeg, video_path, count_frames=False, deadlines=deadlines, spawn=spawn)
     try:
         if (

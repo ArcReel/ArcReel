@@ -48,8 +48,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple, TypeGuard
 
-# ---------------------------------------------------------------- 常量表
-
 MOCK_FACTORIES = {
     "MagicMock",
     "AsyncMock",
@@ -96,7 +94,6 @@ DOUBLE_ATTRS = {
     "call_list",
 }
 
-# 断言辅助函数：调用即视为实质断言（保守，倾向压低类 1 误报）
 ASSERT_HELPER_PREFIXES = ("assert", "_assert", "check_", "_check", "verify_", "_verify", "expect_")
 
 FAIL_ASSERT_CALLS = {"fail"}
@@ -170,7 +167,6 @@ BUILTIN_NAMES = {
     "re",
 }
 
-# 类 2 动机分档。按顺序匹配：轮询/重试 > 外部 I/O > 被测逻辑本身。
 TIMING_RE = re.compile(
     r"(?i)(sleep|poll|interval|delay|timeout|backoff|retry|retries|max_attempts|attempts"
     r"|wait|deadline|_seconds$|_secs$|_ms$|tick|schedule|monotonic|perf_counter)"
@@ -205,7 +201,6 @@ MOTIVE_LOGIC = "绕被测逻辑本身"
 # 正则只看符号名，命中率有限。下表是逐符号读过生产代码后的人工判定，覆盖正则判错的目标；
 # 其余目标按正则归档。改动这张表就改动了报告里的三档数字，增删条目请附判定依据。
 MOTIVE_OVERRIDES = {
-    # 名字不像 I/O，实际经 ConfigResolver / 文件系统 / 远端探测
     "server.media_tools.image_edits._i2i_provider_available": MOTIVE_IO,
     "lib.artifacts.artifact_manifest._O_NOFOLLOW": MOTIVE_IO,
     "server.routers.system_config._read_app_version": MOTIVE_IO,
@@ -220,7 +215,6 @@ MOTIVE_OVERRIDES = {
     "lib.artifacts.artifact_activation._ensure_activation_backup": MOTIVE_IO,
     "server.services.tasks.reference_video_tasks._stage_provider_media_for_task": MOTIVE_IO,
     "server.services.grid.grid_split._register_split_entries_atomically": MOTIVE_IO,
-    # 名字像 I/O，实际是纯判断 / 阈值常量 / 内部编排
     "server.agent_runtime.event_log._is_client_key_violation": MOTIVE_LOGIC,
     "lib.backends.video_backends.v2_video_generations._LARGE_IMAGE_WARN_BYTES": MOTIVE_LOGIC,
     "server.services.admission.cost_estimation.quote_video_request_from_price": MOTIVE_LOGIC,
@@ -252,9 +246,6 @@ def monkeypatch_context_aliases(tree: ast.Module) -> dict[str, list[tuple[int, i
     return aliases
 
 
-# ---------------------------------------------------------------- 数据结构
-
-
 @dataclass
 class DoubleOnlyTest:
     path: str
@@ -280,7 +271,6 @@ class PatchSite:
     module_under_test: str | None
     hits_module_under_test: bool
     motive: str
-    # 目标根部还原到了 import（字符串字面量目标恒为真）；为假时根部是局部对象，同名不代表同一对象
     import_rooted: bool
 
 
@@ -300,9 +290,6 @@ class FileStat:
     no_assertion: int = 0
     private_patches: int = 0
     integration_self_patches: int = 0
-
-
-# ---------------------------------------------------------------- 工具函数
 
 
 def dotted(node: ast.expr | None) -> str | None:
@@ -496,7 +483,6 @@ def resolve_opted_out_classes(tree: ast.Module, by_name: dict[str, list[ast.Clas
     多重继承按深度优先取第一个显式取值，不解 C3 MRO：两条分支给出相反取值时可能多判一次
     退出，方向是漏报，与本段其它口径同向。
     """
-    # 类体外的 `TestFoo.__test__ = ...` 在类定义之后执行，覆盖类体内的取值
     overrides = collection_overrides(tree.body)
     own = {name: _merge_flags(collection_flag(node.body) for node in nodes) for name, nodes in by_name.items()}
 
@@ -652,7 +638,6 @@ def _declares_abstract(node: ast.ClassDef) -> bool:
 
 TIER_MARKS = ("unit", "integration", "e2e")
 
-#: 生产代码的顶层包 → 相对仓库根的源码目录。workspace 子包是 src 布局，源码不在仓库根下。
 PRODUCTION_PACKAGES: Mapping[str, str] = {
     "lib": ".",
     "server": ".",
@@ -661,7 +646,6 @@ PRODUCTION_PACKAGES: Mapping[str, str] = {
 }
 PRODUCTION_PREFIXES = tuple(f"{name}." for name in PRODUCTION_PACKAGES)
 
-#: 缺省扫描的后端测试目录：主仓 `tests/` 之外，workspace 子包各有独立的测试目录。
 DEFAULT_TESTS_DIRS = ("tests", "packages/arcreel-market-core/tests", "packages/arcreel-catalog-core/tests")
 
 
@@ -690,9 +674,6 @@ def _is_empty_container(node: ast.expr) -> bool:
     return False
 
 
-# ---------------------------------------------------------------- 模块别名解析
-
-
 def alias_map_from(node: ast.AST) -> dict[str, str]:
     """收集一个 AST 子树里的 import 别名 -> 点分模块映射。"""
     out: dict[str, str] = {}
@@ -704,7 +685,6 @@ def alias_map_from(node: ast.AST) -> dict[str, str]:
                 else:
                     out[alias.name.split(".")[0]] = alias.name.split(".")[0]
         elif isinstance(sub, ast.ImportFrom) and sub.module and sub.level == 0:
-            # 相对导入的 module 不是顶层点分路径，还原不出绝对模块名
             for alias in sub.names:
                 out[alias.asname or alias.name] = f"{sub.module}.{alias.name}"
     return out
@@ -727,7 +707,6 @@ class AliasIndex:
                 self.imported_modules.add(node.module)
                 if node.module.split(".")[0] in PRODUCTION_PACKAGES:
                     for alias in node.names:
-                        # `from lib.x import y`：y 可能是子模块也可能是符号，两种都登记
                         self.import_counter[f"{node.module}.{alias.name}"] += 1
 
     def resolve(self, name: str, overrides: dict[str, str] | None = None) -> str:
@@ -764,9 +743,6 @@ class AliasIndex:
         return None
 
 
-# ---------------------------------------------------------------- 类 1 识别
-
-
 class TestFunctionAnalyzer:
     """在单个 test 函数体内识别替身绑定并给断言分类。"""
 
@@ -778,8 +754,6 @@ class TestFunctionAnalyzer:
         self.doubles: set[str] = set()
         self.recorders: set[str] = set()
         self._collect_doubles()
-
-    # -- 替身绑定 ------------------------------------------------
 
     def _collect_doubles(self) -> None:
         injected = 0
@@ -859,8 +833,6 @@ class TestFunctionAnalyzer:
                     and inner.target.id in containers
                 ):
                     self.recorders.add(inner.target.id)
-
-    # -- 断言分类 ------------------------------------------------
 
     def classify(self) -> tuple[int, int, list[str], list[str]]:
         """返回 (替身断言数, 实质断言数, 替身断言证据, 被断言的替身主体)。"""
@@ -951,9 +923,6 @@ class TestFunctionAnalyzer:
             if owner and owner.split(".")[0] in double_names:
                 owners.add(owner)
         return owners
-
-
-# ---------------------------------------------------------------- 类 2 识别
 
 
 def classify_motive(target: str) -> str:
@@ -1083,9 +1052,6 @@ class ProductionIndex:
         return self.ORIGIN_DEFINED if rest.split(".")[0] in members else self.ORIGIN_UNKNOWN
 
 
-# ---------------------------------------------------------------- 主扫描
-
-
 class FileScanner:
     def __init__(self, path: Path, root: Path, tests_dir: Path, prod: ProductionIndex) -> None:
         self.path = path
@@ -1163,8 +1129,6 @@ class FileScanner:
                     subjects=subjects,
                 )
             )
-
-    # -- patch 站点 ----------------------------------------------
 
     def _enclosing_map(self) -> dict[int, tuple[str, list[str], dict[str, str]]]:
         """行号 -> (所属函数限定名, 生效的 marks, 该函数内的 import 别名覆盖)。
@@ -1259,8 +1223,6 @@ class FileScanner:
         return None, None
 
 
-# ---------------------------------------------------------------- 类 3：共享设施结构
-
 DUPLICATE_FIXTURE_THRESHOLD = 3
 
 
@@ -1308,7 +1270,6 @@ def conftest_import_lines(tree: ast.Module) -> list[tuple[int, str]]:
             if module.split(".")[-1] == "conftest":
                 out.append((node.lineno, module))
                 continue
-            # `from tests import conftest`：模块名在 names 里
             out.extend(
                 (node.lineno, f"{module}.conftest" if module else "conftest")
                 for alias in node.names
@@ -1537,8 +1498,6 @@ def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module
     return findings
 
 
-# ---------------------------------------------------------------- 类 4：文件形态
-
 SPLIT_SUFFIX_RE = re.compile(r"_(more|full|coverage|extra|additional)$")
 FILE_LINE_LIMIT = 3000
 FRONTEND_TESTS_DIR = "__tests__"
@@ -1611,8 +1570,6 @@ def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding
         if FRONTEND_TESTS_DIR in path.parts
     ]
 
-
-# ---------------------------------------------------------------- 类 5：重复用例
 
 PARAMETRIZE_NAME = "parametrize"
 
@@ -1898,7 +1855,6 @@ def scan_module_duplicates(rel: str, tree: ast.Module, scope: CollectionScope) -
         expanded = expanded_bodies(owner.node)
         if expanded is None:
             continue
-        # 形参在 `params` 里连默认值一并编码，剔除参数化形参时按基础名比对
         owner_params = tuple(sorted(p for p in owner.params if p.partition("=")[0] not in expanded.argnames))
         for case in plain:
             if case.qual in reported or case.scope != owner.scope or case.params != owner_params:
@@ -1918,9 +1874,6 @@ def scan_module_duplicates(rel: str, tree: ast.Module, scope: CollectionScope) -
                 )
             )
     return findings
-
-
-# ---------------------------------------------------------------- 汇总输出
 
 
 def run(root: Path, tests_dir: Path | Sequence[Path], top: int, frontend_src: Path | None = None) -> dict[str, object]:

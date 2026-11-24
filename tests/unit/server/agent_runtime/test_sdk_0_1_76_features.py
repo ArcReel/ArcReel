@@ -49,7 +49,6 @@ class TestApiErrorStatusInStatusPayload:
         assert "api_error_status" not in payload
 
     def test_api_error_status_absent_when_field_missing(self):
-        # 老 SDK / 老消息没有 api_error_status 字段
         result_message: dict[str, Any] = {
             "type": "result",
             "subtype": "success",
@@ -140,7 +139,7 @@ class TestCanUseToolDecisionReason:
             meta_store=SessionMetaStore(),
         )
         callback = await sm._build_can_use_tool_callback(session_id="sess-y")
-        ctx = SimpleNamespace()  # no decision_reason
+        ctx = SimpleNamespace()
         result = await callback("Bash", {"command": "echo hi"}, ctx)
         assert hasattr(result, "message")
         assert "未授权的工具调用" in result.message

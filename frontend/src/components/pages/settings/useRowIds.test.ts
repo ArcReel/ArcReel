@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { useNamedRowIds, useRowIds } from "./useRowIds";
 
 describe("useRowIds", () => {
-  // 调用方在同一个处理函数里改行与改 id，两者在同一次渲染里生效
   function useRows(initial: number) {
     const [count, setCount] = useState(initial);
     return { ...useRowIds(count), setCount };
@@ -27,7 +26,6 @@ describe("useRowIds", () => {
     expect(result.current.ids.slice(0, 2)).toEqual([first, third]);
     expect(new Set(result.current.ids).size).toBe(3);
 
-    // 外部整体换值（采用官方值、放弃修改）
     act(() => result.current.setCount(1));
     expect(result.current.ids).toHaveLength(1);
     expect([first, third]).not.toContain(result.current.ids[0]);

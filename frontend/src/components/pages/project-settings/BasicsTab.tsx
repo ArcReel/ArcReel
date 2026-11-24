@@ -25,7 +25,6 @@ interface BasicsTabProps {
   facts: ProjectFacts & { sourceLanguage: string | null };
 }
 
-/** 「基础」：画面比例、生成方式（只读，含宫格开关）、口播语速估算与目标时长。 */
 export function BasicsTab({ value, savedValue, onChange, facts }: BasicsTabProps) {
   const { t } = useTranslation("dashboard");
   const aspectId = useId();
@@ -87,7 +86,6 @@ export function BasicsTab({ value, savedValue, onChange, facts }: BasicsTabProps
             onChange={(next) => onChange((prev) => ({ ...prev, speechRate: next }))}
             sourceLanguage={facts.sourceLanguage}
           />
-          {/* 广告项目的整集体量由目标总时长表达，不呈现单集目标时长（服务端亦拒写） */}
           {facts.contentMode === "ad" ? (
             <DurationTierPicker
               value={value.adTargetDuration}

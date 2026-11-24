@@ -4,10 +4,16 @@ from pathlib import Path
 
 import pytest
 
+from lib.backends.image_errors import ImageCapabilityError
 from lib.infra.api_errors import BadRequestError
 from server.services.admission import prompt_preview
 from server.services.tasks import generation_tasks
-from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
+from tests.fakes import (
+    use_generation_context,
+    use_image_admission_context,
+    use_project_manager,
+    use_video_thumbnail_extractor,
+)
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -191,6 +197,8 @@ class TestPreviewMatchesExecution:
             "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": _item_of(pm)["image_prompt"]}
         )
 
+        assert preview.storyboard_image.previous_storyboard == "E1S01"
+        assert preview.storyboard_image.reference_count == 4
         text = preview.storyboard_image.text
         assert text is not None
         assert (
@@ -253,40 +261,34 @@ class TestPreviewMatchesExecution:
         assert as_text.video.text == seed
 
 
-class TestPreviewMatchesClampedExecution:
-    """参考图超过图像后端上限时，预览与执行按同一裁剪编号。"""
+class TestPreviewMatchesReferenceLimit:
+    """预览与执行按同一上限准入。"""
 
-    async def test_preview_text_is_verbatim_under_clamping(self, tmp_path, monkeypatch):
+    async def test_preview_and_worker_report_the_same_over_limit_problem(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
-        clamped_lane = fake_resolve_ctx(generator, image_max_reference_images=7)
-        use_generation_context(monkeypatch, clamped_lane)
-        monkeypatch.setattr(prompt_preview, "resolve_generation_context", clamped_lane)
+        limited_lane = fake_resolve_ctx(generator, image_max_reference_images=7)
+        use_generation_context(monkeypatch, limited_lane)
+        use_image_admission_context(monkeypatch, limited_lane)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
-        result = await generation_tasks.execute_storyboard_task(
-            "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
-        )
-
-        assert len(generator.image_calls[0]["reference_images"]) == 7
-        assert preview.storyboard_image.text == generator.image_calls[0]["prompt"]
-        # 预览在生成前就给出与执行期任务结果同一条裁剪 warning；视频侧不裁剪参考图，不带
-        assert list(preview.storyboard_image.warnings) == result["warnings"]
-        assert preview.storyboard_image.warnings == (
-            {"key": "ref_too_many_images", "params": {"count": 8, "model": "gpt-image-2", "max_count": 7}},
-        )
-        assert preview.video.warnings == ()
+        with pytest.raises(ImageCapabilityError) as exc:
+            await generation_tasks.execute_storyboard_task(
+                "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
+            )
+        assert preview.storyboard_image.unavailable == exc.value.code
+        assert preview.storyboard_image.unavailable_params == exc.value.params
+        assert preview.storyboard_image.reference_count == 8
+        assert not generator.image_calls
 
     async def test_preview_within_the_limit_carries_no_warning(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
-        monkeypatch.setattr(
-            prompt_preview, "resolve_generation_context", fake_resolve_ctx(generator, image_max_reference_images=8)
-        )
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=8))
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -294,7 +296,7 @@ class TestPreviewMatchesClampedExecution:
         assert "图8为道具参考图。" in preview.storyboard_image.text
         assert preview.storyboard_image.warnings == ()
 
-    async def test_preview_falls_back_to_no_clamping_when_the_lane_cannot_resolve(self, tmp_path, monkeypatch):
+    async def test_preview_without_a_resolvable_lane(self, tmp_path, monkeypatch):
         """凭证缺失等解析失败只让预览退回不裁剪，仍渲染出提示词。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
@@ -303,7 +305,7 @@ class TestPreviewMatchesClampedExecution:
         async def _unresolvable(*_args, **_kwargs):
             raise RuntimeError("no image provider configured")
 
-        monkeypatch.setattr(prompt_preview, "resolve_generation_context", _unresolvable)
+        use_image_admission_context(monkeypatch, _unresolvable)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -457,6 +459,26 @@ class TestPromptPreviewTool:
 
         assert outcome.problem is None
         assert outcome.value == await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
+
+    async def test_agent_preview_reports_the_same_over_limit_reference_as_the_worker(self, tmp_path, monkeypatch):
+        project_path = prepare_files(tmp_path)
+        pm = pm_with_eight_references(project_path)
+        generator = FakeGenerator(project_path)
+        _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
+        lane = fake_resolve_ctx(generator, image_max_reference_images=7)
+        use_generation_context(monkeypatch, lane)
+        use_image_admission_context(monkeypatch, lane)
+
+        preview = await self._call(pm, project_path)
+        with pytest.raises(ImageCapabilityError) as failure:
+            await generation_tasks.execute_storyboard_task(
+                "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
+            )
+
+        assert preview.value is not None
+        assert preview.value.storyboard_image.unavailable == failure.value.code == "image_reference_images_exceeded"
+        assert preview.value.storyboard_image.unavailable_params == failure.value.params
+        assert not generator.image_calls
 
     async def test_unknown_item_is_a_typed_problem(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)

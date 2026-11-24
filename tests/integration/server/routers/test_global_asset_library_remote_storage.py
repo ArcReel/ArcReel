@@ -290,7 +290,6 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert _upload(library_api, image).status_code == 200
     account_a = await _account(library_sessions, "TEST-CONTROL-PLANE-AK-A")
     source_link = await _link_current_version(library_sessions, library_projects, account_a)
-    # 来源的工作文件已被清理：保存时从远端取回
     assert _cleanup(library_api)["removed"] == 2
 
     saved = _save_to_library(library_api)
@@ -300,7 +299,7 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert entry.image_digest == digest
     assert entry.image_storage is not None
     assert entry.image_storage["key"] == key
-    assert library_bucket.stored_keys() == [key]  # 同字节共用一个正式对象，没有重复上传
+    assert library_bucket.stored_keys() == [key]
     assert library_bucket.calls.count(("put", key)) == 1
     [library_link] = await _links_of(library_sessions, holder)
     assert library_link.content_version_id == entry.image_content_id
@@ -311,7 +310,6 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     )
     assert links.scope_of(library_link) == links.scope_of(source_link)
 
-    # 库里的图同样只是工作文件（连同保存时取回的来源正式文件）：清理后预览从远端取回
     assert _cleanup(library_api)["removed"] == 2
     library_file = library_projects.data_root / entry.image_path
     assert not library_file.exists()
@@ -324,27 +322,24 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert applied.status_code == 200, applied.text
     assert applied.json()["succeeded"] == [{"id": entry.id, "name": "Alice"}]
     [target_record] = _history(library_projects, "other")["versions"]
-    assert target_record["storage"]["key"] == key  # 遵循全局设置写远端，与库共用同一个对象
+    assert target_record["storage"]["key"] == key
     assert target_record["content_digest"] == digest
     [target_link] = await _links_of(library_sessions, "other")
     assert target_link.content_version_id == target_record["content_version_id"]
     assert target_link.provider_asset_id == source_link.provider_asset_id
 
-    # 解除任一副本只解除它自己
     async with library_sessions() as session:
         await links.release_link(session, await session.get(ProviderAssetLink, source_link.id))
         await session.commit()
     assert [link.selected for link in await _links_of(library_sessions, holder)] == [True]
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
 
-    # 目标生成按实际调用范围选用：原账号范围用素材引用，另一个云账号的范围没有适用关联
     choice = await _choose(library_sessions, library_projects, "other", account_scope(account_a), image)
     assert choice is not None
     assert choice.asset_uri == f"asset://{source_link.provider_asset_id}"
     account_b = await _account(library_sessions, "TEST-CONTROL-PLANE-AK-B")
     assert await _choose(library_sessions, library_projects, "other", account_scope(account_b), image) is None
 
-    # 删除来源项目并彻底清除，来源不再持有任何引用；启动结算与维护循环都不删除库与目标仍在用的对象
     with build_projects_client(monkeypatch, library_projects, session_factory=library_sessions) as projects_api:
         assert projects_api.delete("/api/v1/projects/demo").status_code == 200
         [deleted] = projects_api.get("/api/v1/deleted-projects").json()["projects"]
@@ -368,7 +363,6 @@ async def test_remote_image_through_global_library_survives_source_deletion(
     assert library_api.get(_preview_url(entry.image_path)).content == image
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
 
-    # 删除库条目只丢弃这条条目的关联与引用；目标仍引用对象，统一回收不删除它
     assert library_api.delete(f"/api/v1/assets/{entry.id}").status_code == 204
     assert await _links_of(library_sessions, holder) == []
     assert [link.selected for link in await _links_of(library_sessions, "other")] == [True]
@@ -393,7 +387,6 @@ async def test_startup_settlement_keeps_the_library_reference(
         await session.commit()
 
     assert await recover_formal_commits(library_sessions, project_path_of=library_projects.get_project_path) == 1
-    # 维护循环逐个项目重算引用、撤下过期墓碑名的引用；条目键既不是项目名也不是墓碑名，不受影响
     await retain_formal_objects(
         library_projects.layout.projects_dir,
         library_projects.layout.deleted_projects_dir,

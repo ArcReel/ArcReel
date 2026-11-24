@@ -1,11 +1,9 @@
 """Chinese translations for style template names and taglines."""
 
 MESSAGES: dict[str, str] = {
-    # ===== Category names =====
     "template_category_custom": "自定义",
     "template_category_live": "AI 真人剧",
     "template_category_anim": "AI 漫剧",
-    # ===== Live names (18) =====
     "template_name_live_cinematic_ancient": "精品古装",
     "template_name_live_zhang_yimou": "张艺谋风格",
     "template_name_live_ancient_xianxia": "古装仙侠",
@@ -24,7 +22,6 @@ MESSAGES: dict[str, str] = {
     "template_name_live_wong": "王家卫",
     "template_name_live_shaw": "邵氏武侠",
     "template_name_live_cyberpunk": "真人赛博朋克",
-    # ===== Anim names (18) =====
     "template_name_anim_3d_cg": "3D 游戏 CG",
     "template_name_anim_cn_3d": "国风 3D",
     "template_name_anim_kyoto": "商业动画 京都",
@@ -43,7 +40,6 @@ MESSAGES: dict[str, str] = {
     "template_name_anim_bloodborne": "血源克苏鲁",
     "template_name_anim_itojunji": "伊藤润二",
     "template_name_anim_90s_retro": "90 年代日漫",
-    # ===== Live taglines (18) =====
     "template_tagline_live_cinematic_ancient": "专业打光 · 电视剧质感",
     "template_tagline_live_zhang_yimou": "极致用色 · 仪式感",
     "template_tagline_live_ancient_xianxia": "临江仙 · 美白滤镜",
@@ -62,7 +58,6 @@ MESSAGES: dict[str, str] = {
     "template_tagline_live_wong": "胶片颗粒 · 东方都市",
     "template_tagline_live_shaw": "港式武侠 · 电影感",
     "template_tagline_live_cyberpunk": "电影质感 · 极致高清",
-    # ===== Anim taglines (18) =====
     "template_tagline_anim_3d_cg": "影视级 · 虚幻引擎",
     "template_tagline_anim_cn_3d": "影视级 · 虚幻引擎",
     "template_tagline_anim_kyoto": "柔和赛璐珞 · 石立太一",

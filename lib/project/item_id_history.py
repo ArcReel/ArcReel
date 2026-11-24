@@ -17,9 +17,7 @@ from lib.project.project_trash import trash_dir
 from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, episode_item_id_high_water, reissue_item_ids
 from lib.script.script_skeleton import resolve_kind_items
 
-#: 条目编号所在的字段：剧本条目的 id 字段与剪辑片段的 ``unit_id``。
 _ID_FIELDS = frozenset({"segment_id", "scene_id", "shot_id", "unit_id"})
-#: 版本历史里以条目编号为键的资源类型（与 ``script_entry_cleanup.ENTRY_MEDIA_RESOURCE_TYPES`` 一致）。
 _ENTRY_RESOURCE_TYPES = ("storyboards", "end_frames", "videos", "reference_videos", "audio")
 _MANIFEST_FILE = ".arcreel_artifacts.json"
 _SCRIPT_ENTRY_KIND = "script_entry"
@@ -84,7 +82,6 @@ def used_item_numbers(project_dir: Path) -> dict[int, set[int]]:
         obj = record.get("object") if isinstance(record, dict) else None
         if isinstance(obj, dict) and obj.get("kind") == _SCRIPT_ENTRY_KIND:
             _record(found, obj.get("id"))
-        # 快照里改写前的剧本、删掉的集与剪辑时间线
         for path in _json_files(record_dir):
             for item_id in _id_fields(_load(path)):
                 _record(found, item_id)

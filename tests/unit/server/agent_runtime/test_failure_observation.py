@@ -102,17 +102,13 @@ def _turn_key(*, assistant_message=None, result_message=None) -> str:
 @pytest.mark.parametrize(
     ("assistant_message", "result_message", "key"),
     [
-        # SDK 的 AssistantMessageError 枚举原样作为 key
         ({"error": "rate_limit"}, {"subtype": "success", "is_error": True, "api_error_status": 500}, "rate_limit"),
-        # SDK 自己也说不清的 unknown 不算证据，继续看 result
         ({"error": "unknown"}, {"subtype": "error_max_turns", "is_error": True}, "error_max_turns"),
         (None, {"subtype": "error_max_budget_usd", "is_error": True}, "error_max_budget_usd"),
-        # 只有 HTTP 状态时按状态归到 SDK 的同一组枚举
         (None, {"subtype": "success", "is_error": True, "api_error_status": 401}, "authentication_failed"),
         (None, {"subtype": "success", "is_error": True, "api_error_status": 429}, "rate_limit"),
         (None, {"subtype": "success", "is_error": True, "api_error_status": 529}, "server_error"),
         (None, {"subtype": "success", "is_error": True, "api_error_status": 404}, "invalid_request"),
-        # 没有可用的结构化证据：通用 key，不解析错误文案
         ({"error": "api_error", "content": [{"type": "text", "text": "401 Unauthorized"}]}, None, "turn_failed"),
         (None, {"subtype": "error_during_execution", "is_error": True, "errors": ["rate limit"]}, "turn_failed"),
     ],

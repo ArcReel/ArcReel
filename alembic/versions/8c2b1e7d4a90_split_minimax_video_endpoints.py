@@ -67,7 +67,6 @@ def _rewrite_checkpoints(*, upgrading: bool) -> None:
         )
     )
     for task_id, raw in rows:
-        # 坏掉的 checkpoint 是单条任务的身份问题（运行时按不可恢复处理），不该让整个迁移中止。
         try:
             checkpoint = json.loads(raw)
         except ValueError:

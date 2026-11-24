@@ -81,6 +81,5 @@ async def test_concurrent_first_saves_leave_one_connection(
         conn = await original_get(ObjectStorageConnectionRepository(session))
     assert count == 1
     assert conn is not None
-    # 后提交的请求按更新那一条处理：最终连接整体是其中一个请求的内容，不会混合两份。
     saved = {"bucket-a": "A", "bucket-b": "B"}[conn.bucket]
     assert (conn.access_key_id, conn.secret_access_key) == (f"TEST-TOS-AK-{saved}", f"TEST-TOS-SECRET-{saved}")

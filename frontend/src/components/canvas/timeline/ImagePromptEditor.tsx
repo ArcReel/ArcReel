@@ -9,11 +9,9 @@ import { PromptFieldSelect } from "./PromptFieldSelect";
 interface ImagePromptEditorProps {
   prompt: ImagePrompt;
   onUpdate: (patch: Partial<ImagePrompt>) => void;
-  /** 只读展示（引导演示项目）：字段可读不可改。 */
   readOnly?: boolean;
 }
 
-/** 结构化的分镜图提示词：画面描述加可折叠的构图参数（景别、光线、氛围）。 */
 export function ImagePromptEditor({ prompt, onUpdate, readOnly }: ImagePromptEditorProps) {
   const { t } = useTranslation("dashboard");
   const updateComposition = (patch: Partial<ImagePrompt["composition"]>) =>

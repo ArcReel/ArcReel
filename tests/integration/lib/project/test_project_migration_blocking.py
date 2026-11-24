@@ -80,7 +80,6 @@ def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path)
     failure = migrate_project_with_verdict(project_dir)
 
     assert failure is not None
-    # 项目卡在清单激活这一步的起点版本上，不是迁移链的末端。
     assert failure.schema_version == ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
     assert failure.reason
     assert [(d.episode, d.file) for d in failure.details] == [(1, "scripts/episode_1.json")]
@@ -189,7 +188,6 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
 
     blocked = await run_declared_tool(RETRY_PROJECT_MIGRATION, ctx, {})
-    # 与被拦截的生成工具同一个回执形状：一份 problem，不是第二套 error/reason 信封
     assert blocked.problem is not None
     assert blocked.problem.code == MIGRATION_FAILURE_CODE
     assert blocked.problem.params is not None
@@ -227,7 +225,6 @@ def test_web_retry_reports_the_reason_then_unblocks_once_repaired(tmp_path: Path
 
     assert refused.status_code == 422
     diagnostic = refused.json()["diagnostic"]
-    # 失败原文经 Web 呈现边界改写集指称，其余原样。
     assert "not valid UTF-8 JSON" in diagnostic["reason"]
     assert diagnostic["details"][0]["file"] == "scripts/episode_1.json"
 
@@ -460,7 +457,6 @@ def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    # 「修复」把 project.json 弄没了：链条无处落脚，schema 仍未达标。
     (project_dir / "project.json").unlink()
     residual = migrate_project_with_verdict(project_dir)
 
@@ -482,8 +478,6 @@ def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path) -> None:
     with pytest.raises(IsADirectoryError, match=r"Is a directory"):
         migrate_project_with_verdict(project_dir)
 
-    # 启动期一个项目写不下裁决，不拖垮同一轮里其它项目：healthy 排在 demo 之后，
-    # 只有循环真的继续了它才会被迁移。
     seed_root = tmp_path / "seed"
     seed_root.mkdir()
     healthy_dir, *_ = _project(seed_root)
@@ -532,7 +526,6 @@ def test_rest_guard_refuses_writes_but_keeps_reads_open(tmp_path: Path, monkeypa
     assert refused.status_code == 409
     assert "demo" in refused.json()["detail"]
 
-    # 只读照常：被阻断的项目仍要能看脚本与画布上已有的产物
     assert client.get("/projects/demo/thing").status_code == 200
 
     _repair_episode_script(project_dir)
@@ -569,6 +562,5 @@ def test_a_repaired_project_is_idempotent_to_retry(tmp_path: Path) -> None:
     project_dir, *_ = _project(tmp_path)
 
     assert migrate_project_with_verdict(project_dir) is None
-    # Already at the current schema: rerunning is a no-op success, not a second migration.
     assert migrate_project_with_verdict(project_dir) is None
     assert load_migration_failure(project_dir) is None

@@ -19,10 +19,6 @@ import { errMsg } from "@/utils/async";
 
 const NO_PRODUCTS: Record<string, Product> = {};
 
-/**
- * 广告项目概览常驻的「商品」区：列出已登记的商品，点一行或「添加商品」从右侧打开资产详情 Sheet。
- * 没有商品时显示空状态；没有商品也能只凭创作灵感生成脚本。
- */
 export function AdProducts({
   projectName,
   products = NO_PRODUCTS,
@@ -121,7 +117,6 @@ export function AdProducts({
   );
 }
 
-/** 一个商品一行：资产图（没有时用第一张原图）、名称与描述，整行打开详情。 */
 function ProductRow({
   projectName,
   name,

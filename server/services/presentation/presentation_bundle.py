@@ -76,7 +76,6 @@ class PresentationBundleService:
             return bundle_path
 
         try:
-            # 取消时先等打包线程收尾，再删掉临时目录，不留下写到一半或无人认领的压缩包。
             return await run_sync_transaction(_export)
         except BaseException:
             for temp_dir in temp_dirs:

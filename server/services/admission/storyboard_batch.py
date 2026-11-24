@@ -30,7 +30,9 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.generation_input import project_input_observation
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.backends.image_errors import ImageCapabilityError
 from lib.config.resolver import ConfigResolver
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
@@ -74,6 +76,12 @@ from server.services.admission.cost_estimation import (
     load_video_price_source,
     quote_video_request_from_price,
 )
+from server.services.admission.image_references import (
+    active_storyboard_ids,
+    check_storyboard_image_limit,
+    limit_problem,
+    reference_image_limit,
+)
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
@@ -96,9 +104,7 @@ class BatchSkipReason(StrEnum):
     MISSING_PROMPT = "missing_prompt"
     MISSING_STORYBOARD = "missing_storyboard"
     GENERATING = "generating"
-    #: 引用未登记，或引用的资产还没有可用的资产图。
     REFERENCE_UNAVAILABLE = "reference_unavailable"
-    #: 产物清单读不出，或条目本身不成立。
     UNAVAILABLE = "unavailable"
 
 
@@ -128,7 +134,6 @@ class EpisodeStoryboardScript:
     project_path: Path
     script: dict[str, Any]
     script_file: str
-    #: 产物清单里这一集的集号。
     episode: int
 
 
@@ -150,7 +155,6 @@ def load_episode_storyboard_script(
     recorded = entry.get("script_file") if entry is not None else None
     if not isinstance(recorded, str) or not recorded:
         raise StoryboardBatchEpisodeNotFound(episode_id)
-    # 任务与去重键按剧本纯文件名记，与逐条生成入口同一写法；账本里记的是 ``scripts/`` 下的路径。
     script_file = recorded.removeprefix("scripts/")
     try:
         script = projects.load_script(project_name, script_file)
@@ -189,9 +193,6 @@ async def _active_resource_ids(
     return frozenset(str(task["resource_id"]) for task in tasks if task.get("resource_id"))
 
 
-# --- 分镜图 -------------------------------------------------------------------
-
-
 def storyboard_image_prompt(segment: dict[str, Any], style: str, style_description: str, id_field: str) -> str:
     """一张分镜图实发的提示词；提示词缺失时抛 ``ValueError``。"""
 
@@ -227,14 +228,11 @@ class StoryboardImageBatchPlan:
     script_file: str
     items: Sequence[dict[str, Any]]
     id_field: str
-    #: 要提交的目标，按剧本顺序。
     targets: tuple[GenerationTargetState, ...]
     preflight: GenerationBatchResult
-    #: 每个目标的生图通道，供报价。
     lanes: Mapping[str, ImageLane]
     missing_prompt: frozenset[str] = frozenset()
     reference_blocked: frozenset[str] = frozenset()
-    #: 目标里已有活动任务的分镜：提交时并入原任务，不再计费。
     generating: frozenset[str] = frozenset()
 
     @property
@@ -294,7 +292,10 @@ def plan_storyboard_image_batch(
     script_file: str,
     episode: int,
     resolver: ArtifactCurrencyResolver,
+    project_path: Path,
+    image_limit: tuple[int | None, str],
     requested_ids: Sequence[str] | None = None,
+    active_ids: frozenset[str] = frozenset(),
 ) -> StoryboardImageBatchPlan:
     """选出这一批的分镜图目标并逐项判准入；``requested_ids`` 为 ``None`` 时只选缺分镜图的分镜。"""
 
@@ -322,10 +323,10 @@ def plan_storyboard_image_batch(
     targets: list[GenerationTargetState] = []
     missing_prompt: set[str] = set()
     reference_blocked: set[str] = set()
-    for state in selection.targets:
+    observation = project_input_observation(project_path) if image_limit[0] is not None else None
+    planned_ids = set(active_ids)
+    for state in sorted(selection.targets, key=lambda state: index_by_id[state.unit_id]):
         item = items_by_id[state.unit_id]
-        # 结果集一个分镜只记一条问题：取首条（未登记排在无资产图之前——名字都没登记时
-        # 「去生成资产图」指不出该对谁做），另一条在这条修完后的下一次调用里报出。
         reference_problem = next(
             iter(reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=state.unit_id)),
             None,
@@ -344,6 +345,21 @@ def plan_storyboard_image_batch(
                     detail=str(exc),
                     action=GenerationAction.FIX_INPUT,
                 )
+        if problem is None and observation is not None:
+            try:
+                check_storyboard_image_limit(
+                    project,
+                    script,
+                    project_path,
+                    episode=episode,
+                    resource_id=state.unit_id,
+                    limit=image_limit,
+                    planned_ids=planned_ids,
+                    observation=observation,
+                )
+            except ImageCapabilityError as exc:
+                problem = limit_problem(exc)
+                reference_blocked.add(state.unit_id)
         if problem is not None:
             builder.block(
                 state.unit_id,
@@ -354,6 +370,7 @@ def plan_storyboard_image_batch(
             )
             continue
         targets.append(state)
+        planned_ids.add(state.unit_id)
 
     return StoryboardImageBatchPlan(
         script_file=script_file,
@@ -367,6 +384,7 @@ def plan_storyboard_image_batch(
         },
         missing_prompt=frozenset(missing_prompt),
         reference_blocked=frozenset(reference_blocked),
+        generating=active_ids.intersection(state.unit_id for state in targets),
     )
 
 
@@ -380,29 +398,36 @@ async def load_storyboard_image_batch_plan(
 ) -> tuple[EpisodeStoryboardScript, StoryboardImageBatchPlan]:
     """读取这一集的现状并规划一批分镜图，标出其中已在生成中的目标。"""
 
-    def _read() -> tuple[EpisodeStoryboardScript, StoryboardImageBatchPlan]:
-        loaded = load_episode_storyboard_script(projects, project_name, episode_id)
-        resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
-        plan = plan_storyboard_image_batch(
-            project=loaded.project,
-            script=loaded.script,
-            script_file=loaded.script_file,
-            episode=loaded.episode,
-            resolver=resolver,
-        )
-        return loaded, plan
-
-    # 读剧本可能顺带落盘迁移
-    loaded, plan = await run_sync_transaction(_read)
-    generating = await _active_resource_ids(
+    loaded = await run_sync_transaction(load_episode_storyboard_script, projects, project_name, episode_id)
+    image_limit = await reference_image_limit(project_name, loaded.project, loaded.project_path)
+    items, id_field, *_ = get_storyboard_items(loaded.script)
+    resource_ids = [str(item[id_field]) for item in items if item.get(id_field)]
+    active_ids = await active_storyboard_ids(
         queue,
         project_name=project_name,
-        task_type="storyboard",
         script_file=loaded.script_file,
-        resource_ids=plan.target_ids,
+        resource_ids=resource_ids,
         user_id=user_id,
     )
-    return loaded, replace(plan, generating=generating)
+
+    def _plan():
+        current = (
+            replace(loaded, script=projects.load_script(project_name, loaded.script_file)) if resource_ids else loaded
+        )
+        resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
+        plan = plan_storyboard_image_batch(
+            project=current.project,
+            script=current.script,
+            script_file=current.script_file,
+            episode=current.episode,
+            resolver=resolver,
+            project_path=loaded.project_path,
+            image_limit=image_limit,
+            active_ids=active_ids,
+        )
+        return current, plan
+
+    return await run_sync_transaction(_plan)
 
 
 async def submit_storyboard_image_batch(
@@ -432,9 +457,6 @@ async def submit_storyboard_image_batch(
     )
 
 
-# --- 分镜视频 -----------------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class StoryboardVideoBatchPlan:
     """一次分镜视频批量生成的规划：跳过项、整批准入结论与准入通过后要入队的 spec。"""
@@ -446,9 +468,7 @@ class StoryboardVideoBatchPlan:
     specs: tuple[TaskSpec, ...]
     admission: BatchAdmission
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None
-    #: 每个目标剧本上的计划秒数；不是正整数时为 ``None``，这一批就报不出价。
     durations: Mapping[str, int | None] = field(default_factory=dict)
-    #: 视频请求发出的画面比例，与生成任务同一个解析。
     video_aspect_ratio: str = "16:9"
 
     @property
@@ -480,7 +500,6 @@ def _video_skip_reason(
     except StoryboardImageUnavailable:
         return BatchSkipReason.MISSING_STORYBOARD
     except (OSError, ValueError):
-        # 尾帧等其余输入不可用由构造 spec 的那一步拒绝，整批准入如实报出。
         return None
     return None
 
@@ -500,8 +519,6 @@ async def load_storyboard_video_batch_plan(
     ``video_request_facts`` 缺省时按项目当前配置求值；准入与报价读同一份。
     """
 
-    # 选目标与判跳过都要读产物清单（含等清单锁）、核对分镜图文件，各自整段放进工作线程。
-    # 选目标读剧本可能顺带落盘迁移，按写事务调用；判跳过只读。
     def _select() -> tuple[
         EpisodeStoryboardScript,
         str,
@@ -577,7 +594,6 @@ async def load_storyboard_video_batch_plan(
         specs=specs,
         operation=VIDEO_BATCH_OPERATION,
         selection=GenerationSelectionMode.MISSING_ONLY,
-        # 产物清单读不出的分镜与剧本里的脏条目同属这次请求，一并参与整批准入：任一条受阻，整批都不入队。
         extra_tickets=[*artifact_state_tickets(selection.unavailable), *screen_refused, *refused],
         user_id=user_id,
         queue=queue,

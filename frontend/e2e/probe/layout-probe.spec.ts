@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { inspectLayout } from "../support/layout-probe.ts";
 
-// 合成页面固定 1280×720：外壳按视口铺满，内容高度远超视口。
 const SHELL_STYLE = "html,body{margin:0;height:100%}*{box-sizing:border-box}";
 
 async function render(page: Page, body: string) {

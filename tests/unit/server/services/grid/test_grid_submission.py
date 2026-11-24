@@ -88,7 +88,6 @@ async def _no_large_grid(_project: dict[str, Any]) -> bool:
 
 
 def _write_project(project_path: Path, project: dict[str, Any], script: dict[str, Any]) -> None:
-    # 产物清单的取证只读磁盘上的规范文件
     (project_path / "scripts").mkdir(exist_ok=True)
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script), encoding="utf-8")
@@ -185,7 +184,6 @@ async def test_missing_only_generates_every_group_without_storyboards(
     records = GridManager(project_path).list_all()
     assert sorted(g.id for g in records) == sorted(t.grid.id for t in tasks)
     assert [t.payload["scene_ids"] for t in tasks] == [GROUP_1, GROUP_2]
-    # 生成任务只产出联合图：payload 不再携带随任务落格的范围
     assert all("report_scene_ids" not in t.payload for t in tasks)
     assert all(t.payload["prompt"] == g.prompt for t, g in zip(tasks, records, strict=True))
 
@@ -205,6 +203,29 @@ async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the
     remaining = {g.id for g in GridManager(project_path).list_all()}
     assert spanning.id not in remaining
     assert untouched.id in remaining
+
+
+async def test_image_limit_refuses_only_the_affected_grid(project_path, section, monkeypatch):
+    async def limit(*_args):
+        return (1, "local")
+
+    monkeypatch.setattr("server.services.grid.grid_submission.reference_image_limit", limit)
+    characters = {name: {"description": name, "character_sheet": f"characters/{name}.png"} for name in ("Alice", "Bob")}
+    project = _project(characters=characters)
+    script = _script()
+    script["segments"][0]["characters_in_segment"] = list(characters)
+    _write_project(project_path, project, script)
+    (project_path / "characters").mkdir()
+    for name in characters:
+        Image.new("RGB", (3, 3)).save(project_path / "characters" / f"{name}.png")
+        assert register_current_resource_artifact(project_path, resource_type="characters", resource_id=name)
+    plan = await _plan(project_path, section, script=script, project=project)
+    assert not plan.refused
+    assert [item.scene_id for item in plan.blocked] == GROUP_1
+    assert all(
+        item.problem.params == {"count": 2, "limit": 1, "model": "local", "names": "Bob"} for item in plan.blocked
+    )
+    assert [task.payload["scene_ids"] for task in commit_grid_submission(plan, project_path)] == [GROUP_2]
 
 
 async def test_identical_in_flight_grid_is_reused_instead_of_created_again(
@@ -256,7 +277,6 @@ async def test_a_grid_finishing_while_its_task_is_probed_is_kept_not_paid_for_ag
     generating = _record(project_path, GROUP_1, status="generating")
 
     async def worker_finishes_first(_grid_ids: list[str]) -> list[str]:
-        # worker 在另一个线程里落盘出图
         await asyncio.to_thread(_complete, project_path, generating)
         return []
 
@@ -420,7 +440,6 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
     await asyncio.sleep(0)
     assert entered == ["first"]
 
-    # 另一个项目不受这个临界区影响
     async with grid_submission_section(str(tmp_path / "other")):
         pass
 

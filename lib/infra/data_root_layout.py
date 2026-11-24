@@ -23,7 +23,6 @@ from lib.infra.app_data_dir import app_data_dir
 
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_FILENAME = "project.json"
-#: 全局资产库在数据根下的目录名；资产记录里的路径以数据根为基准，前缀即本目录名。
 GLOBAL_ASSETS_DIRNAME = "global_assets"
 
 

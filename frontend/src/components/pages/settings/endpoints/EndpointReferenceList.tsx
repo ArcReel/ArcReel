@@ -15,7 +15,6 @@ export function EndpointReferenceList({
       <ul className="mt-2 flex flex-col gap-1">
         {references.map((reference) => (
           <li key={`${reference.provider_id}:${reference.model_id}`}>
-            {/* 行内链接式动作，长名称需要折行，不用定高的 Button */}
             <button
               type="button"
               onClick={() => onNavigateToModel(reference)}

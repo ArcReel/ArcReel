@@ -13,7 +13,6 @@ import {
   usageProjectLabel,
 } from "./usage-record-format";
 
-/** 取当前语言的 dashboard 取词器，行为与组件里的 `useTranslation("dashboard")` 一致。 */
 function dashboardT() {
   return i18n.getFixedT(null, "dashboard");
 }
@@ -26,7 +25,6 @@ describe("formatRatio", () => {
   it("renders the percentage by language so one page never mixes two formats", () => {
     expect(formatRatio(0.9028, "zh")).toBe("90.3%");
     expect(formatRatio(0.9028, "en")).toBe("90.3%");
-    // vi 用逗号作小数点；固定的 `90.3%` 在越南语界面里与按语言渲染的 KPI 对不上。
     expect(formatRatio(0.9028, "vi")).toBe("90,3%");
   });
 
@@ -41,7 +39,6 @@ describe("formatCount", () => {
   it("renders the thousands separator by language", () => {
     expect(formatCount(12_340, "zh")).toBe("12,340");
     expect(formatCount(12_340, "en")).toBe("12,340");
-    // vi 用点作千分位；`toLocaleString()` 跟浏览器语言，会在越南语界面里给出 `12,340`。
     expect(formatCount(12_340, "vi")).toBe("12.340");
   });
 
@@ -65,7 +62,6 @@ describe("formatCalendarDay", () => {
   });
 
   it("reads the day in local time so the date never shifts", () => {
-    // `new Date("2026-02-14")` 是 UTC 午夜，东八区渲染出来会是 14 日、西五区是 13 日。
     expect(formatCalendarDay("2026-02-14", "en", { day: "numeric" })).toBe("14");
   });
 });
@@ -85,8 +81,6 @@ describe("formatDurationMs", () => {
   });
 
   it("reads the same as the task elapsed readout, hours included", () => {
-    // 记录行的耗时与任务读数共用 `common:elapsed_*`：同一段时长全站只有一种写法，
-    // 且超过一小时后给时分而不是「90 分 0 秒」。
     expect(formatDurationMs(5_400_000, dashboardT())).toBe("1时30分");
     expect(formatDurationMs(5_400_000, dashboardT())).toBe(
       formatElapsedMs(5_400_000, dashboardT()),
@@ -117,7 +111,6 @@ describe("usageProjectLabel", () => {
     const t = dashboardT();
     expect(usageProjectLabel("rain-detective", t, "zh", "雨夜侦探")).toBe("雨夜侦探");
     expect(usageProjectLabel("rain-detective", t, "zh", null)).toBe("rain-detective");
-    // 已删除的项目读不到标题，回退到原名与删除日期。
     expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "zh", null)).toBe("demo（2026年10月2日删除）");
   });
 });

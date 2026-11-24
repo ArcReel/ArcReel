@@ -42,7 +42,6 @@ class CustomModelPricing(NamedTuple):
     multiplier: float = 1.0
     entry_binding: str | None = None
     endpoint: str | None = None
-    # 模型的能力覆盖原始值：提交前预估据此补上执行时注入的那份能力，放宽的维度按实际发出的请求计量。
     capability_overrides: object | None = None
 
 
@@ -51,8 +50,6 @@ _DEFAULT_PRICING = CustomModelPricing()
 
 class CustomProviderRepository(BaseRepository):
     """自定义供应商 + 模型 CRUD。"""
-
-    # ── Provider CRUD ──────────────────────────────────────────────
 
     async def create_provider(
         self,
@@ -77,7 +74,7 @@ class CustomProviderRepository(BaseRepository):
             audio_max_workers=audio_max_workers,
         )
         self.session.add(provider)
-        await self.session.flush()  # 获取 provider.id
+        await self.session.flush()
 
         if models:
             for m in models:
@@ -119,8 +116,6 @@ class CustomProviderRepository(BaseRepository):
         )
         await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
         await self.session.flush()
-
-    # ── Model management ──────────────────────────────────────────
 
     async def list_models(self, provider_id: int) -> list[CustomProviderModel]:
         stmt = (
@@ -214,8 +209,6 @@ class CustomProviderRepository(BaseRepository):
         if not is_custom_provider(provider):
             return _DEFAULT_PRICING
         try:
-            # SAVEPOINT 隔离：查询异常只回滚到此处，不污染调用方（如 usage_repo._settle）
-            # 随后在同一 session 上执行的结算 UPDATE/commit。
             async with self.session.begin_nested():
                 row = await self.get_model_by_ids(parse_provider_id(provider), model or "")
         except Exception:

@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,7 +20,6 @@ describe("UsageRecordsSection detail", () => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
-    // 进行中区的取数不带时间范围，只有记录表的那一次返回行。
     vi.spyOn(API, "getUsageRecords").mockImplementation(async (query) =>
       query?.since === undefined
         ? { items: [], next_cursor: null, total: 0 }
@@ -48,7 +47,6 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage&record=42");
 
-    // 标题以位置角标开头，后接集名与正文摘录，不露条目 ID。
     const dialog = await screen.findByRole("dialog", { name: /第 1 集 · 推门而入/ });
     expect(within(dialog).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
     expect(dialog).not.toHaveAccessibleName(/S10/);
@@ -139,7 +137,6 @@ describe("UsageRecordsSection detail", () => {
 
     const valueOf = (label: string) =>
       (dialog.getByText(label, { selector: "span, button" }).closest("div") as HTMLElement).textContent?.replace(label, "");
-    // 记录里的总输入 1000 含缓存命中 600 与缓存写入 150，「输入」只剩没缓存的 250。
     expect(valueOf("输入")).toBe("250");
     expect(valueOf("缓存命中")).toBe("600");
     expect(valueOf("缓存写入")).toBe("150");
@@ -240,6 +237,42 @@ describe("UsageRecordsSection detail", () => {
     expect(dialog.getByText(/"service_tier": "default"/)).toBeInTheDocument();
   });
 
+  it.each(["success", "failed"] as const)("renders reference thumbnails for %s calls", async (status) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, project_name: "demo", media_type: "image", status, output_path: null,
+      inputs: { reference_images: [{ path: "characters/hero.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByRole("img", { name: "参考图" })).toHaveAttribute("src", "/api/v1/files/demo/characters/hero.png?w=320");
+    expect(dialog.queryByText("array")).not.toBeInTheDocument();
+  });
+
+  it("keeps the missing-file fallback for expired historical inputs", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, output_path: null,
+      inputs: { reference_images: [{ path: "/tmp/deleted/ref.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.error(dialog.getByRole("img", { name: "参考图" }));
+    expect(dialog.getByText("文件不存在")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["timeout", "超时"],
+    ["rate_limited", "限流"],
+  ])("hides registered domain keys below %s", async (errorCode, phrase) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, status: "failed", error_code: errorCode,
+      error_message: "ark_agent_plan_tts_unreachable",
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(phrase)).toBeInTheDocument();
+    expect(dialog.queryByText("ark_agent_plan_tts_unreachable")).not.toBeInTheDocument();
+  });
+
   it("shows 无记录 for groups the record never captured", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({ id: 42, prompt: null, inputs: null, output_path: null }),
@@ -248,7 +281,6 @@ describe("UsageRecordsSection detail", () => {
     renderUsageRecordsSection("section=usage&record=42");
     await screen.findByRole("dialog");
 
-    // 输入与产出两组都无数据：显示「无记录」而不是消失或报错。
     expect(screen.getAllByText("无记录")).toHaveLength(2);
   });
 
@@ -261,7 +293,12 @@ describe("UsageRecordsSection detail", () => {
     {
       code: "image_reference_images_exceeded",
       params: { model: "m", limit: 1, count: 2 },
-      message: "模型 m 最多支持 1 张参考图，本次请求带了 2 张，未提交生成；请重新生成",
+      message: "模型 m 最多接受 1 张参考图，本次共 2 张。超出的参考图：#2。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
+    },
+    {
+      code: "image_reference_images_exceeded",
+      params: { model: "m", limit: 1, count: 2, names: "E1S01", previous_storyboard: "E1S01" },
+      message: "模型 m 最多接受 1 张参考图，本次共 2 张。超出的参考图：E1S01。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。 将当前分镜设为章节切分点，即可不再参考上一分镜图 E1S01。",
     },
     {
       code: "video_duration_not_supported",

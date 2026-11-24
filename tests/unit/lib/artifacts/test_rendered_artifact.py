@@ -72,7 +72,6 @@ async def test_failed_replacement_never_claims_new_content_as_current(
 
     formal = tmp_path / path
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(tmp_path))
-    # 正式文件没被替换时旧登记保留；替换后记录写入失败时撤下登记，不把新内容配旧依据。
     assert manifest.compare(key, artifact_path=path, basis=original).status is (
         ArtifactStatus.MISSING if failure == "record" else ArtifactStatus.CURRENT
     )

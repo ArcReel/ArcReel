@@ -31,7 +31,6 @@ def _write_legacy_db_with_uncheckpointed_row(data_root: Path) -> None:
         conn.execute("CREATE TABLE notes (body TEXT)")
         conn.execute("INSERT INTO notes VALUES ('kept')")
         conn.commit()
-        # 连接仍开着时复制，``-wal`` / ``-shm`` 都还在，提交尚未回写主文件。
         for suffix in ("", "-wal", "-shm"):
             shutil.copyfile(live / f"db{suffix}", data_root / f".arcreel.db{suffix}")
     finally:

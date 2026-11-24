@@ -11,8 +11,6 @@ from lib.db.repositories.base import BaseRepository
 
 
 class AssetLibraryRepository(BaseRepository):
-    # ── 账号 ──────────────────────────────────────────────────────
-
     async def list_accounts(self) -> list[AssetLibraryAccount]:
         result = await self.session.execute(select(AssetLibraryAccount).order_by(AssetLibraryAccount.id))
         return list(result.scalars())
@@ -48,8 +46,6 @@ class AssetLibraryRepository(BaseRepository):
             await self.session.delete(binding)
         await self.session.delete(account)
         await self.session.flush()
-
-    # ── 绑定 ──────────────────────────────────────────────────────
 
     async def list_bindings(self, *, account_id: int | None = None) -> list[AssetLibraryBinding]:
         stmt = select(AssetLibraryBinding).order_by(AssetLibraryBinding.id)

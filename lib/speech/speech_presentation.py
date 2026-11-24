@@ -392,8 +392,6 @@ def materialize_speech_presentation(
         raise ValueError("post_production presentation cannot include narration audio")
 
     video_duration = _duration_microseconds(video.evidence.actual_duration_seconds)
-    # Narration may outlast its video: on an edit timeline it extends onto the following clips,
-    # and subtitles that follow narration span the whole narration.
     narration_duration: int | None = None
     if narration_audio is not None:
         narration_duration = _duration_microseconds(narration_audio.evidence.actual_duration_seconds)

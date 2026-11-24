@@ -21,11 +21,8 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_ARK
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 FAKE_B64 = base64.b64encode(b"fake-png-data").decode()
 
@@ -80,11 +77,6 @@ def _recorded_ark_client(
 
     with patch("lib.backends.image_backends.ark.create_ark_client", _create):
         yield created, client
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 class TestArkImageBackendInit:
@@ -171,7 +163,7 @@ class TestArkImageBackendReferenceLimitIsAModelFact:
         refs = []
         for index in range(16):
             ref_file = tmp_path / f"ref{index}.png"
-            ref_file.write_bytes(f"img-{index}".encode())
+            ref_file.write_bytes(image_bytes(index))
             refs.append(ReferenceImage(path=str(ref_file)))
 
         with capture_http() as router:
@@ -212,21 +204,17 @@ class TestArkImageBackendGenerate:
 
         result = await backend.generate(request)
 
-        # SDK called correctly
         call_kwargs = client.requests[-1]
         assert call_kwargs["model"] == "doubao-seedream-5-0-pro-260628"
         assert call_kwargs["prompt"] == "a cat"
-        # 部分兼容网关即便吃 response_format 仍返回 url，所以请求端不再传该参数
         assert "response_format" not in call_kwargs
         assert "image" not in call_kwargs
 
-        # Result
         assert isinstance(result, ImageGenerationResult)
         assert result.provider == PROVIDER_ARK
         assert result.image_path == output
         assert output.exists()
         assert output.read_bytes() == base64.b64decode(FAKE_B64)
-        # 按生成张数上报，分辨率取请求里实际发的 size
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1, "input_images": 0}
         assert result.usage.dimensions == {"resolution": call_kwargs["size"]}
@@ -302,10 +290,9 @@ class TestArkImageBackendGenerate:
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
 
-        # Prepare a reference image file
         ref_file = tmp_path / "ref.png"
-        ref_file.write_bytes(b"ref-image-bytes")
-        expected_data_uri = "data:image/png;base64," + base64.b64encode(b"ref-image-bytes").decode()
+        ref_file.write_bytes(image_bytes())
+        expected_data_uri = "data:image/png;base64," + base64.b64encode(image_bytes()).decode()
 
         output = tmp_path / "out.png"
         request = ImageGenerationRequest(
@@ -324,8 +311,8 @@ class TestArkImageBackendGenerate:
 
         ref1 = tmp_path / "a.png"
         ref2 = tmp_path / "b.png"
-        ref1.write_bytes(b"img-a")
-        ref2.write_bytes(b"img-b")
+        ref1.write_bytes(image_bytes())
+        ref2.write_bytes(image_bytes(1))
 
         output = tmp_path / "out.png"
         request = ImageGenerationRequest(
@@ -341,8 +328,8 @@ class TestArkImageBackendGenerate:
 
         call_kwargs = client.requests[-1]
         assert call_kwargs["image"] == [
-            "data:image/png;base64," + base64.b64encode(b"img-a").decode(),
-            "data:image/png;base64," + base64.b64encode(b"img-b").decode(),
+            "data:image/png;base64," + base64.b64encode(image_bytes()).decode(),
+            "data:image/png;base64," + base64.b64encode(image_bytes(1)).decode(),
         ]
 
     async def test_output_dir_created(self, backend_and_client, tmp_path: Path):
@@ -390,3 +377,23 @@ class TestArkImageBackendGenerate:
 
         assert result.image_path == output
         assert output.read_bytes() == downloaded
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_backends.ark import ArkImageBackend
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    with _recorded_ark_client() as (_, client):
+        backend = ArkImageBackend(api_key="test")
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls
+    assert not client.requests

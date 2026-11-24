@@ -10,7 +10,6 @@ from alembic import command
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
-# 本文件只覆盖拆分迁移本身，停在该 revision——后续 revision 会把两桶重新收敛回默认层。
 _SPLIT_REVISION = "5b87accc10dd"
 
 
@@ -72,9 +71,7 @@ def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
             )
         ).fetchall()
     settings = {r.key: r.value for r in rows}
-    # _t2i 已存在 → 不覆盖
     assert settings.get("default_image_backend_t2i") == "openai/already-set"
-    # _i2i 不存在 → 用 legacy 值填充
     assert settings.get("default_image_backend_i2i") == "openai/legacy"
 
 

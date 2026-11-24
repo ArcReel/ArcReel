@@ -232,7 +232,6 @@ def build_migration_report(
     )
 
 
-#: 以剧本条目 id 为资源 id 的产物种类：条目需要重新规划时，它们不进报告。
 _UNIT_ARTIFACT_KINDS = frozenset(
     {ArtifactKind.EPISODE_STORYBOARD.value, ArtifactKind.EPISODE_VIDEO.value, ArtifactKind.EPISODE_AUDIO.value}
 )
@@ -261,7 +260,6 @@ def _units_needing_replan(project_dir: Path) -> frozenset[tuple[int, str]]:
         except (OSError, ValueError):
             continue
         if not isinstance(script, dict):
-            # 根不是对象的剧本同样读不出：迁移链失败时这里正为它写未完成的报告，不能盖过链本身的失败。
             continue
         try:
             items, id_field, _kind = resolve_items(script)
@@ -386,7 +384,6 @@ def extend_migration_report(
     earlier report does not cover them.
     """
 
-    # 依据算不出的跳过不给用户看，并进来也会在写盘时去掉；先滤掉，免得它让已确认的报告重新出现。
     skipped = [item for item in skipped if item.category is not None]
     report = load_migration_report(project_dir)
     if report is None:

@@ -14,7 +14,6 @@ const COST_NAME = "按天堆叠的参考费用";
 
 describe("UsageRecordsSection trend", () => {
   beforeAll(async () => {
-    // 数值断言等待真实图表渲染，不把冷 chunk 的加载耗时算进查询等待。
     await import("./UsageTrendChart");
   });
 
@@ -38,8 +37,6 @@ describe("UsageRecordsSection trend", () => {
   });
 
   it("renders the call counts with the language's thousands separator", async () => {
-    // tooltip 与无障碍表格里，调用次数紧挨着按界面语言渲染的成功率；跟浏览器语言的
-    // `toLocaleString()` 会让同一处出现两种分隔习惯。
     for (const [language, expected] of [
       ["zh", "12,340"],
       ["en", "12,340"],
@@ -49,7 +46,6 @@ describe("UsageRecordsSection trend", () => {
       mockSummary({ daily: makeUsageDaily(1, "2026-03-14", () => ({ success: 12_340 })) });
       const { unmount } = renderUsageRecordsSection();
 
-      // 成功列与合计列各一个：两处都是同一个格式器的输出。
       expect(await screen.findAllByText(expected)).toHaveLength(2);
       unmount();
     }
@@ -69,7 +65,6 @@ describe("UsageRecordsSection trend", () => {
 
     const table = screen.getByRole("table", { name: CALLS_NAME });
     const rows = within(table).getAllByRole("row");
-    // 表头 + 两个日桶。
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByRole("rowheader")).toHaveTextContent("3/14");
     expect(within(rows[1]).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
@@ -88,7 +83,6 @@ describe("UsageRecordsSection trend", () => {
     await userEvent.click(screen.getByRole("button", { name: "参考费用" }));
 
     expect(await screen.findByRole("img", { name: COST_NAME })).toBeInTheDocument();
-    // 主币种 CNY 之外的 $4.59 不折算也不上图，只在脚注里说明。
     expect(screen.getByText("只按 CNY 作图，$4.59 未计入")).toBeInTheDocument();
   });
 
@@ -111,7 +105,6 @@ describe("UsageRecordsSection trend", () => {
 
     const table = await screen.findByRole("table", { name: "按周合并堆叠的调用次数" });
     expect(screen.getByText("按周合并")).toBeInTheDocument();
-    // 95 天并成 14 桶，表头 + 14 行。
     expect(within(table).getAllByRole("row")).toHaveLength(15);
     expect(within(table).getAllByRole("rowheader")[0]).toHaveTextContent("3/1 – 3/4 · 4 天合并");
   });

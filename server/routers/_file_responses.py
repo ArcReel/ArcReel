@@ -17,13 +17,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
-#: 带版本键（?v= / ?fp= / versions/ 快照）的 URL 内容不变，浏览器可永久复用
 IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
-#: 无版本键的 URL 内容可能被原地覆盖：允许缓存，但每次使用前必须再验证（命中返回 304）
 REVALIDATE_CACHE_CONTROL = "no-cache"
 
-# 只借用 is_not_modified 的判定逻辑（If-None-Match 优先，其次 If-Modified-Since），
-# 不挂载、不读目录；directory=None 时构造不触碰文件系统
 _CONDITIONAL_CHECKER = StaticFiles(directory=None, check_dir=False)
 
 

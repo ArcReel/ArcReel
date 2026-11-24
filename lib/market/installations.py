@@ -127,7 +127,6 @@ async def write_installation(
         if endpoint is None:
             raise NotFoundError("custom_endpoint_not_found")
     record = existing or MarketInstallation(custom_endpoint_id=endpoint.id, slug=slug)
-    # 来源删除后以大小写不同的地址重新添加时，记录随之改用当前规范键。
     record.source_key = source_key
     record.installed_version = definition["meta"]["version"]
     record.installed_digest = definition_digest(definition)

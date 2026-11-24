@@ -5,6 +5,8 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 
 # 生成宫格分镜图
 
+生成前调用 `mcp__arcreel__get_image_capabilities`，读取图生图桶 `i2i.max_reference_images`。null 表示未收录，0 表示不接受。宫格按本组所有出场资产图去重后计数。超限时减少出场资产、拆分分镜或换用上限更高的模型，确认符合上限再提交。
+
 为开启宫格装配的项目生成宫格分镜图。自动按 segment_break 分组，每组生成一张宫格联合图（分镜数超过单张宫格格数上限的分组会切为多张，末张不足一档时落到更小档并补占位格）。
 
 宫格分两段，两段之间要经用户审阅：
@@ -32,6 +34,7 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 - 不传 `scene_ids` 时只补缺：分镜图已齐备的分组复用，联合图已就绪而未切分的宫格不重生成，正在生成的宫格沿用在途任务，都不会重复计费。
 - 传 `scene_ids` 是重做请求：包含这些分镜的宫格会重新生成并计费，只在用户明确要求重做时使用。
 - 准入是整批的：任一分镜受阻（引用缺口、提示词待生成、与在途宫格部分重叠等），整批不建任务；本身健康的分镜带 `generation_batch_admission_withheld`，已在生成中的宫格照常跑完、其分镜带 `generation_active_task_conflict`（`wait_for_task`），修复全部缺口后重试即可一次提交。
+- 参考图超限是唯一例外：超限宫格的分镜逐项带 `image_reference_images_exceeded`，不建任务，也不扣下其余宫格；其余宫格仍按上一条整批判定。按原因减少该组出场资产、拆分分组或换模型后，只需重发这几个分镜。
 
 结果按 `requested / succeeded / failed / blocked` 逐**分镜** ID 返回：同组分镜共享一张宫格，这张宫格的入队与任务结果投影到它覆盖的每个分镜。成功分镜的 `artifact_path` 是它所在宫格的联合图 `grids/<grid_id>.png`，未切分的宫格同时列在 `grid_ids_awaiting_split`。结构详见 `.claude/references/generation-results.md`。
 

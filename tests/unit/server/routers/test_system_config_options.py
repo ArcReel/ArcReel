@@ -17,10 +17,6 @@ from lib.config.service import ConfigService, ProviderStatus
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers.system_config import _build_options
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 async def session_with_factory(db_factory):
@@ -51,11 +47,6 @@ def _make_mock_svc(ready_providers: list[str] | None = None) -> ConfigService:
 
     svc.get_all_providers_status = AsyncMock(side_effect=_get_all_providers_status)
     return svc
-
-
-# ---------------------------------------------------------------------------
-# Tests: _build_options includes custom models
-# ---------------------------------------------------------------------------
 
 
 class TestBuildOptionsCustomModels:
@@ -221,7 +212,6 @@ class TestBuildOptionsCustomModels:
         mock_svc = _make_mock_svc(ready_providers=[])
         options = await _build_options(mock_svc, db_session)
 
-        # No custom- entries
         for key in ("video_backends", "image_backends", "text_backends"):
             assert not any(v.startswith("custom-") for v in options[key])
 
@@ -229,13 +219,11 @@ class TestBuildOptionsCustomModels:
         """If the DB query raises, _build_options still returns preset backends."""
         mock_svc = _make_mock_svc(ready_providers=[])
 
-        # Use a mock session that makes repo queries raise
         mock_session = MagicMock(spec=AsyncSession)
         mock_session.execute = AsyncMock(side_effect=RuntimeError("db unavailable"))
 
         options = await _build_options(mock_svc, mock_session)
 
-        # Should still return valid dict with empty lists (no ready preset providers)
         assert "video_backends" in options
         assert "image_backends" in options
         assert "text_backends" in options
@@ -261,19 +249,11 @@ class TestBuildOptionsCustomModels:
         )
         await db_session.commit()
 
-        # gemini-aistudio as a ready preset provider
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
         options = await _build_options(mock_svc, db_session)
 
-        # Preset models present
         assert any("gemini-aistudio/" in v for v in options["video_backends"])
-        # Custom model also present
         assert f"custom-{provider.id}/my-text-model" in options["text_backends"]
-
-
-# ---------------------------------------------------------------------------
-# Tests: _build_options returns provider_names
-# ---------------------------------------------------------------------------
 
 
 class TestBuildOptionsProviderNames:
@@ -379,11 +359,6 @@ class TestBuildOptionsProviderNames:
         assert options["provider_names"] == {}
 
 
-# ---------------------------------------------------------------------------
-# Tests: _build_options 的名字按语言成文
-# ---------------------------------------------------------------------------
-
-
 class TestBuildOptionsLocalizedNames:
     async def test_builtin_names_follow_locale(self, session_with_factory):
         db_session, _factory = session_with_factory
@@ -394,7 +369,6 @@ class TestBuildOptionsLocalizedNames:
 
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
-        # 模型显示名取目录条目，不分语言；型号从目录取，免得随出厂快照更新失效
         model_id = catalog.default_model("ark", "text")
         assert model_id is not None
         model = catalog.get_model("ark", model_id)

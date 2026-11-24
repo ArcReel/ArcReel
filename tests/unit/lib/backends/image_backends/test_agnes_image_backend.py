@@ -20,6 +20,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_AGNES
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -36,7 +37,7 @@ def _b64_response(b64: str) -> httpx.Response:
 
 def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake")
+    p.write_bytes(image_bytes())
     return ReferenceImage(path=str(p))
 
 
@@ -64,7 +65,6 @@ class TestCapabilities:
     def test_declares_no_reference_image_limit(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
-        # 该通道不按数量裁剪参考图（全量下传，见 i2i 用例），不声明上限。
         assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) is None
 
     def test_default_model_when_unset(self):
@@ -94,12 +94,9 @@ class TestTextToImage:
         assert body["model"] == "agnes-image-2.1-flash"
         assert body["prompt"] == "a fox"
         assert body["n"] == 1
-        # 上游 litellm 网关拒绝 response_format（UnsupportedParamsError）——不得下发
         assert "response_format" not in body
         assert "image" not in body
-        # 默认 aspect_ratio=9:16 精确算、受单边 2048 收口
         assert body["size"] == "1152x2048"
-        # 端点：base host 派生 /v1 + /images/generations
         assert str(request.url) == _ENDPOINT
         assert request.headers["Authorization"] == "Bearer sk"
         assert result.provider == PROVIDER_AGNES
@@ -154,7 +151,6 @@ class TestTextToImage:
             return AgnesImageBackend.estimate_usage(facts).dimensions["resolution"]
 
         assert resolution("1K") == "1K"
-        # 4K 档经长边 2048 收口，实际发出的宽高落在 2K 档
         assert resolution("4K") == "2K"
         assert resolution(None) == "2K"
 
@@ -191,7 +187,6 @@ class TestDimensions:
         assert await self._size(tmp_path, aspect_ratio="9:16", image_size="1K") == "1008x1792"
 
     async def test_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
-        # 自定义像素 16:9 的 1920*1080 只贡献 min=1080 当短边，比例仍由项目 aspect_ratio=9:16 决定
         size = await self._size(tmp_path, aspect_ratio="9:16", image_size="1920*1080")
         w, h = (int(v) for v in size.split("x"))
         assert w * 16 == h * 9
@@ -223,7 +218,6 @@ class TestImageToImage:
         assert isinstance(images, list)
         assert len(images) == 2
         assert all(item.startswith("data:image/png;base64,") for item in images)
-        # I2I 仍显式下发新契约的 size 档位
         assert body["size"] == "1K"
         assert body["ratio"] == "9:16"
 
@@ -282,7 +276,6 @@ class TestResponseHandling:
             result = await b.generate(ImageGenerationRequest(prompt="x", output_path=out))
 
         assert out.read_bytes() == raw
-        # base64 路径无远端 URL
         assert result.image_uri is None
 
     async def test_base64_data_uri_prefix_stripped(self, tmp_path: Path):
@@ -307,7 +300,6 @@ class TestResponseHandling:
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
     async def test_url_download_failure_falls_back_to_b64(self, tmp_path: Path):
-        # URL 下载失败但同响应带 b64_json：回退落盘，不丢弃已计费的成功生成
         raw = b"\x89PNG\r\nfallback"
         b64 = base64.b64encode(raw).decode("ascii")
         response = httpx.Response(200, json={"created": 1, "data": [{"url": "https://x/out.png", "b64_json": b64}]})
@@ -320,12 +312,10 @@ class TestResponseHandling:
             result = await b.generate(ImageGenerationRequest(prompt="x", output_path=out))
 
         assert out.read_bytes() == raw
-        # 走 b64 回退路径，无远端 URL
         assert result.image_uri is None
         download.assert_called()
 
     async def test_url_download_failure_without_b64_still_raises(self, tmp_path: Path):
-        # 仅有 url 且下载失败、无 b64 兜底：照常上抛，不静默吞错
         download = AsyncMock(side_effect=RuntimeError("download boom"))
         with _generate_route(_img_response(), download):
             from lib.backends.image_backends.agnes import AgnesImageBackend
@@ -335,7 +325,6 @@ class TestResponseHandling:
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
 
     async def test_missing_url_b64_log_redacts_body(self, tmp_path: Path, caplog):
-        # 响应缺 url/b64 时只记键名与 data 条数，敏感字段值不落日志
         response = httpx.Response(
             200,
             json={
@@ -355,7 +344,6 @@ class TestResponseHandling:
         log_text = caplog.text
         assert "secret-prompt" not in log_text
         assert "sig=abc" not in log_text
-        # 键名进日志便于诊断
         assert "signed_url" in log_text
 
 
@@ -375,7 +363,6 @@ class TestHttpErrors:
 
 class TestRetryScope:
     async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path):
-        # 下载阶段瞬态失败只在下载层重试，绝不回退到重跑非幂等的生成 POST（防重复建图 + 重复计费）。
         from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
@@ -383,10 +370,8 @@ class TestRetryScope:
             from lib.backends.image_backends.agnes import AgnesImageBackend
 
             b = AgnesImageBackend(api_key="sk")
-            # 共用预算耗尽后抛的是带最后一次原错误的 RuntimeError。
             with pytest.raises(RuntimeError, match="conn reset"):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
-        # 生成 POST 恰好一次（计费一次）；重试全部发生在下载层
         assert route.call_count == 1
         assert download.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 

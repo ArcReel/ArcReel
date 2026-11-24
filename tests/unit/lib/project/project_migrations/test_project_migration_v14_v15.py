@@ -158,7 +158,6 @@ def test_drama_materialization_takes_the_script_plan_title(tmp_path: Path) -> No
 def test_materialized_script_is_dated_by_the_confirmation(
     tmp_path: Path, confirmed_at: str | None, expected: str | None
 ) -> None:
-    # 剧本的 updated_at 计入项目最近活动时间：取迁移运行的时刻会把项目顶到大厅最前面。
     project_dir = write_legacy_script_plan_project(tmp_path, variant="narration")
     project = _project(project_dir)
     review = next(entry for entry in project["episodes"] if entry["episode"] == 2)["script_plan_review"]

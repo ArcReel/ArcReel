@@ -87,7 +87,6 @@ def _shot_text(shot: dict[str, Any]) -> str:
             if isinstance(speaker, str) and speaker.strip():
                 lines.append(f"@[{asset_name_comparison_key(speaker)}]：{{{line}}}")
             else:
-                # 旧数据没有可用说话人时只保留原文，不伪造角色归属。
                 lines.append(f"{{{line}}}")
 
     voiceover = shot.get("voiceover_text")
@@ -124,13 +123,11 @@ def _unit_from_shots(
     requires_replan: bool,
     note: str | None = None,
 ) -> dict[str, Any]:
-    # 旧 unit 的边界与付费产物身份不可拆：成员镜头的画面文本按顺序拼进同一段正文。
     text = "\n".join(_shot_text(shot) for shot in shots)
     duration = sum(_positive_seconds(shot.get("duration_seconds")) for shot in shots)
     min_duration, max_duration = REFERENCE_UNIT_DURATION_RANGE
     invalid_duration = bool(text.strip()) and not min_duration <= duration <= max_duration
     if invalid_duration:
-        # marker 会阻止生成；夹到结构区间只为让问题 unit 保持可读、可编辑且不丢正文。
         duration = min(max(duration, min_duration), max_duration)
 
     unit: dict[str, Any] = {
@@ -139,7 +136,6 @@ def _unit_from_shots(
         "duration_seconds": duration,
         "transition_to_next": _unit_transition(shots),
         "note": note,
-        # 付费产物、URI 与旧来源签名均是历史事实，迁移必须逐键原样保留。
         "generated_assets": copy.deepcopy(generated_assets) if isinstance(generated_assets, dict) else {},
     }
     preparation = SpeechComposition.prepare(adapt_video_unit(unit))
@@ -176,7 +172,6 @@ def _mark_invalid_units(units: list[Any]) -> None:
             unit["needs_replan"] = True
             text = unit.get("text")
             if isinstance(text, str) and not text.strip():
-                # 没有正文的单元按待重新规划的空壳处理：空壳的编排时长为 0。
                 unit["duration_seconds"] = 0
 
 
@@ -206,7 +201,6 @@ def migrate_ad_reference_script(
         shot = copy.deepcopy(raw_shot)
         shots.append(shot)
         shot_id = shot.get("shot_id")
-        # 重复的 shot_id 只认第一个镜头；其余镜头不被旧索引引用，下面各自收进新的问题单元。
         if isinstance(shot_id, str) and shot_id and shot_id not in shot_by_id:
             shot_by_id[shot_id] = shot
     renumbered: list[tuple[str, str]] = []
@@ -266,7 +260,6 @@ def migrate_ad_reference_script(
         for position, (raw_unit, unit_id, shot_ids) in enumerate(prepared_units):
             duplicate = position in duplicate_unit_indexes
             if duplicate:
-                # 原编号的付费产物留给第一个同号单元；这一个换新编号、不带产物，待重新规划。
                 new_id = fresh_unit_id()
                 renumbered.append((unit_id, new_id))
                 unit_id = new_id
@@ -297,8 +290,6 @@ def migrate_ad_reference_script(
                 )
             )
 
-        # 非空旧索引也可能已落后于权威 shots。保留索引内可证明的 unit 身份与付费产物，
-        # 再把未覆盖镜头逐条收进新问题单元；用户确认编排前禁止误生成，也不因删除 shots 丢内容。
         for shot in shots:
             if id(shot) in covered_shots:
                 continue
@@ -372,7 +363,6 @@ def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | N
     target_route = project.get("content_mode") == "ad" and project.get("generation_mode") == "reference_video"
     plans: list[tuple[Path, dict[str, Any], list[MigrationAdjustment]]] = []
     if target_route:
-        # 此循环只读：任一文件损坏时还没有备份或业务文件写入。
         for path, episode in _script_paths(project_dir, project):
             payload = load_json(path)
             if not isinstance(payload, dict):
@@ -389,7 +379,6 @@ def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | N
             ]
             plans.append((path, migrated, adjustments))
 
-        # 预检全部成功后才创建备份；所有脚本先备份完，再开始替换。
         for path, _payload, _adjustments in plans:
             ensure_versioned_backup(path, 6)
         for path, payload, adjustments in plans:

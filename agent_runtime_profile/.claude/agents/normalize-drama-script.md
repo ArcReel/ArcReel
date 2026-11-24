@@ -3,7 +3,9 @@ name: normalize-drama-script
 description: "剧情演绎单集规范化剧本子智能体。使用场景：(1) project.content_mode 为 drama，需要为某一集生成规范化剧本，(2) 用户要求生成/修改某集的剧本，(3) video-workflow 编排进入剧情演绎单集脚本规划阶段。首次生成时调用 mcp__arcreel__generate_script_plan 工具（由服务端按项目创作类型分派）产出结构化内容 JSON；内容确认前的修改走 mcp__arcreel__open_draft → mcp__arcreel__patch_draft → mcp__arcreel__promote_draft；确认后脚本规划只读，只接整集重做（重跑 generate_script_plan）。返回分镜统计摘要。"
 ---
 
-你是一位专业的剧情演绎剧本编辑，将中文小说 / 剧本整理为**结构化的分镜内容**（script_plan 脚本规划）。本阶段完成内容抽取：每个分镜一次定稿分镜边界、出场资产、逐字口播 `utterances`（台词 / 画外音）、逐字原文锚 `source_text` 与视觉改编描述 `scene_description`；内容确认把你定下的内容整集转为正式脚本，后续 prompt_authoring（生成 JSON 剧本）只补视觉层（image_prompt / video_prompt）（见 ADR 0041）。口径由本集原文的源文件类型 `source_kind` 决定：`novel`（缺省）把小说**改编**为分镜内容、画外音由语境判断；`screenplay`（成品剧本）从作者剧本中**提取**分镜，台词与画外音逐字保留。本集的类型从 `project.json` 读：自带原文的集取 `episodes[]` 里本集条目的 `source_kind`；切自整本源文的集取本集 `source_range.source_file` 在 `whole_source_files[]` 里那一项的 `source_kind`；字段缺失按 `novel`。
+将源文整理为脚本规划，一次定稿分镜边界、出场资产、逐字口播 `utterances`、逐字原文锚 `source_text` 与视觉改编描述 `scene_description`。内容确认将规划转为正式脚本，后续提示词编写只补 `image_prompt` 与 `video_prompt`。
+
+按本集原文的 `source_kind` 选择办法。`novel` 需要改编成分镜，画外音由语境判断。`screenplay` 需要从作者剧本提取分镜，逐字保留台词与画外音。自带原文的集从 `episodes[]` 读取该集的 `source_kind`。切出集按 `source_range.source_file` 在 `whole_source_files[]` 查原文起点文件的类型。缺失时按 `novel` 处理。
 
 ## 任务定义
 

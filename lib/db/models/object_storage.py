@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
 
-#: 当前连接的 ``slot`` 值；唯一索引让实例同一时刻只有一条当前连接。
 CURRENT_CONNECTION_SLOT = 1
 
 
@@ -60,10 +59,8 @@ class RelayObject(TimestampMixin, Base):
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
-    # 使用这份副本的入库任务（provider_asset_link.id）；保留期据它的状态判断。
     link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="retained")
-    # 签发给供应商的下载地址到期时间；没有签发时为空。
     url_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delete_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import httpx
@@ -10,18 +11,19 @@ from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_m
 from lib.backends.video_frame_slots import gate_video_request
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, infer_endpoint
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
 
-PNG_START = b"\x89PNG\r\n\x1a\nSTART"
-PNG_END = b"\x89PNG\r\n\x1a\nEND"
-PNG_REF1 = b"\x89PNG\r\n\x1a\nREF1"
-PNG_REF2 = b"\x89PNG\r\n\x1a\nREF2"
+PNG_START = image_bytes(1)
+PNG_END = image_bytes(2)
+PNG_REF1 = image_bytes(3)
+PNG_REF2 = image_bytes(4)
 WAV = b"RIFF\x00\x00\x00\x00WAVEA"
-START_URI = "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
-END_URI = "data:image/png;base64,iVBORw0KGgpFTkQ="
-REF1_URI = "data:image/png;base64,iVBORw0KGgpSRUYx"
-REF2_URI = "data:image/png;base64,iVBORw0KGgpSRUYy"
+START_URI = "data:image/png;base64," + base64.b64encode(PNG_START).decode()
+END_URI = "data:image/png;base64," + base64.b64encode(PNG_END).decode()
+REF1_URI = "data:image/png;base64," + base64.b64encode(PNG_REF1).decode()
+REF2_URI = "data:image/png;base64," + base64.b64encode(PNG_REF2).decode()
 AUDIO_URI = "data:audio/x-wav;base64,UklGRgAAAABXQVZFQQ=="
 
 
@@ -93,8 +95,6 @@ CASES = [
         id="minimax/hailuo-i2v",
     ),
     pytest.param(
-        # 未指定分辨率（Auto）：定义的 defaults.resolution 在渲染前生效，请求照旧带 768P。
-        # 计价矩阵的 default_resolution 按同一个值结算，字段被整个删掉会让那条假设悬空。
         "minimax-hailuo-v1",
         "MiniMax-Hailuo-2.3",
         {"start_image": True, "resolution": None},
@@ -117,7 +117,6 @@ CASES = [
         id="minimax/hailuo-fast-default-resolution",
     ),
     pytest.param(
-        # Fast 与 2.3 请求形状一致、能力不同（仅图生视频），故独立成键；这里钉住形状一致。
         "minimax-hailuo-v1-fast",
         "MiniMax-Hailuo-2.3-Fast",
         {"start_image": True},
@@ -202,7 +201,6 @@ CASES = [
         id="minimax/h3-480p-resolution",
     ),
     pytest.param(
-        # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
         "minimax-h3",
         "MiniMax-H3",
         {"resolution": "2k"},
@@ -244,8 +242,6 @@ CASES = [
         id="minimax/h3-r2v-audio",
     ),
     pytest.param(
-        # 与内置 `_base_resp_error` 同口径：只有顶层 base_resp 的非零 status_code 判失败，
-        # 轮询中的 task.status_msg 不得被当成业务失败。
         "minimax-h3",
         "MiniMax-H3",
         {},

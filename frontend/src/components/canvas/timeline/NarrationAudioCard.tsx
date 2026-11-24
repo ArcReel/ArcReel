@@ -15,21 +15,13 @@ interface NarrationAudioCardProps {
   readOnly?: boolean;
   projectName: string;
   segmentId: string;
-  /** 只读小说原文（旁白文本来源） */
   novelText: string;
-  /** narration_audio 相对路径，如 audio/segment_E1S01.wav */
   assetPath: string | null;
-  /** 进行中状态 */
   generating?: boolean;
-  /** 生成按钮是否禁用 */
   generateDisabled?: boolean;
-  /** 自定义禁用 tooltip */
   generateDisabledHint?: string;
-  /** 估算费用（按币种 breakdown） */
   estimatedCost?: CostBreakdown;
-  /** 触发生成 */
   onGenerate?: () => void;
-  /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
   generateLabel?: string;
 }
 
@@ -53,7 +45,6 @@ export function NarrationAudioCard({
   const restoringRef = useRef(false);
   const checkBusy = () => restoringRef.current || isResourceBusy("tts", projectName, segmentId);
   const onRestoringChange = (next: boolean) => { restoringRef.current = next; setRestoring(next); };
-  // 与 ShotDetail 的按钮禁用判定共用同一套 trim 规则，避免"卡片有正文、按钮却禁用"的矛盾态
   const hasNovelText = novelText.trim().length > 0;
 
   const assetFp = useProjectsStore((s) =>
@@ -83,7 +74,6 @@ export function NarrationAudioCard({
         </div>
       </div>
 
-      {/* 只读原文 + 播放器 */}
       <div className="rounded-lg border border-border/50 border-l-2 border-l-primary/25 bg-muted/30 px-3 py-2.5">
         <p className="display-serif max-w-[40em] text-sm leading-relaxed whitespace-pre-wrap text-foreground">
           {hasNovelText ? novelText : t("no_original_text")}

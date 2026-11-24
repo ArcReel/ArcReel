@@ -39,7 +39,6 @@ class TestRequireVideoBucketCapability:
         await _set_default_video_backend(db_factory, "minimax/MiniMax-Hailuo-2.3")
         bind_session_factory(monkeypatch, db_factory)
 
-        # 预检放行即静默返回 None
         assert (
             await require_video_bucket_capability({"video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}, "r2v") is None
         )

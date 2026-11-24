@@ -937,7 +937,6 @@ def test_storyboard_video_basis_refuses_a_pending_prompt(tmp_path: Path) -> None
         )
 
 
-#: 缺口记为缺席之前各类依据的固定摘要：输入完整时依据逐字节不变，已登记条目不因口径变化翻过期。
 _COMPLETE_INPUT_DIGESTS = {
     "asset": "sha256-v1:cef57d4f7802240b4d935f5bdeaf53bb2fc9f26d38f3b64f29895d17db3f8d8f",
     "storyboard": "sha256-v1:4ada14699d5753069b4fb512ca31c1f1d862e3ace18d81b9835256552246f668",
@@ -1123,7 +1122,6 @@ def test_storyboard_and_grid_bases_do_not_depend_on_asset_names(tmp_path: Path) 
         assert redrawn[kind].digest != basis.digest, kind
         assert "Alice" not in basis.normalized_bytes().decode("utf-8"), kind
     inputs = json.loads(alice["storyboard"].normalized_bytes())["inputs"]
-    # 对不上参考图的 mention 发给模型时就是名字，依据照记；上一分镜图的身份不是资产名，照记。
     assert inputs["image_prompt"]["scene"] == "图1推门，@[路人]回头"
     assert inputs["references"][1]["logical_identity"] == {"type": "storyboard", "id": "E1S00"}
 

@@ -12,7 +12,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-#: 活动文案所在的顶层根，以及各自要扫的后缀。
 SCAN_ROOTS: dict[str, frozenset[str]] = {
     "lib": frozenset({".py"}),
     "server": frozenset({".py"}),
@@ -22,7 +21,6 @@ SCAN_ROOTS: dict[str, frozenset[str]] = {
     "frontend/src": frozenset({".ts", ".tsx"}),
 }
 
-#: 历史归档：语句写于旧术语时期，改写等于篡改归档。
 EXCLUDED_DIRS = (REPO / "agent_runtime_profile" / "skill-optimization-workspace",)
 
 LEGACY_TERMS = ("用户意见", "附加说明", "常驻偏好")

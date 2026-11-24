@@ -2,17 +2,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目「分集」视图：页头工具行、集目录与原文、方案栏，以及上传、新建、未登记文件等弹层。
 const PATH = "/app/projects/demo/episodes";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-// 标准档与紧凑档的分界，与外壳的媒体查询一致；紧凑档的 Agent 面板盖在画布右侧。
 const STANDARD_TIER_MIN_WIDTH = 1280;
 
 interface RecordedProject {
@@ -24,9 +21,6 @@ const recordedProject = (
 ).body as RecordedProject;
 const [firstEpisode] = recordedProject.project.episodes;
 
-// ---------------------------------------------------------------------------
-// 压力数据：两个整本源文文件、几十集、长标题与长文件名，切出集之间留一段空当，结尾还有未分集的原文
-// ---------------------------------------------------------------------------
 
 const PARAGRAPHS = [
   "雨从傍晚一直下到深夜。巡夜人提着灯从箭楼下走过，灯影在湿透的石板上晃成一片，城墙的轮廓被夜色压得很低。",
@@ -72,7 +66,6 @@ const FILES = [
     name: "上卷：雨夜里的旧城茶馆与修表匠的约定（作者手改第三稿，含删去的支线与批注）.txt",
     original_filename: "上卷 第三稿 批注版 最终 最终.docx",
     episodes: 14,
-    // 第 6 集删掉后留下的空当
     gapAfter: 5,
     tail: 3,
   },
@@ -126,7 +119,6 @@ const files = FILES.map((spec) => {
   };
 });
 
-// 原文不在整本源文里的集：两集自带原文、一集还没有原文
 for (const origin of ["own", "own", "none"] as const) {
   infos.push({
     episode: nextEpisode,
@@ -191,7 +183,6 @@ const POPULATED: ApiOverrides = {
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: VIEW },
 };
 
-// 从第 7 集起重新规划：新方案把第 7–9 集重新切成四集
 const [upper] = files;
 const replanFrom = upper.segments.find((segment) => segment.episode === 7);
 const replanTo = upper.segments.find((segment) => segment.episode === 9);
@@ -235,7 +226,50 @@ const WITH_REPLAN: ApiOverrides = {
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: { ...VIEW, replan: REPLAN } },
 };
 
-// ---------------------------------------------------------------------------
+const FAILURE_MODEL = `custom-${"model".repeat(20)}`;
+const FAILURE_REASON = `文本模型 ${FAILURE_MODEL} 的输出超出了最大输出长度，内容不完整`;
+const FAILURE_DETAIL = `finish_reason=length\n${"provider diagnostic ".repeat(80)}`;
+const FAILED_TASK: ApiOverrides = {
+  "GET /api/v1/tasks?page_size=200&project_name=demo": {
+    status: 200,
+    body: {
+      items: [{
+        task_id: "failed-planning",
+        project_name: "demo",
+        task_type: "text_episode_plan",
+        media_type: "text",
+        resource_id: "episode-planning",
+        resource_type: null,
+        script_file: null,
+        payload: {},
+        status: "failed",
+        result: null,
+        error_message: FAILURE_REASON,
+        error_code: "text_output_truncated",
+        error_params: { provider_id: "custom-1", model: FAILURE_MODEL, custom_model: true },
+        error_detail: FAILURE_DETAIL,
+        cancelled_by: null,
+        provider_id: null,
+        provider_job_id: null,
+        source: "webui",
+        queued_at: FIXED_NOW,
+        started_at: FIXED_NOW,
+        finished_at: FIXED_NOW,
+        updated_at: FIXED_NOW,
+      }],
+      total: 1, page: 1, page_size: 200,
+    },
+  },
+};
+
+async function expandFailure(panel: Locator) {
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText(FAILURE_REASON);
+  await expect(alert).not.toContainText(FAILURE_DETAIL);
+  await alert.getByRole("button", { name: "详情", exact: true }).click();
+  await expect(alert).toContainText(FAILURE_DETAIL);
+}
+
 
 const canvas = (page: Page) => page.getByRole("main");
 const outline = (page: Page) => page.getByRole("navigation", { name: "集目录" });
@@ -255,7 +289,6 @@ async function box(locator: Locator) {
   return rect;
 }
 
-/** 紧凑档的 Agent 面板盖在画布右侧：点画布右侧的控件之前先收起它。 */
 async function revealCanvasRight(page: Page) {
   if (viewport(page).width >= STANDARD_TIER_MIN_WIDTH) return;
   await agentToggle(page).click();
@@ -267,7 +300,6 @@ async function populatedReady(page: Page) {
   await manuscript(page).getByRole("article").first().waitFor();
 }
 
-/** 画布里只有集目录与原文两处在滚动；文档本身由溢出探针检查。 */
 async function expectOnlyColumnsScroll(page: Page) {
   const scrolling = await canvas(page).evaluate((main) =>
     [main, ...main.querySelectorAll("*")]
@@ -281,6 +313,38 @@ async function expectOnlyColumnsScroll(page: Page) {
 }
 
 defineRegionScenarios("分集视图", [
+  {
+    name: "规划失败的长原因与展开详情在弹层内可读",
+    path: PATH,
+    api: { ...POPULATED, ...FAILED_TASK },
+    ready: populatedReady,
+    act: async (page) => {
+      await revealCanvasRight(page);
+      await page.getByRole("button", { name: "AI 规划剩余内容" }).click();
+      await expandFailure(page.getByRole("dialog"));
+    },
+  },
+  {
+    name: "重新规划失败的长原因与展开详情在方案栏内可读",
+    path: PATH,
+    api: {
+      ...POPULATED,
+      ...FAILED_TASK,
+      "GET /api/v1/projects/demo/episodes-view": {
+        status: 200,
+        body: { ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } },
+      },
+    },
+    ready: async (page) => {
+      await page.getByRole("region", { name: "新的分集方案" }).waitFor();
+    },
+    act: async (page) => {
+      await revealCanvasRight(page);
+      const panel = page.getByRole("region", { name: "新的分集方案" });
+      await expect(panel.getByRole("status")).toContainText("AI 生成出错");
+      await expandFailure(panel);
+    },
+  },
   {
     name: "没有整本源文时集目录只列其他集，原文区邀请上传",
     path: PATH,
@@ -301,7 +365,6 @@ defineRegionScenarios("分集视图", [
     act: async (page) => {
       await expectOnlyColumnsScroll(page);
       const text = await box(page.locator("[data-manuscript]"));
-      // 正文栏最宽 40em：Agent 面板展开的 1440 宽下约 630px，2560 宽下也不再变宽
       expect(text.width).toBeLessThanOrEqual(641);
       if (viewport(page).width === 1440) expect(text.width).toBeGreaterThan(600);
       const rail = await box(outline(page));

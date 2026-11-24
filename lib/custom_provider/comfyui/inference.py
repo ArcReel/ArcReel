@@ -41,27 +41,18 @@ from lib.infra.validation_messages import default_translate
 
 from .inference_rules import ConsumerPort, InferenceRules, load_inference_rules
 
-#: 推断消息的键前缀：信号说明与提示各有一条，与诊断码共用 ``val_ce_`` 命名空间。
 MESSAGE_KEY_PREFIX = "val_ce_infer_"
 
-#: 标题约定的前缀，大小写不敏感，截到首个空白。
 TITLE_MARKER_PREFIX = "arcreel:"
 
-#: 只读的语义键：ArcReel 从 workflow 读出它的字面值，不写回。
 READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 
-#: 候选即有序格子、并列不算歧义的语义键。
 LIST_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
-#: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
 CONSUMER_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
-#: 取值要由用户逐项填写的语义键：推断只列候选不选中。缺了取值过不了校验，自动选中会让原本能保存的
-#: 定义一进编辑器就存不了。
 CANDIDATE_ONLY_BINDING_KEYS = frozenset({"aspect_ratio"})
 
-#: 值本身是一张图的语义键：它们的落点只能是读图节点承载文件名的那个字段。与
-#: :data:`.bindings.IMAGE_BINDING_KEYS`（图像端点允许的语义键）不是一回事。
 IMAGE_VALUED_KEYS = frozenset({"start_image", "end_image", "reference_images"})
 
 _NUMERIC_PREFIX = re.compile(r"^(\d+)")
@@ -82,8 +73,6 @@ class BindingSignal(StrEnum):
     TITLE_POLARITY = "title_polarity"
 
 
-#: 分级信号的权重。每一级都大于它以下全部级别之和（含次级信号的上限），高级信号因此不可能被
-#: 一堆低级信号累加压过。
 SIGNAL_WEIGHTS: Mapping[BindingSignal, int] = {
     BindingSignal.MANUAL_BINDING: 2048,
     BindingSignal.TITLE_MARKER: 1024,
@@ -96,7 +85,6 @@ SIGNAL_WEIGHTS: Mapping[BindingSignal, int] = {
     BindingSignal.TITLE_POLARITY: 1,
 }
 
-#: 最弱的分级信号：次级信号的权重之和必须小于它，否则次级信号就不再「只决同分先后」。
 WEAKEST_GRADED_WEIGHT = SIGNAL_WEIGHTS[BindingSignal.LINK_TRACE]
 
 
@@ -115,15 +103,10 @@ class InferenceNote(StrEnum):
 class BindingState(StrEnum):
     """一个语义键的推断结果状态。"""
 
-    #: 唯一最高分，已按它选好。
     AUTO_SELECTED = "auto_selected"
-    #: 最高分并列，不自动选，全部候选按分排序交用户挑。
     AMBIGUOUS = "ambiguous"
-    #: 没有可直接采用的候选（一个也没有，或该键只列候选不选中），允许用户从全部 ``(node, input)`` 手选。
     NOT_FOUND = "not_found"
-    #: 定义里该键是空列表：用户确认过这份 workflow 不支持这项语义，不再推断。
     UNSUPPORTED = "unsupported"
-    #: 既有条目有丢失的，该键重跑了推断，保存前必须让用户确认。
     NEEDS_CONFIRMATION = "needs_confirmation"
 
 
@@ -131,9 +114,7 @@ class MatchOrigin(StrEnum):
     """候选是怎么来的。"""
 
     INFERRED = "inferred"
-    #: 既有条目的节点与类型都没变，原样沿用。
     KEPT = "kept"
-    #: 节点 id 变了，按类型加标题在全图唯一匹配到新 id。
     REMATCHED = "rematched"
 
 
@@ -180,7 +161,6 @@ class Candidate:
     signals: tuple[SignalHit, ...]
     selected: bool
     origin: MatchOrigin
-    #: 产物候选的上游链长度；其余语义键为 ``None``。多个产物时按它取最靠下游的一个。
     depth: int | None = None
 
     @property
@@ -269,7 +249,6 @@ class BindingInference:
         }
 
 
-#: 某个语义键根本没出现在结果里时的占位：它的 ``selected_targets`` 为空，与「没绑上」同义。
 _MISSING = KeyInference(BindingState.NOT_FOUND, ())
 
 
@@ -416,7 +395,6 @@ def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine
     fresh = engine.infer_key(key)
     landed = {(candidate.node, candidate.input) for candidate in kept}
     merged = [*kept, *(c for c in fresh.candidates if (c.node, c.input) not in landed)]
-    # 有条目丢失时一个也不自动选：沿用下来的那几条同样要在用户眼前过一遍。
     pending = tuple(
         Candidate(c.target, c.signals, selected=False, origin=c.origin, depth=c.depth)
         for c in sorted(merged, key=lambda c: (-c.score, _node_order(c.node)))
@@ -508,8 +486,6 @@ class _Engine:
         self.polarity = _polarity_by_node(workflow, rules)
         self.output_chain = self._output_chain()
 
-    # -- 对外入口 ---------------------------------------------------------
-
     def infer_key(self, key: str) -> KeyInference:
         if key == "output":
             return self._select("output", self._output_candidates(), ())
@@ -540,14 +516,11 @@ class _Engine:
             )
         return tuple(notes)
 
-    # -- 候选生成 ---------------------------------------------------------
-
     def _candidates_for(self, key: str) -> tuple[list[Candidate], tuple[Note, ...]]:
         builder = _Collector()
         notes: list[Note] = []
         marked = self.markers.get(key, ())
         if marked:
-            # 标题标记按语义键抑制推断：这个键上只认打了标记的节点，其余信号一律不再参与。
             for node_id in marked:
                 for target in self._marked_targets(key, node_id):
                     builder.add(target, SignalHit(BindingSignal.TITLE_MARKER, _weight(BindingSignal.TITLE_MARKER)))
@@ -566,7 +539,6 @@ class _Engine:
             return
         loader = self.rules.loader_input(class_type_of(node)) if key in IMAGE_VALUED_KEYS else None
         if loader is not None:
-            # 读图节点还带着 upload 一类的界面字段，图像类语义的落点只有承载文件名的那一个。
             yield self._target(key, node_id, loader, node_id, consumer=self._marked_consumer(key, node_id))
             return
         rules = self.rules.semantic_keys.get(key)
@@ -638,14 +610,12 @@ class _Engine:
             class_type = class_type_of(node)
             if self._gated_out(node):
                 continue
-            # 成片背景音也由 LoadAudio 读取，只有已知参考输入才可自动认领。
             if key == "reference_audio" and self.consumer_of(key, node_id) is None:
                 continue
             for name in node_inputs(node):
                 if not rules.accepts(name, class_type):
                     continue
                 if self.polarity.get((node_id, name), key) != key:
-                    # 已由条件端口判给另一极的文本字段，不再作为本键的候选。
                     continue
                 landing = resolve_literal(self.workflow, node_id, name, constants=self.rules.constant_nodes)
                 if landing.node is None or landing.input is None:
@@ -793,7 +763,6 @@ class _Engine:
                 candidate.requires_true is not None
                 and unwrap_value(node_inputs(node).get(candidate.requires_true)) is False
             ):
-                # 只预览不落盘的节点取不到成片。
                 continue
             builder.add(
                 self._target("output", node_id, None, node_id),
@@ -822,8 +791,6 @@ class _Engine:
         node = candidates[best[0]].node
         return ancestors(self.workflow, node) | {node}
 
-    # -- 组装 -------------------------------------------------------------
-
     def _target(
         self, key: str, node_id: str, input_name: str | None, carrier: str, *, consumer: Consumer | None = None
     ) -> Mapping[str, Any]:
@@ -844,8 +811,6 @@ class _Engine:
             target["direction"] = "read"
         if key == "seed":
             target["policy"] = "random"
-        # 只有参考素材的条目声明了 consumer（schema 里 writeTarget 是 additionalProperties: false）：
-        # 别的键附上它，推断出来的结果就存不回去。与 _refresh_consumer 同一道口径。
         if key == "reference_audio" and consumer is None:
             consumer = self.consumer_of(key, node_id)
         if consumer is not None and key in CONSUMER_BINDING_KEYS:
@@ -913,7 +878,6 @@ def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
     if len(tied) == 1:
         return (tied[0],)
     if key == "output":
-        # 两段式 workflow 的第二段产物上游更深；深度相当则是并行分支，交用户选。
         deepest = max(candidates[index].depth or 0 for index in tied)
         at_depth = [index for index in tied if (candidates[index].depth or 0) == deepest]
         return (at_depth[0],) if len(at_depth) == 1 else ()

@@ -162,7 +162,7 @@ def _registration_basis(project_dir: Path) -> ArtifactBasis:
         ("asset_sheet", "祠堂"),
         ("previous_storyboard", "E1S01"),
     ]
-    with generation_input.freeze(max_reference_images=2, model="m", bind_claims=_unbound) as frozen:
+    with generation_input.freeze(max_reference_images=6, model="m", bind_claims=_unbound) as frozen:
         return frozen.basis
 
 
@@ -216,7 +216,6 @@ def test_activation_registers_a_sheet_and_its_storyboard_despite_an_empty_descri
     resolver = ArtifactCurrencyResolver(project_dir)
     assert resolver.compare(sheet_key, artifact_path="scenes/祠堂.png").status.value == "current"
     assert resolver.compare(TARGET_KEY, artifact_path="storyboards/scene_E1S02.png").status.value == "current"
-    # 生成仍被拒，拒绝码不变。
     project = _read_json(project_dir / "project.json")
     refusal = asset_sheet_input(
         project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)
@@ -310,7 +309,7 @@ def _sheet_registration_basis(project_dir: Path, key: ArtifactKey, reference_cou
         generation_input = asset_sheet_input(project, asset_type=asset_type, name=name, observation=observation)
         assert not generation_input.gaps, generation_input
     assert len(generation_input.references) == reference_count
-    with generation_input.freeze(max_reference_images=1, model="m", bind_claims=_unbound) as frozen:
+    with generation_input.freeze(max_reference_images=2, model="m", bind_claims=_unbound) as frozen:
         return frozen.basis
 
 
@@ -354,7 +353,6 @@ def test_activation_registers_a_derivative_whose_owner_sheet_lost_its_original(t
     assert _absent(resolve_current_artifact_basis(project_dir, owner)) == [
         {"code": "asset_original_missing", "type": "character", "id": "张三"}
     ]
-    # 本体资产图已登记可用，衍生的生成输入完整。
     assert _absent(resolve_current_artifact_basis(project_dir, derivative)) == []
 
 

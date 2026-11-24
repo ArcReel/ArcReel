@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -522,7 +524,6 @@ def write_legacy_tts_narration_project(
         metadata_path = project_dir / "versions" / "versions.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata["audio"][unit_id]["versions"][-1]["created_at"] = f"2026-04-0{index}T10:00:00Z"
-        # 0.33 及更早的版本记录没有内容指纹（v17→v18 补录）。
         metadata["audio"][unit_id]["versions"][-1].pop(VERSION_CONTENT_DIGEST)
         _write_json(metadata_path, metadata)
     _write_json(script_path, script)
@@ -565,7 +566,7 @@ def write_legacy_tts_narration_project(
     return project_dir
 
 
-def write_legacy_unregistrable_asset_sheet_project(root: Path) -> Path:
+def write_legacy_unregistrable_asset_sheet_project(root: Path, *, missing_product_reference: bool = False) -> Path:
     """旧资产图有缺原图、空描述和依赖不可登记本体的衍生。"""
 
     project_dir = write_legacy_storyboard_project(root, "legacy-asset-sheet-unregistrable-input")
@@ -598,6 +599,15 @@ def write_legacy_unregistrable_asset_sheet_project(root: Path) -> Path:
     ):
         (project_dir / relative).parent.mkdir(parents=True, exist_ok=True)
         (project_dir / relative).write_bytes(f"sheet-{relative}".encode())
+    if missing_product_reference:
+        project["characters"]["张三"].pop("reference_image")
+        project["products"]["茶"] = {
+            "description": "冷泡茶",
+            "product_sheet": "products/茶.png",
+            "reference_images": ["products/refs/茶_1.png"],
+        }
+        (project_dir / "products").mkdir()
+        (project_dir / "products/茶.png").write_bytes(b"tea sheet")
     revision = compute_source_revision(project_dir, project, SourceScope(kind="all")).revision
     project["workflow"] = {"asset_inventory": {"scope": {"kind": "all", "files": []}, "source_revision": revision}}
     _write_json(project_path, project)
@@ -706,6 +716,7 @@ def write_legacy_ad_reference_video_project(root: Path, *, converted: bool = Fal
     project = json.loads(project_path.read_bytes())
     project["content_mode"] = "ad"
     project["target_duration"] = 16
+    project.pop("default_duration")
     _write_json(project_path, project)
     script_path = project_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_bytes())
@@ -914,7 +925,6 @@ def write_legacy_named_reference_bases_project(root: Path, name: str = "legacy-n
 
 ScriptPlanVariantName = Literal["drama", "narration", "reference_video"]
 
-#: 退役的条目指纹与整集指纹：样本里只要求字段在场，取值无关紧要。
 _LEGACY_ENTRY_REVISION = "sha256-legacy-entry-revision"
 _LEGACY_SCRIPT_REVISION = "sha256-legacy-script-revision"
 
@@ -957,11 +967,9 @@ def _legacy_script_entry(
 
     entry = dict(plan_entry)
     if variant == "reference_video":
-        # 旧参考单元不带对应原文。
         entry.pop("source_text")
     else:
         if variant == "drama":
-            # 旧 drama 分镜不带视觉改编描述。
             entry.pop("scene_description")
         entry["image_prompt"] = {"scene": "画面", "composition": {"shot_type": "Medium Shot"}} if authored else None
         entry["video_prompt"] = {"action": "动作"} if authored else None
@@ -1246,6 +1254,8 @@ def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = Fa
         {
             "schema_version": 5,
             "title": "旧共用参考文件项目",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
             "characters": {
                 owner: {"description": "owner", "reference_image": image, "reference_audio": audio},
                 borrower: {"description": "borrower", "reference_image": image, "reference_audio": audio},
@@ -1836,3 +1846,149 @@ def cross_bind_episode_scripts(project_dir: Path, filenames: dict[int, str], *, 
         adapter.put_entry(
             key, ArtifactManifestEntry(artifact_path=f"scripts/{filenames[1]}", basis_digest=entry.basis_digest)
         )
+
+
+def _write_legacy_sheet_collision_project(root: Path, *, schema_version: int, missing_reference: bool = False) -> Path:
+    project_dir = write_legacy_storyboard_project(root, schema_version=schema_version)
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    if missing_reference:
+        (project_dir / "characters/Bob.png").unlink()
+        project_path = project_dir / "project.json"
+        project = _load_json_object(project_path)
+        project["characters"]["Bob"].pop("reference_image")
+        project["products"]["茶"] = {
+            "description": "冷泡茶",
+            "reference_images": ["characters/Bob.png", "products/refs/茶_2.png"],
+        }
+        reference = project_dir / "products/refs/茶_2.png"
+        reference.parent.mkdir(parents=True)
+        reference.write_bytes(b"tea reference 2")
+        _write_json(project_path, project)
+    return project_dir
+
+
+def _write_legacy_reference_copy_collision_project(root: Path, *, directory: str) -> Path:
+    project_dir = write_legacy_storyboard_project(root, schema_version=18)
+    share_reference_files_with_occupied_targets(project_dir, directory)
+    return project_dir
+
+
+def _write_legacy_storyboard_frame_project(root: Path) -> Path:
+    project_dir = write_legacy_storyboard_project(root)
+    script_path = project_dir / "scripts/episode_1.json"
+    script = _load_json_object(script_path)
+    first = script["segments"][0]
+    first["generated_assets"]["storyboard_image"] = "scene_E1S1.png"
+    first["generated_assets"]["video_uri"] = "empty.mp4"
+    (project_dir / "videos/empty.mp4").write_bytes(b"")
+    first["end_frame_image"] = "end_frames/scene_E1S1.png"
+    first["generated_assets"]["storyboard_last_image"] = "storyboards/last_E1S1.png"
+    for reference in (first["end_frame_image"], first["generated_assets"]["storyboard_last_image"]):
+        path = project_dir / reference
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(reference.encode())
+    _write_json(script_path, script)
+    return project_dir
+
+
+def _write_legacy_reference_thumbnail_project(root: Path) -> Path:
+    project_dir = write_legacy_reference_video_project(root)
+    script_path = project_dir / "scripts/episode_1.json"
+    script = _load_json_object(script_path)
+    for unit in script["video_units"]:
+        unit_id = unit["unit_id"]
+        reference = f"reference_videos/thumbnails/{unit_id}.jpg"
+        unit["generated_assets"]["video_thumbnail"] = reference
+        path = project_dir / reference
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"thumbnail-{unit_id}".encode())
+    _write_json(script_path, script)
+    return project_dir
+
+
+def _write_modified_storyboard(root: Path, *, modify: Callable[[Path], object]) -> Path:
+    project_dir = write_legacy_storyboard_project(root)
+    modify(project_dir)
+    return project_dir
+
+
+def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object]) -> Path:
+    project_dir = write_legacy_style_project(root)
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    project["products"]["咖啡"] = {"description": "咖啡"}
+    project["props"]["伞"] = {"description": "油纸伞", "prop_sheet": "props/伞.png"}
+    prop = project_dir / "props/伞.png"
+    prop.parent.mkdir()
+    prop.write_bytes(b"umbrella")
+    _write_json(project_path, project)
+    advance_project_schema(project_dir, to_version=18)
+    modify(project_dir)
+    return project_dir
+
+
+LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
+    "storyboard": write_legacy_storyboard_project,
+    "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),
+    "borrowed-sheet": partial(_write_shared_asset_project, modify=share_asset_sheets),
+    "borrowed-derivative": partial(_write_shared_asset_project, modify=share_derivative_sheet),
+    "repointed-registered-sheet": partial(_write_shared_asset_project, modify=repoint_registered_asset_sheet),
+    "shared-item-id": partial(
+        _write_modified_storyboard, modify=partial(reuse_item_id_across_episodes, item_id="E1S01")
+    ),
+    "crossed-script-bindings": partial(
+        _write_modified_storyboard,
+        modify=partial(
+            cross_bind_episode_scripts, filenames={1: "episode_2.json", 2: "episode_1.json"}, ledger_order=[2, 1]
+        ),
+    ),
+    "missing-character-original": write_legacy_unregistrable_asset_sheet_project,
+    "missing-original-occupied-target": partial(
+        _write_modified_storyboard, modify=share_a_sheet_with_a_missing_reference_and_occupied_target
+    ),
+    "storyboard-frames": _write_legacy_storyboard_frame_project,
+    "retired-flash-lite-aistudio": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-aistudio"),
+    "retired-flash-lite-vertex": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-vertex"),
+    "retired-model-references": write_legacy_retired_model_references_project,
+    "bare-provider": write_legacy_bare_provider_project,
+    "timeline-agent-turn": write_legacy_timeline_agent_turn_project,
+    "item-id-reuse": write_legacy_item_id_reuse_project,
+    "episode-id-version-remnant": partial(write_legacy_episode_id_remnants_project, record_remnant="version_history"),
+    "episode-id-grid-remnant": partial(write_legacy_episode_id_remnants_project, record_remnant="grid"),
+    "episode-sources": write_legacy_episode_sources_project,
+    "episode-sources-pre-split": partial(write_legacy_episode_sources_project, pre_split=True),
+    "episode-sources-legacy-split": partial(write_legacy_episode_sources_project, legacy_split=True),
+    "episode-sources-edited": partial(write_legacy_episode_sources_project, legacy_split=True, edited_outside=True),
+    "tts-narration": write_legacy_tts_narration_project,
+    "tts-narration-raised-duration": partial(write_legacy_tts_narration_project, raised_video_duration_seconds=6),
+    "unregistrable-asset-sheet": partial(
+        write_legacy_unregistrable_asset_sheet_project, missing_product_reference=True
+    ),
+    "reference-video": write_legacy_reference_video_project,
+    "reference-video-thumbnails": _write_legacy_reference_thumbnail_project,
+    "reference-video-legacy-audio": partial(write_legacy_reference_video_project, with_legacy_audio=True),
+    "reference-video-split-text": partial(write_legacy_reference_video_project, split_unit_text=True),
+    "ad-legacy-shot-index": write_legacy_ad_reference_video_project,
+    "ad-partially-converted": partial(write_legacy_ad_reference_video_project, converted=True),
+    "style-prefix": write_legacy_style_project,
+    "style-short-label": partial(write_legacy_style_project, style="Photographic"),
+    "named-reference-bases": write_legacy_named_reference_bases_project,
+    "script-plan-narration": partial(write_legacy_script_plan_project, variant="narration"),
+    "script-plan-drama": partial(write_legacy_script_plan_project, variant="drama"),
+    "script-plan-reference-video": partial(write_legacy_script_plan_project, variant="reference_video"),
+    "drama-storyboard": write_legacy_drama_storyboard_project,
+    "undescribed-grid-style": partial(write_undescribed_style_bases_project, name="legacy-grid-style", route="grid"),
+    "undescribed-reference-style": partial(
+        write_undescribed_style_bases_project, name="legacy-reference-style", route="reference_video"
+    ),
+    "shared-reference": write_legacy_shared_reference_project,
+    "shared-reference-padded-names": partial(write_legacy_shared_reference_project, padded_names=True),
+    "presentation": write_legacy_presentation_project,
+    "sheet-copy-collision-v5": partial(_write_legacy_sheet_collision_project, schema_version=5),
+    "sheet-copy-collision-v18": partial(_write_legacy_sheet_collision_project, schema_version=18),
+    "missing-reference-copy-collision": partial(
+        _write_legacy_sheet_collision_project, schema_version=18, missing_reference=True
+    ),
+    "image-copy-collision": partial(_write_legacy_reference_copy_collision_project, directory="refs"),
+    "audio-copy-collision": partial(_write_legacy_reference_copy_collision_project, directory="refs_audio"),
+}

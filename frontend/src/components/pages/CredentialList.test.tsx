@@ -187,7 +187,6 @@ describe("pages/CredentialList two-secret (Kling)", () => {
     fireEvent.change(within(dialog).getByLabelText("Secret Key"), { target: { value: "   " } });
     fireEvent.click(within(dialog).getByRole("button", { name: "保存" }));
 
-    // 只含空白的输入经 trim 后为空，不应作为新值提交覆盖既有密钥
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(updateSpy).not.toHaveBeenCalled();
   });
@@ -252,7 +251,6 @@ describe("pages/CredentialList credential groups (api_key OR access_key+secret_k
 
     const dialog = await openAddDialog();
     fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "可灵账号" } });
-    // 只填一半的双键组（access_key 无 secret_key），且未填 api_key —— 两组都不完整
     fireEvent.change(within(dialog).getByLabelText("Access Key"), { target: { value: "AK-1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "添加密钥" }));
 

@@ -7,6 +7,7 @@ from server.agent_toolset.declaration import READ_CHECK, Exempt, ToolDeclaration
 from server.tool_runtime import (
     NoArguments,
     PromptPreviewRequest,
+    get_image_capabilities,
     get_prompt_preview,
     get_video_capabilities,
     get_workflow_plan,
@@ -28,12 +29,22 @@ GET_WORKFLOW_PLAN = ToolDeclaration(
     handler=get_workflow_plan,
 )
 
+GET_IMAGE_CAPABILITIES = ToolDeclaration(
+    name="get_image_capabilities",
+    description="查询项目文生图（t2i）和图生图（i2i）桶的模型与 max_reference_images 生效上限。null 表示未收录，0 表示不接受参考图。配置不可用时该桶返回 problem。",
+    request_model=NoArguments,
+    migration=Exempt("只读：模型能力查询，不读写产物。"),
+    domain_key="image_capabilities",
+    handler=get_image_capabilities,
+)
+
 GET_VIDEO_CAPABILITIES = ToolDeclaration(
     name="get_video_capabilities",
     description=(
         "查询项目当前视频模型的能力（model 粒度：供应商、模型、支持的时长等）与项目偏好，并给出按项目生成模式"
         "定轴的时长约束 duration_constraints；全项目同一口径，无需指定剧集。参考生视频项目另含 "
         "reference_unit_durations（带图与无图的档位、各桶 endpoint_fixed 标志及成因；无图不可解析时附 problem）。"
+        "end_frame_unit_durations 同时给出 without_end_frame 与 with_end_frame 档位、excluded 成因与 problem；规划期用无尾帧档位，已有分镜挂尾帧时用带尾帧档位，越界须改秒数或移除尾帧，不自动改秒数。"
         "只读，不向供应商发请求。视频模型未配置或能力无法解析时返回相应 problem。"
     ),
     request_model=NoArguments,
@@ -55,9 +66,10 @@ GET_PROMPT_PREVIEW = ToolDeclaration(
     handler=get_prompt_preview,
 )
 
-ORIENTATION_TOOLS = (GET_WORKFLOW_PLAN, GET_VIDEO_CAPABILITIES, GET_PROMPT_PREVIEW)
+ORIENTATION_TOOLS = (GET_WORKFLOW_PLAN, GET_VIDEO_CAPABILITIES, GET_IMAGE_CAPABILITIES, GET_PROMPT_PREVIEW)
 
 __all__ = [
+    "GET_IMAGE_CAPABILITIES",
     "GET_PROMPT_PREVIEW",
     "GET_VIDEO_CAPABILITIES",
     "GET_WORKFLOW_PLAN",

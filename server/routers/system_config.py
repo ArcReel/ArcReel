@@ -69,10 +69,6 @@ _latest_release_cache: dict[str, datetime | dict[str, str] | None] = {
     "fetched_at": None,
 }
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 class _OptionsDict(TypedDict):
     video_backends: list[str]
@@ -166,11 +162,11 @@ async def _get_latest_release(
 class _ModelCandidate:
     """一个可选模型及其任务类型桶归属，供不过滤的默认层与按桶过滤的细分层共用。"""
 
-    option: str  # "provider_id/model_id"
+    option: str
     media_type: str
-    fit: BucketFit  # 各任务类型桶的判定，连同不进桶的原因
-    display_name: str  # 按请求语言成文的模型名
-    entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
+    fit: BucketFit
+    display_name: str
+    entry: str | None = None
 
     @property
     def provider(self) -> str:
@@ -185,7 +181,7 @@ class _ModelCandidate:
 class _RetiringModel:
     """一个即将下线或已下线的供应商模型，不论启用与否、在不在候选里：引用处的下线提示据此给出。"""
 
-    option: str  # "provider_id/model_id"
+    option: str
     media_type: str
     lifecycle: Lifecycle
 
@@ -263,7 +259,7 @@ async def _enumerate_candidates(
             if pid not in provider_names and model.provider_id in provider_name_map:
                 provider_names[pid] = provider_name_map[model.provider_id]
     except Exception:
-        pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
+        pass
 
     return candidates, provider_names
 
@@ -293,7 +289,7 @@ async def _enumerate_retiring_models(session: AsyncSession) -> list[_RetiringMod
             try:
                 media_type = (await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)).media_type
             except ValueError:
-                continue  # 调用端点已被删除：供应商模型列表同样不列这一行
+                continue
             state = model_lifecycle(model, media_type)
             if state.status != "available":
                 retiring.append(_RetiringModel(f"{make_provider_id(provider.id)}/{model.model_id}", media_type, state))
@@ -332,7 +328,6 @@ def _unlisted_references(references: Mapping[str, str]) -> tuple[list[_RetiringM
     return discontinued, unavailable
 
 
-#: 引用处提示的状态：即将下线、已下线，以及引用的模型不在清单里、本地也没有已下线条目的「不可用」。
 NoticeStatus = Literal["retiring", "discontinued", "unavailable"]
 
 
@@ -341,11 +336,8 @@ class LifecycleNotice(BaseModel):
 
     status: NoticeStatus
     shutdown_date: date | None
-    #: 官方后继的条目引用（「模型厂商/官方模型名」）与条目名；没有登记后继时为 None。
     successor: str | None
     successor_name: str | None
-    #: 引用位置（``default`` 为默认层，其余为该媒体类型的任务类型桶）→ 一键切换的目标 ``provider/model``；
-    #: 同一供应商下没有对应到后继、且是该位置候选的供应商模型时为 None，只展示后继名称。
     switch_targets: dict[str, str | None]
 
 
@@ -385,7 +377,7 @@ def _lifecycle_notices(
         successor_key = catalog.binding_key(state.successor, model.media_type)
         successor_entry = catalog.get_entry(successor_key) if successor_key is not None else None
         notices[model.option] = LifecycleNotice(
-            status="discontinued" if state.discontinued else "retiring",  # 只收即将下线与已下线的模型
+            status="discontinued" if state.discontinued else "retiring",
             shutdown_date=state.shutdown_date,
             successor=state.successor,
             successor_name=successor_entry.display_name if successor_entry is not None else None,
@@ -431,16 +423,10 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
     )
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
-
 class FilteredCandidate(BaseModel):
     """默认层里有、某个任务类型桶因能力不满足而没有列出的模型。"""
 
-    option: str  # "provider_id/model_id"
-    # 不满足的能力维度，键与能力接口同名；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。
+    option: str
     unmet: list[BucketDimension]
 
 
@@ -449,26 +435,19 @@ class MediaCandidates(BaseModel):
 
     default: list[str]
     buckets: dict[GenerationTypeBucket, list[str]]
-    # 只收默认层里的模型：停用、已下线或低于最低应用版本的模型不在默认层，也就不在这里。
     filtered: dict[GenerationTypeBucket, list[FilteredCandidate]]
 
 
 class ModelCandidatesResponse(BaseModel):
     image: MediaCandidates
     video: MediaCandidates
-    # 供应商 id → 按请求语言成文的名字；与 options 同口径（同一条 translate_or 路径）。
     provider_names: dict[str, str]
-    # "provider_id/model_id" → 按请求语言成文的模型名；键覆盖全部媒体类型的候选（含 options
-    # 才用到的 text / audio），前端下拉据此显示译名。
     model_names: dict[str, str]
-    # "provider_id/model_id" → 下线提示，收即将下线与已下线的供应商模型（含不在候选里的），以及设置与项目里引用的
-    # 清单之外的模型（已下线或不可用），覆盖全部媒体类型；引用了它的下拉就地展示。
     lifecycle: dict[str, LifecycleNotice]
 
 
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: str | None = None
-    # 视频任务类型桶（docs/adr/0054）：i2v = 图生视频 / 宫格，r2v = 参考生视频；空值 = 回退默认层
     default_video_backend_i2v: str | None = None
     default_video_backend_r2v: str | None = None
     default_image_backend: str | None = None
@@ -478,7 +457,6 @@ class SystemConfigPatchRequest(BaseModel):
     default_audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
-    # 市场源 GitHub raw 代理前缀：空串 = 直连
     market_github_proxy_prefix: str | None = None
     video_generate_audio: bool | None = None
     video_poll_timeout_seconds: int | None = None
@@ -491,18 +469,10 @@ class SystemConfigPatchRequest(BaseModel):
     claude_code_subagent_model: str | None = None
     agent_session_cleanup_delay_seconds: int | None = None
     agent_max_concurrent_sessions: int | None = None
-    # 文本任务档位（docs/adr/0051）：调用点在代码里固定归档，这里只配置每档的 backend；
-    # 各档未设置回退 default_text_backend。
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
 
 
-# Setting keys that map directly to string DB settings
-#
-# DEPRECATED: anthropic_api_key / anthropic_base_url 已迁移至 agent_anthropic_credentials 表
-# (spec 2026-05-11-agent-url-config-optimization)。这里保留 anthropic_base_url 读写仅作旧客户端
-# 兼容；新 UI 走 /api/v1/agent/credentials/* 接口。计划在 0.14.0 删除 anthropic_api_key /
-# anthropic_base_url 字段，anthropic_*_model 系列保留（仍由 Section 2 Model Routing 管理）。
 _STRING_SETTINGS = (
     "anthropic_base_url",
     "anthropic_model",
@@ -513,18 +483,12 @@ _STRING_SETTINGS = (
 )
 
 
-# ---------------------------------------------------------------------------
-# GET /system/config
-# ---------------------------------------------------------------------------
-
-
 @router.get("/system/config")
 async def get_system_config(
     svc: Annotated[ConfigService, Depends(get_config_service)],
     locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
-    # Read all settings in a single query
     all_s = await svc.get_all_settings()
     video_generate_audio_raw = all_s.get("video_generate_audio", "")
     video_generate_audio = (
@@ -533,8 +497,6 @@ async def get_system_config(
         else ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
     )
     anthropic_key = all_s.get("anthropic_api_key", "")
-    # 兼容新凭证目录：旧 system_settings 没填但 agent_anthropic_credentials 有 active 时
-    # 也算 is_set，避免 dashboard "未配置" 红点误报
     if not anthropic_key:
         from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
@@ -542,7 +504,6 @@ async def get_system_config(
         if active_cred is not None:
             anthropic_key = active_cred.api_key
 
-    # 语速 setting 为字符串存储，损坏值（手工改库等）按未设置处理
     narration_speed = ConfigService.parse_narration_speed(all_s.get("narration_speed", ""))
 
     settings: dict[str, Any] = {
@@ -733,7 +694,6 @@ class TtsVoiceOption(BaseModel):
 
 class TtsModelCapabilitiesResponse(BaseModel):
     supports_speed: bool
-    # 该模型所用调用端点的音色表（同一供应商的不同端点音色不同）；设置页据此列出可选音色，音色仍可自由填写。
     voices: list[TtsVoiceOption]
 
 
@@ -750,7 +710,6 @@ async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCa
     try:
         profile = await audio_backend_profile(*pair)
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
@@ -794,11 +753,6 @@ async def get_system_version(
     }
 
 
-# ---------------------------------------------------------------------------
-# PATCH /system/config
-# ---------------------------------------------------------------------------
-
-
 def _is_valid_proxy_prefix(prefix: str) -> bool:
     if not prefix.isprintable() or any(char.isspace() for char in prefix):
         return False
@@ -829,7 +783,6 @@ async def patch_system_config(
     for field_name in req.model_fields_set:
         patch[field_name] = getattr(req, field_name)
 
-    # Validate backend references (empty string = auto-resolve)
     for backend_key in (
         "default_video_backend",
         "default_video_backend_i2v",
@@ -848,19 +801,15 @@ async def patch_system_config(
                 validate_backend_value(value, backend_key)
             await svc.set_setting(backend_key, value)
 
-    # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认
     if "narration_voice" in patch:
         await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
 
-    # 市场源 GitHub raw 代理前缀：只拼在 raw.githubusercontent.com 地址前，须是带主机名、不含空白与控制字符、不含用户名与密码的
-    # https 地址（该值经 GET 原样回显，不当作凭证存放），且不带查询串与 fragment（raw 地址按路径拼在前缀之后）；空串 = 清除
     if "market_github_proxy_prefix" in patch:
         prefix = str(patch["market_github_proxy_prefix"] or "").strip()
         if prefix and not _is_valid_proxy_prefix(prefix):
             raise UnprocessableError("market_github_proxy_prefix_invalid")
         await svc.set_setting(PROXY_PREFIX_SETTING, prefix)
 
-    # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），具体取值范围由各供应商自行约束；null = 清除
     if "narration_speed" in patch:
         speed = patch["narration_speed"]
         if speed is None:
@@ -871,7 +820,6 @@ async def patch_system_config(
                 raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
             await svc.set_setting("narration_speed", str(speed))
 
-    # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
         await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")
 
@@ -881,7 +829,6 @@ async def patch_system_config(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=_t("video_poll_timeout_minimum")) from exc
 
-    # Anthropic API key (secret)
     if "anthropic_api_key" in patch:
         value = patch["anthropic_api_key"]
         if value:
@@ -889,7 +836,6 @@ async def patch_system_config(
         else:
             await svc.set_setting("anthropic_api_key", "")
 
-    # Integer settings with range validation
     _INT_SETTINGS_RANGES = {
         "agent_session_cleanup_delay_seconds": (10, 3600),
         "agent_max_concurrent_sessions": (1, 20),
@@ -904,7 +850,6 @@ async def patch_system_config(
                 )
             await svc.set_setting(key, str(value))
 
-    # String settings
     for key in _STRING_SETTINGS:
         if key in patch:
             value = patch[key]
@@ -912,5 +857,4 @@ async def patch_system_config(
 
     await session.commit()
 
-    # Return updated config
     return await get_system_config(svc=svc, locale=locale, session=session)

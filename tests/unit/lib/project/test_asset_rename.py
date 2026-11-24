@@ -247,8 +247,6 @@ class TestRewritePayloadReferences:
         assert [item["target"] for item in payload["new_assets"]] == ["主角甲", "主角甲", "角色A", "角色A"]
 
     def test_narration_video_prompt_dialogue_speaker(self) -> None:
-        # speaker 不在 DataValidator 引用扫描范围内，须直接断言改写（narration 的
-        # dialogue 挂在 segments[].video_prompt 下，不经 shots 分支）。
         payload = _narration_script()
         payload["segments"][0]["video_prompt"]["dialogue"] = [
             {"speaker": "角色A", "line": "台词"},
@@ -258,7 +256,7 @@ class TestRewritePayloadReferences:
         dialogue = payload["segments"][0]["video_prompt"]["dialogue"]
         assert dialogue[0]["speaker"] == "新角色"
         assert dialogue[1]["speaker"] == "路人"
-        assert count == 2  # characters_in_segment + dialogue speaker
+        assert count == 2
 
     def test_ad_reference_unit_mention(self) -> None:
         payload = _ad_script()
@@ -271,7 +269,7 @@ class TestRewritePayloadReferences:
         ]
         count = rewrite_payload_references(payload, "product", "商品A", "新商品")
         assert payload["video_units"][0]["text"] == "@[新商品] 特写"
-        assert count == 2  # products_in_shot + mention
+        assert count == 2
 
     def test_reference_units_and_mentions(self) -> None:
         payload = _reference_script()
@@ -354,7 +352,7 @@ class TestRenameAssetCascade:
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert report.episodes == 2
-        assert report.references == 2  # 分段引用数组 + 单元正文 mention
+        assert report.references == 2
         assert report.files == 2
 
         project = pm_with_assets.load_project("demo")
@@ -435,7 +433,7 @@ class TestRenameAssetCascade:
         plan = json.loads(path.read_text(encoding="utf-8"))
         assert plan["segments"][0]["characters_in_segment"] == ["主角甲"]
         assert plan["new_assets"][0]["target"] == "主角甲"
-        assert report.references == 3  # 正式脚本一处 + 规划引用数组一处 + 并入目标一处
+        assert report.references == 3
 
     def test_sibling_with_numeric_suffix_untouched(self, pm_with_assets: ProjectManager) -> None:
         """``旧名_2`` 是合法资产名：兄弟资产的资产图不得被序号形态的 stem 匹配卷走。"""
@@ -504,7 +502,7 @@ class TestRenameAssetCascade:
 
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
-        assert report.files == 2  # sheet + 1 个版本快照
+        assert report.files == 2
         info = vm.get_versions("characters", "主角甲")
         assert info["current_version"] == 1
         version_file = project_dir / info["versions"][0]["file"]
@@ -693,7 +691,6 @@ class TestRenameAssetCascade:
         orphan = project_dir / "characters" / "主角甲.png"
         orphan.write_bytes(b"orphan")
 
-        # 预览同样拒绝：占用在扫描阶段就已知，不该等到用户确认后才失败。
         with pytest.raises(AssetRenameFileCollisionError):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲", dry_run=True)
 
@@ -832,7 +829,6 @@ class TestRenameAssetCascade:
         sheet_b.write_bytes(b"b1")
         vm = VersionManager(project_dir)
         vm.add_version("characters", "角色B", "配角初版", source_file=sheet_b)
-        # 与 delete_entry 路由同形：只删资产桶 key，版本记录与快照留在原地。
         pm_with_assets.update_project("demo", lambda project: project["characters"].pop("角色B"))
         sheet_b.unlink()
 
@@ -1009,7 +1005,6 @@ def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
 
     assert rewrite_entry_paths(entry, spec, "商品A", "新品甲") == 1
     assert entry["product_sheet"] == "thumbnails/商品A.png"
-    # 序号形态只在 refs 子目录随文件一并迁移，目录本级的同形态文件不搬，字段也不能改
     assert entry["reference_images"] == [
         "thumbnails/商品A_1.png",
         "products/商品A_1.png",

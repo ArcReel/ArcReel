@@ -26,7 +26,7 @@ from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBacken
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
-from tests.factories import comfyui_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, image_bytes
 from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -175,7 +175,7 @@ class TestGenerate:
         """端到端一条：参考图回填 → 提交 → 轮询 → 产物落到 output_path，实发种子随结果回来。"""
         definition = _definition(reference_slots=2)
         reference = tmp_path / "ref.jpg"
-        reference.write_bytes(b"jpg-bytes")
+        reference.write_bytes(image_bytes(fmt="JPEG"))
 
         with capture_http() as router:
             upload = router.post(f"{BASE_URL}/upload/image").mock(
@@ -196,13 +196,11 @@ class TestGenerate:
         assert result.image_path.read_bytes() == PNG_BYTES
         assert (result.provider, result.model) == ("custom-1", "flux-workflow")
         assert history.call_count == 1
-        # 引用值取响应里的 subfolder / name，不是请求里的——服务端会为重名改名。
         sent = request_json(only_request(submit))
         assert sent["prompt"]["20"]["inputs"]["image"] == "arcreel/job-7-reference_images-1.jpg"
         assert sent["client_id"] == "arcreel-job-7"
         assert upload.call_count == 1
         assert only_request(view).url.params["filename"] == "ArcReel_00001_.png"
-        # 种子是提交那一刻现随机的，不回传这一版就再也复现不了。
         assert result.seed == sent["prompt"]["3"]["inputs"]["seed"]
         assert result.image_uri == f"{BASE_URL}/view?filename=ArcReel_00001_.png&subfolder=&type=output"
 
@@ -242,7 +240,6 @@ class TestGenerate:
 
         latent = request_json(only_request(submit))["prompt"]["5"]["inputs"]
         assert latent["width"] == latent["height"]
-        # 1k 档的短边比 workflow 字面的 832×480 大，选档确实生效了。
         assert latent["width"] > 832
 
     async def test_the_credentials_ride_every_route(self, tmp_path: Path):
@@ -250,7 +247,7 @@ class TestGenerate:
         definition["auth"] = {"headers": {"Authorization": "Bearer {{api_key}}"}}
         assert validate_definition(definition).valid
         reference = tmp_path / "ref.png"
-        reference.write_bytes(b"png")
+        reference.write_bytes(image_bytes())
 
         with capture_http() as router:
             upload = router.post(f"{BASE_URL}/upload/image").mock(
@@ -470,4 +467,21 @@ async def test_missing_aspect_mapping_fails_before_image_upload(tmp_path):
     ]
     with capture_http() as router, pytest.raises(ComfyuiError, match="comfyui_aspect_ratio_unmapped"):
         await _backend(definition).generate(_request(tmp_path, reference_images=[tmp_path / "image.png"]))
+    assert not router.calls
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = _backend(_definition(reference_slots=2))
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
     assert not router.calls

@@ -10,10 +10,8 @@ from lib.prompts.prompt_builders_script import (
     format_duration_constraint,
 )
 
-#: 规则句的固定开头：未设目标时整段不注入，该开头不应出现在提示词中。
 _RULE_HEAD = "本集成片目标时长约 "
 
-#: 共享片段渲染的目标时长句（软目标后的两个方向合并为一句）。
 _SHARED_TARGET_RULE = (
     "本集成片目标时长约 {seconds} 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。"
     "这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节。"

@@ -27,7 +27,6 @@ from tests.fakes import (
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
-#: Web 画布新增视频单元时发出的请求体，前端组件测试逐字比对同一份文件。
 _ADD_UNIT_CONTRACT = (
     Path(__file__).resolve().parents[4] / "frontend" / "src" / "test" / "contracts" / "reference-unit-add-requests.json"
 )
@@ -35,7 +34,6 @@ _ADD_UNIT_CONTRACT = (
 
 @pytest.fixture
 def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # 重定向 projects_root 到 tmp_path
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     proj_dir = projects_root / "demo"
@@ -82,13 +80,11 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     migrate_v7_to_v8(proj_dir)
     migrate_project_dir(proj_dir)
 
-    # Patch project_manager 的根目录
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, custom_pm)
-    # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。
     use_reference_projection(monkeypatch, _projection_with_durations([3, 6, 9]))
 
     app = FastAPI()
@@ -348,7 +344,6 @@ def test_three_reference_route_web_manual_edits_atomically_reject_mixed_speech_o
     uid = _seed_unit(reference_videos_client)
     before = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"][0]
     before["generated_assets"] = {"video_clip": f"reference_videos/{uid}.mp4", "status": "completed"}
-    # 模拟已有付费生成历史；人工正文修改失败时 locked_script 不得写回任何候选字段。
     from server.routers import reference_videos as router_mod
 
     pm = router_mod.get_project_manager()
@@ -550,7 +545,6 @@ def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkey
     assert enqueued[0]["task_type"] == "reference_video"
     assert enqueued[0]["media_type"] == "video"
     assert enqueued[0]["resource_id"] == uid
-    # 当前文本只作结构守卫，任务只保定位与请求选项；worker 执行前重读最新剧本。
     assert "prompt" not in enqueued[0]["payload"]
     assert enqueued[0]["payload"]["reference_request_options"] == {}
 
@@ -558,7 +552,7 @@ def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkey
 def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [4, 8])
     enqueued: list[dict[str, object]] = []
 
@@ -816,7 +810,7 @@ def test_precheck_slot_member_needs_no_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长本身是档位成员 → 直接入队，无确认。"""
-    uid = _seed_unit(reference_videos_client)  # shots 求和 = 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [3, 6, 9])
 
     body = _precheck(reference_videos_client, uid).json()
@@ -843,7 +837,7 @@ def test_precheck_rounds_up_and_needs_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长非档位成员且有档位能装下 → 需确认，申请能装下它的最小档位。"""
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [4, 8, 12])
 
     body = _precheck(reference_videos_client, uid).json()
@@ -869,7 +863,7 @@ def test_precheck_is_identical_for_tts_and_post_production_projects(
 ) -> None:
     """项目的旁白交付方式不参与视频请求：同一 unit 的申请档位与确认要求只由计划时长决定。"""
 
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, durations)
 
     _set_project_narration(tmp_path, narration_delivery="post_production")
@@ -909,7 +903,7 @@ def test_precheck_over_largest_slot_requires_replan(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长超过最大档位时不得截断，返回结构化重新规划 blocker。"""
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [1, 2])
 
     response = _precheck(reference_videos_client, uid)
@@ -1022,7 +1016,6 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     uid = resp.json()["unit"]["unit_id"]
     assert resp.json()["unit"]["duration_seconds"] == 5
 
-    # 仅改 duration_seconds（无 prompt）：走 elif 分支按已有 override 直接覆盖时长
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
         json={"duration_seconds": 8, "note": "hi"},
@@ -1032,7 +1025,6 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     assert unit["duration_seconds"] == 8
     assert unit["note"] == "hi"
 
-    # 带无 header 的新 prompt + duration_seconds：走 prompt 分支并对单镜头 override 时长
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
         json={"prompt": "@张三 转身离开", "duration_seconds": 7},
@@ -1047,7 +1039,6 @@ def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestCli
 
     pm = router_mod.get_project_manager()
 
-    # 模拟并发 PATCH 改绑：持锁复核读到 episode 1 已指向另一个脚本
     def _rebound(_project_name: str) -> dict:
         return {
             "generation_mode": "reference_video",
@@ -1061,9 +1052,6 @@ def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestCli
         json={"prompt": "镜头1：空镜"},
     )
     assert resp.status_code == 409, resp.text
-
-
-# ============ 解析预览 ============
 
 
 def _patch_video_caps(monkeypatch: pytest.MonkeyPatch, caps: dict) -> None:
@@ -1138,7 +1126,6 @@ def test_script_preview_warns_when_episode_is_silent(
     body = _preview(reference_videos_client, "镜头1：@[酒馆] 开场。\n@[张三]：{我来了}").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_episode"]
     assert body["warnings"][0]["message"] != "ref_warn_silent_episode"
-    # 台词照常派生：无声只影响参考音频，不影响下发给供应商的台词文本
     assert [u["text"] for u in body["utterances"]] == ["我来了"]
 
 
@@ -1150,10 +1137,6 @@ def test_script_preview_404_for_unknown_episode(reference_videos_client: TestCli
     )
     assert resp.status_code == 404
 
-
-# ---------------------------------------------------------------------------
-# 整批准入判定：整批要么全建、要么零任务
-# ---------------------------------------------------------------------------
 
 BATCH_ENDPOINT = "/api/v1/projects/demo/reference-videos/episodes/1/units/generate-batch"
 
@@ -1270,13 +1253,11 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     body = resp.json()
     assert body["decision"] == "admitted"
     assert len(body["task_ids"]) == 2
-    # 逐 unit 的任务行让调用方各等各的，不必等到全批落库。
     assert sorted(body["task_ids_by_unit"]) == sorted([first, second])
     assert sorted(body["task_ids_by_unit"].values()) == sorted(body["task_ids"])
     assert [item["unit_id"] for item in body["units"]] == [first, second]
     assert all(item["admitted"] for item in body["units"])
     assert [call["resource_id"] for call in enqueued] == [first, second]
-    # 请求只落定位与本次选项：执行内容由 worker 起跑时重读最新剧本。
     assert enqueued[0]["payload"] == {
         "script_file": "scripts/episode_1.json",
         "reference_request_options": {},
@@ -1323,7 +1304,6 @@ def test_generate_batch_after_an_interruption_only_queues_what_never_reached_the
     interrupted = reference_videos_client.post(BATCH_ENDPOINT, json={}).json()
     assert [entry["unit_id"] for entry in interrupted["enqueue_failures"]] == [second]
 
-    # 第一个 unit 的任务照常跑完并落盘，第二个从未创建任务、也从未计费。
     _record_finished_clip(first)
 
     retried = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
@@ -1384,7 +1364,6 @@ def test_generate_batch_reports_every_gap_not_only_the_first(
     assert codes["E9U9"] == ["generation_unit_not_found"]
     assert codes[second] == ["generation_active_task_conflict"]
     assert codes[first] == ["generation_batch_admission_withheld"]
-    # 每条缺口都带已本地化的可读原因，调用方不必自己拼文案。
     assert all(problem["message"] for item in body["units"] for problem in item["problems"])
 
 
@@ -1418,12 +1397,29 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["decision"] == "admitted"
     assert [call["resource_id"] for call in enqueued] == [first, second]
-    # 确认只对本次请求有效，不冻结执行内容。
     options = cast(dict[str, Any], enqueued[0]["payload"])["reference_request_options"]
     assert options == {"confirmed_request_duration_seconds": 4}
 
 
 PREVIEW_ENDPOINT = f"{BATCH_ENDPOINT}/preview"
+
+
+def test_over_limit_reference_unit_is_excluded_from_quote_and_submission(reference_videos_client, monkeypatch):
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    refused_url = f"/api/v1/projects/demo/reference-videos/episodes/1/units/{first}"
+    assert reference_videos_client.patch(refused_url, json={"prompt": "@[酒馆] @[张三]"}).is_success
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9], quote_amount=0.8)
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 6, 9), max_reference_images=1))
+    preview = reference_videos_client.post(PREVIEW_ENDPOINT, json={}).json()
+    assert preview["decision"] == "admitted"
+    refused = next(unit for unit in preview["units"] if unit["unit_id"] == first)
+    assert refused["problems"][0]["code"] == "video_reference_images_exceeded"
+    assert "张三" in refused["problems"][0]["message"]
+    assert preview["estimated_cost"]["USD"] == pytest.approx(0.8)
+    submitted = reference_videos_client.post(BATCH_ENDPOINT, json={})
+    assert submitted.status_code == 200
+    assert [call["resource_id"] for call in enqueued] == [second]
 
 
 def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creating_tasks(
@@ -1628,7 +1624,6 @@ def test_generate_batch_regenerates_a_unit_whose_recorded_clip_is_gone(
         if unit["unit_id"] == first:
             unit["generated_assets"] = {"video_clip": f"reference_videos/{first}.mp4"}
     pm.save_script("demo", script, "scripts/episode_1.json")
-    # 登记了路径但目录里没有这个文件——正是用户在文件系统里删掉成片后的形态。
     assert not (pm.get_project_path("demo") / "reference_videos" / f"{first}.mp4").exists()
 
     resp = reference_videos_client.post(BATCH_ENDPOINT, json={})
@@ -1710,7 +1705,6 @@ def test_generate_batch_reports_malformed_units_instead_of_shrinking_the_batch(
         {**healthy},
         {**healthy, "unit_id": "E1U9", "duration_seconds": "abc"},
     ]
-    # 直接写盘：脏数据是外部编辑或 Agent 裸写产生的，写入校验本就不会放它过去。
     script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -2057,20 +2051,19 @@ def test_prompt_preview_renders_draft_with_projected_references_without_saving(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["unavailable"] is None
-    assert "<酒馆>@图片1" in body["text"]
-    assert "@图片2" not in body["text"]
-    assert "<酒馆> 门口，<张三> 推开门。" in body["text"]
-    assert body["references"] == [{"type": "scene", "name": "酒馆", "path": "scenes/酒馆.png"}]
-    assert any("上限 1" in warning for warning in body["warnings"])
+    assert body["unavailable_code"] == "video_reference_images_exceeded"
+    assert body["text"] is None
+    assert "张三" in body["unavailable"]
     saved = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
     assert saved["units"][0]["text"] == "镜头1：@张三 推门"
 
     reference_videos_client.patch(url, json={"prompt": draft})
-    precheck = reference_videos_client.get(f"{url}/duration-precheck").json()
-    assert precheck["hydrated_capability"] == "r2v"
-    assert precheck["problems"][0]["code"] == "reference_images_clamped"
-    assert precheck["problems"][0]["message"] in body["warnings"]
+    refused = reference_videos_client.get(f"{url}/duration-precheck")
+    assert refused.status_code == 400
+    problem = refused.json()["detail"]["problems"][0]
+    assert problem["code"] == body["unavailable_code"]
+    assert problem["blocking"]
+    assert problem["message"] == body["unavailable"]
 
 
 def test_prompt_preview_fails_closed_when_capabilities_cannot_resolve(

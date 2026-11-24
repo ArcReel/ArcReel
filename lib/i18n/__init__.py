@@ -40,11 +40,9 @@ from .zh import validation as zh_validation
 
 logger = logging.getLogger(__name__)
 
-# Default locale
 DEFAULT_LOCALE = "zh"
 SUPPORTED_LOCALES = ["zh", "en", "vi", "ru"]
 
-# Mapping from locale code to human-readable language name
 LOCALE_LANGUAGE_MAP: dict[str, str] = {
     "zh": "中文",
     "en": "English",
@@ -52,7 +50,6 @@ LOCALE_LANGUAGE_MAP: dict[str, str] = {
     "ru": "Русский",
 }
 
-# Merged message dictionary
 MESSAGES: dict[str, dict[str, str]] = {
     "zh": {
         **zh_errors.MESSAGES,
@@ -99,15 +96,20 @@ MESSAGES: dict[str, dict[str, str]] = {
 
 def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
     """Translate a message key to the given locale."""
+    if key in {"image_reference_images_exceeded", "video_reference_images_exceeded"} and "names" not in kwargs:
+        limit, count = kwargs.get("limit"), kwargs.get("count")
+        if isinstance(limit, int) and isinstance(count, int):
+            kwargs["names"] = f"#{limit + 1}" if count == limit + 1 else f"#{limit + 1}–#{count}"
     msg_map = MESSAGES.get(locale, MESSAGES[DEFAULT_LOCALE])
     msg = msg_map.get(key, MESSAGES[DEFAULT_LOCALE].get(key, key))
+    if key == "image_reference_images_exceeded" and kwargs.get("previous_storyboard"):
+        msg += " " + msg_map["previous_storyboard_limit_hint"]
     try:
         return msg.format(**kwargs)
     except Exception:
         return msg
 
 
-#: 生成输入缺口里「语义未就绪」一类：文案只点名目标自身，参数名各不相同。
 _GENERATION_INPUT_SUBJECT_PARAMS: dict[str, str] = {
     "script_prompt_pending": "segment_id",
     "asset_description_required": "name",
@@ -115,7 +117,6 @@ _GENERATION_INPUT_SUBJECT_PARAMS: dict[str, str] = {
     "derivative_owner_sheet_missing": "name",
 }
 
-#: 生成输入缺口里按 ``missing_text`` 列出全部缺失项的一类。
 _GENERATION_INPUT_LIST_CODES = frozenset(
     {"reference_asset_unregistered", "reference_asset_missing", "asset_original_missing"}
 )

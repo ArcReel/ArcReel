@@ -181,7 +181,6 @@ async def test_resume_does_not_open_record_bracket(tmp_path):
         task_id="T-1",
     )
 
-    # resume 不落新 pending 行：只走 resume_success/resume_failed 补账，不开记账括号
     assert gen.ledger.started == [], "resume 不应开记账括号"
 
 
@@ -200,15 +199,13 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "success"
-    # 成功补账不显式传 cost_amount，让 repo 按 ApiCall 行字段 auto-calc 算实际 cost
-    # （与 generate 路径记账等价）；cost_amount 不进 resume_success 的补账入参
     assert "cost_amount" not in call
 
 
 @pytest.mark.asyncio
 async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
     gen = _build_generator(tmp_path)
-    gen.ledger._resume_affected = 0  # 模拟「已 success」幂等场景
+    gen.ledger._resume_affected = 0
 
     output_path, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
@@ -219,7 +216,6 @@ async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
 
     assert output_path.exists()
     assert version == 1
-    # 0 rows 不应抛异常，应当 logger.info 记录
     assert len(gen.ledger.resumed) == 1
 
 
@@ -241,9 +237,7 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "failed"
-    # 过期异常本身递交补账：失败原文与机器码的编码收在 ledger 内部，这里只锁「传了」这一步
     assert call["failure"] is expired
-    # 零费用不重扣的语义收在 ledger.resume_failed 内部（cost_amount=0.0），补账入参不显式承载
 
 
 @pytest.mark.asyncio
@@ -278,10 +272,8 @@ async def test_resume_calls_add_version_after_download(tmp_path):
         task_id="T-1",
     )
 
-    # add_version 必须发生在下载之后：进入 resume_video 时 add_calls 还是 0
     assert probe.add_calls_at_resume == 0
     assert len(gen.versions.add_calls) == 1
-    # 开头/末尾不调 ensure_current_tracked（避免错位登记残留文件）
     assert gen.versions.ensure_calls == []
 
 
@@ -406,13 +398,11 @@ async def test_resume_handles_float_string_duration(tmp_path):
         task_id="T-1",
     )
 
-    # add_version 应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
     assert len(gen.versions.add_calls) == 1
     add_call = gen.versions.add_calls[0]
     assert add_call["duration_seconds"] == 10
     assert isinstance(add_call["duration_seconds"], int)
 
-    # provider 请求里的 duration_seconds 也应是 int(10)
     backend = gen._video_backend
     assert len(backend.calls) == 1
     _, request = backend.calls[0]
@@ -429,7 +419,7 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
     class _ArkLikeResult:
         def __init__(self) -> None:
             self.video_uri = "video-uri-resume"
-            self.usage_tokens = 12345  # 模拟 Ark 返回的 completion_tokens
+            self.usage_tokens = 12345
             self.generate_audio = True
             self.duration_seconds = 8
             self.seed = None
@@ -538,7 +528,6 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
             task_id="T-1",
         )
 
-    # finalize 被调过一次（看到异常上抛前的入参）
     assert len(gen.ledger.resumed) == 1
 
 
@@ -574,7 +563,6 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
     gen._video_backend = _FakeVideoBackend(raises=ResumeExpiredError(job_id="provider-job-1", provider="openai"))
     gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
 
-    # finalize 抛 RuntimeError 应该覆盖原本要抛的 ResumeExpiredError 上抛
     with pytest.raises(RuntimeError, match="db down"):
         await gen.resume_video_async(
             job_id="provider-job-1",
@@ -655,7 +643,7 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
         def __init__(self) -> None:
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 1234
-            self.generate_audio = False  # provider 实际降级到无音频
+            self.generate_audio = False
             self.duration_seconds = 8
             self.seed = None
             self.provenance = None
@@ -702,7 +690,7 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 0
             self.generate_audio = True
-            self.duration_seconds = 15  # 请求 8 秒，provider 按 15 秒计费
+            self.duration_seconds = 15
             self.seed = None
             self.provenance = None
             self.warnings = ()
@@ -800,3 +788,40 @@ async def test_resume_hands_backend_warnings_to_the_caller(tmp_path):
     )
 
     assert collected == [warning]
+
+
+@pytest.mark.parametrize(
+    ("frozen", "current", "expected"),
+    [("always_off", "always_on", False), ("always_on", "always_off", True), (None, "always_off", True)],
+)
+async def test_resume_uses_frozen_route_audio_after_model_override_changes(tmp_path, frozen, current, expected):
+    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities, VideoGenerationResult
+    from lib.custom_provider.backends import CustomVideoBackend
+
+    gen = _build_generator(tmp_path)
+    delegate = _FakeVideoBackend(
+        result=VideoGenerationResult(
+            video_path=tmp_path / "resumed.mp4",
+            provider="custom-1",
+            model="m",
+            duration_seconds=8,
+            generate_audio=True,
+        )
+    )
+    gen._video_backend = CustomVideoBackend(
+        provider_id="custom-1",
+        delegate=delegate,
+        model="m",
+        video_capabilities=VideoCapabilities(audio_track=VideoAudioMode(current)),
+    )
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        task_id="T-1",
+        generate_audio=True,
+        audio_track=VideoAudioMode(frozen) if frozen is not None else None,
+    )
+    assert gen.ledger.resumed[0]["result"].generate_audio is expected
+    assert gen.ledger.resumed[0]["usage"].dimensions["audio"] is expected
+    assert all("audio_track" not in kwargs for kwargs in gen.versions.add_calls)

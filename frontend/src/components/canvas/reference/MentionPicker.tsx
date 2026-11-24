@@ -7,7 +7,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { formatReferenceName, normalizeAssetName, splitDerivativeReference } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";
 
-/** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
 export const MENTION_PICKER_DEFAULT_ID = "reference-editor-picker";
 
 export interface MentionCandidate {
@@ -23,22 +22,14 @@ export interface MentionPickerProps {
   candidates: Partial<Record<AssetKind, MentionCandidate[]>>;
   onSelect: (ref: { type: AssetKind; name: string }) => void;
   onClose: () => void;
-  /** Project used to construct asset thumbnail URLs via API.getFileUrl. */
   projectName?: string;
-  /** Optional extra className forwarded to the listbox root. */
   className?: string;
-  /** Stable DOM id for the listbox; used by combobox aria-controls. Default: "reference-editor-picker". */
   listboxId?: string;
-  /** Called whenever the keyboard-active option changes; receives the option's DOM id (null when empty). */
   onActiveChange?: (optionId: string | null) => void;
-  /** 弹层定位的锚点（编辑器里的光标占位元素）。弹层经 Portal 渲染，祖先的 overflow 与层叠上下文裁不到它。 */
   anchorElement?: HTMLElement | null;
 }
 
 function optionId(kind: AssetKind, name: string): string {
-  // 安全化：把 CSS 不友好字符替换，避免选择器查询出错。
-  // CJK 范围用 `一-鿿` unicode escape，与 utils/reference-mentions.ts
-  // 的 MENTION_RE 保持字面一致，便于 grep。
   const safe = name.replace(/[^A-Za-z0-9_一-鿿-]/g, "_");
   return `reference-option-${kind}-${safe}`;
 }
@@ -66,13 +57,9 @@ export function MentionPicker({
   anchorElement,
 }: MentionPickerProps) {
   const { t } = useTranslation("dashboard");
-  // 缩略图地址带资产指纹：重新生成后换地址，未变化时命中浏览器的长缓存
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
-  // Reset highlight to the first option whenever the filter query or tab
-  // changes — render-phase state sync (React-recommended alternative to the
-  // `react-hooks/set-state-in-effect` pattern).
   const [syncedQuery, setSyncedQuery] = useState(query);
   const [syncedTab, setSyncedTab] = useState<TabKey>(activeTab);
   if (syncedQuery !== query || syncedTab !== activeTab) {
@@ -81,10 +68,7 @@ export function MentionPicker({
     setActiveIndex(0);
   }
 
-  // 按 query 过滤所有 kind 一遍；filtered/totalsByKind 都派生自此，避免每次 keystroke 双倍 filter。
   const filteredByQuery = useMemo(() => {
-    // 比较侧统一 NFC：candidates 携带资产原始名（落盘可能是 NFD），query 来自用户输入法产出，
-    // 两者编码不保证一致，只归一比较用的副本，展示与选中回传仍用原始 name。
     const q = normalizeAssetName(query.trim()).toLowerCase();
     const result: Record<AssetKind, MentionCandidate[]> = { product: [], character: [], scene: [], prop: [] };
     for (const kind of GROUP_ORDER) {
@@ -96,7 +80,6 @@ export function MentionPicker({
 
   const filtered = useMemo(() => {
     if (activeTab === "all") return filteredByQuery;
-    // 单 tab：保留选中 kind，其余置空数组（下游 filtered[kind] 读取契约不变）。
     return {
       product: activeTab === "product" ? filteredByQuery.product : [],
       character: activeTab === "character" ? filteredByQuery.character : [],
@@ -127,7 +110,6 @@ export function MentionPicker({
     return out;
   }, [filtered]);
 
-  // Map "<kind>:<name>" -> globalIndex for O(1) lookup during render.
   const indexByKey = useMemo(() => {
     const m = new Map<string, number>();
     for (const f of flat) {
@@ -136,16 +118,10 @@ export function MentionPicker({
     return m;
   }, [flat]);
 
-  // Eagerly clamp active index so keystrokes during render shrinkage never land
-  // on an undefined item (e.g. parent shortens the candidates list on the same
-  // render that produced a new activeIndex).
   const clampedActive = Math.min(activeIndex, Math.max(0, flat.length - 1));
 
-  // 真实鼠标坐标。浏览器可能在列表滚动（键盘方向键选中触发）导致元素移到静止光标下时
-  // 补发 mousemove/mouseenter；仅当 (x, y) 相对上一次记录变化才视作用户主动移动。
   const lastPointerXY = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
 
-  // 键盘监听只随 open 订阅；列表、高亮项与 onSelect 在按键时读最新值，不触发重新订阅。
   const handleKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -154,15 +130,12 @@ export function MentionPicker({
       e.preventDefault();
       setActiveIndex(Math.max(0, clampedActive - 1));
     } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-      // Tab 补全（仅正向）：与 Enter 同义，阻止默认 tab-out。Shift+Tab 保留原生反向
-      // 焦点切换行为，避免 a11y 回退（picker 打开时仍能按 Shift+Tab 离开输入框）。
       e.preventDefault();
       const item = flat[clampedActive];
       if (item) onSelect({ type: item.type, name: item.name });
     }
   });
 
-  // 仅处理导航/补全键；Esc 与外部点击由 Popover 的 onOpenChange 统一接管。
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => handleKey(e);
@@ -170,9 +143,6 @@ export function MentionPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Report the keyboard-active option id up to the parent (used by combobox's
-  // aria-activedescendant). Re-runs on flat/clampedActive change; when flat is
-  // empty (e.g. after close or no matches), flat[0] is undefined → null.
   useEffect(() => {
     if (!onActiveChange) return;
     const current = flat[clampedActive];
@@ -189,7 +159,6 @@ export function MentionPicker({
         if (!next) onClose();
       }}
     >
-      {/* 焦点留在编辑器里：方向键与回车由上面的键盘监听处理，选项用 aria-activedescendant 指向。 */}
       <PopoverContent
         anchor={anchorElement ?? undefined}
         align="start"
@@ -239,7 +208,6 @@ export function MentionPicker({
               const items = filtered[kind];
               if (items.length === 0) return null;
               const palette = assetColor(kind);
-              // activeTab==="all" 时保留分组小标题；选中单 tab 时把小标题去掉避免视觉重复。
               const showGroupHeader = activeTab === "all";
               const groupLabel = t(`reference_picker_group_${kind}`);
               return (
@@ -256,8 +224,6 @@ export function MentionPicker({
                   {items.map((item) => {
                     const globalIndex = indexByKey.get(`${kind}:${item.name}`) ?? -1;
                     const active = globalIndex === clampedActive;
-                    // imagePath 是 project-relative 文件路径（如 "characters/foo.png"），用 API.getFileUrl
-                    // 转为可 fetch 的 URL；无 projectName 时回退圆点（测试环境常见）。
                     const thumbUrl =
                       item.imagePath && projectName
                         ? API.getFileUrl(projectName, item.imagePath, fingerprints[item.imagePath] ?? null, {

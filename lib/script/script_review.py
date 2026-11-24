@@ -67,21 +67,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 内容确认状态：not_applicable=该集不走 gate；no_script_plan=适用但 script_plan 未产出；
-#: pending_review=script_plan 已产出但未经确认（或确认后内容又变）；confirmed=已确认（已转为正式脚本）。
 ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "confirmed"]
 
-#: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "script_plan_review"
 
 
-#: stale 账本条目记录重规划提交时旧 script_plan 的内容指纹；live 指纹变化即证明 script_plan 已按新账本重建。
 STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 
-#: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
 STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
-
-# ScriptPlanKind 的字面量定义在 lib.script.script_plan_entries，由本模块顶部的 import 再导出。
 
 
 def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
@@ -97,7 +90,7 @@ def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
         return None
     if is_reference_video_project(project):
         return "reference_video"
-    return content_mode  # "drama" | "narration"（SCRIPT_PLAN_FILENAMES 成员）
+    return content_mode
 
 
 def is_applicable(project: dict[str, Any]) -> bool:
@@ -114,8 +107,6 @@ def script_plan_path(project_path: Path, project: dict[str, Any], episode: int) 
     return episode_drafts_dir(project_path, episode) / filename
 
 
-#: script_plan 变体 → 该变体的草稿来源。三条路线各有一位；缺席即「该变体无草稿位」，
-#: 内容确认与生成侧据此不阻塞（ad 无结构化 script_plan，本就取不到变体）。
 _SCRIPT_PLAN_QUARANTINE_KIND: dict[str, str] = {
     "reference_video": QUARANTINE_KIND_SCRIPT_PLAN,
     "drama": QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -206,7 +197,6 @@ class _UncheckedFingerprint(enum.Enum):
     TOKEN = 0
 
 
-#: 「不做基线比对」哨兵：写入方没有基线可言（重拆分整份覆盖、同临界区读改写）时传它。
 UNCHECKED_FINGERPRINT = _UncheckedFingerprint.TOKEN
 
 
@@ -363,8 +353,6 @@ def formal_script_plan_write_transaction(
         )
         from lib.artifacts.artifact_manifest import ArtifactKey
 
-        # A successful no-op write can still repair a missing claim after a
-        # temporarily unavailable source made activation skip this target.
         key = ArtifactKey.episode_script_plan(episode)
         if basis is None:
             register_current_artifact_if_provable(project_path, key)
@@ -401,7 +389,6 @@ def trash_script_plan_locked(project_path: Path, episode: int, path: Path) -> No
         with formal_script_plan_write_transaction(project_path, episode, path):
             record = trash_planning_draft(project_path, episode, path)
     except BaseException:
-        # 撤登记失败时事务已把文件按字节写回，记录随之撤掉；写回也失败时记录留着，内容不丢。
         if record is not None and path.is_file():
             project_trash.purge(project_path, record.id)
         raise
@@ -449,11 +436,8 @@ def write_formal_script_plan_locked(
         with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
             atomic_write_json(path, content)
             if changed and clear_dependent_quarantine and quarantine is not None:
-                # 内容变了才作废：草稿进项目回收站，提交后由事务按内容变化记账
                 record = trash_planning_draft(project_path, episode, quarantine)
     except BaseException:
-        # 事务已把草稿按字节写回，记录随之撤掉。
-        # shortcut: 外层另有 formal_write_transaction 包住草稿、在本函数返回后失败时，外层写回草稿而记录留着（多一条可恢复的记录，内容不丢）；需要严格时把记录建在最外层事务里。
         if record is not None and quarantine is not None and quarantine.is_file():
             project_trash.purge(project_path, record.id)
         raise
@@ -563,7 +547,6 @@ class FormalScriptOverwrite:
         }
 
 
-#: 覆盖清单里逐条目列出的产物种类：``to_dict`` 的条目键 → 文案 key。顺序即行文顺序。
 _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("has_storyboard", "script_overwrite_kind_storyboard"),
     ("has_video", "script_overwrite_kind_video"),
@@ -572,7 +555,6 @@ _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("grid_id", "script_overwrite_kind_grid"),
 )
 
-#: 覆盖清单的汇总项：（计数键，文案 key）。计数为 0 的项不出现。
 _OVERWRITE_LOSS_TOTALS: tuple[tuple[str, str], ...] = (
     ("storyboard_count", "script_overwrite_loss_storyboard"),
     ("video_count", "script_overwrite_loss_video"),
@@ -664,8 +646,6 @@ def formal_script_filename(project_path: Path, project: Mapping[str, Any], episo
     canonical_path = project_path / "scripts" / canonical
     if canonical_path.is_file():
         script = load_json_or_none(canonical_path)
-        # 集号按正整数严格判：剧本是裸读进来的，JSON ``true`` 变成 Python ``True``，它既是 ``int``
-        # 又等于 ``1``，按 ``!=`` 比会让脏文件冒充第 1 集通过归属校验。
         recorded = script.get("episode") if isinstance(script, dict) else None
         if type(recorded) is not int or recorded != episode:
             raise ForeignFormalScriptError(episode, canonical)
@@ -744,9 +724,6 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     path = script_plan_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
-    # 草稿在场先于指纹判定：未满足约束的产物尚未处置，无论正式文件是缺失、旧版还是已确认，
-    # 该集都还没有一份「可放行」的 script_plan。判 pending_review 而非新增状态——gate 的消费方
-    # （阻塞 prompt_authoring、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
     if script_plan_quarantined(project_path, project, episode):
         return "pending_review"
     live = content_fingerprint(path)
@@ -759,8 +736,6 @@ def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], e
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return stored_fingerprint == live
-    # 没有确认指纹：不知道正式脚本出自哪一份规划，眼前这份就没有被确认过。存量集的确认基线由
-    # v14→v15 迁移补记；从空白开始时确认记录被删去，同样落在这里。
     return False
 
 
@@ -868,8 +843,6 @@ def migrate_script_plan_draft_in_place(
     if warnings:
 
         def _invalidate_unconfirmed(p: dict[str, Any]) -> None:
-            # 已存过指纹的分集不插手：确认的是迁移前内容时指纹已自然失配，确认的是别的
-            # 内容时 review_status 本就判 pending_review。
             stored = stored_review(p, episode)
             if not stored.get("fingerprint"):
                 apply_confirmation(p, episode, before, str(stored.get("confirmed_at") or ""))

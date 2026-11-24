@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 
-#: ComfyUI 协议：连通性检查裸打 ``/system_stats``，模型发现不适用。
 COMFYUI_DISCOVERY_FORMAT = "comfyui"
 
 

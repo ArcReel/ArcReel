@@ -99,7 +99,6 @@ it("removes a deleted file from the tree at once instead of waiting for a slow r
   vi.stubGlobal("fetch", (_input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "DELETE") return Promise.resolve(Response.json({ record: { id: "record-a" } }));
     listCalls++;
-    // 首次之后的重拉一直不返回，模拟慢刷新
     if (listCalls > 1) return new Promise<Response>(() => {});
     return Promise.resolve(Response.json({
       path: "",
@@ -188,7 +187,6 @@ it("keeps each in-flight restore protected until its own request finishes", asyn
   await user.click(restoreA);
   await user.click(restoreB);
   await waitFor(() => expect(pending.size).toBe(2));
-  // 恢复在途时，清空会连带删掉正在恢复的记录：一并禁用
   expect(screen.getByRole("button", { name: "清空项目回收站" })).toBeDisabled();
 
   await act(async () => pending.get("b")?.());
@@ -214,7 +212,6 @@ it("removes a restored record at once instead of waiting for a slow listing refr
     }
     if (!url.pathname.endsWith("/trash")) return Promise.resolve(Response.json({ path: "", entries: [] }));
     trashCalls++;
-    // 首次之后的重拉一直不返回，模拟慢刷新
     if (trashCalls > 1) return new Promise<Response>(() => {});
     return Promise.resolve(Response.json({ records: [record], total_size: 2048, retention_days: 30 }));
   });
@@ -268,7 +265,6 @@ it("keeps in-flight writes protected when switching between sections", async () 
   };
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
-    // 删除与恢复一直不返回，模拟在途的写操作
     if (init?.method === "DELETE" || init?.method === "POST") return new Promise<Response>(() => {});
     if (url.pathname.endsWith("/trash")) {
       return Promise.resolve(Response.json({ records: [record], total_size: 1, retention_days: 30 }));
@@ -509,7 +505,6 @@ it("names shot, unit and end frame records by their position and text when delet
   render(<FileView projectName="demo" />);
   await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
 
-  // 同一集删掉的多条记录凭删除时的位置与正文区分，不露内部编号。
   expect(await screen.findByText("分镜 雨夜 · 5：他推开门…")).toBeInTheDocument();
   expect(screen.getByText("分镜 雨夜 · 6")).toBeInTheDocument();
   expect(screen.getByText("视频单元 雨夜 · 2：@林 回头")).toBeInTheDocument();
@@ -559,7 +554,6 @@ it("uses the current position after restoring a shot under a new ID", async () =
   render(<FileView projectName="demo" />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "项目回收站" }));
-  // 没有位置快照的旧记录退回编号显示。
   expect(await screen.findByText("分镜 E1S03（第 1 集）")).toBeInTheDocument();
   expect(screen.getByText("视频单元 E1U2（第 1 集）")).toBeInTheDocument();
 

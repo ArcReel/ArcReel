@@ -161,10 +161,8 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // First option is initially active
     await user.keyboard("{ArrowDown}{ArrowDown}");
     await user.keyboard("{Enter}");
-    // After two ArrowDowns from the first (主角), we should be on 酒馆 (third overall)
     expect(onSelect).toHaveBeenCalledWith({ type: "scene", name: "酒馆" });
   });
 
@@ -196,7 +194,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // Move highlight down twice (主角 → 张三 → 酒馆) then narrow the filter.
     await user.keyboard("{ArrowDown}{ArrowDown}");
     rerender(
       <MentionPicker
@@ -207,8 +204,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // After the filter change, Enter must pick the first item in the filtered
-    // list (主角), not whatever was highlighted before.
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith({ type: "character", name: "主角" });
   });
@@ -279,17 +274,13 @@ describe("MentionPicker", () => {
     const alice = screen.getByRole("option", { name: /alice/ });
     const bob = screen.getByRole("option", { name: /bob/ });
 
-    // First establish a baseline pointer coordinate via real movement on alice.
     fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
     expect(alice).toHaveAttribute("aria-selected", "true");
 
-    // Simulate "list scrolls under stationary cursor → bob enters cursor at the
-    // same (10, 10) coords". mouseenter must NOT steal the keyboard selection.
     fireEvent.mouseEnter(bob, { clientX: 10, clientY: 10 });
     expect(alice).toHaveAttribute("aria-selected", "true");
     expect(bob).toHaveAttribute("aria-selected", "false");
 
-    // Real pointer movement to bob → active moves.
     fireEvent.mouseMove(bob, { clientX: 20, clientY: 20 });
     expect(bob).toHaveAttribute("aria-selected", "true");
     expect(alice).toHaveAttribute("aria-selected", "false");
@@ -316,8 +307,6 @@ describe("MentionPicker", () => {
     const bob = screen.getByRole("option", { name: /bob/ });
 
     fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
-    // User moves cursor into bob; browser fires mouseenter with new coords before
-    // subsequent mousemove. Coord diff vs last ⇒ honor the move.
     fireEvent.mouseEnter(bob, { clientX: 30, clientY: 10 });
     expect(bob).toHaveAttribute("aria-selected", "true");
   });
@@ -334,9 +323,7 @@ describe("MentionPicker", () => {
     );
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(5);
-    // 第一个 tab 是 "全部/All"，默认选中
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
     expect(tabs[0]).toHaveTextContent(/4/);
   });
 
@@ -354,10 +341,8 @@ describe("MentionPicker", () => {
     const sceneTab = screen.getByRole("tab", { name: /场景|Scene/i });
     await user.click(sceneTab);
     expect(sceneTab).toHaveAttribute("aria-selected", "true");
-    // 场景里的"酒馆"可见；角色里的"张三"被过滤掉
     expect(screen.getByRole("option", { name: /酒馆/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /张三/ })).not.toBeInTheDocument();
-    // 单 tab 选中时 group 小标题被抑制（避免和 tab 语义重复）
     expect(screen.queryByTestId("picker-group-scene")).not.toBeInTheDocument();
   });
 
@@ -388,7 +373,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // 张三 的 imagePath 在 fixture 里是 "/files/characters/zs.png"
     const img = screen.getByRole("option", { name: /张三/ }).querySelector("img");
     expect(img).not.toBeNull();
     expect(img!).toHaveAttribute("src", expect.stringMatching(/zs\.png/));
@@ -406,22 +390,17 @@ describe("MentionPicker", () => {
         onClose={onClose}
       />,
     );
-    // picker 以 window keydown 监听；Shift+Tab 应当是 no-op（不插入、不吞 preventDefault）
     const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
     window.dispatchEvent(event);
     expect(onSelect).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
 
-    // 普通 Tab（无 shift）仍补全并阻止默认（保留原有行为，防回归）
     const tabEvent = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
     window.dispatchEvent(tabEvent);
     expect(onSelect).toHaveBeenCalled();
     expect(tabEvent.defaultPrevented).toBe(true);
   });
 
-  // FloatingPortal should render the listbox as a direct descendant of
-  // document.body (rather than inside the component's render container) so
-  // that ancestor `overflow: hidden` / stacking contexts can never clip it.
   it("portals the listbox to document.body", () => {
     const { container } = render(
       <MentionPicker
@@ -433,9 +412,7 @@ describe("MentionPicker", () => {
       />,
     );
     const listbox = screen.getByRole("listbox");
-    // listbox 不应出现在 render() 返回的测试容器子树里
     expect(container.contains(listbox)).toBe(false);
-    // 但必须在 document.body 子树里
     expect(document.body.contains(listbox)).toBe(true);
   });
 

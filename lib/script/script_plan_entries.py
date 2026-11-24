@@ -15,9 +15,6 @@ from pydantic import BaseModel, ValidationError
 from lib.script.script_models import NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.script.script_skeleton import SKELETONS
 
-#: script_plan 变体：drama / narration（按 content_mode）+ reference_video（按项目生成模式，
-#: 跨 content_mode）。决定 script_plan 文件名与结构校验模型；三者共用同一内容确认。
-#: ``lib.script.script_review`` 从本模块再导出，不另立一份。
 ScriptPlanKind = Literal["drama", "narration", "reference_video"]
 
 
@@ -25,19 +22,12 @@ ScriptPlanKind = Literal["drama", "narration", "reference_video"]
 class ScriptPlanVariant:
     """一个脚本规划变体的全部按变体分叉的取值。"""
 
-    #: 剧本骨架种类（``lib.script.script_skeleton.SKELETONS`` 的键）。
     skeleton_kind: str
-    #: 该变体中间文件里的条目数组键。与 ``skeleton_kind``（剧本侧的键）不同名：参考生视频的
-    #: 规划文件用 ``units``，剧本里则是 ``video_units``。
     plan_items_key: str
-    #: 该变体中间文件的草稿模型，读规划时用它归一条目。drama 为 ``None``：它没有草稿模型，
-    #: 消费原始 dict。
     draft_model: type[BaseModel] | None
-    #: 规划条目投影到剧本条目内容层时**只保留**的字段；``None`` 表示整条透传。
     script_fields: tuple[str, ...] | None = None
 
 
-#: 脚本规划变体表，是变体分叉的唯一真相源。
 PLAN_VARIANTS: dict[str, ScriptPlanVariant] = {
     "drama": ScriptPlanVariant(skeleton_kind="scenes", plan_items_key="scenes", draft_model=None),
     "narration": ScriptPlanVariant(

@@ -25,7 +25,6 @@ import { FormSection } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 命中值的展示文案。`image_b64` 的命中值是后端给的字节数摘要 `{ image_bytes }`，不是原串。 */
 function fieldValueText(field: EndpointExtractionField, t: TFunction): string {
   const { value } = field;
   if (field.key !== "image_b64" || typeof value !== "object" || value === null || !("image_bytes" in value)) {
@@ -78,21 +77,18 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const { t } = useTranslation(["dashboard", "common"]);
   const idBase = useId();
 
-  // --- 验证响应 ---
   const [stage, setStage] = useState<EndpointTestStage>("poll");
   const [responseText, setResponseText] = useState("");
   const [checking, setChecking] = useState(false);
   const [checkReport, setCheckReport] = useState<EndpointStageReport | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
 
-  // --- 预览请求 ---
   const [model, setModel] = useState("");
   const [prompt, setPrompt] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<EndpointPreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // --- 测试连接 ---
   const [credSource, setCredSource] = useState<"provider" | "inline">(
     providers.length > 0 ? "provider" : "inline",
   );
@@ -193,7 +189,6 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   return (
     <FormSection id="test" step={8} title={t("ce_section_test")} desc={t("ce_section_test_desc")}>
       <div className="flex flex-col gap-4">
-        {/* 验证响应 */}
         <TestCard title={t("ce_test_check")} desc={t("ce_test_check_desc")}>
           <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-3">
@@ -242,7 +237,6 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
           </div>
         </TestCard>
 
-        {/* 预览请求 */}
         <TestCard title={t("ce_test_preview")} desc={t("ce_test_preview_desc")}>
           <div className="flex flex-wrap items-end gap-3">
             <TestField label={t("ce_test_model")} htmlFor={ids.previewModel} className="w-56">
@@ -276,7 +270,6 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
           )}
         </TestCard>
 
-        {/* 测试连接 */}
         <TestCard title={t("ce_test_trial")} badge={t("ce_test_trial_billed")} desc={t("ce_test_trial_desc")}>
           <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-2">
             <div className="flex min-w-0 flex-col gap-3">

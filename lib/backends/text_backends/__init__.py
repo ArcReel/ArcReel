@@ -28,7 +28,6 @@ __all__ = [
     "register_backend",
 ]
 
-# Backend auto-registration
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.text_backends.gemini import GeminiTextBackend
 
@@ -52,7 +51,6 @@ register_backend(PROVIDER_OPENAI, OpenAITextBackend)
 
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 
-# 内置 openai 的文本经 Responses 调用；按调用通道而非 provider 命名，provider 名仍由构造参数决定。
 register_backend("openai-responses", OpenAIResponsesTextBackend)
 
 from lib.backends.providers import PROVIDER_AGNES

@@ -36,7 +36,6 @@ def _normalize_key(key: SessionKey) -> tuple[str, str, str]:
     return key["project_key"], key["session_id"], key.get("subpath", "") or ""
 
 
-# 条目来自 SDK 或本地 JSONL 导入，字段类型不受校验，读取时按 object 看待。
 def _entry_type(entry: Mapping[str, object]) -> str:
     t = entry.get("type")
     return t if isinstance(t, str) else ""
@@ -63,8 +62,6 @@ class DbSessionStore:
         self._session_factory = session_factory
         self._user_id = user_id
 
-    # --- required: append + load ---------------------------------------------
-
     async def append(self, key: SessionKey, entries: list[SessionStoreEntry]) -> None:
         if not entries:
             return
@@ -76,11 +73,6 @@ class DbSessionStore:
                 await self._append_once(project_key, session_id, subpath, entries, now_ms)
                 return
             except IntegrityError as exc:
-                # Narrow retry to the seq-PK race only. Both SQLite ("UNIQUE
-                # constraint failed: ... seq") and PostgreSQL ("duplicate key
-                # value violates unique constraint" with the seq column in the
-                # detail) include these tokens for this specific PK collision;
-                # other unique violations (e.g. uuid dedup) bubble up.
                 msg = str(exc.orig) if exc.orig else str(exc)
                 is_seq_race = "seq" in msg and ("UNIQUE" in msg or "duplicate key" in msg)
                 if not is_seq_race:
@@ -101,9 +93,6 @@ class DbSessionStore:
                     subpath or "<main>",
                     exc,
                 )
-                # Jittered exponential backoff capped at ~50ms — keeps SQLite's
-                # writer-lock contention from amplifying under high concurrency
-                # while staying well below the busy_timeout.
                 delay = random.uniform(0, min(_APPEND_BACKOFF_CAP_S, 0.001 * (2**attempt)))
                 await asyncio.sleep(delay)
 
@@ -145,8 +134,6 @@ class DbSessionStore:
 
             await self._insert_entries(session, rows)
 
-            # Maintain per-session summary for list_session_summaries fast path.
-            # Per SDK protocol: skip for subagent transcripts (subpath != "").
             if subpath == "":
                 await self._fold_summary_locked(session, project_key, session_id, entries, now_ms, now_dt)
 
@@ -260,8 +247,6 @@ class DbSessionStore:
             return None
         return payloads
 
-    # --- optional: list_sessions / list_session_summaries -------------------
-
     async def list_sessions(self, project_key: str) -> list[SessionStoreListEntry]:
         async with self._session_factory() as session:
             stmt = (
@@ -288,8 +273,6 @@ class DbSessionStore:
                 {"session_id": r.session_id, "mtime": int(r.mtime_ms), "data": r.data} for r in result.scalars().all()
             ]
 
-    # --- optional: delete + list_subkeys -----------------------------------
-
     async def delete(self, key: SessionKey) -> None:
         project_key, session_id, subpath = _normalize_key(key)
         async with self._session_factory() as session:
@@ -303,7 +286,6 @@ class DbSessionStore:
 
             sum_rows = 0
             if subpath == "" and "subpath" not in key:
-                # main delete cascades to summary
                 sum_result = await session.execute(
                     sa_delete(AgentSessionSummary).where(
                         AgentSessionSummary.project_key == project_key,

@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
-# close_stream 注入的流终止标记：读到它之后原始帧流结束，再次读取也立即结束
 _STREAM_EOF = object()
 
 #: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
@@ -83,7 +82,6 @@ class FakeProjectAssetMutationMixin:
         raise NotImplementedError
 
     def get_project_path(self, project_name: str) -> Path:
-        # 替身默认没有项目目录：给一个不存在的位置，新建资产时查项目回收站得到空。
         return Path("/nonexistent-arcreel-fake-projects") / project_name
 
     def update_asset_entry(
@@ -227,15 +225,12 @@ class FakeTextGenerator:
     ``generate`` 抛出，模拟供应商调用失败。
     """
 
-    #: 与 ``TextGenerator.max_output_tokens`` 同名：未登记最大输出长度时的生效上限。
     max_output_tokens = 64000
-    #: 与 ``TextGenerator.model`` 同名：调用方写进元数据的模型名。
     model = "fake-text"
 
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)
         self.requests: list[Any] = []
-        #: 每次调用传入的 ``require_complete``，与 ``requests`` 一一对应。
         self.require_complete: list[bool] = []
 
     async def create(self, _task_type: object, _project_name: str | None = None, **_kwargs: Any) -> FakeTextGenerator:
@@ -460,7 +455,6 @@ class FakeSDKClient:
             async for message in prompt:
                 self.sent_messages.append(message)
                 self.sent_queries.append(message["message"]["content"])
-        # 与真实 CLI 一致：首轮回复在收到 prompt 之后才产出
         for frame in self._initial_frames:
             await self._frames.put(frame(self) if callable(frame) else frame)
         self._initial_frames.clear()
@@ -483,7 +477,6 @@ class FakeSDKClient:
         """测试辅助：模拟 CLI 退出，已发出的帧读完后原始帧流终止。"""
         self._frames.put_nowait(_STREAM_EOF)
 
-    # 向后兼容：保留原方法签名（旧测试仍使用 `await client.connect()` / `await client.disconnect()`）
     async def connect(self) -> None:
         self._record("connect")
         if self._connect_error is not None:
@@ -526,7 +519,6 @@ async def build_managed_with_actor(
         m = managed_ref[0]
         if m is None:
             return
-        # 与生产回调一致：actor 交来 SDK 消息，会话层处理其序列化后的 dict
         msg = message_to_dict(raw_msg)
         if on_message_hook is not None:
             on_message_hook(m, msg)
@@ -916,6 +908,15 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 
 
 @contextmanager
+def patched_genai_client(client: Any = None, *, error: Exception | None = None) -> Generator[Any]:
+    """替换 Google SDK 客户端构造；可返回给定客户端或模拟构造失败。"""
+    with patch("google.genai.Client", side_effect=error) as factory:
+        if client is not None:
+            factory.return_value = client
+        yield factory
+
+
+@contextmanager
 def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
     """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
 
@@ -1178,6 +1179,11 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", _resolve)
     monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", _resolve)
     monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", _resolve)
+
+
+def use_image_admission_context(monkeypatch, resolve: Callable[..., Any]) -> None:
+    """图片预览和入队预检解析图片 lane 时，用同一个 *resolve* 替身。"""
+    monkeypatch.setattr("server.services.admission.image_references.resolve_generation_context", resolve)
 
 
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:

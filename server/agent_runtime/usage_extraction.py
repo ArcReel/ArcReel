@@ -96,7 +96,6 @@ def request_tokens(usage: Mapping[str, Any]) -> RequestTokens:
     write_5m, write_1h = cache_write, 0
     if isinstance(split, Mapping):
         write_1h = _count(split, "ephemeral_1h_input_tokens")
-        # 拆分不足合计的部分（网关只给出合计）按 5 分钟档计。
         write_5m = max(_count(split, "ephemeral_5m_input_tokens"), cache_write - write_1h)
     return RequestTokens(
         uncached_input=_count(usage, "input_tokens"),
@@ -128,9 +127,7 @@ class TurnUsageMeter:
 
     def __init__(self, *, resumed: bool) -> None:
         self._baseline: dict[str, RequestTokens] | None = None if resumed else {}
-        # 本轮流内请求：message_id → (模型名, 用量)，按首次出现的顺序。
         self._pending: dict[str, tuple[str, RequestTokens]] = {}
-        # 已经记账的请求：之后再出现的帧不重复计入，用量的增长由差额补齐。
         self._settled: set[str] = set()
         self._model_keys: dict[str, object] = {}
 
@@ -183,7 +180,6 @@ class TurnUsageMeter:
         streamed = _ZERO
         for request in requests:
             streamed += request
-        # model_usage 的缓存写是两档合计（按 5 分钟档记），与流内两档之和比较。
         streamed = replace(streamed, cache_write_5m=streamed.cache_write_5m + streamed.cache_write_1h, cache_write_1h=0)
         gap = delta.surplus_over(streamed)
         if gap.is_empty:

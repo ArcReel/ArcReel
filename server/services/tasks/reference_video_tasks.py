@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoCapabilityError
 from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_episode_script_input,
@@ -23,6 +24,7 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_style_description,
 )
 from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource, reference_image_sources
+from lib.backends.backend_runtime import read_video_image_slots
 from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
@@ -52,6 +54,7 @@ from lib.script.reference_video.execution_checkpoint import (
     cleanup_staged_provider_media,
     stage_provider_media,
     stage_provider_media_for_task,
+    staged_source_paths,
 )
 from lib.script.reference_video.prompt_render import (
     RenderedUnitPrompt,
@@ -124,21 +127,6 @@ def _render_unit_prompt(
         settings,
         request_references=request_references,
     )
-
-
-def _reference_limit_warning(*, provider_id: str, model: str, count: int, max_refs: int) -> dict[str, Any]:
-    """参考图片超限 warning；通用路径与商品优先裁剪共用。
-
-    参数带注册表供应商 ID（族别名供应商与 backend 名不同），界面才能按 ``(供应商, 模型)`` 查到
-    显示名；只带模型时，两个供应商下同一上游模型 ID 名称不同就无从区分。
-    """
-    if max_refs == 1:
-        # 生效上限为 1 即端点只接受一张参考图；文案只由上限决定，与型号名无关。
-        return {"key": "ref_single_ref_only", "params": {"provider": provider_id, "model": model}}
-    return {
-        "key": "ref_too_many_images",
-        "params": {"count": count, "provider": provider_id, "model": model, "max_count": max_refs},
-    }
 
 
 def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict) -> int:
@@ -309,15 +297,12 @@ async def execute_reference_video_task(
 
     resource_id 即 unit_id（E{集}U{序号}）；所有创作类型都从自包含 ``video_units`` 读取。
     """
-    # Queue rows own the frozen locator. Payload remains a compatibility fallback for direct/internal callers,
-    # but production dispatch passes Task.script_file explicitly so mutable payload cannot redirect execution.
     payload_script_file = payload.get("script_file")
     if script_file is None and isinstance(payload_script_file, str):
         script_file = payload_script_file
     if not isinstance(script_file, str) or not script_file:
         raise ValueError("script_file is required for reference_video task")
 
-    # 1. 加载上下文（阻塞 IO，线程池）
     def _load():
         pm = get_project_manager()
         project = pm.load_project(project_name)
@@ -335,7 +320,6 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
-        # 参考图可用性判定要读产物清单、对设计图算摘要，与上下文加载同在工作线程里完成。
         declared_references = unit_reference_declarations(project, unit)
         resolved_assets = resolve_reference_assets(project, project_path, unit)
         asset_availability = CurrentReferenceAssets(project_path, project)
@@ -353,13 +337,9 @@ async def execute_reference_video_task(
         hydration,
     ) = await run_sync_transaction(_load)
 
-    # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
-    #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
-    #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
-    #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
-    #    有参考图 → r2v；无参考图的视频单元降级 → i2v，不送入拒空参考的 r2v 桶模型。
-    #    判据取解析结果而非声明，与 backend 的实际请求同源。
-    execution_generation_type = reference_video_bucket(with_references=bool(hydration.available))
+    execution_generation_type = reference_video_bucket(
+        with_references=bool(hydration.available or hydration.unreadable_files)
+    )
     execution_payload = without_reference_video_execution_identity(payload)
     request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     ctx = await resolve_generation_context(
@@ -375,23 +355,15 @@ async def execute_reference_video_task(
     ensure_dispatch_provider(claimed_provider_id, actual_provider_id)
     model_name = video.backend_model
 
-    # 3. 能力只读 lane 以实际 backend 身份（provider_id + backend.model）求得的视频请求事实：
-    #    自定义模型禁用回退时也直接命中活跃 model 的能力，不会「按旧模型裁剪、按新模型生成」。
-    #    求值失败由公共投影转成结构化 blocker，不制造无约束申请。引用展开、实际文件存在、商品
-    #    优先裁剪、时长取档与音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接
-    #    入队兼容语义视为已确认；显式选项保存在 reference_request_options 中。
     lane_request_facts = video.request_facts
     if lane_request_facts is None:
         raise RuntimeError("reference video lane is missing its request facts")
 
     async def _lane_request_facts(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
-        # lane 与投影按同一份资产水合定桶；两次水合之间资产变了会落到另一个桶，而 lane 只为
-        # 本桶构造了 backend，按能力不可用阻断。
         if generation_type != execution_generation_type:
             return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
         return lane_request_facts
 
-    # 供应商素材关联与读侧同一规则核对，按实际调用通道求范围；暂存参考图之后再按实发字节核对一次。
     asset_links = lane_asset_link_check(choose=generator.choose_reference_image_assets, project_path=project_path)
     projection = await ReferenceUnitRequestProjector(
         _lane_request_facts, asset_availability, asset_links
@@ -419,50 +391,32 @@ async def execute_reference_video_task(
     request_facts: VideoRequestFacts | None = projection.request_facts
     if request_facts is None:
         raise RuntimeError("allowed reference request is missing its request facts")
-    # 未设分辨率即不下发（``docs/adr/0086``），请求、检查点与执行指纹都取这一个值。
     resolution = request_facts.resolution
 
     def _current_visual_basis_digest() -> str:
-        return reference_video_visual_basis_digest(
-            project=project,
-            project_path=project_path,
-            unit=unit,
-            request_assets=constrained_entries,
-            request_facts=request_facts,
-        )
+        try:
+            return reference_video_visual_basis_digest(
+                project=project,
+                project_path=project_path,
+                unit=unit,
+                request_assets=constrained_entries,
+                request_facts=request_facts,
+            )
+        except OSError as exc:
+            if not exc.filename or Path(exc.filename) not in constrained_refs:
+                raise
+            read_video_image_slots(None, None, constrained_refs, model_name)
+            raise VideoCapabilityError(
+                "video_reference_images_unreadable", model=model_name, names=Path(exc.filename).name
+            ) from exc
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
     effective_duration = projection.request_duration.seconds
     warnings: list[dict[str, Any]] = []
-    for problem in projection.problems:
-        params = problem.parameters()
-        if problem.code == "reference_images_clamped":
-            count = params.get("count")
-            max_count = params.get("max_count")
-            if not isinstance(count, int) or isinstance(count, bool):
-                continue
-            if not isinstance(max_count, int) or isinstance(max_count, bool):
-                continue
-            warnings.append(
-                _reference_limit_warning(
-                    provider_id=actual_provider_id,
-                    model=model_name,
-                    count=count,
-                    max_refs=max_count,
-                )
-            )
     duration_warning = projection.request_duration.warning(provider=actual_provider_id, model=model_name)
     if duration_warning is not None:
         warnings.append(duration_warning)
 
-    # 4. 所有创作类型共用三段论渲染。解析条目同时携带请求路径与逻辑主体；商品的一条逻辑
-    #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
-    #    调用通道实际收到的 reference_images 一一对应。商品高保真尾注也只点名仍实际发图的商品。
-    #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
-    #    用入队快照会丢失入队后对视频单元正文的编辑）；prompt 只在入队边界用于结构校验，
-    #    不写进任务 payload。
-    #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
-    #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
     voice_settings = VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths)
     rendered = _render_unit_prompt(
@@ -475,15 +429,12 @@ async def execute_reference_video_task(
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
         rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )
-    # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]
 
-    # 5. Worker submissions use immutable task-local inputs.
     provider_refs = constrained_refs
     provider_audio = reference_audio_files or None
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None
-    # 供应商素材：按实际发出的字节与调用通道的推理凭证选用，结果同时进请求、检查点与记账输入。
     asset_choices: tuple[ReferenceAssetChoice | None, ...] = ()
     if task_id is None:
         asset_choices = await generator.choose_reference_image_assets(
@@ -541,7 +492,6 @@ async def execute_reference_video_task(
             }
 
             def _bind_staged_media() -> tuple[tuple[ArtifactInputClaim, ...], list[Path], list[Path]]:
-                # 选中依据快照按暂存字节的摘要绑定，暂存路径逐个核实为文件：都要读盘，整体在线程里做。
                 claims = (
                     script_input.claim,
                     *asset_availability.snapshot_selected_claims(
@@ -569,7 +519,6 @@ async def execute_reference_video_task(
                     if media.role == "reference_image"
                 ]
             )
-            # 参考图在暂存清单的前段，按 constrained_entries 的顺序排列，选择的下标即 media 下标。
             provider_asset_references = tuple(
                 ProviderAssetReference(
                     media_index=index, content_version_id=choice.content_version_id, asset_uri=choice.asset_uri
@@ -613,8 +562,6 @@ async def execute_reference_video_task(
                 speech=artifact_speech.basis,
                 duration=artifact_duration_basis,
             )
-            # 付费档位并入档位集，与分镜路线同口径：时长由端点固定时档位集是空的，而产物时效事实
-            # 要求档位集非空且含付费档，这里的唯一档位就是那次原样透传的秒数。
             artifact_duration_tiers = tuple(sorted({effective_duration, *request_facts.allowed_durations}))
 
             def _build_checkpoint() -> ReferenceSubmissionCheckpoint:
@@ -645,6 +592,9 @@ async def execute_reference_video_task(
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
                     generate_audio=request_facts.requested_generate_audio,
+                    audio_track=VideoAudioFacts(
+                        request_facts.has_audio_track, request_facts.audio_switch_controllable
+                    ).mode,
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
@@ -660,7 +610,6 @@ async def execute_reference_video_task(
                     project_path,
                     formal_input_claims,
                 )
-                # 检查点要读版本记录（版本管理锁）并绑定摘要，放进工作线程构造。
                 checkpoint = await asyncio.to_thread(_build_checkpoint)
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
@@ -697,9 +646,6 @@ async def execute_reference_video_task(
             project_path,
             formal_input_claims,
         )
-        # MediaGenerator compresses only transient derivatives of the immutable staged images. A 413 retry keeps
-        # the same high-level media identities and cannot rewrite the once-only checkpoint.
-        # 直接调用把项目里的参考图交给供应商：缓存已清理的远端内容版本先取回，调用期间登记使用
         async with local_work_files(project_path, provider_refs if task_id is None else []):
             output_path, version, _, video_uri = await _named_rejection(
                 constrained_entries,
@@ -708,6 +654,7 @@ async def execute_reference_video_task(
                     resource_type="reference_videos",
                     resource_id=resource_id,
                     reference_images=provider_refs,
+                    reference_sources=staged_source_paths(project_path, staged_media),
                     reference_image_asset_uris=_asset_uris(asset_choices),
                     reference_audio_files=provider_audio,
                     reference_audio_targets=reference_audio_targets,
@@ -833,15 +780,12 @@ async def finalize_reference_video_unit(
 
     def _update_unit_assets() -> str | None:
         pm = get_project_manager()
-        # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
         with pm.locked_script(project_name, script_file, validate=False) as script:
             return apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
 
     await run_noninterruptible_sync(_update_unit_assets)
 
     def _latest_created_at() -> str | None:
-        # 与上面的档案补写读同一个 versions.json，同样在产物与剧本落盘之后：文件不可读时
-        # 让结果少一个时间戳，而不是把已成功的付费生成报成失败——只吞掉护栏才成立。
         try:
             history = versions.get_versions("reference_videos", resource_id) or {}
         except Exception:

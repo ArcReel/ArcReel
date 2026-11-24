@@ -18,19 +18,12 @@ from lib.infra.schema_guards import is_int
 
 DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
-# 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
-# 的预填值，项目创建后以 project.json 顶层的快照为准（docs/adr/0089）。
 _DEFAULT_NARRATION_VOICE = "Cherry"
 MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
-# 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
-# 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
-# 与 lib/references/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
 DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
-# 写入层校验为正整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
-# 其余 number 字段（image_rpm / video_rpm / request_gap）语义不同（允许小数），不在此列。
 _MAX_WORKERS_KEYS = frozenset({"image_max_workers", "video_max_workers", "audio_max_workers"})
 _MAX_WORKERS_CODE = "max_workers_must_be_positive_integer"
 
@@ -51,7 +44,6 @@ class ProviderConfigValueError(ValueError):
         self.params: dict[str, str] = {"field": key, "value": value}
 
 
-# DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "anthropic_base_url": "ANTHROPIC_BASE_URL",
@@ -61,13 +53,11 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
 }
-# 一致性守护：env 名单与 ANTHROPIC_ENV_KEYS 必须对齐。
 assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
     "_ANTHROPIC_ENV_MAP 与 lib.config.env_keys.ANTHROPIC_ENV_KEYS 漂移"
 )
 
 
-# 档位 → 环境变量名。
 _TIER_ENV_KEYS: dict[Tier, str] = {
     "model": "ANTHROPIC_MODEL",
     "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
@@ -94,7 +84,6 @@ async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
     双轨期 fallback：active credential 字段为空时从 system_settings 兜底。档位模型名的规则见
     :func:`lib.agent.credential_tiers.tier_models`。
     """
-    # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
     from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
     cred = await AgentCredentialRepository(session).get_active()
@@ -109,7 +98,6 @@ async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
         }
         return AnthropicEnv(env=env, pricing=agent_pricing(cred, settings))
 
-    # 无 active credential — 回退 system_settings（双轨期兼容）
     return AnthropicEnv(
         env={env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()},
         pricing=AgentPricing(),
@@ -124,10 +112,8 @@ class ProviderStatus:
     media_types: list[str]
     capabilities: list[str]
     required_keys: list[str]
-    # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
-    models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
-    # 不作候选的模型键（用户停用的，加上已下线的）：不出现在默认模型设置的候选里（docs/adr/0099）。
+    models: dict[str, dict] | None = None
     disabled_models: frozenset[str] = frozenset()
 
 
@@ -151,8 +137,6 @@ class ConfigService:
         self._validate_provider(provider)
         self._validate_value(provider, key, value)
         if key in _MAX_WORKERS_KEYS:
-            # 入库统一规范化为 ASCII 数字串（int() 接受 " 5 " / "+5" / "1_0" / 全角数字等
-            # 非规范形态），保证任何读取方拿到的都是可直接解析、可在 number 输入框回显的值
             value = str(int(value))
         meta = PROVIDER_REGISTRY[provider]
         is_secret = key in meta.secret_keys
@@ -176,7 +160,6 @@ class ConfigService:
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
             status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
-            # asdict 深拷贝 list/dict 字段，返回值不与模型目录共享引用，调用方改写不会波及目录。
             models_dict = {mid: asdict(mi) for mid, mi in catalog.list_models(name).items()}
             statuses.append(
                 ProviderStatus(
@@ -242,7 +225,6 @@ class ConfigService:
         return self._parse_backend(raw, DEFAULT_AUDIO_BACKEND)
 
     async def get_narration_voice(self) -> str:
-        # 空白 setting 视为未配置，与项目级覆盖的 strip 语义一致，避免空音色进 TTS 请求
         raw = await self._setting_repo.get("narration_voice", "")
         voice = raw.strip()
         return voice or _DEFAULT_NARRATION_VOICE

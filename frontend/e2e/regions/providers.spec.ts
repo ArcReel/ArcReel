@@ -5,8 +5,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「供应商」分区：全出血档的二级栏（预置 | 自定义 Tab、紧凑档图标栏）、预置供应商详情（密钥、高级配置、底部保存栏）
-// 与自定义供应商详情（连接、模型列表、并发上限、底部保存栏），以及点开模型行打开的模型 Sheet。
 
 const PROVIDERS_PATH = "/app/settings?section=providers";
 
@@ -16,7 +14,6 @@ interface RecordedProvider {
   status: "ready" | "unconfigured";
 }
 
-// 录制环境没有配置任何密钥：在录制的目录上给几个预置供应商补上密钥数量，二级栏第二行才有「已配置 N 个密钥」。
 const recordedProviders = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "providers.json"), "utf8")) as RecordedResponse
 ).body as { providers: RecordedProvider[] };
@@ -37,12 +34,10 @@ const PROVIDERS_WITH_KEYS: ApiOverrides = {
   },
 };
 
-// 与上面的密钥数量一致：AI Studio 有生效密钥，详情页头显示「已就绪」。
 const recordedAiStudioConfig = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-config.json"), "utf8")) as RecordedResponse
 ).body as Record<string, unknown>;
 
-// 压力变体：密钥多、名称与接口地址长，详情正文必须在自己的栏里滚动，底部保存栏始终可见。
 const MANY_CREDENTIALS: ApiOverrides = {
   "GET /api/v1/providers/gemini-aistudio/config": {
     status: 200,
@@ -65,7 +60,6 @@ const MANY_CREDENTIALS: ApiOverrides = {
   },
 };
 
-// 压力变体：模型列表里有已下线、未定价的模型与很长的模型 ID，状态标记与价格摘要换行而不撑出横向滚动。
 const recordedAiStudioModels = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-models.json"), "utf8")) as RecordedResponse
 ).body as { models: Record<string, unknown>[] };
@@ -97,7 +91,6 @@ const MODEL_LIST_STATES: ApiOverrides = {
   },
 };
 
-// 压力变体：自定义供应商多且名称长，「自定义」Tab 下的列表在自己的栏里滚动到底。
 const MANY_CUSTOM_PROVIDERS: ApiOverrides = {
   "GET /api/v1/custom-providers": {
     status: 200,
@@ -118,7 +111,6 @@ const MANY_CUSTOM_PROVIDERS: ApiOverrides = {
   },
 };
 
-// 压力变体：一个自定义供应商挂 9 个模型，名称、接口地址与模型 ID 都长。
 const CUSTOM_PROVIDER_ID = 7;
 const CUSTOM_PROVIDER_PATH = `${PROVIDERS_PATH}&custom=${CUSTOM_PROVIDER_ID}`;
 const CUSTOM_PROVIDER_NAME = "自建 OpenAI 兼容网关 · 华东二区备用线路（按量计费，月底结算）";
@@ -210,7 +202,6 @@ const ENDPOINT_MEDIA: Record<string, string> = {
   "dashscope-video": "video",
 };
 
-// 模型列表的行（GET /providers/custom-7/models）与已保存的模型一一对应
 const customListItems = customProvider.models.map((m) => ({
   model_id: m.model_id,
   api_model_name: m.model_id,
@@ -256,8 +247,6 @@ const KLING_OFFICIAL_PRICE = {
   ],
 };
 
-// 模型 Sheet 的压力内容：视频模型的参数全部可改，其中两项已修改；下段的模型信息用户改过，
-// 各字段下方带官方值，价格是分辨率 × 有声的四档加带免费额度的参考图，另有两个供应商共用这个条目
 const klingDetail = {
   model: customListItems.find((m) => m.model_id === KLING_ID),
   multiplier: 1.25,
@@ -379,7 +368,6 @@ const CUSTOM_PROVIDER_DETAIL: ApiOverrides = {
   [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/gpt-image-1`]: { status: 200, body: gptImageDetail },
 };
 
-// 压力变体：「获取模型」两组都有、模型 ID 很长；已添加的 gpt-image-1 不列出。
 const fetched = (model_id: string, media_type: string, recognized: boolean, matched_entry: unknown = null) => ({
   model_id,
   display_name: model_id,
@@ -435,7 +423,6 @@ async function customDetailReady(page: Page) {
   await page.getByRole("region", { name: "模型" }).getByRole("listitem").first().waitFor();
 }
 
-/** 点开模型列表里的一行，等模型 Sheet 读完。 */
 async function openModelSheet(page: Page, modelId: string) {
   const row = page.getByRole("region", { name: "模型" }).getByRole("button", { name: new RegExp(modelId) });
   await row.scrollIntoViewIfNeeded();
@@ -482,7 +469,6 @@ defineRegionScenarios("供应商", [
       await models.getByRole("button", { name: /已启用/ }).click();
       await expect(models.getByText("已下线")).toHaveCount(0);
       await expect(models.getByRole("switch").first()).toBeChecked();
-      // 回到「全部」，截长名称与状态标记所在的行
       await models.getByRole("button", { name: /全部/ }).click();
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
@@ -496,7 +482,6 @@ defineRegionScenarios("供应商", [
     ready: presetDetailReady,
     act: async (page) => {
       const customTab = rail(page).getByRole("tab", { name: /自定义/ });
-      // 紧凑档是图标栏，两组上下叠放、没有 Tab
       if (await customTab.isVisible()) {
         await customTab.click();
         const first = rail(page).getByRole("tabpanel").getByRole("link").first();
@@ -506,7 +491,6 @@ defineRegionScenarios("供应商", [
           first.boundingBox(),
           customTab.boundingBox(),
         ]);
-        // 第一个自定义供应商紧接在 Tab 下面，而不是排在预置供应商之后
         expect(firstBox!.y - railBox!.y).toBeLessThan(tabBox!.y - railBox!.y + tabBox!.height + 24);
       }
       await rail(page).evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
@@ -565,7 +549,6 @@ defineRegionScenarios("供应商", [
     path: CUSTOM_PROVIDER_PATH,
     api: {
       ...CUSTOM_PROVIDER_DETAIL,
-      // 打开时搜索词为空，列出整个目录；输入后按名字搜索
       "GET /api/v1/catalog/entries": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
       "GET /api/v1/catalog/entries?q=seedance": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
     },
@@ -617,7 +600,6 @@ defineRegionScenarios("供应商", [
       await expect(listbox.getByRole("option", { name: /^Seedream \(2K\)/ })).toBeAttached();
       await expect(listbox).toBeInViewport();
     },
-    // 下拉渲染在弹层里，截 Sheet 连同盖在上面的下拉一起看
     screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
   },
   {

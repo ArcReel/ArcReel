@@ -8,10 +8,6 @@ import type { GalleryFilter } from "./gallery-model";
 
 const FILTERS: GalleryFilter[] = ["all", "pending", "stale"];
 
-/**
- * 画廊工具栏：标题与数量、按资产图状态筛选、批量生成，以及「从资产库选择」与新增入口。
- * 吸在画廊滚动区顶部；画布变窄时控件换行。
- */
 export function GalleryToolbar({
   assetType,
   title,
@@ -28,13 +24,9 @@ export function GalleryToolbar({
   count: number;
   filter: GalleryFilter;
   onFilterChange: (filter: GalleryFilter) => void;
-  /** 各筛选项命中的数量，「全部」即 `count`。 */
   filterCounts: Record<Exclude<GalleryFilter, "all">, number>;
-  /** 未提供时隐藏「新增」入口（如只读展示的引导演示项目）。 */
   onAdd?: () => void;
-  /** 未提供时隐藏「从资产库选择」入口（如不入全局库的资产类型）。 */
   onPickFromLibrary?: () => void;
-  /** 批量生成入口。 */
   children?: ReactNode;
 }) {
   const { t } = useTranslation("assets");
@@ -51,7 +43,6 @@ export function GalleryToolbar({
         size="sm"
         value={[filter]}
         onValueChange={(next: string[]) => {
-          // 再点已选中的一项不取消选择，筛选总有一项生效
           if (next[0]) onFilterChange(next[0] as GalleryFilter);
         }}
       >

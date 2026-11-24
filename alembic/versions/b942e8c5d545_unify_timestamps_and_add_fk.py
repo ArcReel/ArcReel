@@ -12,15 +12,11 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "b942e8c5d545"
 down_revision: str | Sequence[str] | None = "ecbb53758daa"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 TIMESTAMP_COLUMNS: dict[str, list[str]] = {
     "tasks": ["queued_at", "started_at", "finished_at", "updated_at"],
@@ -43,7 +39,6 @@ def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
-    # 1. Clean orphan task_events before adding FK constraint
     op.execute(sa.text("DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)"))
 
     # 2. Convert String timestamp columns → DateTime(timezone=True)
@@ -76,7 +71,6 @@ def upgrade() -> None:
             )
         )
 
-    # 3. Add FK constraint: task_events.task_id → tasks.task_id
     with op.batch_alter_table("task_events") as batch_op:
         batch_op.create_foreign_key(
             "fk_task_events_task_id",
@@ -86,7 +80,6 @@ def upgrade() -> None:
             ondelete="CASCADE",
         )
 
-    # 4. Fix server_default for api_calls.generate_audio ("1" → true)
     with op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column("generate_audio", server_default=sa.true())
 
@@ -96,16 +89,12 @@ def downgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
-    # 1. Remove FK constraint
     with op.batch_alter_table("task_events") as batch_op:
         batch_op.drop_constraint("fk_task_events_task_id", type_="foreignkey")
 
-    # 2. Revert server_default
     with op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column("generate_audio", server_default="1")
 
-    # 3. Revert DateTime(timezone=True) → String
-    #    SQLite: no-op (column type was never changed; see upgrade comment).
     if is_pg:
         for table, columns in TIMESTAMP_COLUMNS.items():
             for col in columns:

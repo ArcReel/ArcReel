@@ -1,30 +1,20 @@
-# ============================================================
-# Stage 1: 构建前端
-# ============================================================
 FROM node:24-slim AS frontend-builder
 
 WORKDIR /build/frontend
 
-# 启用 corepack；pnpm 版本由 frontend/package.json 的 packageManager 字段固定
 # 关闭交互式下载确认，否则 docker build 这种非 TTY 环境会卡在
 # "Corepack is about to download ..." 直到超时
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
-# 先复制依赖文件，利用缓存（corepack 按 packageManager 字段自动下载对应 pnpm）
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# 复制前端源码并构建
 COPY frontend/ ./
 RUN pnpm build
 
-# ============================================================
-# Stage 2: 生产镜像
-# ============================================================
 FROM python:3.12-slim AS production
 
-# 安装系统依赖，并把基础镜像预装的系统包升级到当前仓库版本。
 # APT_REFRESH 由 CI 按 ISO 周传入，值变化时本层缓存失效，保证系统包定期刷新
 # git：Agent 派发子智能体时可以要求 worktree 隔离，Claude Code 先用 git 校验 WorktreeCreate 钩子
 # 返回的项目目录，缺少 git 就拒绝隔离，这次派发随之失败（钩子见 agent_runtime_profile/.claude/settings.json）
@@ -44,15 +34,12 @@ RUN echo "apt refresh: ${APT_REFRESH}" \
 # 但 python:3.12-slim 自带的旧 pip 会被镜像扫描器报 CVE，升级以清除这些告警
 RUN python -m pip install --no-cache-dir --upgrade pip
 
-# 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# 禁用 Python 输出缓冲，确保日志实时输出到 Docker logs
 ENV PYTHONUNBUFFERED=1
 
-# 默认时区，可由 docker-compose / 运行时 -e TZ=... 覆盖
 ENV TZ=Asia/Shanghai
 
 # 先复制依赖和包元数据文件，利用缓存；workspace 子包作为依赖随这一步安装，源码须先就位
@@ -60,7 +47,6 @@ COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
 RUN uv sync --no-dev --no-install-project
 
-# 复制应用代码
 COPY lib/ lib/
 COPY server/ server/
 COPY alembic/ alembic/
@@ -72,19 +58,14 @@ COPY public/ public/
 COPY LICENSE NOTICE ./
 COPY LICENSES/ LICENSES/
 
-# 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
-# 构建 commit 由 CI 传入，/health 据此返回运行版本；放在最后，值每次变化也不影响前面的层缓存
 ARG BUILD_COMMIT=
 ENV ARCREEL_BUILD_COMMIT=${BUILD_COMMIT}
 
-# 暴露端口
 EXPOSE 1241
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:1241/health || exit 1
 
-# 启动命令
 CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "1241"]

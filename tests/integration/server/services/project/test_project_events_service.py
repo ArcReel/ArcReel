@@ -141,7 +141,6 @@ async def test_timeline_creation_refreshes_project_events_and_completes_workflow
     try:
         async with service.stream_events("demo") as stream:
             assert (await anext(stream))[0] == "snapshot"
-            # Web 入口的来源由路由自己标记，用例不替它套上。
             with project_change_source("worker") if entry == "agent" else contextlib.nullcontext():
                 if entry == "agent":
                     created = await run_declared_tool(
@@ -269,7 +268,6 @@ class TestProjectEventService:
                     index = calls
                     result = read()
                     if index == 1:
-                        # 首次读盘已完成但尚未结算：交还控制权，等编排放行
                         loop.call_soon_threadsafe(first_read_done.set)
                         asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
                     else:
@@ -281,7 +279,6 @@ class TestProjectEventService:
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
                 await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
 
-                # 首次读盘之后落盘一个新角色：直接改写 project.json，不发 hint
                 project_json = pm.get_project_path("demo") / "project.json"
                 data = json.loads(project_json.read_text(encoding="utf-8"))
                 data.setdefault("characters", {})["新角色"] = {"name": "新角色", "description": "d"}
@@ -295,7 +292,6 @@ class TestProjectEventService:
                     await asyncio.wait_for(second_read_done.wait(), timeout=1.0)
                 release_first.set()
 
-                # 两次重建各自的批次广播与可能的补扫广播都要收齐，再看角色变更的全貌
                 broadcast_changes = []
                 for _ in range(2):
                     event_name, payload = await _next_event(stream, timeout=5.0)
@@ -355,7 +351,6 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("demo", script, "episode_1.json", validate=False)
 
-        # poll_interval 远超用例时长：隔离显式重建路径，排除轮询扫描抢先广播该变更
         service = ProjectEventService(tmp_path, poll_interval=30.0)
         await service.start()
 
@@ -364,20 +359,17 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                # 直接落盘、不发 hint：模拟变更早于本次重建读盘抵达磁盘
                 script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
                 script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
                 script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
-                # 本批自身的终态事件独占一条 payload（正常路径的时序与结构不受补扫影响）
                 event_name, payload = await _next_event(stream, timeout=2.0)
                 assert event_name == "changes"
                 assert [change["action"] for change in payload["changes"]] == ["task_succeeded"]
                 assert payload["source"] == "worker"
 
-                # 捎带进来的变更随后单独广播，来源按自己的 hint 标记解析
                 event_name, swept = await _next_event(stream, timeout=2.0)
                 assert event_name == "changes"
                 assert any(
@@ -423,7 +415,6 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                # worker 次序：先落盘资产，再发对应的完成事件
                 script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
                 script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
                 script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -445,8 +436,6 @@ class TestProjectEventService:
                     source="worker",
                 )
 
-                # 排空所有 payload 再统计：补扫走独立 payload，去重回归时重复的那条会落在
-                # 紧随其后的另一条 payload 里，只看第一条的话护栏形同虚设
                 broadcast_changes = []
                 event_name, payload = await _next_event(stream, timeout=2.0)
                 assert event_name == "changes"
@@ -640,19 +629,15 @@ class TestProjectEventService:
                     calls += 1
                     index = calls
                     if index == 1:
-                        # 读盘前停一次：让编排先把 B 的产物落盘并发出 B 的批次，
-                        # 本次读盘因而必然捎带 B 的产物
                         loop.call_soon_threadsafe(first_read_done.set)
                         asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
                     return read()
 
                 reader.hook = _read_holding_first
 
-                # 批次 A：与分镜无关的终态事件，只为触发重建
                 emit_project_change_batch("demo", [_terminal_task_change("task-a")], source="worker")
                 await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
 
-                # 批次 B 的产物先落盘，再发 B 自己的批次（worker 成功路径的真实次序）
                 script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
                 script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
                 script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -689,7 +674,6 @@ class TestProjectEventService:
                     if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
                 ]
                 assert len(ready) == 1
-                # 广播它的是 B 自己那一批：B 批显式传 focus=None，补扫副本的 focus 由差分构造
                 assert ready[0]["focus"] is None
         finally:
             release_first.set()
@@ -804,10 +788,7 @@ class TestProjectEventService:
                 assert event_name == "snapshot"
 
                 channel = service._channels["demo"]
-                # 订阅时的首轮扫描会清空标记，等它落定再预置，否则重建捕获到的是空集合
-                await asyncio.sleep(0.1)
                 assert channel.pending_sources == set()
-                # 重建发起前已在册的标记
                 channel.pending_sources.add("webui")
 
                 read_started = asyncio.Event()
@@ -823,14 +804,12 @@ class TestProjectEventService:
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
                 await asyncio.wait_for(read_started.wait(), timeout=5.0)
 
-                # 读盘窗口内同一来源再次 hint
                 channel.pending_sources.add("webui")
                 release_read.set()
 
                 event_name, _payload = await _next_event(stream, timeout=5.0)
                 assert event_name == "changes"
 
-                # 窗口内的标记留存，下一轮扫描据它解析出 webui 而非 filesystem
                 assert channel.pending_sources == {"webui"}
                 assert service._resolve_batch_source(channel.pending_sources) == "webui"
         finally:
@@ -874,7 +853,6 @@ class TestProjectEventService:
 
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
-                # 窗口内落盘的变更最终仍要广播（本次重建未覆盖它，兜底扫描须补上）
                 deadline = 3.0
                 for _ in range(10):
                     event_name, payload = await _next_event(stream, timeout=deadline)
@@ -961,28 +939,37 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=0.05)
         await service.start()
 
-        # 模拟首次扫描卡住:watch task 永不 set ready_event,_subscribe 会 park 在 wait()。
+        watch_started = asyncio.Event()
+
         async def _never_ready(project_name, channel):
-            await asyncio.sleep(3600)
+            watch_started.set()
+            await asyncio.Future()
 
         monkeypatch.setattr(service, "_watch_project", _never_ready)
 
-        task = asyncio.create_task(service._subscribe("demo"))
-        await asyncio.sleep(0.05)  # 让 _subscribe 注册 queue 并 park
-        channel = service._channels["demo"]
-        assert channel.sse.has_subscribers  # 已注册
-        watch_task = channel.task
+        async def subscribe():
+            async with service.stream_events("demo"):
+                pytest.fail("首次扫描完成前，订阅不应返回")
 
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        task = asyncio.create_task(subscribe())
+        try:
+            await asyncio.wait_for(watch_started.wait(), timeout=5)
+            channel = service._channels["demo"]
+            assert channel.sse.has_subscribers
+            watch_task = channel.task
+            assert watch_task is not None
 
-        # 取消后:订阅者被清理、channel 被弹出、watch task 被取消(不泄漏)。
-        assert "demo" not in service._channels
-        await asyncio.sleep(0)  # 让 watch task 的取消落定
-        assert watch_task.cancelled() or watch_task.done()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
-        await service.shutdown()
+            assert "demo" not in service._channels
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(watch_task, timeout=5)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_new_subscriber_entering_during_stop_watch_stays_registered(self, tmp_path, monkeypatch):
@@ -1002,7 +989,6 @@ class TestProjectEventService:
         try:
 
             async def _controlled_watch(project_name, channel):
-                # 立即放行 _subscribe 的 ready 等待；被取消时停在收尾点，撑开竞态窗口。
                 channel.ready_event.set()
                 try:
                     await asyncio.sleep(3600)
@@ -1013,27 +999,21 @@ class TestProjectEventService:
 
             monkeypatch.setattr(service, "_watch_project", _controlled_watch)
 
-            # 订阅者 A 拉起旧通道与旧 watch task。
             _sse_a, queue_a, _snap_a = await service._subscribe("demo")
             old_channel = service._channels["demo"]
             old_watch_task = old_channel.task
 
-            # A 退订触发末订阅者钩子；钩子停在等已取消 watch task 退出的收尾点。
             stop_task = asyncio.create_task(service._unsubscribe("demo", queue_a))
             await asyncio.wait_for(entered_cancel.wait(), timeout=1.0)
 
-            # 窗口内新订阅者 B 进入。
             _sse_b, queue_b, _snap_b = await service._subscribe("demo")
 
-            # 放行旧 watch task，让末订阅者钩子跑完收尾。
             allow_exit.set()
             await asyncio.wait_for(stop_task, timeout=1.0)
 
-            # B 归属注册表中的现行通道，旧通道已退役。
             assert "demo" in service._channels
             assert service._channels["demo"] is not old_channel
 
-            # 经注册表路由的 hint 广播抵达 B。
             service._apply_emitted_batch(
                 "demo",
                 "worker",
@@ -1052,7 +1032,6 @@ class TestProjectEventService:
             event_name, _payload = queue_b.get_nowait()
             assert event_name == "changes"
 
-            # 旧 watch task 退役，未脱离注册表继续运行。
             assert old_watch_task.done()
         finally:
             # 断言或 wait_for 提前失败时，被刻意挂起的 watch/stop task 仍需释放，
@@ -1084,7 +1063,6 @@ class TestProjectEventService:
                 assert event_name == PROJECT_DELETED_EVENT
                 assert payload == {"project_name": "demo"}
 
-                # 终止事件之后流正常结束（不是因为消费方主动断线）。
                 with pytest.raises(StopAsyncIteration):
                     await anext(stream)
 
@@ -1111,9 +1089,8 @@ class TestProjectEventService:
         with caplog.at_level(logging.INFO, logger="server.services.project.project_events"):
             async with service.stream_events("demo", idle_timeout=0.1):
                 (pm.get_project_path("demo") / ProjectManager.PROJECT_FILE).unlink()
-                # 等至少一个轮询周期，让扫描命中缺失的 project.json。
                 await asyncio.sleep(0.3)
-                assert "demo" in service._channels  # 通道未终止，仍在注册表中
+                assert "demo" in service._channels
 
         assert any(record.levelno >= logging.ERROR for record in caplog.records)
         assert not any("已被删除" in record.message for record in caplog.records)
@@ -1127,7 +1104,6 @@ class TestProjectEventService:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        # 轮询间隔调大，确保观察到的是 hint 路径而非后台轮询先行探测到删除。
         service = ProjectEventService(tmp_path, poll_interval=5.0)
         await service.start()
 
@@ -1183,7 +1159,6 @@ class TestProjectEventService:
 
         assert "demo" not in service._channels
 
-        # 同名项目重建：新订阅应走全新通道，正常收到 snapshot 与后续变更（不复用将死通道）。
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo Reborn", "Anime", "narration")
 

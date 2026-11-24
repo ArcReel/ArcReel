@@ -78,7 +78,7 @@ class TestUserModel:
         result = await db_session.execute(select(User).where(User.id == "u1"))
         loaded = result.scalar_one()
         assert loaded.username == "alice"
-        assert loaded.role == "user"  # server_default
+        assert loaded.role == "user"
         assert loaded.created_at is not None
         assert loaded.updated_at is not None
 
@@ -88,7 +88,6 @@ class TestTimestampMixin:
         """Verify TimestampMixin provides default and onupdate."""
         assert hasattr(TimestampMixin, "created_at")
         assert hasattr(TimestampMixin, "updated_at")
-        # Access the underlying Column via MappedColumn.column
         col_created = TimestampMixin.__dict__["created_at"].column
         col_updated = TimestampMixin.__dict__["updated_at"].column
         assert col_created.default is not None

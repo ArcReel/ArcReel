@@ -67,9 +67,6 @@ def _candidate(unit_id: str, *, path: str | None = "videos/x.mp4") -> Generation
     )
 
 
-# --- selection -------------------------------------------------------------
-
-
 def test_missing_only_selects_missing_and_reuses_stale(tmp_path: Path) -> None:
     """stale 可用即复用：只有 missing 进 targets，stale 与 current 都进 skipped。"""
 
@@ -189,7 +186,6 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
     key = ArtifactKey.episode_video(1, "A")
     resolver = _Resolver({"A": ArtifactStatus.CURRENT})
 
-    # 没有 key 可比对的单元：该轴不可观测，与「缺失」不是一回事。
     assert observe_artifact_status(
         resolver=resolver,
         key=None,
@@ -227,9 +223,6 @@ def test_artifact_is_reusable_treats_stale_as_usable(status: ArtifactStatus, exp
     assert artifact_is_reusable(state) is expected
 
 
-# --- result identity -------------------------------------------------------
-
-
 def test_requested_is_exactly_the_union_of_the_three_outcome_sets() -> None:
     builder = GenerationResultBuilder("probe", GenerationSelectionMode.EXPLICIT)
     builder.succeed("A", task_id="t1")
@@ -251,7 +244,6 @@ def test_requested_is_exactly_the_union_of_the_three_outcome_sets() -> None:
     assert not set(result.succeeded) & set(result.failed)
     assert not set(result.succeeded) & set(result.blocked)
     assert not set(result.failed) & set(result.blocked)
-    # 复用的单元刻意留在 requested 之外：它既没做也没失败。
     assert [entry.unit_id for entry in result.skipped] == ["D"]
     assert "D" not in result.requested
     assert result.ok is False
@@ -307,9 +299,6 @@ def test_the_contract_survives_a_json_round_trip() -> None:
     assert GenerationBatchResult.model_validate(result.model_dump(mode="json")) == result
 
 
-# --- three status axes -----------------------------------------------------
-
-
 def test_a_succeeded_task_can_still_report_a_stale_artifact() -> None:
     """任务成功 ≠ 产物匹配当前依据：两条轴各报各的，不合并。"""
 
@@ -350,7 +339,6 @@ def test_a_failed_commit_keeps_the_old_artifact_and_never_claims_current() -> No
     item = builder.build().items[0]
 
     assert item.state is GenerationItemState.FAILED
-    # 任务本身跑成功了（钱已花），但产物没有被标成 current。
     assert item.task_state is GenerationTaskState.SUCCEEDED
     assert item.artifact_status is ArtifactStatus.STALE
     assert item.artifact_path == "videos/a.mp4"
@@ -366,9 +354,6 @@ def test_provider_checkpoint_is_absent_when_the_task_row_says_nothing() -> None:
     unsubmitted = provider_checkpoint_from_task({"provider_id": "vidu", "provider_job_id": None})
     assert unsubmitted is not None
     assert unsubmitted.submitted is False
-
-
-# --- problem mapping -------------------------------------------------------
 
 
 def test_a_registered_failure_code_keeps_its_code_and_gets_a_sharper_action() -> None:
@@ -403,9 +388,6 @@ def test_every_registered_failure_code_resolves_to_a_declared_action() -> None:
 
     unknown = sorted(set(_TASK_FAILURE_ACTIONS) - set(FAILURE_CODE_KEYS))
     assert unknown == [], f"这些动作映射的 code 已不在 FAILURE_CODE_KEYS 中: {unknown}"
-
-
-# --- batch recording -------------------------------------------------------
 
 
 def _batch(resource_id: str, *, status: str = "succeeded", **kwargs: object) -> BatchTaskResult:
@@ -658,16 +640,13 @@ def test_recording_a_success_with_no_known_state_does_not_crash_under_an_active_
         builder,
         successes=[_batch("张三", result={"file_path": "characters/张三.png"})],
         failures=[],
-        states={},  # unit 不在映射里 -> _state() 退回无 artifact_key 的默认 state
+        states={},
         resolver=_Resolver({}),
     )
 
     item = builder.build().items[0]
     assert item.artifact_status is None
     assert item.artifact_path == "characters/张三.png"
-
-
-# --- rendering -------------------------------------------------------------
 
 
 def test_the_rendered_text_is_only_a_projection_of_the_payload() -> None:

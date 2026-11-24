@@ -2,7 +2,7 @@
 
 自定义供应商的调用通道大多复用内置调用通道的实现，计量就取那条通道的声明：视频取 ``metered_usage``，图片的
 预估取 ``estimate_usage``，结算时图片通道自己在结果里带 ``usage``。声明式视频端点按定义上报。其余通道（ComfyUI、
-声明式图片、OpenAI Chat 出图）没有声明，按通用口径上报：视频报发出的时长、分辨率与是否有声，图片报一张输出与
+声明式图片）没有声明，按通用口径上报：视频报发出的时长、分辨率与是否有声，图片报一张输出与
 参考图张数；图片通道有声明时也补上这两项张数。计量项的单价由对应条目的价目表决定，价目表不按它计价的计数类
 计量项不计费。
 
@@ -122,10 +122,26 @@ def custom_video_usage(
     """
     if metering is not None:
         try:
-            return metering(model, request, result, entry=entry)
+            usage = metering(model, request, result, entry=entry)
+            return _with_video_audio(usage, request, result)
         except (ValueError, KeyError):
             logger.debug("调用通道不认得模型 %s 的计量，改按通用口径上报", model, exc_info=True)
-    return generic_video_usage(request, result)
+    return _with_video_audio(generic_video_usage(request, result), request, result)
+
+
+def _with_video_audio(usage: Usage, request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
+    """模型确定无声时按无声，其余保留通道档位与实际回报；未携带能力时保留通道口径。"""
+    caps = request.video_capabilities
+    if caps is None:
+        return usage
+    mode = caps.audio_track_for_route("r2v" if request.reference_images else "i2v")
+    audio = mode.output_audio(request.generate_audio)
+    channel_audio = usage.dimensions.get("audio")
+    if mode.has_audio_track and mode.audio_switch_controllable and isinstance(channel_audio, bool):
+        audio = channel_audio
+    if mode.has_audio_track and result is not None and result.generate_audio is not None:
+        audio = result.generate_audio
+    return replace(usage, dimensions={**usage.dimensions, "audio": audio})
 
 
 def custom_image_estimate(metering_backend: object | None, facts: ImageRequestFacts) -> Usage:

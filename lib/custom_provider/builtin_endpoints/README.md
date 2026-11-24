@@ -1,26 +1,17 @@
-# 随版声明式内置端点
+# 随版声明式调用端点
 
-本目录存放以声明式定义实现的**内置调用端点**。每份 `<key>.json` 的文件名即内置键（如
-`newapi-video.json` → `newapi-video`），由 `lib/custom_provider/builtin_definitions.py` 在
-import 期读入 `ENDPOINT_REGISTRY`。
+本目录下的 `<key>.json` 随 ArcReel 版本一同发布，文件名去掉扩展名即内置调用端点的键，例如 [`newapi-video.json`](newapi-video.json) 对应 `newapi-video`。内置定义只读，并随版本升级自动更新；点击「复制为我的」可基于它创建一份独立的自定义调用端点。
 
-约束：
+## 添加端点
 
-- 定义须过共享校验器 `arcreel_market_core.endpoint_definition.validate_definition`，
-  `meta.author` 为 `ArcReel`，键不得以 `ce-` 开头。任一条不满足即 import 期抛错、进程起不来。
-- 定义不落库、用户不可编辑删除；升级换文件即生效，用户「复制为我的」产出的 `ce-<id>` 副本不跟随。
-- 键与 Python 内置端点共用同一命名空间，文件名不得与注册表里已有的键重复。
+1. 从[端点 API 索引](../../../docs/api-docs/endpoints/README.md)查找官方协议资料，按[声明式定义](../../../docs/adr/0067-custom-endpoint-declarative-definition.md)编写端点文件，并将 `meta.author` 设为 `ArcReel`。
+2. 选用未被[内置端点注册表](../endpoints.py)占用的键。`ce-` 前缀保留给自定义调用端点。[定义加载器](../builtin_definitions.py)会在注册时校验定义内容、作者和键名，校验不通过将导致应用启动失败。
+3. 在仓库根目录运行随版定义校验：
 
-## 运行时已核对的表达力
+```bash
+uv run python -m pytest tests/unit/lib/custom_provider/test_builtin_endpoint_definitions.py
+```
 
-以下两条是声明式运行时现有的行为，写新定义前不必改运行时：
+轮询支持使用 `POST`，也可以在请求体中引用 `{{ task_id }}`。URL 路径中的占位符按原值展开，例如 `models/veo/operations/abc` 中的 `/` 会原样保留。具体渲染规则见[共享模板引擎](../../../packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/template_engine.py)。
 
-- **轮询用 POST。** 提交、轮询、二次取件三节的 `method` 都可取 `GET`、`POST`、`PUT`；轮询请求可以带
-  `body`，`body` 中可以引用 `{{ task_id }}`。硅基流动视频这类「轮询用 POST」的上游可以直接写成定义。
-- **任务 id 含 `/`。** URL 模板里的占位符不做 percent-encoding，含 `/` 的任务 id 原样展开为多级路径：
-  `{{ base_url }}/v1beta/{{ task_id }}` 遇到 Veo 的 operation name `models/veo/operations/abc` 时展开为
-  `/v1beta/models/veo/operations/abc`。需要把 `/` 编码成 `%2F` 的上游不支持；目前尚未发现这样的上游
-  （new-api 会先把 operation name 编码成自己的任务 id）。
-
-前端「新建」表单的示例模板不放这里——它是预填内容而非内置端点，见
-`frontend/src/data/example-templates/`。
+前端「新建自定义调用端点」的预填定义放在[示例模板](../../../frontend/src/data/example-templates/)目录。

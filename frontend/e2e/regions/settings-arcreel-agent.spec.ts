@@ -2,7 +2,6 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 全局设置「ArcReel Agent」：Agent 供应商列表、默认折叠的运行参数、添加与删除 Agent 供应商的弹层。
 
 const PATH = "/app/settings?section=arcreel-agent";
 
@@ -16,7 +15,6 @@ function tierStatus(
   return { tier, model_name, entry_display_name, manually_bound, binding_stale, priced: entry_display_name !== null };
 }
 
-// 压力变体：Agent 供应商多、名称与地址长，每条都设置了全部模型路由，档位有已定价、未定价、手动选择与所选模型已下线四种状态。
 const MANY_AGENT_PROVIDERS: ApiOverrides = {
   "GET /api/v1/agent/credentials": {
     status: 200,
@@ -78,7 +76,7 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await field.fill("8");
       const main = page.getByRole("main");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      await expect(main.getByRole("link", { name: "提示词模版" })).toBeInViewport();
+      await expect(main.getByRole("link", { name: "提示词模板" })).toBeInViewport();
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     },

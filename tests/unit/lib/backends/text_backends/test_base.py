@@ -212,7 +212,6 @@ class TestResolveSchema:
         class Outer(BaseModel):
             """顶层实现说明：ADR 编号、迁移口径"""
 
-            # 字段说明与被引用模型的 docstring 同文：Pydantic 默认只留在定义上，剥除定义说明后仍须保留在字段上
             inner: Inner = Field(description="构图信息")
             bare: Inner
             tone: Tone
@@ -241,7 +240,6 @@ class TestResolveSchema:
         resolved = resolve_schema(model)
         descriptions = _description_values(resolved)
 
-        # 顶层与内联后的嵌套模型都不带类 docstring 说明
         assert "description" not in resolved
         assert _class_docstring_texts(model).isdisjoint(descriptions)
         assert field_descriptions <= set(descriptions)
@@ -325,7 +323,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # 合法 JSON 但 age 为中文字符串、违反 int 约束
         violating = json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False)
         assert structured_fallback_reason(violating, _Person) is not None
 
@@ -334,7 +331,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # strict=True 下 "30" 不被强转为 30，判定为未强制 schema
         assert structured_fallback_reason(json.dumps({"name": "A", "age": "30"}), _Person) is not None
 
     def test_strict_false_tolerates_coercible_returns_none(self):
@@ -342,7 +338,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # strict=False（对齐未声明 strict 的后端）容忍可强转值 "30"，不触发降级
         assert structured_fallback_reason(json.dumps({"name": "A", "age": "30"}), _Person, strict=False) is None
 
     def test_strict_false_still_flags_genuine_violation(self):
@@ -350,7 +345,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # strict=False 仍对真正无法满足 schema 的输出降级：不可强转的 int + 缺必填字段
         non_coercible = json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False)
         assert structured_fallback_reason(non_coercible, _Person, strict=False) is not None
         assert structured_fallback_reason(json.dumps({"name": "A"}), _Person, strict=False) is not None
@@ -367,7 +361,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # dict schema 仅校验是否合法 JSON，即便类型违反声明也不收紧
         violating = json.dumps({"name": "A", "age": "thirty"})
         schema = {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}
         assert structured_fallback_reason(violating, schema) is None
@@ -380,7 +373,6 @@ class TestStructuredFallbackReason:
     def test_none_schema_never_triggers_fallback(self):
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # response_schema 为 None（纯文本生成）时，纯文本不得被误判为需降级
         assert structured_fallback_reason("plain text, not json", None) is None
         assert structured_fallback_reason('{"a": 1}', None) is None
         assert structured_fallback_reason("", None) is None
@@ -475,7 +467,6 @@ class TestSummarizeValidationError:
         except ValidationError as exc:
             summary = summarize_validation_error(exc)
         assert "age" in summary
-        # 摘要不含模型原始输入值
         assert "三十" not in summary
 
 
@@ -530,7 +521,6 @@ class TestCheckTruncation:
         assert exc.provider == "ark"
         assert exc.model == "doubao"
         assert exc.output_tokens == 8192
-        # 点名当前模型 + 换模型建议
         assert "ark/doubao" in str(exc)
         assert "输出能力更高的文本模型" in str(exc)
         assert "output_tokens=8192" in str(exc)

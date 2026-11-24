@@ -61,7 +61,6 @@ class TestGetVideoCapabilities:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
             detail = resp.json()["detail"]
-            # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
@@ -102,7 +101,6 @@ class TestGetVideoCapabilities:
 class TestRealResolverResponse:
     """成功路径走真实 ConfigResolver + registry + 内存 DB，覆盖响应体经 JSON 序列化后的实际形状。"""
 
-    #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
     VEO = "gemini-vertex/veo-3.1-generate-001"
 
     @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
@@ -126,7 +124,6 @@ class TestRealResolverResponse:
         body = response.json()
         assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
         assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
-        # 档位空集只给时间线；内容确认按剧本规划借用的档位选时长，与确认转换同一口径。
         constraints = body["duration_constraints"]
         assert constraints["allowed"] == ([] if fixed_bucket == "r2v" else [8])
         assert constraints["planning"] == (ENDPOINT_FIXED_PLANNING_DURATIONS if fixed_bucket == "r2v" else [8])
@@ -149,7 +146,6 @@ class TestRealResolverResponse:
         body = resp.json()
         assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
-        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
             "resolution": "1080p",
             "uses_reference_images": False,
@@ -333,3 +329,37 @@ class TestDurationConstraintsMatchRequestFacts:
         assert constraints["resolution"] == "720p"
         assert constraints["allowed"] == [4, 6, 8]
         assert constraints["excluded"] == {}
+
+
+@pytest.mark.parametrize("tiers", [(4, 6), (3,)])
+def test_capabilities_expose_planning_and_end_frame_tiers(tmp_path, db_engine, monkeypatch, tiers):
+    from arcreel_catalog_core import DurationConstraints
+    from lib.catalog.query import catalog_data
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            "gemini-vertex",
+            "veo-3.1-generate-001",
+            duration_constraints=DurationConstraints(with_end_frame=tiers),
+        ),
+    )
+    pm = _FakePM(tmp_path)
+    pm.project_data["ready"].update(video_provider_i2v="gemini-vertex/veo-3.1-generate-001")
+    with build_projects_client(
+        monkeypatch, pm, session_factory=async_sessionmaker(db_engine, expire_on_commit=False)
+    ) as client:
+        response = client.get("/api/v1/projects/ready/video-capabilities")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["duration_constraints"]["allowed"] == [4, 6, 8]
+    assert body["end_frame_unit_durations"] == {
+        "without_end_frame": [4, 6, 8],
+        "with_end_frame": [d for d in [4, 6, 8] if d in tiers],
+        "excluded": {str(d): "end_frame" for d in [4, 6, 8] if d not in tiers},
+        "problem": body["end_frame_unit_durations"]["problem"] if tiers == (3,) else None,
+    }
+    if tiers == (3,):
+        assert body["end_frame_unit_durations"]["problem"]["code"] == "video_end_frame_durations_incompatible"

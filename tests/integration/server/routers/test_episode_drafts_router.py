@@ -119,7 +119,6 @@ def test_web_save_blocked_by_a_formal_unit_names_it_by_position(
         violations=[],
         meta={"unit_ids": ["E1U01"]},
     )
-    # 预判在调用文本模型之前：替身只为晋升装配 ScriptGenerator，不会被调用。
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
     use_project_manager(monkeypatch, pm)
     app = FastAPI()

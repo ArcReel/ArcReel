@@ -10,7 +10,6 @@ from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
 
-# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
 _NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 
 
@@ -85,8 +84,6 @@ class TestRetryArtifactDownload:
         assert worker.poll_timeouts == [3600]
 
     def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
-        # 轮询超时读的是配置库。它在翻状态之后失败就没有回滚点，任务会永久停在 running：
-        # 既不被队列认领，也不再满足 retry-download 的资格条件。故必须先读再翻。
         queue = _RetryQueue()
         worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
@@ -340,6 +337,63 @@ class TestTaskErrorLocalization:
             assert "custom-9" not in row["error_message"]
             assert row["error_params"] == {"provider": "custom-9", "model": "I2V_H3"}
             assert row["error_detail"] == encoded
+
+    def test_draft_failures_localize_summary_and_preserve_agent_report(self, monkeypatch):
+        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
+
+        report = (
+            "❌ script_plan 拆分产出有 5 处违约，已保存为待修复草稿\nopen_draft(...)；patch_draft 携带 base_revision"
+        )
+        items = [
+            {
+                "task_id": "draft",
+                "error_message": encode_generation_problem(
+                    GenerationProblem(
+                        code="draft_generation_invalid",
+                        detail=report,
+                        action=GenerationAction.FIX_INPUT,
+                        params={"count": 5},
+                    )
+                ),
+            }
+        ]
+        original = items[0]["error_message"]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        expected = {
+            "zh": "产出有 5 处违约，已保存为待修复草稿。可在草稿中修改，或交给 AI 修复。",
+            "en": "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.",
+            "vi": "Kết quả có 5 vi phạm và đã được lưu thành bản nháp. Hãy sửa bản nháp hoặc nhờ AI sửa.",
+            "ru": "В результате 5 нарушений. Он сохранён как черновик. Отредактируйте черновик или поручите исправление ИИ.",
+        }
+        for locale, summary in expected.items():
+            row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
+            assert row["error_message"] == summary
+            assert row["error_detail"] == report
+            assert row["error_code"] == "draft_generation_invalid"
+            assert row["error_params"] == {"count": 5}
+        assert items[0]["error_message"] == original
+
+    def test_text_database_problem_localizes_without_sql(self, monkeypatch):
+        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
+        from lib.i18n import _
+
+        items = [
+            {
+                "task_id": "db",
+                "error_message": encode_generation_problem(
+                    GenerationProblem(
+                        code="internal_server_error",
+                        detail="internal_server_error",
+                        action=GenerationAction.RETRY,
+                    )
+                ),
+            }
+        ]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi", "ru"):
+            row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
+            assert row["error_message"] == _("internal_server_error", locale=locale)
+            assert row["error_detail"] == "internal_server_error"
 
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem

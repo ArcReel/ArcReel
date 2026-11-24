@@ -27,8 +27,6 @@ def get_locale(request: Request) -> str:
     if not accept_lang:
         return DEFAULT_LOCALE
 
-    # Simple parser for Accept-Language header
-    # e.g., "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
     for lang_range in accept_lang.split(","):
         lang = lang_range.split(";")[0].split("-")[0].strip().lower()
         if lang in SUPPORTED_LOCALES:
@@ -49,8 +47,6 @@ def get_translator(request: Request) -> Callable[..., str]:
 
 Translator = Annotated[Callable[..., str], Depends(get_translator)]
 
-#: 请求语言本身。取译名需要「键缺失时回退到数据源里的原名」的地方（见 translate_or）用它，
-#: 常规成文仍用 Translator。
 Locale = Annotated[str, Depends(get_locale)]
 
 
@@ -71,7 +67,6 @@ async def load_display_names_or_builtin(session: AsyncSession, locale: str) -> D
     try:
         return await load_display_names(session, locale)
     except Exception:
-        # 会话由整个请求共用：回滚失败的查询，路由自己的查询不受牵连。
         await session.rollback()
         return _builtin_display_names(locale)
 
@@ -91,5 +86,4 @@ async def request_display_names(request: Request) -> DisplayNames:
         return _builtin_display_names(locale)
 
 
-#: 失败文案渲染所需的显示名目录：供应商与模型 ID 按请求语言换成名称。
 DisplayNamesCatalog = Annotated[DisplayNames, Depends(get_display_names)]

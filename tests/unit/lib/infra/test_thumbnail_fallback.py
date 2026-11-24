@@ -81,7 +81,6 @@ class _FfmpegProc:
         self._payload = payload
 
     async def wait(self) -> None:
-        # 真实输出由子进程写，替身放进工作线程，不占事件循环。
         if self._payload is not None:
             await asyncio.to_thread(self._target.write_bytes, self._payload)
 

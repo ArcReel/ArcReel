@@ -26,7 +26,6 @@ def _price(model: str, *, binding: str | None = None, provider: float = 1.0, mod
 
 
 def test_a_relay_name_that_normalizes_to_an_entry_is_charged_at_the_entry_price_times_both_multipliers():
-    # gpt-5.4 标准档、上下文不足 272k：输入 2.5、输出 15（每百万 token）→ 0.5 + 1.5 = 2.0 USD，再乘 0.8 × 1.5
     cost = _price("openai/GPT-5.4", provider=0.8, model_multiplier=1.5)
 
     assert isinstance(cost, Priced)
@@ -73,7 +72,6 @@ def test_a_video_call_on_a_custom_channel_is_charged_per_second_at_the_sent_reso
         model_multiplier=1.0,
     )
 
-    # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒
     assert cost == Priced(pytest.approx(2.5), "CNY")
 
 

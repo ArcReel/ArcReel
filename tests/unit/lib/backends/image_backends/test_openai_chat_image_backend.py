@@ -9,13 +9,15 @@ import base64
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import get_endpoint_spec
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
-_REF = b"\xff\xd8\xff" + b"fake-jpeg-ref"
+_REF = image_bytes(fmt="JPEG")
 
 
 def _provider() -> SimpleNamespace:
@@ -37,7 +39,7 @@ def _chat_response(message: dict) -> httpx.Response:
 
 
 async def test_image_to_image_sends_reference_and_saves_returned_image(tmp_path):
-    ref = tmp_path / "ref.png"  # 扩展名与实际编码不符：data URI 按文件头取 MIME
+    ref = tmp_path / "ref.png"
     ref.write_bytes(_REF)
     out = tmp_path / "out" / "storyboard.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-3-pro-image")
@@ -76,7 +78,6 @@ async def test_image_to_image_sends_reference_and_saves_returned_image(tmp_path)
 
 
 async def test_text_to_image_extracts_markdown_image_from_content(tmp_path):
-    # 部分中转站不填 message.images，把图片以 Markdown 内联在 content 里返回
     out = tmp_path / "out.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-2.5-flash-image")
     markdown = "好的：\n![image](https://cdn.example.com/a.png)"
@@ -94,7 +95,6 @@ async def test_text_to_image_extracts_markdown_image_from_content(tmp_path):
 
 
 async def test_download_failure_retries_download_only(tmp_path, poll_clock):
-    # 出图已计费：取件的瞬态失败只在下载层重试，不重发 Chat Completions 请求
     out = tmp_path / "out.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-2.5-flash-image")
 
@@ -110,3 +110,72 @@ async def test_download_failure_retries_download_only(tmp_path, poll_clock):
     assert route.call_count == 1
     assert download.call_count == 2
     assert out.read_bytes() == _PNG
+
+
+@pytest.mark.parametrize(
+    ("size", "sent", "amount"),
+    [
+        ("1K", "1K", 0.134),
+        (" 2k ", "2K", 0.134),
+        ("4K", "4K", 0.24),
+        (None, None, 0.134),
+        ("1024x1536", None, 0.134),
+    ],
+)
+async def test_custom_image_prices_the_sent_resolution(tmp_path, size, sent, amount):
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.billing.catalog_pricing import price_custom_call
+    from lib.billing.metering import Priced
+    from lib.custom_provider.backends import CustomImageBackend
+    from lib.custom_provider.metering import custom_image_estimate
+
+    spec = get_endpoint_spec("openai-chat-image")
+    delegate = spec.build_backend(_provider(), "gemini-3-pro-image")
+    backend = CustomImageBackend(provider_id="custom-7", delegate=delegate, model="gemini-3-pro-image")
+    data_uri = "data:image/png;base64," + base64.b64encode(_PNG).decode()
+    with capture_http() as router:
+        route = router.post("https://relay.example.com/v1/chat/completions").mock(
+            return_value=_chat_response({"content": "", "images": [{"image_url": {"url": data_uri}}]})
+        )
+        result = await backend.generate(
+            ImageGenerationRequest(prompt="cat", output_path=tmp_path / "out.png", image_size=size)
+        )
+    config = request_json(only_request(route))["image_config"]
+    assert config == ({"aspect_ratio": "9:16", "image_size": sent} if sent else {"aspect_ratio": "9:16"})
+    estimate = custom_image_estimate(
+        spec.metering_backend,
+        ImageRequestFacts(
+            model="gemini-3-pro-image",
+            aspect_ratio="9:16",
+            image_size=size,
+        ),
+    )
+    for usage, estimating in [(estimate, True), (result.usage, False)]:
+        assert usage is not None
+        assert usage.dimensions == ({"resolution": sent} if sent else {})
+        assert price_custom_call(
+            model="gemini-3-pro-image",
+            media_type="image",
+            entry_binding=None,
+            requests=(usage,),
+            provider_multiplier=1.0,
+            model_multiplier=1.0,
+            estimate=estimating,
+        ) == Priced(pytest.approx(amount), "USD")
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-3-pro-image")
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls

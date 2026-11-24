@@ -2,8 +2,6 @@
 
 # shellcheck disable=SC2034 # REPO_CONTEXT_SHIFT is returned to the sourcing script.
 
-# Source this file, call enter_repo_root <error-prefix> "$@", then shift by
-# REPO_CONTEXT_SHIFT before parsing the script's own arguments.
 enter_repo_root() {
   local error_prefix="$1"
   shift

@@ -100,7 +100,6 @@ def _script(content_mode: str, units: object, *, episode: int = 1) -> dict:
 
 
 def _draft_path(project_dir: Path, episode: int = 1) -> Path:
-    # v8 项目的脚本规划草稿仍是 v9→v10 改名前的名字。
     return episode_drafts_dir(project_dir, episode) / "step1_reference_units.json"
 
 
@@ -357,7 +356,6 @@ def test_storyboard_project_only_gets_the_version_bump(tmp_path: Path) -> None:
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 9
     assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
-    # 分镜图生视频只改 project.json，备份也只有它那一份。
     backups = sorted(path.name.split(".bak.v8-")[0] for path in project_dir.rglob("*.bak.v8-*"))
     assert backups == ["project.json"]
 

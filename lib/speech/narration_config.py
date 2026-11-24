@@ -22,13 +22,10 @@ USE_TTS = "use_tts"
 NarrationDelivery = Literal["post_production", "use_tts"]
 
 NARRATION_DELIVERY_FIELD = "narration_delivery"
-#: TTS 快照的三个 project.json 字段。``audio_backend`` 必须是完整的 ``provider/model``；
-#: ``narration_speed`` 缺省表示不向供应商传语速。
 TTS_BACKEND_FIELD = "audio_backend"
 TTS_VOICE_FIELD = "narration_voice"
 TTS_SPEED_FIELD = "narration_speed"
 NARRATION_CONFIG_FIELDS = (NARRATION_DELIVERY_FIELD, TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD)
-#: 自这一项目 schema 起 TTS 快照是旁白配音时效的输入；更早的 schema 没有快照。
 PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION = 16
 
 

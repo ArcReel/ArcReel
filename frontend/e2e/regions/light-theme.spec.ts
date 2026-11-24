@@ -1,11 +1,8 @@
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import type { ApiOverrides } from "../support/test.ts";
 
-// 浅色主题抽样：系统为浅色、偏好为默认的「跟随系统」时，首屏即以浅色渲染。
-// 颜色回归大多出在 token 层，这里只取大厅、设置、工作区与一个弹层；axe 的对比度检查同样覆盖浅色。
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };

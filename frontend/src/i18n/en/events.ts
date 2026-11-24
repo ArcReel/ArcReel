@@ -1,7 +1,3 @@
-// Project change notification copy. `label.*` mirrors the stable `label_key`
-// carried by each change event (see lib/i18n/*/events.py); the remaining keys
-// build the sentence around it. Group sentences only render for counts above
-// one, so `entity.*` and `noun.*` use plural wording.
 export default {
   "label.grid": 'Multi-grid storyboard "{{id}}"',
   "label.grid_split": 'Multi-grid storyboard "{{id}}" split',
@@ -43,8 +39,6 @@ export default {
   "entity.overview": "project overviews",
   "entity.draft": "script plan results",
   "entity.grid": "multi-grid storyboards",
-  // Task terminal states are refresh signals (important=false) and never reach
-  // notification copy; this entry only keeps the mapping exhaustive.
   "entity.task": "tasks",
   "entity.fallback": "items",
 

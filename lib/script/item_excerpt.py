@@ -10,7 +10,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-#: 剧本条目数组与它的 ID 字段，四种骨架各一。
 _ITEM_ARRAYS: tuple[tuple[str, str], ...] = (
     ("segments", "segment_id"),
     ("scenes", "scene_id"),

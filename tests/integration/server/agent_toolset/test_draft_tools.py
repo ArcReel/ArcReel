@@ -82,11 +82,6 @@ def _write_reference_prompt_authoring(fake_ctx: ToolHarness, script: dict) -> No
     (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# open_draft
-# ---------------------------------------------------------------------------
-
-
 async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolHarness) -> None:
     """取回的是扁平草稿结构，不装派生物：Agent 改的是引用语法正文 / 原文锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
@@ -331,8 +326,6 @@ async def test_open_draft_returns_drama_scenes(fake_ctx: ToolHarness) -> None:
     assert envelope["meta"]["source"] == "source/episode_1.txt"
     assert envelope["meta"]["base_fingerprint"]
     scene = envelope["content"]["scenes"][0]
-    # needs_replan 按台词准入派生，取回时剥掉：留在草稿里 Agent 会当成可手写字段去改，
-    # 而晋升侧无论如何都按现值重派生，两者不一致只会误导。
     assert "needs_replan" not in scene
     assert scene["scene_description"] == "阿离站在山门前。"
     assert drama_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
@@ -597,7 +590,6 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
 
 
 async def test_patch_draft_moves_project_activity_forward(fake_ctx: ToolHarness) -> None:
-    # 草稿是 JSON，修改时间不计入活动，由写入出口记账。
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
@@ -624,7 +616,6 @@ async def test_patch_draft_moves_project_activity_forward(fake_ctx: ToolHarness)
 
 
 async def test_discard_draft_moves_project_activity_forward(fake_ctx: ToolHarness) -> None:
-    # 丢弃删掉草稿文件后不留修改时间，由删除出口记账。
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx))
@@ -812,7 +803,6 @@ async def test_formal_revision_matches_the_script_plan_content_and_workflow_plan
 
     content = await run_declared_tool("get_script_plan_content", fake_ctx, {"episode_id": 1})
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
-    # 制作计划的闸门与产物取自制作状态；状态服务要真实的项目管理器。
     status = WorkflowStateService(ProjectManager(fake_ctx.data_root)).get_status(fake_ctx.project_name, 1)
 
     assert content.problem is None, content
@@ -828,7 +818,6 @@ async def test_patch_draft_receipt_omits_the_stale_violation_report(fake_ctx: To
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
-    # 模拟上一次晋升失败留下的报告。
     envelope = read_rv_quarantine(fake_ctx)
     stale = [{"code": "novel_text_coverage", "label": "", "message": "旧正文的违约", "line": None}]
     rv_quarantine_path(fake_ctx).write_text(
@@ -958,7 +947,6 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
             snapshot_writer.stdin.write("\n")
             snapshot_writer.stdin.flush()
         except BrokenPipeError:
-            # The child may close stdin after its FIFO write completes.
             pass
 
     patching = asyncio.create_task(
@@ -975,7 +963,6 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
         if snapshot_writer.poll() is None:
             snapshot_writer.terminate()
         await asyncio.to_thread(snapshot_writer.wait, 10)
-        # The child may close stdin after its FIFO write completes.
         with contextlib.suppress(BrokenPipeError):
             snapshot_writer.stdin.close()
         snapshot_writer.stdout.close()
@@ -1044,7 +1031,6 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     assert second["discarded"] is False
     assert not rv_quarantine_path(fake_ctx).exists()
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == formal_before
-    # 丢弃的草稿进项目回收站，恢复回原位
     project_dir = rv_quarantine_path(fake_ctx).parents[2]
     (record,) = project_trash.list_records(project_dir)
     assert record.origin == "agent"
@@ -1108,7 +1094,6 @@ async def test_promote_prompt_authoring_draft_names_rejected_formal_unit_by_posi
 ) -> None:
     """正式剧本单元没过晋升前预判：Agent 仍收到 draft_invalid，说明按「视频单元 N」称呼，不带内部单元 ID。"""
     rv_source(fake_ctx)
-    # 预判在调用文本模型之前：替身只为晋升装配 ScriptGenerator，不会被调用。
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
     _write_reference_prompt_authoring(
         fake_ctx,
@@ -1119,7 +1104,6 @@ async def test_promote_prompt_authoring_draft_names_rejected_formal_unit_by_posi
             "video_units": [{"unit_id": "E1U01", **unit}],
         },
     )
-    # 正式剧本经产物清单登记才算在场，晋升才会读到它。
     fake_ctx.pm.mirror_to_disk("episode_1.json")
     args = {"episode_id": 1, "doc_type": "reference_prompt_authoring"}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))

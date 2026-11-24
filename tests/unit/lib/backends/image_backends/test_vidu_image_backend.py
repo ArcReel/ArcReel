@@ -22,6 +22,7 @@ from lib.backends.image_backends.vidu import (
     ViduImageBackend,
 )
 from lib.backends.providers import PROVIDER_VIDU
+from tests.factories import image_bytes
 from tests.http_capture import capture_http
 
 
@@ -50,7 +51,6 @@ class TestWhitelistConfig:
     """避免运行时调用，先把配置常量当 spec 钉死，防止误改。"""
 
     def test_q1_aspect_ratio_no_2_3_or_3_2(self):
-        # 文档：viduq1 只允许 16:9 9:16 1:1 3:4 4:3
         assert "2:3" not in _ASPECT_RATIO_WHITELIST["viduq1"]
         assert "3:2" not in _ASPECT_RATIO_WHITELIST["viduq1"]
 
@@ -88,8 +88,6 @@ class TestCapabilityMismatchRaises:
     async def test_q2_with_refs_path_does_not_raise_capability(
         self, tmp_path: Path, image_output_path: Path, monkeypatch
     ):
-        # 仅校验 capability 检查不会先拦下来；实际生成走 mock。
-        # 让 create_vidu_client 抛错是为了快速短路，避免真正发请求。
         from lib.backends.image_backends import vidu as mod
 
         def _boom(*a, **kw):
@@ -97,14 +95,13 @@ class TestCapabilityMismatchRaises:
 
         monkeypatch.setattr(mod, "create_vidu_client", _boom)
         ref_file = tmp_path / "ref.png"
-        ref_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+        ref_file.write_bytes(image_bytes())
         backend = ViduImageBackend(api_key="test-key", model="viduq2")
         request = ImageGenerationRequest(
             prompt="hello",
             output_path=image_output_path,
             reference_images=[ReferenceImage(path=str(ref_file))],
         )
-        # 不应是 ImageCapabilityError；应是我们注入的 RuntimeError
         with pytest.raises(RuntimeError, match="short-circuit"):
             await backend.generate(request)
 
@@ -115,7 +112,7 @@ class TestViduReferenceImageLimit:
         refs = []
         for index in range(9):
             ref_path = tmp_path / f"r{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            ref_path.write_bytes(image_bytes())
             refs.append(ReferenceImage(path=str(ref_path)))
 
         with capture_http() as router:
@@ -167,7 +164,6 @@ class TestViduImageCreateTaskHttpErrors:
         with pytest.raises(httpx.HTTPStatusError) as ei:
             await backend._create_task(client, {"model": "viduq2", "prompt": "x"})
         assert ei.value.response.status_code == 413
-        # 413 非 retryable → fail-fast 单次
         assert client.post.call_count == 1
 
     async def test_rejection_body_becomes_a_redacted_provider_reason(self, image_output_path: Path):
@@ -204,3 +200,20 @@ class TestViduImageResolutionPassthrough:
 
         assert json.loads(route.calls.last.request.content)["resolution"] == resolution
         assert ei.value.provider_reason == "1013: resolution not supported"
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = ViduImageBackend(api_key="test", model="viduq2")
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls

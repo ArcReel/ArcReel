@@ -136,13 +136,10 @@ class CustomImageBackend:
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     async def reference_image_limit(self) -> int | None:
-        # 通道一侧的上限即被包装的 backend 声明的那一个。
         return await self._delegate.reference_image_limit()
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)
-        # 没有声明计量的通道（ComfyUI、声明式图片、OpenAI Chat 出图）按通用口径上报张数；内置调用通道自己带的
-        # 计量原样保留并补上张数，计价交给对应条目的价目表（docs/adr/0100）。
         return replace(result, usage=with_image_counts(result.usage, len(request.reference_images)))
 
 
@@ -269,7 +266,6 @@ class CustomVideoBackend:
         rebind = getattr(self._delegate, "with_catalog_entry", None)
         if not callable(rebind):
             return self
-        # 协议 backend 的 with_catalog_entry 返回同类副本（见 name_family.EntryBoundCapabilities）。
         delegate = cast("VideoBackend", rebind(entry))
         return CustomVideoBackend(
             provider_id=self._provider_id,
@@ -332,24 +328,29 @@ class CustomVideoBackend:
 
             base = effective_video_capabilities(base, self._entry_facts)
         if self._capability_overrides:
-            # 合并后不变式与 synthesize 同口径：本路径也是一次「基底 ⊕ 稀疏覆盖」合并，
-            # 漏掉就会让档位查询产出 direct ⊕ 上限 0 这种合成侧已挡住的组合。
-            from lib.custom_provider.capabilities import enforce_audio_capability_invariant, merge_overrides
+            from lib.custom_provider.capabilities import (
+                enforce_audio_capability_invariant,
+                merge_overrides,
+                retain_channel_audio_switch,
+            )
 
+            channel_caps = getattr(self._delegate, "video_capabilities", None)
+            channel = channel_caps if isinstance(channel_caps, VideoCapabilities) else base
             return enforce_audio_capability_invariant(
-                merge_overrides(base, self._capability_overrides),
+                retain_channel_audio_switch(channel, merge_overrides(base, self._capability_overrides)),
                 endpoint=self._delegate.name,
                 model_id=self._model,
             )
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 注入实际执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
-        # 续跑据此判定协议是否已被换掉。replace 而非就地改写：request 由调用方持有，
-        # 包装层不该留下副作用。
         if self._endpoint is not None:
             request = replace(request, execution_endpoint=self._endpoint)
-        return await self._delegate.generate(request)
+        result = await self._delegate.generate(request)
+        mode = (request.video_capabilities or self.video_capabilities).audio_track_for_route(
+            "r2v" if request.reference_images else "i2v"
+        )
+        return result if mode.has_audio_track else replace(result, generate_audio=False)
 
     @property
     def catalog_entry(self) -> CatalogEntry | None:
@@ -369,10 +370,14 @@ class CustomVideoBackend:
         ``entry`` 是模型对应的条目，结算经 ``backend_metered_usage`` 调用时取 :attr:`catalog_entry`，被包装的调用通道
         按它认定模型。见 :mod:`lib.custom_provider.metering`。
         """
+        if result is None and request.video_capabilities is None and self._video_capabilities is not None:
+            request = replace(request, video_capabilities=self._video_capabilities)
         return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result, entry=entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
-        # 由 orphan handler 标 [resume_unsupported]。回放提交时的 base，让路径覆盖按它认出续跑请求。
         with replaying_base_url(request.submitted_base_url):
-            return await self._delegate.resume_video(job_id, request)
+            result = await self._delegate.resume_video(job_id, request)
+        if request.video_capabilities is None:
+            return result
+        mode = request.video_capabilities.audio_track_for_route("r2v" if request.reference_images else "i2v")
+        return result if mode.has_audio_track else replace(result, generate_audio=False)

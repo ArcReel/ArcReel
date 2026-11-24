@@ -33,15 +33,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_OFFICIAL_SERVICE_URL = "https://arc-reel.com"
 OFFICIAL_SERVICE_URL_ENV = "ARCREEL_OFFICIAL_SERVICE_URL"
-#: 系统设置：用户可见的总开关，``"false"`` 为关闭，缺省为开。
 ENABLED_SETTING = "official_service_enabled"
-#: 系统设置：首次进入市场页的说明已确认。
 NOTICE_SEEN_SETTING = "official_service_notice_seen"
-#: 系统设置：实例标识（UUIDv4），首次出站时生成，重置即删除。
 INSTANCE_ID_SETTING = "official_service_instance_id"
 INSTANCE_HEADER = "X-ArcReel-Instance"
 REQUEST_TIMEOUT_SECONDS = 3.0
-#: 官方服务批量查询聚合的单次条目上限。
 AGGREGATES_BATCH_SIZE = 100
 
 _ERROR_KEY_PREFIX = "official_service_error_"
@@ -86,10 +82,8 @@ class EntryRef:
 @dataclass(frozen=True)
 class EntryAggregate:
     ref: EntryRef
-    #: 服务端取整后的展示值。
     installs: int
     rating_count: int
-    #: 评分人数不足服务端阈值时为 None。
     rating_average: float | None
 
 
@@ -109,12 +103,9 @@ SUBMISSION_STATUSES = frozenset({"open", "merged", "closed"})
 
 @dataclass(frozen=True)
 class OfficialServiceState:
-    #: 地址非空。
     available: bool
-    #: 地址非空且总开关为开：只有此时才会对官方服务出站。
     enabled: bool
     notice_seen: bool
-    #: 尚未生成时为 None。
     instance_id: str | None
 
 
@@ -223,7 +214,6 @@ def _parse_aggregates(response: httpx.Response, refs: Sequence[EntryRef]) -> lis
                 and (average is None or (isinstance(average, int | float) and not isinstance(average, bool)))
             ):
                 raise TypeError("aggregate field types")
-            # 越界值说明响应不可信：整批按不可用处理，前端不展示数字。
             if installs < 0 or count < 0 or (average is not None and not 1 <= average <= 5):
                 raise ValueError("aggregate field range")
             parsed.append(

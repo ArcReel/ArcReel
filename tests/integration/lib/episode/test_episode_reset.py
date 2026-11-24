@@ -32,9 +32,6 @@ from lib.episode.episode_reset import (
 )
 from lib.episode.episode_sources import discover_sources, planning_start
 
-# 全部用例跨 EpisodeReset / ProjectManager / EpisodePlanner 协作，用真实 tmp_path 文件系统，
-# 不 mock 被测模块的公共入口——按 docs/standards/testing.md 的分档规则归 integration。
-
 SOURCE = "第一章 山村少年。李恒在山村长大。第二章 下山。李恒辞别师父。第三章 风波。少女身份成谜。"
 
 
@@ -115,11 +112,6 @@ def _write_claimed_artifact(
     )
 
 
-# ---------------------------------------------------------------------------
-# 全量重置：账本任意损坏都必须成功
-# ---------------------------------------------------------------------------
-
-
 def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
     """cursor 越界 + 条目坐标越界 + 账本与磁盘不一致：全量重置仍成功，随后可从头规划。"""
     project_dir = _write_project(
@@ -138,7 +130,6 @@ def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
     project = _load_project(project_dir)
     assert project["episodes"] == []
     assert _planning_start(project_dir) == ("source/novel.txt", 0)
-    # 重置后规划起点回到第一个源文件开头（plan 可正常从头规划）
     assert _planning_start(project_dir) == ("source/novel.txt", 0)
 
 
@@ -183,11 +174,6 @@ def test_reset_removes_remaining_file(tmp_path: Path) -> None:
 
     assert not remaining.exists()
     assert _planning_start(project_dir) == ("source/novel.txt", 0)
-
-
-# ---------------------------------------------------------------------------
-# 文件处置：派生的删、非派生的留底
-# ---------------------------------------------------------------------------
 
 
 def test_derived_files_deleted_and_legacy_files_archived(tmp_path: Path) -> None:
@@ -280,8 +266,6 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
 ) -> None:
     """锁内复扫发现确认清单之外的新消费集时拒绝提交、账本不被改动：这是防止「确认时看到的
     清单」与「实际提交时的账本状态」不一致的关键安全网，用 monkeypatch 模拟该竞态窗口。"""
-    # 通过 sys.modules 取模块对象供 monkeypatch 使用，不再新增一种 import 风格
-    # （lib.episode.episode_reset 已在文件顶部用 from-import 引入）
     episode_reset_module = sys.modules["lib.episode.episode_reset"]
     project_dir = _write_project(tmp_path)
     before = _load_project(project_dir)
@@ -291,7 +275,7 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
     def _fake_scan(pd: Path, project: dict, *, retained: frozenset[int] = frozenset()):
         calls["n"] += 1
         result = original_scan(pd, project, retained=retained)
-        if calls["n"] == 2:  # 第二次调用发生在锁内（_commit 的复扫）
+        if calls["n"] == 2:
             result.consumed.append(1)
         return result
 
@@ -301,11 +285,6 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
         reset_episode_planning(project_dir)
 
     assert _load_project(project_dir) == before
-
-
-# ---------------------------------------------------------------------------
-# 已消费集的二段确认
-# ---------------------------------------------------------------------------
 
 
 def test_consumed_requires_confirmation_and_writes_nothing(tmp_path: Path) -> None:
@@ -374,16 +353,6 @@ def test_confirmed_reset_keeps_downstream_products(tmp_path: Path) -> None:
     assert (entry["episode"], entry["source_origin"], entry["ledger_status"]) == (1, "none", "stale")
     assert "source_range" not in entry
     assert _planning_start(project_dir) == ("source/novel.txt", 0)
-
-
-# ---------------------------------------------------------------------------
-# 部分重置尚未支持
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# 损坏边界：非列表 episodes / 符号链接 / 磁盘孤儿产物 / 同集号别名文件
-# ---------------------------------------------------------------------------
 
 
 def test_reset_tolerates_non_list_episodes(tmp_path: Path) -> None:
@@ -546,7 +515,7 @@ def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path)
     result = reset_episode_planning(project_dir)
 
     assert isinstance(result, EpisodeResetResult)
-    assert stale_backup.is_symlink()  # 旧留底（悬空链接）未被覆盖
+    assert stale_backup.is_symlink()
     new_backup = project_dir / "source" / "_episode_2.txt.1.bak"
     assert new_backup.read_text(encoding="utf-8") == "这一次的内容"
     assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.1.bak")]
@@ -558,7 +527,7 @@ def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: P
     project_dir = _write_project(tmp_path)
     valid = project_dir / "source" / "episode_1.txt"
     valid.write_text(SOURCE[:10], encoding="utf-8")
-    dangling = project_dir / "source" / "episode_01.txt"  # 排序早于 episode_1.txt
+    dangling = project_dir / "source" / "episode_01.txt"
     dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
 
     assert discover_episode_files(project_dir)[1] == valid
@@ -670,11 +639,6 @@ def test_reset_rejects_non_positive_episode_id(tmp_path: Path) -> None:
     assert _load_project(project_dir) == before
 
 
-# ---------------------------------------------------------------------------
-# 部分重置：成功路径
-# ---------------------------------------------------------------------------
-
-
 def test_partial_reset_keeps_retained_episodes_and_rewinds_cursor(tmp_path: Path) -> None:
     """规划 3 集后从集 ID 2 部分重置：账本只保留集 ID 1，游标退到它的原文范围末尾。"""
     end1 = 10
@@ -719,7 +683,7 @@ def test_partial_reset_deletes_derived_files_in_range_keeps_retained(tmp_path: P
     assert isinstance(result, EpisodeResetResult)
     assert result.deleted_files == ["source/episode_2.txt"]
     assert not reset_file.exists()
-    assert retained_file.exists()  # 保留段派生文件不动
+    assert retained_file.exists()
 
 
 def test_partial_reset_archives_file_without_source_range_in_range(tmp_path: Path) -> None:
@@ -740,11 +704,6 @@ def test_partial_reset_archives_file_without_source_range_in_range(tmp_path: Pat
     assert isinstance(result, EpisodeResetResult)
     assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.bak")]
     assert not legacy.exists()
-
-
-# ---------------------------------------------------------------------------
-# 部分重置：前置校验拒绝（账本与文件均不被改动）
-# ---------------------------------------------------------------------------
 
 
 def test_partial_reset_rejects_when_episode_id_not_in_ledger(tmp_path: Path) -> None:
@@ -840,7 +799,7 @@ def test_partial_reset_rejects_on_fingerprint_mismatch(tmp_path: Path) -> None:
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
             _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
-        extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": "0" * 64}},  # 与实际内容不一致的假指纹
+        extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": "0" * 64}},
     )
     before = _load_project(project_dir)
 
@@ -1148,11 +1107,6 @@ def test_partial_reset_rejects_non_list_episodes(tmp_path: Path) -> None:
         reset_episode_planning(project_dir, episode_id=2)
 
     assert _load_project(project_dir) == before
-
-
-# ---------------------------------------------------------------------------
-# 部分重置：已消费集的二段确认
-# ---------------------------------------------------------------------------
 
 
 def test_partial_reset_consumed_within_range_requires_confirmation(tmp_path: Path) -> None:

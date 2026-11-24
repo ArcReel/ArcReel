@@ -34,7 +34,7 @@ async def test_append_dedups_by_uuid(session_factory):
     store = DbSessionStore(session_factory, user_id="u1")
     entry = {"type": "user", "uuid": "dup", "timestamp": "t"}
     await store.append(KEY, [entry])
-    await store.append(KEY, [entry])  # 重放：必须幂等
+    await store.append(KEY, [entry])
 
     async with session_factory() as session:
         count = len((await session.execute(select(AgentSessionEntry))).scalars().all())
@@ -57,7 +57,7 @@ async def test_append_does_not_dedup_when_uuid_missing(session_factory):
 @pytest.mark.asyncio
 async def test_append_empty_is_noop(session_factory):
     store = DbSessionStore(session_factory, user_id="u1")
-    await store.append(KEY, [])  # 不应抛、不应建空行
+    await store.append(KEY, [])
 
     async with session_factory() as session:
         count = len((await session.execute(select(AgentSessionEntry))).scalars().all())

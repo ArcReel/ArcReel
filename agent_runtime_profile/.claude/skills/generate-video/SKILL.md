@@ -54,7 +54,7 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 一次调用完成入队并返回 durable batch；按返回的 `poll_after_seconds` 调用 `get_generation_batch`，直到 `done: true` 后再处理结果：
 
-- 把点名视为强制重做，覆盖已有成片。
+- 点名并传 `force: true` 才会重新生成已有成片。历史版本保留。
 - 已有在途任务时不自动 force 重做；等待并读取其 batch 结果，避免对刚完成的目标再次付费提交。
 - 只生成剧本中点名的自包含视频单元；未命中的 ID 记为 `blocked`，带 `generation_unit_not_found`。
 - 调用中断后查询 durable batch；只把未成功的 ID 用 `selected`、`force: false` 重发，已完成项归 `skipped`。
@@ -80,10 +80,12 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 视频整批请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。Web 与 Agent 走同一套准入与同一套请求选择语义，没有 Agent 专属的宽松通道。
+唯一例外是参考生视频单元的参考图超限（`video_reference_images_exceeded`）：该单元单独列为 `blocked`
+并附调整原因，不连带其余目标；剩下的目标仍按全有或全无判定。
 
 参考生视频按视频单元的引用状态选择生效档位，把编排时长投影到模型支持的申请档位。申请档位不同于编排时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的视频单元、编排秒数、申请秒数
-与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**：
+与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**（参考图超限的单元会再次被单独剔除）：
 
 ```text
 mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode_id": 1},
@@ -99,16 +101,9 @@ mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "
 **不要把整批拆小去先跑通过的那一半**——那既绕开全有或全无，也会重复提交已经付过费的视频单元。
 能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
 
-### 结果怎么读、怎么说
+### 结果与历史版本
 
-`task_state`（队列任务）、`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物
-current / stale / missing / blocked）与 workflow 步骤状态互相独立，**分开陈述**：「任务成功」不等于
-「当前产物有效」。`provider_checkpoint.submitted` 为真表示供应商侧很可能已计费；任务
-`interrupted` 表示没有供应商裁决，一律按 `problem.action` 决定；该情形通常交回
-`wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`。
-
-stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；是否重做由用户明确决定。
-不自动删除、覆盖或重生任何已付费产物与历史版本。
+读取 `.claude/references/generation-results.md`，按逐 ID 结果与四条状态轴报告。stale 产物仍可用，付费重做由用户明确决定。
 
 ## 工作流程
 
@@ -133,5 +128,5 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 
 - storyboard：每个目标分镜都有可用分镜图，动作与发声内容可执行。
 - 参考生视频：每个目标视频单元有非空正文、合法编排时长、单一发声归属，且未标记 `needs_replan`。
-- reference：参考图由服务端在执行期从正文 `@[名称]` 的首次提及顺序解析；未登记的提及只产生警告、不阻断入队，让服务端按 `max_reference_images` 裁剪。
+- reference：参考图由服务端在执行期从正文 `@[名称]` 的首次提及顺序解析；未登记的提及只产生警告、不阻断入队，已装配参考图超过 `get_video_capabilities.max_reference_images` 时会在付费前拒绝。请减少 @ 引用、拆分视频单元或换模型后再提交。
 - reference：输出路径为 `reference_videos/{unit_id}.mp4`。

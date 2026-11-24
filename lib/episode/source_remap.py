@@ -24,7 +24,6 @@ from dataclasses import dataclass
 
 from lib.episode.episode_ledger import SourceDoc, SourceSpan
 
-#: 逐字对齐的单侧字数上限。行级对齐后，替换块两侧都不超过它时再逐字细化；更大的块整体按替换处理。
 _CHAR_ALIGN_LIMIT = 8000
 
 Opcode = tuple[str, int, int, int, int]
@@ -118,8 +117,6 @@ def align_texts(old: str, new: str) -> TextAlignment:
     suffix = 0
     while suffix < limit - prefix and old[len(old) - 1 - suffix] == new[len(new) - 1 - suffix]:
         suffix += 1
-    # 相同的开头与结尾退到整行：不然被删掉的整行与后面一行同样的开头字会被认成没删，改动落到错误的集里。
-    # 一行太长时不退，避免整段没有换行的文本退成全文对齐
     line_start = old.rfind("\n", 0, prefix) + 1
     if prefix - line_start <= _CHAR_ALIGN_LIMIT:
         prefix = line_start
@@ -145,9 +142,7 @@ class RangeRemap:
 
     episode: int
     before: SourceSpan
-    #: 改动后的原文范围；范围里没有非空白文字（整段被删）时为 None。
     after: SourceSpan | None
-    #: 范围内的文字有变化（含整段被删）。
     text_changed: bool
 
 
@@ -222,7 +217,6 @@ def remap_for_edit(
         starts_here, ends_here = first == target, last == target
         low = span.start if starts_here else 0
         high = span.end if ends_here else len(old_text)
-        # 终点与下一集起点相接时，插在分界上的新文字归这一集；终点之后是未切分的原文时不归
         shared_end = old.global_end(span) in starts
         include_end = not ends_here or shared_end
         changed = alignment.changed_between(

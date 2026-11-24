@@ -91,8 +91,6 @@ def provider_rejected_error(exc: httpx.HTTPStatusError, *, provider_reason: str 
 
 
 def _redacted_message(exc: httpx.HTTPStatusError) -> str:
-    # userinfo 与查询串一并剥掉：base_url 允许用户自填，写成 https://user:pw@host 时口令就在
-    # 权限段里，httpx 原样保留它，这条消息又会落进 task.error_message 并随任务列表回传。
     return f"{exc.response.status_code} response for {exc.request.url.copy_with(query=None, userinfo=b'')}"
 
 

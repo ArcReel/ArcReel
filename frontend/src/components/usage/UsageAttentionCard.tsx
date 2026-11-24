@@ -18,10 +18,6 @@ interface UsageAttentionCardProps {
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
 }
 
-/**
- * 需要关注只在真有异常时渲染，由调用方按 `summary.attention` 是否为空决定；
- * 空卡片比没有卡片更占地方也更没信息。
- */
 export function UsageAttentionCard({ summary, onChange }: UsageAttentionCardProps) {
   const { t } = useTranslation("dashboard");
   const providerLabel = providerLabelResolver(summary);
@@ -92,8 +88,6 @@ function AttentionItem({
         time: formatShortDateTime(item.last_failed_at) ?? "—",
       });
 
-  // 失败率偏高把状态一并切到失败，用户点进去看到的就是那些失败行；连续失败只写目标三维，
-  // 该分镜的成功与失败要连起来看才知道问题是不是还在。
   const patch: Partial<UsageRecordsFilters> = isRate
     ? { provider: item.provider, model: item.model, status: "failed" }
     : {

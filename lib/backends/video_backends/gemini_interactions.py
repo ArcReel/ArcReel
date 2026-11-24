@@ -29,6 +29,7 @@ from lib.backends.backend_runtime import (
     faststart_video_artifact,
     is_retryable_http_status,
     poll_with_retry,
+    read_video_images,
     should_retry_poll,
 )
 from lib.backends.providers import PROVIDER_GEMINI
@@ -40,10 +41,8 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-#: 仍在生成的状态；其余状态都是终态，``completed`` 之外的终态按失败处理。
 _RUNNING_STATUSES = frozenset({"in_progress", "queued"})
 
-#: 每秒成片的视频 token 数，按分辨率档位（Gemini API 定价页）；没发分辨率时按服务端缺省 720p 估算。
 _VIDEO_TOKENS_PER_SECOND = {"360p": 1931, "720p": 5792, "1080p": 8688, "4k": 17376}
 _DEFAULT_RESOLUTION = "720p"
 
@@ -117,7 +116,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         interaction = await self._create_interaction(request)
         interaction_id = getattr(interaction, "id", None)
         if not interaction_id:
-            # 没有 ID 就无法持久化 provider_job_id，进程中断后会走重新提交，造成重复扣费。
             raise RuntimeError("Gemini Interactions 提交成功但未返回 interaction ID，无法持久化 provider_job_id")
         await self._persist_provider_job_id(
             request, interaction_id, provider=PROVIDER_GEMINI, endpoint=self._request_base_url
@@ -143,7 +141,12 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         """请求体表达不了的输入在付费前拒绝，不静默丢弃（能力被用户覆盖放宽时也会走到这里）。"""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
-        if not request.generate_audio:
+        if (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._video_model)
         if request.reference_images and (request.start_image or request.end_image):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._video_model)
@@ -161,8 +164,14 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             task = "image_to_video"
         else:
             images, task = [], "text_to_video"
-        parts: list[dict[str, Any]] = list(await asyncio.gather(*[asyncio.to_thread(_image_part, i) for i in images]))
-        # 反向提示词由调用方文本化注入 prompt，跨通道一致；文本放在图片之后。
+
+        def image_parts():
+            loaded = read_video_images(request, self._video_model)
+            return [
+                {"type": "image", "data": loaded[Path(p)].base64(), "mime_type": loaded[Path(p)].mime} for p in images
+            ]
+
+        parts: list[dict[str, Any]] = await asyncio.to_thread(image_parts)
         parts.append({"type": "text", "text": request.prompt})
 
         response_format: dict[str, Any] = {
@@ -242,7 +251,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             raise RuntimeError("视频生成失败: API 未返回视频数据")
 
         await run_noninterruptible_sync(request.output_path.parent.mkdir, parents=True, exist_ok=True)
-        # 字节已在内存里：解码与写盘不可中断，落盘经 .part 再改名。
         await run_noninterruptible_sync(
             write_atomically, request.output_path, lambda target: target.write_bytes(base64.b64decode(data))
         )
@@ -254,7 +262,9 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             model=self._video_model,
             duration_seconds=request.duration_seconds,
             usage_tokens=_output_video_tokens(interaction),
-            generate_audio=True,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
 
@@ -262,15 +272,6 @@ class VertexInteractionsVideoBackend(GeminiInteractionsVideoBackend):
     """以 Vertex 服务账号经 Interactions API 调用 Gemini Omni；成片同样恒有声。"""
 
     default_backend_type = "vertex"
-
-
-def _image_part(path: Path) -> dict[str, Any]:
-    image_bytes = Path(path).read_bytes()
-    return {
-        "type": "image",
-        "data": base64.b64encode(image_bytes).decode("ascii"),
-        "mime_type": _IMAGE_MIME_TYPES.get(Path(path).suffix.lower(), "image/png"),
-    }
 
 
 def _failure_message(interaction: Any) -> str | None:

@@ -21,7 +21,6 @@ from tests.factories import comfyui_endpoint_definition
 
 DATA = Path(__file__).parent / "data"
 
-#: 样本 workflow → 它产出的媒体类型。
 SAMPLES = {
     "wan21_t2v": "video",
     "wan22_moe_t2v": "video",
@@ -36,7 +35,6 @@ SAMPLES = {
     "sdxl_batch_t2i": "image",
 }
 
-#: 分级信号自高到低，每一级都要有夹具命中。
 GRADED_SIGNALS = (
     BindingSignal.MANUAL_BINDING,
     BindingSignal.TITLE_MARKER,
@@ -100,11 +98,6 @@ def external_workflow() -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# 覆盖面
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("name", sorted(SAMPLES))
 def test_every_sample_gets_a_verdict_on_every_semantic_key(name):
     result = infer_sample(name)
@@ -140,11 +133,6 @@ def test_each_graded_signal_is_hit_by_at_least_one_fixture():
         "seed",
     )
     assert {signal.value for signal in GRADED_SIGNALS} <= seen
-
-
-# ---------------------------------------------------------------------------
-# 三种状态
-# ---------------------------------------------------------------------------
 
 
 def test_a_single_highest_score_is_selected_automatically():
@@ -193,11 +181,6 @@ def test_a_missing_key_is_inferred_from_scratch():
     assert result.keys["width"].state is BindingState.AUTO_SELECTED
 
 
-# ---------------------------------------------------------------------------
-# 标题约定
-# ---------------------------------------------------------------------------
-
-
 def test_a_title_marker_suppresses_the_other_signals_on_that_key_only():
     """标记按语义键抑制推断：正向文本改判给被标记的节点，别的键照原样推断。"""
     workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt 我说了算")
@@ -228,11 +211,6 @@ def test_reference_image_markers_are_numbered_by_ascending_node_id():
     assert landings(result, "reference_images") == [("142", "image"), ("147", "image")]
 
 
-# ---------------------------------------------------------------------------
-# 外部约定节点族
-# ---------------------------------------------------------------------------
-
-
 def test_an_external_parameter_node_outranks_the_field_it_drives():
     result = infer_bindings({"media_type": "video", "workflow": external_workflow(), "bindings": {}})
     assert landings(result, "prompt") == [("1", "default_value")]
@@ -244,11 +222,6 @@ def test_an_external_node_whose_parameter_names_another_semantic_is_left_alone()
     workflow["1"]["inputs"]["input_id"] = "my_own_knob"
     result = infer_bindings({"media_type": "video", "workflow": workflow, "bindings": {}})
     assert offered(result, "prompt") == []
-
-
-# ---------------------------------------------------------------------------
-# 正负提示词
-# ---------------------------------------------------------------------------
 
 
 def test_polarity_comes_from_the_sampler_ports_not_from_the_node_order():
@@ -275,11 +248,6 @@ def test_the_qwen_editor_carries_prompts_on_a_field_not_called_text():
     result = infer_sample("qwen_image_edit_2509")
     assert landings(result, "prompt") == [("111", "prompt")]
     assert landings(result, "negative_prompt") == [("110", "prompt")]
-
-
-# ---------------------------------------------------------------------------
-# 图像类语义
-# ---------------------------------------------------------------------------
 
 
 def test_the_image_field_means_different_things_on_different_carriers():
@@ -352,11 +320,6 @@ def test_frames_encoded_as_a_control_video_are_not_reported_as_reference_images(
     assert InferenceNote.MANUAL_ONLY_NODE.value in {note.code.value for note in result.notes}
 
 
-# ---------------------------------------------------------------------------
-# 尺寸、帧数与帧率
-# ---------------------------------------------------------------------------
-
-
 def test_a_two_stage_workflow_takes_the_size_group_closest_to_the_output():
     result = infer_sample("two_stage_sdxl_svd")
     assert landings(result, "width") == [("12", "width")]
@@ -391,11 +354,6 @@ def test_a_field_computed_upstream_is_left_unbound_with_a_hint():
     result = infer_sample("wan22_moe_t2v")
     assert result.keys["frames"].state is BindingState.NOT_FOUND
     assert InferenceNote.COMPUTED_SOURCE.value in note_codes(result, "frames")
-
-
-# ---------------------------------------------------------------------------
-# 种子与产物
-# ---------------------------------------------------------------------------
 
 
 def test_only_the_sampler_that_actually_takes_noise_is_a_seed_candidate():
@@ -453,20 +411,10 @@ def test_a_saver_that_only_previews_is_excluded_but_still_carries_the_frame_rate
     assert landings(result, "fps") == [("30", "frame_rate")]
 
 
-# ---------------------------------------------------------------------------
-# 整图提示与可保存性
-# ---------------------------------------------------------------------------
-
-
 def test_a_batch_field_above_one_is_reported_without_touching_the_workflow():
     result = infer_sample("sdxl_batch_t2i")
     codes = {note.code.value for note in result.notes}
     assert InferenceNote.BATCH_SIZE_ABOVE_ONE.value in codes
-
-
-# ---------------------------------------------------------------------------
-# 落点互斥
-# ---------------------------------------------------------------------------
 
 
 def test_two_keys_cannot_both_write_one_field_and_the_weaker_one_yields_it():
@@ -529,7 +477,6 @@ def test_a_key_that_yields_a_field_does_not_settle_on_another_one_already_taken(
     result = infer_sample("ltxv_i2v", workflow=workflow)
 
     assert landings(result, "end_image") == [("78", "image")]
-    # 90 上首帧与参考图同分，按并列规则谁都不留；两个键都该听见自己让出了什么。
     assert landings(result, "start_image") == []
     assert landings(result, "reference_images") == []
     assert note_codes(result, "reference_images") == {InferenceNote.TARGET_TAKEN.value}

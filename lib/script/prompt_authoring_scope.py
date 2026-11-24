@@ -14,7 +14,6 @@ from typing import Any
 from lib.infra.content_digest import prefixed
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 
-#: 各条目形态的视觉层字段。参考生视频单元的正文即其视觉层。
 VISUAL_LAYER_FIELDS: dict[str, tuple[str, ...]] = {
     "segments": ("image_prompt", "video_prompt"),
     "scenes": ("image_prompt", "video_prompt"),
@@ -124,7 +123,6 @@ class PromptOverwriteRequired(ValueError):
         self.overwrite = overwrite
 
 
-#: 丢失清单里视觉层字段的文案 key。
 _FIELD_KEYS: dict[str, str] = {
     "image_prompt": "prompt_overwrite_field_image_prompt",
     "video_prompt": "prompt_overwrite_field_video_prompt",

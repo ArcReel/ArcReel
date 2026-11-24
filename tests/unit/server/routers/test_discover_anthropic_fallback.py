@@ -50,15 +50,12 @@ async def test_discover_falls_back_to_active_credential(discover_client, monkeyp
 
     monkeypatch.setattr("lib.custom_provider.discovery.discover_models", fake_discover)
 
-    # Create an active credential first
     create_resp = await discover_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "deepseek", "api_key": "stored-sk"},
     )
     assert create_resp.status_code == 201, create_resp.text
 
-    # /discover-anthropic with empty body → should pick up the active credential；
-    # 预设凭证未覆盖 base_url，模型列表按预设目录的 discovery_url 取，而不是 messages 根
     resp = await discover_client.post(
         "/api/v1/custom-providers/discover-anthropic",
         json={},

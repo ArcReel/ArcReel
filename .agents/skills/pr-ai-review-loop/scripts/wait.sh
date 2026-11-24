@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# wait.sh — wait for one decision-relevant PR-state change or the fixed safety timeout.
-#
-# USAGE
-#   bash wait.sh --repo-root <path> <PR_NUMBER> [--max <seconds>]
-#
+#   with no run yet — the minutes right after a push — is unfinished. When the rules are
+#   unreadable or name nothing, every check run on the head stands in, and an empty list is
+#   unfinished.
 # The default wait uses 1770 seconds of a 30-minute command budget, leaving 30 seconds
 # for setup and result delivery. --max is an override for tests and manual diagnostics.
-# Every probe is an atomic fingerprint of reviews, comments, reactions, inline comments,
-# check runs, and the PR/base code-scanning alert sets. Truncated output, network errors,
-# rate limits, and HTTP 5xx responses retry the whole probe up to three times. Authentication,
-# permission, and other request errors fail loudly with WAIT_ERROR.
 
 set -euo pipefail
 
@@ -21,6 +15,7 @@ shift "$REPO_CONTEXT_SHIFT"
 
 DEFAULT_MAX_WAIT=1770
 POLL_INTERVAL=60
+CODEX_WINDOW=300
 RETRY_DELAYS=(2 5 10)
 
 usage() {
@@ -61,7 +56,7 @@ LAST_ERROR_FILE="$WORKDIR/probe.err"
 RETRY_AFTER=0
 
 report_timeout() {
-  printf 'WAIT_TIMEOUT: no relevant PR state change within %s seconds\n' "$MAX_WAIT"
+  printf 'WAIT_TIMEOUT: nothing actionable within %s seconds\n' "$MAX_WAIT"
 }
 
 run_until_deadline() {
@@ -270,7 +265,6 @@ else
 fi
 
 REPO_SLUG=$(<"$WORKDIR/repo-slug")
-# Each page goes through the deadline, response validation, and failure classifier.
 fetch_pages() {
   local output_file="$1" error_file="$2" availability="$3" endpoint="$4" projection="${5:-.}"
   local page=1 separator='?' count
@@ -323,6 +317,38 @@ probe_once() {
   fetch_pages "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
     "repos/${REPO_SLUG}/commits/${head_sha}/check-runs" '.check_runs' || return 1
 
+  if [[ ! -s "$WORKDIR/commit-${head_sha}.json" ]]; then
+    fetch_json "$WORKDIR/commit.json" "$WORKDIR/commit.err" required \
+      gh api --include "repos/${REPO_SLUG}/commits/${head_sha}" || return 1
+    jq -e -s '.[0].commit.committer.date | type == "string"' "$WORKDIR/commit.json" \
+      >/dev/null 2> "$WORKDIR/commit.err" || {
+      LAST_ERROR_FILE="$WORKDIR/commit.err"
+      printf 'GitHub probe returned no committer date for the head commit\n' >> "$LAST_ERROR_FILE"
+      FAILURE_KIND="transient"
+      RETRY_AFTER=0
+      return 1
+    }
+    mv "$WORKDIR/commit.json" "$WORKDIR/commit-${head_sha}.json"
+  fi
+
+  if [[ ! -s "$WORKDIR/required.json" ]]; then
+    local base_ref
+    base_ref=$(jq -r -s '.[0].base.ref // ""' "$WORKDIR/pr.json")
+    if [[ -n "$base_ref" ]] && fetch_pages "$WORKDIR/rules.json" "$WORKDIR/rules.err" optional \
+      "repos/${REPO_SLUG}/rules/branches/${base_ref}"; then
+      jq -c -s '
+        [.[][]? | select(.type == "required_status_checks")
+         | .parameters.required_status_checks[]?.context | select(type == "string")]
+        | unique
+        | if length > 0 then {mode: "rules", names: .} else {mode: "all", names: []} end
+      ' "$WORKDIR/rules.json" > "$WORKDIR/required.json"
+    elif [[ -z "$base_ref" || "$FAILURE_KIND" == "unavailable" ]]; then
+      printf '{"mode":"all","names":[]}\n' > "$WORKDIR/required.json"
+    else
+      return 1
+    fi
+  fi
+
   if fetch_pages "$WORKDIR/security-alerts-pr.json" "$WORKDIR/security-alerts-pr.err" optional \
     "repos/${REPO_SLUG}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open"; then
     :
@@ -345,8 +371,10 @@ probe_once() {
 
   LAST_ERROR_FILE="$WORKDIR/probe.err"
   : > "$LAST_ERROR_FILE"
-  if ! jq -n \
+  if ! jq -n -L "$SCRIPT_DIR" \
     --slurpfile pr "$WORKDIR/pr.json" \
+    --slurpfile commit "$WORKDIR/commit-${head_sha}.json" \
+    --slurpfile required "$WORKDIR/required.json" \
     --slurpfile reviews "$WORKDIR/reviews.json" \
     --slurpfile comments "$WORKDIR/comments.json" \
     --slurpfile reactions "$WORKDIR/reactions.json" \
@@ -356,50 +384,112 @@ probe_once() {
     --slurpfile security_alerts_base "$WORKDIR/security-alerts-base.json" \
     --argjson security_available "$security_available" \
     '
-      {
-        head: $pr[0].head.sha,
-        reviews:
-          ([$reviews[][]?
-            # REST reviews omit updated_at; body changes still need to wake the loop.
-            | {id, submitted_at, body, state, commit_oid: .commit_id}]
-           | sort_by(.id)),
-        issue_comments:
-          ([$comments[][]?
-            | {id, updated_at, reactions}]
-           | sort_by(.id)),
-        codex_reactions:
-          ([$reactions[][]?
-            | select(.user.login == "chatgpt-codex-connector[bot]")
-            | {id, content}]
-           | sort_by(.id)),
-        inline_comments:
-          ([$inline_comments[][]?
-            | select((.user.login // "")
-                | test("(coderabbitai|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))
-            | {id, updated_at, commit_id, in_reply_to_id, user: .user.login}]
-           | sort_by(.id)),
-        check_runs:
-          ([$check_runs[].check_runs[]?
-            | {id, name, app: .app.slug, status, conclusion, started_at, completed_at}]
-           | sort_by(.id)),
-        security_alerts: {
-          available: $security_available,
-          pr_open:
-            ([$security_alerts_pr[][]?
-              | {number, state, rule_id: .rule.id, tool: .tool.name,
-                 ref: .most_recent_instance.ref,
-                 analysis_key: .most_recent_instance.analysis_key,
-                 path: .most_recent_instance.location.path,
-                 start_line: .most_recent_instance.location.start_line}]
-             | sort_by(.number)),
-          base_open:
-            ([$security_alerts_base[][]?
-              | {number, state, rule_id: .rule.id, tool: .tool.name,
-                 ref: .most_recent_instance.ref,
-                 analysis_key: .most_recent_instance.analysis_key,
-                 path: .most_recent_instance.location.path,
-                 start_line: .most_recent_instance.location.start_line}]
-             | sort_by(.number))
+      include "signals";
+      def login: (.user.login // "");
+      def is_cr: login == "coderabbitai[bot]";
+      def is_codex: login == "chatgpt-codex-connector[bot]";
+      ($pr[0].head.sha) as $head
+      | ($commit[0].commit.committer.date) as $push_at
+      | ($required[0]) as $required
+      | [$reviews[][]?] as $all_reviews
+      | [$comments[][]?] as $all_comments
+      | [$reactions[][]? | select(is_codex)] as $codex_reactions
+      | [$inline_comments[][]?
+         | select(login | test("(coderabbitai|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
+        as $bot_inline
+      # Same-name reruns collapse to the latest run, as in poll.sh.
+      | ([$check_runs[].check_runs[]?] | group_by(.name) | map(max_by(.started_at))) as $latest_runs
+      # One slot per required name (null = no run on the head yet); every run when degraded.
+      | (if $required.mode == "rules"
+         then [$required.names[] as $name | ($latest_runs | map(select(.name == $name)) | first)]
+         else $latest_runs end) as $gate
+      | ([$security_alerts_base[][]? | .number]) as $base_alerts
+      # CodeRabbit rewrites its first comment (the walkthrough) on every review.
+      | ([$all_comments[] | select(is_cr)] | sort_by(.created_at) | first | .id) as $walkthrough_id
+      | {
+        head: $head,
+        push_at: $push_at,
+        required: $required,
+        checks: {
+          done: (($gate | length) > 0 and all($gate[]; . != null and .status == "completed")),
+          failing: [$gate[] | select(. != null and (.conclusion | is_failing_conclusion)) | .name]
+        },
+        findings:
+          ([$all_reviews[] | select(is_cr or is_codex) | select((.body // "") | test("\\S"))
+            | "review:\(.id)"]
+           + [$bot_inline[] | select(.in_reply_to_id == null) | "inline:\(.id)"]
+           + [$security_alerts_pr[][]? | select(.number as $n | $base_alerts | index($n) | not)
+              | "alert:\(.number)"]
+           | unique),
+        notices:
+          ([$all_comments[] | select(is_cr or is_codex)
+            | (.body // "") as $body
+            | (if .id == $walkthrough_id
+                  or (is_codex and ($body | codex_comment_has_pass_marker or codex_summary_body))
+               then empty else "comment:\(.id)" end),
+              (if is_codex and ($body | codex_summary_failed)
+               then "codex_failed:\($body | codex_summary_commit)" else empty end),
+              (if $body | cr_paused_body then "paused:\(.id)" else empty end),
+              (if $body | cr_review_skipped_body then "skipped:\(.id)" else empty end),
+              (if $body | quota_alert_body then "quota:\(.id)" else empty end)]
+           | unique),
+        codex: {
+          started:
+            ((any($all_comments[];
+                  is_codex and (.body | codex_summary_failed)
+                  and ((.body | codex_summary_commit) as $sha | $sha != null and ($head | startswith($sha))))
+              | not)
+             and (any($all_reviews[]; is_codex and .commit_id == $head)
+             or any($codex_reactions[]; .created_at > $push_at)
+             # A comment that names its commit (summary, receipt) counts by that anchor alone:
+             # a slow review of an orphaned head lands after the push too. Same rule as poll.sh.
+             or any($all_comments[];
+                    is_codex
+                    and ((.body | codex_summary_commit // codex_reviewed_commit_from_body) as $sha
+                         | if $sha == null then .created_at > $push_at
+                           else ($head | startswith($sha)) end)))),
+          triggered:
+            any($all_comments[];
+                (is_cr or is_codex | not)
+                and .created_at > $push_at
+                and (.body | is_trigger_command("@codex review")))
+        },
+        raw: {
+          reviews:
+            ([$all_reviews[]
+              # REST reviews omit updated_at; body changes still need to wake the loop.
+              | {id, submitted_at, body, state, commit_oid: .commit_id}]
+             | sort_by(.id)),
+          issue_comments:
+            ([$all_comments[] | {id, updated_at, reactions}] | sort_by(.id)),
+          codex_reactions:
+            ([$codex_reactions[] | {id, content}] | sort_by(.id)),
+          inline_comments:
+            ([$bot_inline[] | {id, updated_at, commit_id, in_reply_to_id, user: .user.login}]
+             | sort_by(.id)),
+          check_runs:
+            ([$check_runs[].check_runs[]?
+              | {id, name, app: .app.slug, status, conclusion, started_at, completed_at}]
+             | sort_by(.id)),
+          security_alerts: {
+            available: $security_available,
+            pr_open:
+              ([$security_alerts_pr[][]?
+                | {number, state, rule_id: .rule.id, tool: .tool.name,
+                   ref: .most_recent_instance.ref,
+                   analysis_key: .most_recent_instance.analysis_key,
+                   path: .most_recent_instance.location.path,
+                   start_line: .most_recent_instance.location.start_line}]
+               | sort_by(.number)),
+            base_open:
+              ([$security_alerts_base[][]?
+                | {number, state, rule_id: .rule.id, tool: .tool.name,
+                   ref: .most_recent_instance.ref,
+                   analysis_key: .most_recent_instance.analysis_key,
+                   path: .most_recent_instance.location.path,
+                   start_line: .most_recent_instance.location.start_line}]
+               | sort_by(.number))
+          }
         }
       }
     ' > "$output_file.next" 2> "$LAST_ERROR_FILE"; then
@@ -411,6 +501,37 @@ probe_once() {
   fi
 
   mv "$output_file.next" "$output_file"
+}
+
+ready_reasons() {
+  local current_file="$1" now="$2"
+  jq -r -n \
+    --slurpfile baseline "$BASELINE_FILE" \
+    --slurpfile current "$current_file" \
+    --argjson entry "$ENTERED_AT" \
+    --argjson now "$now" \
+    --argjson window "$CODEX_WINDOW" \
+    '
+      def codex_due($at):
+        (.codex.started | not) and (.codex.triggered | not)
+        and (($at - (.push_at | fromdateiso8601)) >= $window);
+      $baseline[0] as $b
+      | $current[0] as $c
+      | [ (if $c.head != $b.head then "head_changed" else empty end),
+          (if ($c.findings - $b.findings) | length > 0 then "new_finding" else empty end),
+          (if ($c.notices - $b.notices) | length > 0 then "reviewer_notice" else empty end),
+          (if $c.head == $b.head and ($b | codex_due($entry) | not) and ($c | codex_due($now))
+           then "codex_silent" else empty end),
+          (if ($b.checks.done | not) and $c.checks.done
+           then (if $c.checks.failing | length > 0
+                 then "checks_failed(" + ($c.checks.failing | join(" ")) + ")"
+                 else "checks_passed" end)
+           else empty end)
+        ] as $reasons
+      | if ($reasons | length) == 0 and $b.checks.done and $b.raw != $c.raw
+        then "state_changed"
+        else $reasons | join(", ") end
+    '
 }
 
 BASELINE_FILE="$WORKDIR/baseline.json"
@@ -426,6 +547,7 @@ else
   cat "$LAST_ERROR_FILE" >&2
   exit 5
 fi
+ENTERED_AT=$(date +%s)
 
 while true; do
   now=$(date +%s)
@@ -452,8 +574,9 @@ while true; do
     exit 5
   fi
 
-  if ! cmp -s "$BASELINE_FILE" "$CURRENT_FILE"; then
-    echo "WAIT_CHANGE: relevant PR state changed"
+  REASONS=$(ready_reasons "$CURRENT_FILE" "$(date +%s)")
+  if [[ -n "$REASONS" ]]; then
+    echo "WAIT_READY: $REASONS"
     exit 0
   fi
 done

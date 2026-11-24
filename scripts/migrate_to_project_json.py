@@ -13,7 +13,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-# 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.infra.data_root_layout import PROJECT_NAME_PATTERN, DataRootLayout
@@ -42,14 +41,12 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         print(f"  ❌ 项目不存在: {project_name}")
         return False
 
-    # 检查是否已有 project.json
     project_file = project_dir / "project.json"
     if project_file.exists():
         print("  ⚠️  project.json 已存在，跳过迁移")
         print(f"  如需重新迁移，请先删除 {project_file}")
         return True
 
-    # 收集所有剧本中的角色
     scripts_dir = project_dir / "scripts"
     all_characters = {}
     episodes = []
@@ -64,23 +61,19 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         with open(script_file, encoding="utf-8") as f:
             script = json.load(f)
 
-        # 提取角色
         characters = script.get("characters", {})
         for name, char_data in characters.items():
             if name not in all_characters:
                 all_characters[name] = char_data.copy()
                 print(f"      👤 发现角色: {name}")
             else:
-                # 合并数据（优先保留有资产图的版本）
                 if char_data.get("character_sheet") and not all_characters[name].get("character_sheet"):
                     all_characters[name] = char_data.copy()
                     print(f"      👤 更新角色: {name} (有资产图)")
 
-        # 提取剧集信息
         novel_info = script.get("novel", {})
         scenes_count = len(script.get("scenes", []))
 
-        # 尝试从文件名或内容推断集数
         episode_num = 1
         filename_lower = script_file.stem.lower()
         for i in range(1, 100):
@@ -94,7 +87,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
                 episode_num = i
                 break
 
-        # 添加剧集信息（不包含统计字段，由项目摘要读时计算）
         episodes.append(
             {
                 "episode": episode_num,
@@ -104,21 +96,18 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         )
         print(f"      📺 剧集 {episode_num}: {scenes_count} 个场景")
 
-    # 去重并排序剧集
     seen_episodes = {}
     for ep in episodes:
         if ep["episode"] not in seen_episodes:
             seen_episodes[ep["episode"]] = ep
     episodes = sorted(seen_episodes.values(), key=lambda x: x["episode"])
 
-    # 构建 project.json
     project_title = project_name
     if script_files:
         with open(script_files[0], encoding="utf-8") as f:
             first_script = json.load(f)
             project_title = first_script.get("novel", {}).get("title", project_name)
 
-    # 构建 project.json（不包含 status 字段，由项目摘要读时计算）
     project_data = {
         "title": project_title,
         "style": "",
@@ -132,7 +121,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         },
     }
 
-    # 统计已完成的角色资产图（仅用于日志输出）
     completed_chars = 0
     for char_data in all_characters.values():
         sheet = char_data.get("character_sheet")
@@ -141,7 +129,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
             if sheet_path.exists():
                 completed_chars += 1
 
-    # 创建 clues 目录
     clues_dir = project_dir / "clues"
     if not clues_dir.exists():
         if not dry_run:
@@ -158,13 +145,10 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         print("\n  将创建 project.json:")
         print(json.dumps(project_data, ensure_ascii=False, indent=2)[:500] + "...")
     else:
-        # 写入 project.json
         with open(project_file, "w", encoding="utf-8") as f:
             json.dump(project_data, f, ensure_ascii=False, indent=2)
         print("\n  ✅ 已创建 project.json")
 
-        # 可选：从剧本中移除 characters 字段（保留原文件备份）
-        # 这里我们保留剧本中的 characters 以保持向后兼容
         print("  ℹ️  保留剧本中的 characters 字段以保持向后兼容")
 
     return True
@@ -186,7 +170,6 @@ def main():
         print("\n❌ 请指定项目名称或使用 --all")
         sys.exit(1)
 
-    # 初始化 ProjectManager
     pm = ProjectManager(args.data_root or DataRootLayout.current().root)
 
     print("🚀 开始迁移...")

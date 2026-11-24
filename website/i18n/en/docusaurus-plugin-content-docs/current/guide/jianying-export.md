@@ -1,8 +1,7 @@
 ---
 id: jianying-export
 title: Jianying Draft Export
-sidebar_position: 6
-update_docs: fact-check
+sidebar_position: 7
 ---
 
 # Jianying Draft Export {#jianying-export}
@@ -50,16 +49,11 @@ Both entries require at least one generated video in the episode. Rendering neve
 
 ### 3. Export the Jianying draft {#start-export}
 
-1. In the tabs at the top of the edit view, select the edit timeline to export
-2. Click **Render** to open the "Render · <edit timeline name>" dialog
-3. Select **Jianying draft**. TTS voiceover projects can also choose **With narration** or **Without narration** under **Narration version**; the default is with narration, and each version is exported and kept separately
-4. The dialog shows the status of this edit timeline's existing Jianying draft for the selected version:
-   - **Up to date**: download it directly; there is no need to export again
-   - **Behind the edit timeline**: the edit timeline or its media changed after the export; you can still download the old draft, and exporting again replaces it
-   - **Not created yet**: click **Export Jianying draft** to start the export
-5. The export runs in the background. The dialog shows its progress, and you can download the draft when it finishes
+1. Select the edit timeline in the Edit view and click Render.
+2. In the dialog, select Jianying Draft. Projects using TTS narration can also select With Narration or Without Narration. ArcReel saves the two versions separately.
+3. Download an up-to-date draft directly. If the draft is missing or out of date, choose Export Jianying Draft or Export Again and wait for it to finish. Download the old draft first if you need to keep it.
 
-When the current edit timeline has issues that block rendering (for example, a video unit has no usable video yet), the **Render** button is disabled. Hover over the button to see why, and click **View issues** next to it to jump to the issue list. When a video unit has no narration audio yet, only the version with narration is blocked: the dialog shows the reason while that version is selected, and switching to the version without narration lets you export.
+If Render is disabled, see [Blocked Exports](#render-blocked).
 
 ### 4. Enter the download parameters and download {#export-parameters}
 
@@ -133,4 +127,4 @@ If you selected the wrong version, select the correct one in the dialog and down
 
 ### The Render button is disabled {#render-blocked}
 
-When the current edit timeline has issues that block rendering, the **Render** button is disabled. Hover over the button to see why, for example which video units have no usable video yet. Resolve them in the issue list, and then you can render.
+Hover over Render to see the reason or click View Issues to open the issue list. For example, if a referenced video unit has no usable clip, generate or add a clip from the episode first. Missing narration only blocks the With Narration version. Select Without Narration to export without it.

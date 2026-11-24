@@ -4,8 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目设置：侧栏分页（项目 / Agent 两组）、外壳底行的保存栏、风格对话框、模型分页的覆盖来源、
-// 配音分页与 Agent 配置的重置确认。项目记忆的文件区见 agent-memory.spec.ts，这里只探测空目录时的入口分页。
 
 const RECORDED = loadRecordedResponses();
 const PROJECT_KEY = "GET /api/v1/projects/demo";
@@ -14,13 +12,11 @@ function settings(tab?: string) {
   return tab ? `/app/projects/demo/settings?tab=${tab}` : "/app/projects/demo/settings";
 }
 
-/** 在录制的演示项目上改几个字段。 */
 function projectWith(fields: Record<string, unknown>): ApiOverrides {
   const recorded = RECORDED.get(PROJECT_KEY)!.body as { project: Record<string, unknown> };
   return { [PROJECT_KEY]: { status: 200, body: { ...recorded, project: { ...recorded.project, ...fields } } } };
 }
 
-// 压力变体：三家供应商各十个模型，名称都很长；项目覆盖了视频与图片的细分项，细分区自动展开。
 const LONG_PROVIDERS: [string, string][] = [
   ["gemini-aistudio", "AI Studio"],
   ["ark", "火山方舟 · 华北二区专属算力集群（企业版）"],
@@ -67,7 +63,6 @@ function manyModelsOverrides(): ApiOverrides {
         lifecycle: {},
       },
     },
-    // 压力数据里的模型不在录制环境的供应商目录中，能力查询照实返回无法解析
     [`GET /api/v1/projects/demo/video-capabilities?resolution=&uses_reference_images=false&video_backend=${encodeURIComponent(video[0])}`]:
       RECORDED.get("GET /api/v1/projects/demo/video-capabilities")!,
     ...projectWith({
@@ -79,8 +74,6 @@ function manyModelsOverrides(): ApiOverrides {
   };
 }
 
-// 图片画质：执行模型带画质可选值，项目里存着已失效的分辨率与画质（大小写不同的 LOW、条目移除的 512px）。
-// 录制的替身里 qualities 都是空数组，画质与档位数据由这里提供。
 const QUALITY_MODEL = "openai/gpt-image-2";
 
 function staleImageQualityOverrides(): ApiOverrides {
@@ -114,7 +107,6 @@ function staleImageQualityOverrides(): ApiOverrides {
         ),
       },
     },
-    // 演示项目没有可用的视频模型，能力查询照实返回无法解析
     "GET /api/v1/projects/demo/video-capabilities?resolution=&uses_reference_images=false":
       RECORDED.get("GET /api/v1/projects/demo/video-capabilities")!,
     ...projectWith({
@@ -124,7 +116,6 @@ function staleImageQualityOverrides(): ApiOverrides {
   };
 }
 
-// Agent 配置：很多定制文件，路径很长。
 const CUSTOMIZED_PROFILE: ApiOverrides = {
   "GET /api/v1/projects/demo/agent-profile": {
     status: 200,

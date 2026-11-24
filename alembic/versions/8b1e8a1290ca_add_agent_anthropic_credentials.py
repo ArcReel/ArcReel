@@ -14,7 +14,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "8b1e8a1290ca"
 down_revision: str | Sequence[str] | None = "4c643f3ff5b9"
 branch_labels: str | Sequence[str] | None = None
@@ -61,10 +60,7 @@ def upgrade() -> None:
             postgresql_where=sa.text("is_active"),
         )
 
-    # ── 数据迁移：旧 system_setting 中 anthropic_* → 一条 __custom__ active 记录 ──
     bind = op.get_bind()
-    # PG 在事务中遇到 ProgrammingError 会把事务标记为 aborted，后续操作全部失败。
-    # 用 SAVEPOINT 包裹数据迁移块，失败时回滚到 savepoint，不污染外层 alembic 事务。
     savepoint = bind.begin_nested()
     try:
         rows = bind.execute(
@@ -77,8 +73,6 @@ def upgrade() -> None:
 
         if settings.get("anthropic_api_key"):
             now = datetime.now(UTC)
-            # 旧设置无 display_name，用 base_url 的 host 兜底（locale-neutral）；
-            # 缺 host 时退回品牌名 "Anthropic"。用户首次进入 UI 即可重命名。
             base_url = settings.get("anthropic_base_url", "") or ""
             display_name = urlparse(base_url).hostname or "Anthropic"
             bind.execute(
@@ -107,9 +101,6 @@ def upgrade() -> None:
             )
         savepoint.commit()
     except Exception as exc:
-        # 数据迁移失败不阻塞 schema 升级；用户可在 UI 里手动建。
-        # 只打异常类名——SQLAlchemy 异常 str() 会把 SQL 绑定参数（含 api_key）
-        # 拼进消息，落进日志/stderr 就是密钥泄漏。
         savepoint.rollback()
         import logging
         import sys

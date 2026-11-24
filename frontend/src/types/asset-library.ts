@@ -1,4 +1,3 @@
-/** 对象存储连接（读出时密钥已掩码）。 */
 export interface ObjectStorageConnection {
   kind: "tos";
   region: string;
@@ -9,10 +8,8 @@ export interface ObjectStorageConnection {
   updated_at: string;
 }
 
-/** 新增图片内容版本的保存位置（全局设置，缺省本地）。 */
 export type NewImageTarget = "local" | "object_storage";
 
-/** 对象存储连接及新增图片保存位置。 */
 export interface ObjectStorageSettings {
   connection: ObjectStorageConnection | null;
   new_image_target: NewImageTarget;
@@ -25,7 +22,6 @@ export interface ObjectStorageCleanupResult {
 
 export type SavedObjectStorageConnection = ObjectStorageConnection & ObjectStorageCleanupResult;
 
-/** 保存对象存储连接；已有连接时两个密钥字段留空表示保留已保存的值。 */
 export interface SaveObjectStorageConnectionPayload {
   region: string;
   endpoint: string;
@@ -42,7 +38,6 @@ export interface AssetLibrarySiteInfo {
   regions: string[];
 }
 
-/** 素材库账号：控制面凭证连同它的站点、区域与项目范围（读出时密钥已掩码）。 */
 export interface AssetLibraryAccount {
   id: number;
   site: AssetLibrarySite;
@@ -79,11 +74,9 @@ export interface UpdateAssetLibraryAccountPayload {
 export type AssetLibraryCredentialType = "builtin" | "custom";
 export type AssetLibraryBindingStatus = "confirmed" | "needs_confirmation";
 
-/** 一条可绑定素材库的推理凭证及其当前绑定。 */
 export interface AssetLibraryBindableCredential {
   credential_type: AssetLibraryCredentialType;
   credential_id: number;
-  /** 内置供应商 id，或自定义供应商的 `custom-<id>`。 */
   provider: string;
   name: string;
   api_key_masked: string | null;
@@ -93,11 +86,9 @@ export interface AssetLibraryBindableCredential {
 
 export type ProviderAssetStatus = "active" | "processing" | "failed" | "unknown";
 
-/** 供应商素材库里的一条素材。可用的图片素材可以选择导入。 */
 export interface ProviderAsset {
   id: string;
   name: string;
-  /** 供应商原样返回的类型：Image / Video / Audio。 */
   asset_type: string;
   status: ProviderAssetStatus;
   error_code: string | null;
@@ -111,34 +102,24 @@ export interface ProviderAssetPage {
   page_size: number;
 }
 
-/**
- * 供应商素材关联连同它的入库任务的状态：
- * pending 等待中转上传与提交，submitting 已提交，processing 供应商处理中，active 可用，
- * failed 失败，uncertain 提交结果不确定（后台按名称查回，不重新创建）。
- */
 export type ProviderAssetLinkState = "pending" | "submitting" | "processing" | "active" | "failed" | "uncertain";
 
-/** 图片某个内容版本在一个素材库范围里的关联或入库任务。 */
 export interface ProviderAssetLink {
   id: number;
   content_version_id: string;
   version: number;
   account_id: number;
-  /** 提交或导入时的调用范围，与账号的 scope_key 相等才属于该账号；账号换了 Access Key 后不再相等。 */
   scope_key: string;
   site: AssetLibrarySite;
   region: string;
   provider_project_name: string;
   state: ProviderAssetLinkState;
   selected: boolean;
-  /** 只有可用的关联才会用于生成。 */
   usable: boolean;
   provider_asset_id: string | null;
-  /** ArcReel 侧的失败（snake_case，如 relay_upload_failed）或供应商原样返回的错误码。 */
   error_code: string | null;
   error_message: string | null;
   check_error: string | null;
-  /** 后台仍会自动查询；为 false 且状态未定时由用户手动刷新。 */
   polling: boolean;
   created_at: string | null;
   submitted_at: string | null;
@@ -147,7 +128,6 @@ export interface ProviderAssetLink {
 
 export interface ProviderAssetLinkAccount {
   id: number;
-  /** 账号按当前云账号身份、站点、区域与项目覆盖的范围。 */
   scope_key: string;
   name: string;
   site: AssetLibrarySite;
@@ -155,7 +135,6 @@ export interface ProviderAssetLinkAccount {
   project_name: string;
 }
 
-/** 图片当前选中版本的素材库关联面板。 */
 export interface ProviderAssetLinkPanel {
   content_version: { id: string | null; version: number; digest: string | null } | null;
   object_storage_configured: boolean;
@@ -163,7 +142,6 @@ export interface ProviderAssetLinkPanel {
   links: ProviderAssetLink[];
 }
 
-/** 从素材库选择已有图片的结果：保存得到的新版本与它的可用关联。 */
 export interface ProviderAssetImportResult {
   content_version: { id: string; version: number; digest: string | null };
   link: ProviderAssetLink;

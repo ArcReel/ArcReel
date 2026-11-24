@@ -1,12 +1,10 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
-import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
-import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,27 +17,17 @@ import type { EpisodesView } from "@/types";
 import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 
-import {
-  lastPlanningFailure,
-  remainingUnits,
-  wholeSourceStats,
-  type PlanningFailure,
-} from "./episode-planning-model";
+import { lastPlanningFailure, remainingUnits, wholeSourceStats } from "./episode-planning-model";
 import { formatSpoken, formatVolume } from "./episodes-view-model";
+import { PlanningFailureNote } from "./PlanningFailureNote";
 
 interface Props {
   projectName: string;
   view: EpisodesView;
-  /** 本项目有分集规划在排队或执行。 */
   active: boolean;
-  /** 已提交规划或交给 Agent：调用方据此收起弹层。 */
   onStarted?: () => void;
 }
 
-/**
- * 「分集」视图页头「AI 规划分集」弹层的内容：附加指令、「交给 Agent」与直接调用，进行中显示进度与停止，
- * 上一次规划失败时给出原因与出路，整本规划完后给出体量统计。
- */
 export function EpisodePlanningPanel({ projectName, view, active, onStarted }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [instruction, setInstruction] = useState(() => lastInstruction(projectName));
@@ -50,20 +38,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const tasks = useTasksStore((s) => s.tasks);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
-  const queuedWindow = tasks.some(
-    (task) =>
-      task.project_name === projectName &&
-      task.task_type === "text_episode_plan" &&
-      task.status === "queued" &&
-      (EPISODE_PLANNING_SLOTS as readonly string[]).includes(task.resource_id),
-  );
-
-  // 停止的时机：执行中的那一窗在请求模型前才把下一窗排进队列，停止若落在这之前就取消不到它；
-  // 停止请求未了结时，再看到排队的窗口就再停一次。
-  useEffect(() => {
-    if (active && stopRequested && queuedWindow) void API.stopEpisodePlanning(projectName).catch(() => undefined);
-  }, [active, stopRequested, queuedWindow, projectName]);
-  // 规划结束即了结停止请求，下一次规划从头开始
   if (!active && (stopRequested || finishingWindow)) {
     setStopRequested(false);
     setFinishingWindow(false);
@@ -71,7 +45,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
 
   const remaining = remainingUnits(view);
   const started = view.cut_units > 0;
-  // 删除中间的切出集留下的空段不在接续规划的范围里，要用空段上的按钮单独规划
   const hasGaps = view.files.some((file) => file.segments.some((segment) => segment.gap && segment.units > 0));
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
 
@@ -183,7 +156,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
             : t("dashboard:guide_plan_detail")}
         </PopoverDescription>
       </div>
-      {failure ? <FailureNote failure={failure} /> : null}
+      {failure ? <PlanningFailureNote failure={failure} /> : null}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={instructionId}>{t("dashboard:guide_instruction_label")}</Label>
         <Input
@@ -207,20 +180,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
           {started ? t("dashboard:episode_planning_continue") : t("dashboard:episode_planning_start")}
         </Button>
       </div>
-    </div>
-  );
-}
-
-function FailureNote({ failure }: { failure: PlanningFailure }) {
-  const { t } = useTranslation("dashboard");
-  return (
-    <div role="alert" className="flex flex-col gap-1.5 rounded-md bg-warn/10 p-2 text-xs">
-      <p className="flex gap-1.5 text-subtle-foreground">
-        <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
-        <span>{t("episode_planning_failed", { reason: failure.message })}</span>
-      </p>
-      {failure.code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
-      {failure.truncated ? <OutputTruncationHint truncation={failure.truncated} /> : null}
     </div>
   );
 }

@@ -63,7 +63,6 @@ def test_forked_child_running_atexit_handlers_keeps_shared_test_db_dir():
 
 def test_mutmut_session_uses_private_basetemp_outside_shared_root(tmp_path: Path):
     if os.environ.get(_PROBE_ENV):
-        # 子进程里的探针：本会话的 tmp_path 不在 pytest 会建共享根的 temproot 之下。
         assert not tmp_path.is_relative_to(Path(os.environ["PYTEST_DEBUG_TEMPROOT"]).resolve())
         return
 
@@ -91,7 +90,6 @@ def test_mutmut_session_uses_private_basetemp_outside_shared_root(tmp_path: Path
         timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    # 共享根从未被建立；私有 basetemp 与临时库都已由该会话自己回收。
     assert list(temproot.iterdir()) == []
     assert list(tmpdir.iterdir()) == []
 

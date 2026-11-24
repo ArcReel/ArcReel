@@ -90,7 +90,6 @@ async def test_draft_view_locates_violations_on_their_items(narration) -> None:
     assert view["content"]["segments"][1]["characters_in_segment"] == ["王五"]
     located = {(v["code"], v.get("item_index"), v.get("item_id")) for v in view["violations"]}
     assert ("unregistered_asset", 1, "E1S02") in located
-    # 两段各带全文，覆盖违约落在整集层面，没有条目定位。
     assert ("novel_text_coverage", None, None) in located
 
 
@@ -182,11 +181,9 @@ async def test_adopted_reference_plan_keeps_its_soft_violations(narration, set_v
     assert result["adopted"] is True, result
     state = await ScriptReviewService(pm).get_state("demo", 1)
 
-    # 软违规带的是视频单元的真实编号，而不是按位置拼出的 E1U01
     assert ("ref_warn_speaker_without_audio", 0, "E1U1") in {
         (soft["code"], soft["item_index"], soft["item_id"]) for soft in state["soft_violations"]
     }
-    # 隔离草稿还没发号，按位置定位；采纳后同一条软违规指向发下来的编号
     assert [{**soft, "item_id": None} for soft in state["soft_violations"]] == [
         {**soft, "item_id": None} for soft in draft["soft_violations"]
     ]
@@ -212,7 +209,6 @@ async def test_save_that_still_violates_keeps_the_draft_with_refreshed_violation
 
 
 async def test_saving_a_draft_moves_project_activity_forward(narration) -> None:
-    # 草稿是 JSON，修改时间不计入活动，由写入出口记账。
     pm, project_path = narration
     _write_narration_draft(project_path, [_segment(characters_in_segment=["王五"])])
     stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
@@ -310,7 +306,6 @@ async def test_ai_repair_rewrites_only_the_violating_item_and_adopts_when_clean(
 
     assert result["adopted"] is True
     assert _formal_segments(project_path) == [kept, repaired]
-    # 交给模型改的只有违约条目：完整草稿只作上下文，修改要求里只列出 segments[1]。
     (request,) = model.requests
     requirements = request.prompt.split("# 修改要求", 1)[1]
     assert "## `segments[1]`" in requirements

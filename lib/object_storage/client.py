@@ -72,7 +72,6 @@ def _classify(exc: Exception) -> ObjectStorageError:
             kind = "provider"
         return ObjectStorageError(kind, code=code, message=message, status_code=status)
     if isinstance(exc, TosClientError):
-        # 客户端错误的 cause 多为连接失败；原文可能带请求地址，不取出。
         return ObjectStorageError("network", message=type(getattr(exc, "cause", None) or exc).__name__)
     return ObjectStorageError("provider", message=type(exc).__name__)
 
@@ -155,7 +154,6 @@ def _object_info(output: Any) -> ObjectInfo:
     )
 
 
-#: 图片后缀到 Content-Type。不用 mimetypes：它首次调用时读系统文件，会阻塞事件循环。
 IMAGE_CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 

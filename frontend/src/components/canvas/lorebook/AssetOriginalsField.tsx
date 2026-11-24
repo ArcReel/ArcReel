@@ -20,17 +20,11 @@ interface AssetOriginalsFieldProps {
   projectName: string;
   name: string;
   assetType: OriginalsAssetType;
-  /** 已上传的原图路径：角色最多一张，商品可以多张。 */
   paths: string[];
   readOnly?: boolean;
-  /** 详情里其它写入或生成占用中：上传入口一起禁用。 */
   busy?: boolean;
 }
 
-/**
- * 原图：创作者上传的参考图片，生成资产图时作为输入。角色只有一张，上传即替换；商品可以有多张，
- * 上传即追加。上传是立即执行的动作，不进入未保存修改，成功不弹提示。
- */
 export function AssetOriginalsField({
   projectName,
   name,
@@ -44,11 +38,9 @@ export function AssetOriginalsField({
   const [uploading, setUploading] = useState(false);
   const [viewing, setViewing] = useState<number | null>(null);
   const track = useTrackWrite();
-  // 订阅指纹表本身：只取 getAssetFingerprint 函数时指纹更新不会触发重渲染，地址停在旧版本
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const multiple = assetType === "product";
   const urls = paths.map((path) => API.getFileUrl(projectName, path, fingerprints[path] ?? null));
-  // 列表只显示缩略图（多张 64px 方块，单张 112px 高），点开查看时才拉原图
   const thumbUrls = paths.map((path) =>
     API.getFileUrl(projectName, path, fingerprints[path] ?? null, { width: multiple ? 160 : 640 }),
   );
@@ -80,7 +72,6 @@ export function AssetOriginalsField({
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
-      // 多张上传中途失败时，前面已上传的也要反映出来；一张都没传上就没有可刷新的写入
       if (uploaded > 0) {
         await track(refreshAfterWrite(projectName, t, { invalidateKeys: [buildEntityRevisionKey(assetType, name)] }));
       }

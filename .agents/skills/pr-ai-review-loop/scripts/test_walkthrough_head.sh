@@ -1,30 +1,4 @@
 #!/usr/bin/env bash
-# test_walkthrough_head.sh — regression test for poll.sh's CodeRabbit walkthrough commit
-# anchor (cr_walkthrough_head) and the reviewed_current_head rule built on it (PITFALL 9).
-#
-# USAGE
-#   bash test_walkthrough_head.sh
-#
-# CodeRabbit submits a review object only on the first pass; every later push is an
-# incremental review that rewrites the walkthrough comment in place and submits no new
-# review, so the latest review's commit stays pinned to the first reviewed HEAD while the
-# walkthrough body carries the anchor that moves. This test pins both the parser and the
-# rule to the exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh so
-# the shipped functions are exercised, not a copy. Fixtures (real bodies, captured via
-# `gh api repos/<owner>/<repo>/issues/<pr>/comments`):
-#   - coderabbit_walkthrough_incremental_pr2614.txt: a walkthrough rewritten by an
-#     incremental review; carries both the "📥 Commits" range line and the
-#     change_assessment_commit marker, both naming HEAD 1836151d, while the only review
-#     object stays anchored on 6dfd561b.
-#   - coderabbit_walkthrough_full_pr2620.txt: a first (full) review's walkthrough; no range
-#     line at all, only the change_assessment_commit and final_review_risk_coverage markers
-#     (HEAD e77c32c9).
-#   - coderabbit_walkthrough_skip_bot_pr3319.txt: a skip notice ("Review skipped", bot
-#     author); same marker and shape as the draft skip notice. The head was never reviewed.
-#   - coderabbit_walkthrough_skip_no_changes_pr3356.txt: a skip notice because the new
-#     commits had no reviewable changes; nothing was left to review. The change-stack
-#     link's scope token is redacted.
-# The marker-less shapes are derived in-test by stripping lines from those bodies.
 
 set -euo pipefail
 
@@ -51,11 +25,7 @@ extract_def() {
 }
 
 HEAD_MATCH_DEF=$(extract_def codex_commit_is_current_head)
-RL_DEF=$(extract_def cr_rate_limited_body)
 WT_HEAD_DEF=$(extract_def cr_walkthrough_head)
-SKIP_DEF="$(extract_def cr_skip_marker_body)
-$(extract_def cr_no_reviewable_changes_body)
-$(extract_def cr_review_skipped_body)"
 WT_DEF=$(extract_def cr_walkthrough_rest)
 
 INCREMENTAL="$TESTDATA/coderabbit_walkthrough_incremental_pr2614.txt"
@@ -73,7 +43,6 @@ HEAD_3356="9140671e2a7d6f366618613c24970b97ca3ffffb"
 
 fail=0
 
-# ---- cr_walkthrough_head: every observed anchor shape, in preference order ----
 # name | fixture | drop lines matching this regex before parsing ("" = none) | expected
 ANCHOR_CASES=(
   "marker+range|$INCREMENTAL||\"$HEAD_2614\""
@@ -107,9 +76,6 @@ for tc in "${ANCHOR_CASES[@]}"; do
   fi
 done
 
-# ---- cr_walkthrough_rest: the rule the loop actually reads ----
-# The incremental-review shape: one review object pinned to the first reviewed HEAD,
-# walkthrough rewritten (updated_at > last push) with an anchor on the current HEAD.
 # name | head | reviews json | commit the R1 review is anchored on | expected reviewed_current_head
 # | walkthrough fixture (default: the incremental review)
 LAST_PUSH="2026-09-21T18:00:00Z"
@@ -129,7 +95,7 @@ RULE_CASES=(
 
 for tc in "${RULE_CASES[@]}"; do
   IFS='|' read -r name head reviews review_commit expected fixture <<<"$tc"
-  got=$(jq -r \
+  got=$(jq -r -L "$SCRIPT_DIR" \
     --rawfile body "${fixture:-$INCREMENTAL}" \
     --arg head "$head" \
     --argjson reviews "$reviews" \
@@ -137,13 +103,12 @@ for tc in "${RULE_CASES[@]}"; do
     --arg last_push "$LAST_PUSH" \
     --arg updated_at "$WT_UPDATED_AT" \
     -n "
+    include \"signals\";
     [{id: 1, user: {login: \"coderabbitai[bot]\"}, created_at: \"2026-09-21T16:41:00Z\",
       updated_at: \$updated_at, body: \$body}] as \$sub_a
     | {reviews: \$reviews, headRefOid: \$head} as \$main
     | {R1: \$first_review_commit} as \$review_commit_by_id
     | $HEAD_MATCH_DEF
-      $RL_DEF
-      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.reviewed_current_head) walkthrough_head=\\(.walkthrough_head) latest_review_commit=\\(.latest_review_commit)\")
@@ -156,7 +121,6 @@ for tc in "${RULE_CASES[@]}"; do
   fi
 done
 
-# ---- cr_review_skipped_body: a skip notice is not a review, unless nothing was left to review ----
 # name | fixture | expected
 SKIP_CASES=(
   "skip notice|$SKIP_BOT|true"
@@ -167,8 +131,8 @@ SKIP_CASES=(
 
 for tc in "${SKIP_CASES[@]}"; do
   IFS='|' read -r name fixture expected <<<"$tc"
-  got=$(jq -r --rawfile body "$fixture" -n "
-    $SKIP_DEF
+  got=$(jq -r -L "$SCRIPT_DIR" --rawfile body "$fixture" -n "
+    include \"signals\";
     \$body | cr_review_skipped_body
     ")
   if [[ "$got" == "$expected" ]]; then

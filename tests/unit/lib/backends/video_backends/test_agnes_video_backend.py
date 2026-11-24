@@ -23,12 +23,12 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.http_status_errors import AmbiguousSubmitError, ArtifactDownloadError
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.agnes import Agnes25VideoBackend, AgnesVideoBackend
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
 _BASE_URL = "https://x/v1"
 _GATEWAY_BASE_URL = "https://apihub.agnes-ai.com/v1"
-# 成片 CDN 与网关成片库两个下载域名，供下载路由整体拦截。
 _DOWNLOAD_HOSTS = r"https://(cdn\.agnes|platform-outputs\.agnes-ai\.com)/"
 
 
@@ -111,7 +111,6 @@ class TestCapabilities:
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
-        # v2.5 契约的通道不设参考图上限，各型号的上限来自条目
         assert caps.max_reference_images is None
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
 
@@ -143,7 +142,7 @@ class TestNumFramesAndSize:
 
         frames = _duration_to_num_frames(duration)
         assert frames == expected_frames
-        assert (frames - 1) % 8 == 0  # 形如 8n+1
+        assert (frames - 1) % 8 == 0
 
     def test_resolve_size_portrait_explicit_hw(self):
         from lib.backends.video_backends.agnes import _resolve_size
@@ -160,10 +159,10 @@ class TestDurationCoercion:
         [
             (10, 10),
             ("10.0", 10),
-            ("9.6", 10),  # half-up 取整，不少计费秒
+            ("9.6", 10),
             ("9.4", 9),
             (4.5, 5),
-            (0, None),  # 非正值回 None，由 caller 回落请求时长
+            (0, None),
             ("0", None),
             (-3, None),
             ("abc", None),
@@ -178,16 +177,12 @@ class TestDurationCoercion:
     def test_extract_duration_reads_top_level_seconds_not_usage(self):
         from lib.backends.video_backends.agnes import _extract_duration_seconds
 
-        # 顶层 seconds 是成片时长真相源；usage.duration_seconds 是任务处理耗时，不得读取
         assert _extract_duration_seconds({"seconds": "8.0", "usage": {"duration_seconds": 184}}, None, fallback=5) == 8
         assert _extract_duration_seconds({"seconds": "7"}, None, fallback=5) == 7
-        # seconds 缺失（含非正值/不可解析）一律回落请求时长，不看 usage
         assert _extract_duration_seconds({"usage": {"duration_seconds": 184}}, None, fallback=5) == 5
         assert _extract_duration_seconds({"seconds": "0"}, None, fallback=5) == 5
         assert _extract_duration_seconds({}, None, fallback=5) == 5
-        # 终态无 seconds 时改读 video_id 二次查询响应的 seconds
         assert _extract_duration_seconds({}, {"seconds": "8.0"}, fallback=5) == 8
-        # 终态与查询响应均无 seconds 才回落请求时长
         assert _extract_duration_seconds({}, {}, fallback=5) == 5
 
 
@@ -227,7 +222,6 @@ class TestTextToVideo:
         assert result.duration_seconds == 5
         assert result.task_id == "task-42"
         assert result.video_uri == "https://cdn.agnes/out.mp4"
-        # Agnes 无音频能力，成片恒无声
         assert result.generate_audio is False
 
         submitted = only_request(routes.submit)
@@ -240,14 +234,11 @@ class TestTextToVideo:
         assert body["num_frames"] == 121
         assert body["frame_rate"] == 24
         assert body["seed"] == 7
-        # 文生视频：无任何图像通道
         assert "image" not in body
         assert "extra_body" not in body
         assert submitted.headers["Authorization"] == "Bearer sk-test"
-        # submit 用长超时覆盖上游长阻塞
         assert submitted.extensions["timeout"]["read"] == 300.0
 
-        # 下载打完成态的成片 URL，不带鉴权头
         downloaded = only_request(routes.download)
         assert str(downloaded.url) == "https://cdn.agnes/out.mp4"
         assert "Authorization" not in downloaded.headers
@@ -285,7 +276,7 @@ class TestTextToVideo:
 class TestImageChannels:
     async def test_start_image_is_bare_base64_top_level_image(self, tmp_path: Path):
         """起始图为裸 base64（无 data: 前缀），未复用 data-URI helper。"""
-        img_bytes = b"\x89PNG\r\nfake-start"
+        img_bytes = image_bytes()
         img_path = _write_image(tmp_path / "start.png", img_bytes)
 
         with _agnes_api() as routes:
@@ -299,13 +290,12 @@ class TestImageChannels:
 
         sent = body["image"]
         assert sent == base64.b64encode(img_bytes).decode("ascii")
-        # 裸 base64，绝不带 data: 前缀
         assert not sent.startswith("data:")
         assert "extra_body" not in body
 
     async def test_first_last_keyframes_extra_body(self, tmp_path: Path):
-        start = _write_image(tmp_path / "s.png", b"start-bytes")
-        end = _write_image(tmp_path / "e.png", b"end-bytes")
+        start = _write_image(tmp_path / "s.png", image_bytes(1))
+        end = _write_image(tmp_path / "e.png", image_bytes(2))
 
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued("t-kf"))
@@ -316,18 +306,18 @@ class TestImageChannels:
 
             body = _sent_payload(routes)
 
-        assert "image" not in body  # 单通道：keyframes 走 extra_body，不占顶层 image
+        assert "image" not in body
         extra = body["extra_body"]
         assert extra["mode"] == "keyframes"
         assert extra["image"] == [
-            base64.b64encode(b"start-bytes").decode("ascii"),
-            base64.b64encode(b"end-bytes").decode("ascii"),
+            base64.b64encode(image_bytes(1)).decode("ascii"),
+            base64.b64encode(image_bytes(2)).decode("ascii"),
         ]
         assert all(not s.startswith("data:") for s in extra["image"])
 
     async def test_reference_images_extra_body(self, tmp_path: Path):
-        ref1 = _write_image(tmp_path / "r1.png", b"ref-1")
-        ref2 = _write_image(tmp_path / "r2.png", b"ref-2")
+        ref1 = _write_image(tmp_path / "r1.png", image_bytes(1))
+        ref2 = _write_image(tmp_path / "r2.png", image_bytes(2))
 
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued("t-ref"))
@@ -340,10 +330,10 @@ class TestImageChannels:
 
         assert "image" not in body
         extra = body["extra_body"]
-        assert "mode" not in extra  # 参考生视频不带 keyframes mode
+        assert "mode" not in extra
         assert extra["image"] == [
-            base64.b64encode(b"ref-1").decode("ascii"),
-            base64.b64encode(b"ref-2").decode("ascii"),
+            base64.b64encode(image_bytes(1)).decode("ascii"),
+            base64.b64encode(image_bytes(2)).decode("ascii"),
         ]
 
     async def test_reference_images_exceeded_raises(self, tmp_path: Path):
@@ -380,7 +370,7 @@ class TestImageChannels:
 
     async def test_end_image_only_fails_loud(self, tmp_path: Path):
         """仅提供尾帧（无首帧）时 fail-loud——Agnes 无独立尾帧通道，不静默退化为文生视频。"""
-        end = _write_image(tmp_path / "e.png", b"end")
+        end = _write_image(tmp_path / "e.png", image_bytes(1))
 
         with _agnes_api() as routes:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
@@ -401,7 +391,7 @@ class TestImageChannels:
 
     async def test_missing_end_image_fails_loud_with_end_code(self, tmp_path: Path):
         """首尾帧模式下尾帧缺失：错误码指向尾帧而非首帧。"""
-        start = _write_image(tmp_path / "s.png", b"start-bytes")
+        start = _write_image(tmp_path / "s.png", image_bytes(1))
 
         with _agnes_api() as routes:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
@@ -411,19 +401,14 @@ class TestImageChannels:
             assert ei.value.code == "video_end_image_unreadable"
             assert routes.submit.call_count == 0
 
-    async def test_empty_path_objects_degrade_to_text_to_video(self, tmp_path: Path):
-        """空 Path（``Path("")`` 塌成 ``Path(".")``）应归一化为 None，回落文生视频而非误报无法读取。"""
+    async def test_empty_reference_is_identified_by_position(self, tmp_path):
         with _agnes_api() as routes:
-            routes.submit.mock(return_value=_queued("t-empty"))
-            routes.poll.mock(return_value=_json(_completed("t-empty")))
-
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
-            await backend.generate(_request(tmp_path, start_image=Path(""), reference_images=[Path("")]))
-
-            body = _sent_payload(routes)
-
-        assert "image" not in body
-        assert "extra_body" not in body
+            with pytest.raises(VideoCapabilityError) as caught:
+                await backend.generate(_request(tmp_path, reference_images=[Path("")]))
+            assert caught.value.code == "video_reference_images_unreadable"
+            assert caught.value.params["names"] == "#1"
+            assert not routes.submit.called
 
 
 class TestFailureAndTimeout:
@@ -493,7 +478,6 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
             result = await backend.generate(_request(tmp_path, on_provider_response=_record))
 
-            # 二次查询打网关根下的 /agnesapi，按 video_id 传参（不带 /v1，也不用 task_id）
             assert str(only_request(routes.query).url) == "https://apihub.agnes-ai.com/agnesapi?video_id=vid-123"
 
         assert result.video_uri == "https://cdn.agnes/queried.mp4"
@@ -520,7 +504,7 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
-            assert routes.query.call_count == 0  # 未发起二次查询
+            assert routes.query.call_count == 0
 
         assert result.video_uri == "https://cdn.agnes/direct.mp4"
 
@@ -557,7 +541,6 @@ class TestFailureAndTimeout:
                         "task_id": "t-remix-id",
                         "video_id": "vid-456",
                         "status": "completed",
-                        # 非 URL 形态：真正的 remix 来源 ID
                         "remixed_from_video_id": "src-video-abc",
                     }
                 )
@@ -588,7 +571,6 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
-            # 顶层/metadata 已命中权威字段，未发起二次查询
             assert routes.query.call_count == 0
 
         assert result.video_uri == "https://cdn.agnes/authoritative.mp4"
@@ -624,7 +606,6 @@ class TestFailureAndTimeout:
 
         assert result.video_uri == "https://platform-outputs.agnes-ai.com/videos/meta.mp4"
         assert result.video_path.read_bytes() == b"meta-bytes"
-        # 终态响应无 seconds，时长须从二次查询响应解析，而非回落请求时长
         assert result.duration_seconds == 8
 
     async def test_video_id_query_without_url_raises_descriptive_error(self, tmp_path: Path):
@@ -680,7 +661,7 @@ class TestSubmitResilience:
                 await backend.generate(_request(tmp_path))
 
             assert routes.submit.call_count == 1
-            assert routes.poll.call_count == 0  # 4xx 在提交阶段失败，不该轮询
+            assert routes.poll.call_count == 0
 
     async def test_submit_read_timeout_wraps_ambiguous(self, tmp_path: Path):
         with _agnes_api() as routes, bounded_poll_clock():
@@ -691,7 +672,7 @@ class TestSubmitResilience:
                 await backend.generate(_request(tmp_path))
 
             assert routes.submit.call_count == 1
-            assert routes.poll.call_count == 0  # 歧义态不该轮询
+            assert routes.poll.call_count == 0
 
 
 class TestResume:
@@ -729,7 +710,7 @@ class TestResume:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.resume_video("task-resume", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
-            assert routes.submit.call_count == 0  # resume 不 POST create
+            assert routes.submit.call_count == 0
             assert only_request(routes.poll).url.path.endswith("/videos/task-resume")
 
         assert result.task_id == "task-resume"
@@ -806,8 +787,8 @@ class TestProviderJobIdPersistence:
 
         assert persisted == [
             {
-                "task_id": "worker-task-99",  # worker 任务 id
-                "job_id": "agnes-task-42",  # Agnes submit 返回的 task_id 作为 job_id 写回
+                "task_id": "worker-task-99",
+                "job_id": "agnes-task-42",
                 "provider": PROVIDER_AGNES,
                 "endpoint": None,
                 "base_url": None,

@@ -54,7 +54,6 @@ class TestBuildEpisodeScriptModel:
 
     def test_single_value_uses_const(self):
         field_schema = _duration_field_schema(build_episode_script_model("narration", [8]))
-        # 单值集 Pydantic 渲染为 const（仍是硬约束）
         assert field_schema.get("const") == 8 or field_schema.get("enum") == [8]
 
     def test_empty_supported_durations_raises(self):
@@ -196,7 +195,6 @@ class TestReferenceUnitsScriptPlanModel:
         schema = self._model().model_json_schema()
         unit_def = next(d for d in schema.get("$defs", {}).values() if "text" in d.get("properties", {}))
         assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
-        # 机械可派生的字段一律不进 LLM 输出 schema
         assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text"}
 
     def test_member_duration_accepted(self):

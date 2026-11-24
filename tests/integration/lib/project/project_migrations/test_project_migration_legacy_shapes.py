@@ -244,6 +244,26 @@ def test_schema_five_shared_references_survive_namespace_renames(tmp_path: Path,
     assert [item.code for item in shown.adjusted] == ["shared_reference_file_copied"] * 3
 
 
+def test_absolute_shared_reference_through_parent_alias_keeps_its_bytes(tmp_path: Path) -> None:
+    project_dir = write_legacy_shared_reference_project(tmp_path / "projects")
+    alias = tmp_path / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    aliased_project_dir = alias / project_dir.name
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["characters"]["Bob"]["reference_image"] = str(aliased_project_dir / "characters/refs/Alice.png")
+    project["products"] = {}
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(aliased_project_dir)
+
+    migrated = _read_json(project_path)
+    reference = migrated["characters"]["Bob"]["reference_image"]
+    assert reference == "characters/refs/Bob.png"
+    assert (project_dir / reference).read_bytes() == b"image"
+
+
 @pytest.mark.parametrize("fail_commit", [False, True])
 def test_swapped_shared_references_keep_each_original_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_commit: bool
@@ -347,7 +367,6 @@ def test_reference_files_shared_with_another_asset_get_their_own_copy(tmp_path: 
 
 @pytest.mark.parametrize("resolved_project_dir", [False, True])
 def test_a_reference_spelled_differently_still_gets_its_own_copy(tmp_path: Path, resolved_project_dir: bool) -> None:
-    # 旧版 PATCH 原样收下任意字符串：带 ``..`` / ``.`` 段、反斜杠或项目内绝对路径，运行时照样读到别的资产名下的文件。
     project_dir, *_ = _project(tmp_path)
     advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
     contents = share_reference_files(project_dir)
@@ -383,7 +402,6 @@ def test_a_reference_spelled_differently_still_gets_its_own_copy(tmp_path: Path,
 def test_an_asset_name_with_path_separators_gets_no_copy_outside_its_directory(
     tmp_path: Path, from_version: int
 ) -> None:
-    # 导入包在校验资产名之前跑迁移链：名字里的 ``..`` 段不能把共用参考文件的副本带出项目目录。
     if from_version == 5:
         project_dir = write_legacy_shared_reference_project(ProjectManager(tmp_path).projects_dir)
         image, audio = "characters/refs/Alice.png", "characters/refs_audio/Alice.wav"
@@ -418,7 +436,6 @@ def test_copying_shared_reference_files_converges_after_a_failed_commit(
             raise OSError("disk full")
         write(path, payload)
 
-    # 副本都已落盘、保留副本也已挪出，改指的 project.json 提交失败。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
         with pytest.raises(OSError, match="disk full"):
@@ -769,10 +786,8 @@ def _assert_sheets_keep_their_currency(
     assert (project_dir / "scenes/雨巷.png").read_bytes() == contents["props/伞.png"]
     assert (project_dir / "characters/refs/阿离.png").read_bytes() == contents["characters/refs/阿离.png"]
     assert (project_dir / "props/伞.png").read_bytes() == contents["props/伞.png"]
-    # 登记在共用路径上的随改指换到副本，依据摘要不变：副本与原文件同字节，仍读作时新。
     assert _sheet_claim(project_dir, "character", "阿青") == ("characters/阿青.png", qing_digest)
     assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "current"
-    # 「雨巷」原有的登记描述的是被挪成保留副本的那张图：撤掉，改指前后都读作缺失，不借副本伪造成时新。
     assert _sheet_claim(project_dir, "scene", "雨巷") is None
     assert _sheet_status(project_dir, "scene", "雨巷", "scenes/雨巷.png") == "missing"
     sheets = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").artifacts["asset_sheets"]
@@ -819,7 +834,6 @@ def test_a_failed_sheet_copy_commit_rolls_the_claims_back_and_the_retry_converge
         with pytest.raises(OSError, match="disk full"):
             runner.migrate_project_dir(project_dir)
 
-    # 改指没能提交：复制落点、登记与 project.json 一并回到改前。
     assert (project_dir / "characters/阿青.png").read_bytes() == b"qing-stray"
     assert (project_dir / "scenes/雨巷.png").read_bytes() == contents["scenes/雨巷.png"]
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest
@@ -971,7 +985,6 @@ def test_bidirectional_sheet_sharing_with_crossed_claims_carries_both_claims(tmp
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     ali_bytes = (project_dir / "characters/阿离.png").read_bytes()
     (project_dir / "characters/阿青.png").write_bytes(b"qing")
-    # 两张图的登记都在各自共用的路径上：逐条改指时，第一条会落到另一条尚未换走的路径上。
     adapter = ProjectArtifactManifestAdapter(project_dir)
     ali_key = ArtifactKey.asset_sheet("character", "阿离")
     qing_key = ArtifactKey.asset_sheet("character", "阿青")
@@ -1106,7 +1119,6 @@ def test_dialogue_speakers_and_unit_text_mentions_follow_the_kept_name(tmp_path:
     [unit] = _read_json(project_dir / "scripts" / "episode_1.json")["video_units"]
     assert unit["text"] == "@[Alice]：{你好}\n@[Alice]推门，@[Alice]回头"
     [scene] = _read_json(project_dir / "scripts" / "episode_2.json")["scenes"]
-    # 改写后与保留名重复的引用只留一个。
     assert scene["characters_in_scene"] == ["Alice"]
     assert scene["dialogue"] == [{"speaker": "Alice", "line": "走吧"}]
     assert [(item.code, item.episode) for item in record] == [
@@ -1149,7 +1161,6 @@ def test_references_rewritten_before_a_failed_write_stay_in_the_report(
             raise OSError("disk full")
         write(path, payload)
 
-    # 第 1 集已改写落盘、第 2 集写盘失败：重跑发现不了第 1 集的改写，报告要靠失败时的记录带到重试。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_second_episode)
         with pytest.raises(OSError, match="disk full"):
@@ -1218,7 +1229,6 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
 
     _migrate(project_dir)
 
-    # 迁走的衍生图搬到保留名下，之后改名衍生或本体时按规范路径搬图，条目里的路径对得上。
     kept_hat_sheet = "characters/derivatives/Alice/Hat.png"
     kept = _read_json(project_dir / "project.json")["characters"]["Alice"]
     assert kept["derivatives"] == {
@@ -1233,7 +1243,6 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
     assert hat_key not in entries
     assert hat_claim is not None
     assert entries[derivative_artifact_key("Alice", "Hat")] == replace(hat_claim, artifact_path=kept_hat_sheet)
-    # 并入已有衍生的那条撤掉登记与历史：留着会按不区分大小写的路径占住保留方衍生的登记位。
     assert coat_key not in entries
     derivative_history = _read_json(versions_path)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
     assert f"{variant}/Hat" not in derivative_history
@@ -1261,7 +1270,6 @@ def test_a_moved_derivative_without_its_sheet_on_disk_still_points_under_the_kep
 
     normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
 
-    # 与改名衍生一致：路径跟着本体走，不看图在不在盘上。
     [kept] = _read_json(project_dir / "project.json")["characters"].values()
     assert kept["derivatives"]["Hat"]["character_sheet"] == "characters/derivatives/Alice/Hat.png"
 
@@ -1281,7 +1289,6 @@ def test_derivatives_of_several_case_variants_fold_into_each_other(tmp_path: Pat
 
     normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
 
-    # 后一条变体的 hat 与前一条迁入的 Hat 只差大小写，并入它。
     assert _read_json(project_dir / "project.json")["characters"] == {
         "Alice": {"description": "保留", "derivatives": {"Hat": {"description": "变体的帽子", "character_sheet": ""}}}
     }
@@ -1314,7 +1321,6 @@ def _migrated_state(project_dir: Path) -> tuple[Any, ...]:
         {key: value for key, value in _read_json(project_dir / "project.json").items() if key != "episodes"},
         _read_json(project_dir / "scripts" / "episode_1.json"),
         _read_json(project_dir / "drafts" / "episode_1" / "script_plan_segments.json"),
-        # 中途失败时先落盘的改动先记下，重跑后报告里的先后与一次跑完不同，内容一致。
         sorted((item.code, item.episode or 0, sorted(item.params.items())) for item in report.adjusted),
     )
 
@@ -1326,7 +1332,6 @@ def test_a_normalization_that_fails_after_rewriting_references_converges_on_retr
     _migrate(once)
     retried = _variant_project(tmp_path / "retried")
 
-    # 引用已改写落盘、资产表还没提交时失败：重跑仍能发现变体，结果与一次跑完一致。
     with monkeypatch.context() as patch:
         _fail_committing_without_variant(patch)
         assert migrate_project_with_verdict(retried) is not None
@@ -1372,7 +1377,6 @@ def test_a_confirmed_script_plan_under_pre_v10_names_stays_confirmed_after_its_r
     project_dir = write_legacy_script_plan_project(tmp_path, variant="narration", schema_version=9)
     project = _read_json(project_dir / "project.json")
     project["characters"] = {"Alice": {"description": "保留"}, "ALICE": {"description": "变体"}}
-    # 第 2 集只有已确认的脚本规划，正式脚本要由 v14→v15 按这份确认转出。
     legacy_plan = project_dir / "drafts" / "episode_2" / "step1_segments.json"
     plan = _read_json(legacy_plan)
     plan["segments"][0]["characters_in_segment"] = ["ALICE"]
@@ -1514,7 +1518,6 @@ def test_ad_renumbering_survives_a_v6_step_that_fails_after_writing_the_script(
             raise OSError("disk full")
         write(path, payload)
 
-    # 剧本已改成新单元并换了号，提交 project.json 时失败：重跑时剧本里已没有可发现的换号。
     with monkeypatch.context() as patch:
         patch.setattr(v6_to_v7_ad_reference_video_units, "atomic_write_json", fail_on_project_json)
         assert migrate_project_with_verdict(project_dir) is not None
@@ -1690,7 +1693,6 @@ def test_adjustments_survive_a_chain_that_fails_and_is_retried(tmp_path: Path, u
     add_duplicate_ledger_entry(project_dir, 1, "episode_1_copy.json")
     script_path = project_dir / "scripts" / "episode_1.json"
     script_bytes = script_path.read_bytes()
-    # 剧本读不出仍拒绝整个项目：链停在半路，已做的规整写进未完成的报告。
     script_path.write_text(unreadable, encoding="utf-8")
 
     assert migrate_project_with_verdict(project_dir) is not None
@@ -1712,7 +1714,6 @@ def test_an_unreadable_script_under_a_noncanonical_binding_stays_where_it_is(tmp
     bound.write_text('{"episode": 1, "segments": [', encoding="utf-8")
     unreadable = bound.read_bytes()
 
-    # 剧本读不出照旧拒绝整个项目；规整不挪它、也不改绑，拒绝点名的仍是盘上原来的文件。
     assert migrate_project_with_verdict(project_dir) is not None
 
     assert bound.read_bytes() == unreadable
@@ -1738,7 +1739,6 @@ def test_adjustments_already_on_disk_survive_a_normalization_that_fails_halfway(
                 raise OSError("disk full")
         write(path, payload)
 
-    # 剧本集号已写回盘上，之后换条目 id 时写盘失败：重跑时规整发现不了集号的改动，只能靠未完成的报告带过去。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_second_script_write)
         assert migrate_project_with_verdict(project_dir) is not None
@@ -1817,7 +1817,6 @@ def test_an_unreadable_script_two_episodes_share_keeps_both_bindings(tmp_path: P
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": [', encoding="utf-8")
     ledger = _read_json(project_dir / "project.json")["episodes"]
 
-    # 剧本读不出照旧拒绝整个项目；规整不拆绑定，账本原样留下。
     assert migrate_project_with_verdict(project_dir) is not None
 
     assert _read_json(project_dir / "project.json")["episodes"] == ledger
@@ -1846,12 +1845,10 @@ def test_crossed_bindings_each_land_on_their_own_canonical_script(
     for episode, title in ((1, "第一集"), (2, "第2集")):
         script = _read_json(project_dir / "scripts" / f"episode_{episode}.json")
         assert (script["episode"], script["title"]) == (episode, title)
-    # 没有剧本被挪成保留副本，交叉挪动的临时名也没留下。
     leftovers = [path.name for path in (project_dir / "scripts").iterdir() if ".bak." not in path.name]
     assert sorted(leftovers) == ["episode_1.json", "episode_2.json"]
     report = load_migration_report(project_dir)
     assert report is not None
-    # 改绑按挪动的先后提交，报告也按这个顺序记。
     assert sorted((item.code, item.episode, item.backup) for item in report.adjusted) == [
         ("script_binding_canonicalized", 1, None),
         ("script_binding_canonicalized", 2, None),
@@ -1878,7 +1875,6 @@ def test_records_pointing_at_swapped_bindings_follow_their_own_episode(tmp_path:
     normalize_legacy_shapes(project_dir, schema_version=7, record=[])
 
     videos = _read_json(versions_path)["videos"]
-    # 写回不带目录的文件名，与生成任务、宫格请求写下的形态一致。
     assert {
         resource_id: resource["versions"][0]["execution_script_file"] for resource_id, resource in videos.items()
     } == {
@@ -1907,11 +1903,9 @@ def test_a_rebind_interrupted_between_a_move_and_its_commit_finishes_on_retry(
 
     def interrupt(path: Path, payload: Any) -> None:
         nonlocal commits
-        # 数改绑提交而不是 project.json 的写盘次数：别的步骤多写一次，中断点也不会错位。
         if _commits_a_rebind(path, payload):
             commits += 1
             if commits == interrupted_at:
-                # 每挪一次剧本就提交一次账本：剧本已挪到位、账本还没改，进程在这里停下。
                 raise KeyboardInterrupt
         write(path, payload)
 
@@ -1927,7 +1921,6 @@ def test_a_rebind_interrupted_between_a_move_and_its_commit_finishes_on_retry(
         assert (script["episode"], script["title"]) == (episode, title)
     leftovers = [path.name for path in (project_dir / "scripts").iterdir() if ".bak." not in path.name]
     assert sorted(leftovers) == ["episode_1.json", "episode_2.json"]
-    # 中断前已改绑到临时名的集，报告仍写原来的绑定。
     report = load_migration_report(project_dir)
     assert report is not None
     for item in report.adjusted:
@@ -1952,7 +1945,6 @@ def test_a_kept_copy_made_before_a_failed_rebind_commit_stays_in_the_report(
             raise OSError("disk full")
         write(path, payload)
 
-    # 规范路径上的旧稿已挪成保留副本、剧本也挪到位，提交账本时失败。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_rebind_commit)
         assert migrate_project_with_verdict(project_dir) is not None

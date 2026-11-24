@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Expand an AFK batch and project the issue dependency graph. This is a planning
-# snapshot only; stage progress lives in the remote stage branch and PR.
-# Scope is a Spec's sub-issues (--spec), an explicit issue list (--issues), or the
-# discovered loose issues (--ready: open, labelled ready-for-agent, unassigned and not
-# a sub-issue of any parent).
-# stdout: {generated_for, issues: [{number, title, state, state_reason, labels,
-# assignees, blocked_by, blockers_completed}], initial_frontier: [number]}.
-# initial_frontier is only the mechanical open/unassigned/blockers projection;
-# the team-lead applies triage labels and issue semantics.
 
 set -euo pipefail
 
@@ -118,8 +109,6 @@ else
   jq -s '.' "$TASK_TMP_DIR/issues.jsonl" >"$TASK_TMP_DIR/issues.json"
 fi
 
-# Project the canonical native graph. The body fallback accepts the legacy-format
-# `## Blocked by` section when native dependencies are unavailable.
 : >"$TASK_TMP_DIR/native.jsonl"
 for issue in $(jq -r '.[].number' "$TASK_TMP_DIR/issues.json"); do
   if gh api "repos/${OWNER_REPO}/issues/${issue}/dependencies/blocked_by" --paginate --slurp \

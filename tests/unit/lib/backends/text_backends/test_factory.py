@@ -58,8 +58,6 @@ async def test_resolved_provider_model_and_credentials_reach_the_spec():
 @pytest.mark.parametrize(
     ("provider_id", "model", "credentials", "registry_backend"),
     [
-        # 解析层 id 与 backend 注册名不同的两族：gemini 双 id 共用 "gemini" 注册名；
-        # ark-agent-plan 复用 ArkTextBackend（name 报 "ark"）。记账须取解析层 id。
         ("gemini-aistudio", "gemini-3-flash-preview", {"api_key": "test-key", "base_url": ""}, "gemini"),
         ("gemini-vertex", "gemini-3-flash-preview", {"gcs_bucket": "my-bucket"}, "gemini"),
         ("ark-agent-plan", "doubao-seed-2.1-lite", {"api_key": "ark-plan-key"}, "ark-agent-plan"),

@@ -9,9 +9,6 @@ import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeConfigResponse(
   overrides?: Partial<GetSystemConfigResponse["settings"]>,
@@ -92,16 +89,12 @@ function renderPage(path = "/app/settings", searchPath?: string) {
   return location;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("SystemConfigPage", () => {
   beforeEach(() => {
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
 
-    // Default: silence child section network calls so tests don't hang
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
@@ -136,7 +129,7 @@ describe("SystemConfigPage", () => {
       ["生成", ["供应商", "默认模型", "调用端点", "素材库与存储"]],
       ["Agent", ["ArcReel Agent", "Agent 记忆", "外部 Agent 接入", "访问令牌"]],
       [null, ["市场", "使用记录"]],
-      ["系统", ["通用", "提示词模版", "关于"]],
+      ["系统", ["通用", "提示词模板", "关于"]],
     ]);
     expect(within(nav).getByRole("link", { name: "供应商" })).toHaveAttribute("aria-current", "page");
   });
@@ -194,7 +187,6 @@ describe("SystemConfigPage", () => {
   });
 
   it("有供应商却没有默认模型时，在「默认模型」分区与其侧栏项提示", async () => {
-    // 内置供应商的推荐只在首次配置时写进默认模型，运行时不按推荐挑选：默认模型留空时生成会失败
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ default_video_backend: "", text_backend_complex: "gemini/gemini-3-pro" }),
     );
@@ -228,7 +220,7 @@ describe("SystemConfigPage", () => {
       .map((link) => link.textContent);
     expect(flagged).toEqual(["供应商"]);
 
-    for (const section of ["默认模型", "使用记录", "提示词模版"]) {
+    for (const section of ["默认模型", "使用记录", "提示词模板"]) {
       await user.click(within(nav).getByRole("link", { name: section }));
       await waitFor(() => expect(within(nav).getByRole("link", { name: section })).toHaveAttribute("aria-current", "page"));
       expect(screen.queryByRole("note", { name: "配置不完整" })).not.toBeInTheDocument();
@@ -244,7 +236,6 @@ describe("SystemConfigPage", () => {
 
     renderPage("/app/settings", "section=agent-memory");
 
-    // 还没有记忆文件时详情栏是新建表单
     expect(await screen.findByRole("heading", { name: "新建记忆文件" })).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });

@@ -136,7 +136,6 @@ class TestVision:
         assert result.text == "style description"
         assert result.input_tokens == 100
         assert result.output_tokens == 50
-        # 确认走的是 chat.completions 而不是 responses API
         mock_client.chat.completions.create.assert_called_once()
 
     async def test_vision_message_format(self, mock_ark, sync_to_thread):
@@ -186,7 +185,6 @@ class TestCapabilityAwareStructured:
         _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
-        # 手动添加原生结构化输出能力
         b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
@@ -386,9 +384,7 @@ class TestCapabilityAwareStructured:
         )
 
         assert result.text == '{"a": 1}'
-        # 原生路径应该被尝试过
         backend_with_structured._test_client.chat.completions.create.assert_called_once()
-        # 降级路径应该被使用
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
 
 
@@ -429,7 +425,6 @@ class TestSuccessPathReverify:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
-        # 原生 200 调用（100/60）已被代理计费，与 Instructor 调用（80/30）合并
         assert result.input_tokens == 180
         assert result.output_tokens == 90
         backend._test_client.chat.completions.create.assert_called_once()
@@ -457,7 +452,6 @@ class TestSuccessPathReverify:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
-        # Instructor usage 为 None，结果 token 即原生 200 调用计费量（10/5）
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
@@ -469,7 +463,6 @@ class TestSuccessPathReverify:
             name: str
             age: int
 
-        # 原生 200 返回非 JSON 触发降级，且原生 usage 缺失
         mock_resp = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="## markdown not json"))],
             usage=None,
@@ -530,7 +523,6 @@ class TestSuccessPathReverify:
         result = await backend.generate(TextGenerationRequest(prompt="x", response_schema={"type": "object"}))
 
         assert result.text == '{"key": "value"}'
-        # 原生 10/5 与 json_object 降级 30/15 合并
         assert result.input_tokens == 40
         assert result.output_tokens == 20
         call_kwargs = backend._openai_client.chat.completions.create.call_args.kwargs
@@ -606,7 +598,6 @@ class TestSuccessPathReverify:
         with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
-        # 解析异常落入 except → 降级路径，返回带校验结果（不并入原生 token：原生未成功解析）
         assert result.text == instructor_result.model_dump_json()
         assert result.input_tokens == 80
         assert result.output_tokens == 30
@@ -635,7 +626,6 @@ class TestSuccessPathReverify:
         ):
             await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
-        # 原生 200 调用只发生一次；降级层自身重试 3 次穷尽
         backend._test_client.chat.completions.create.assert_called_once()
         assert mock_instructor.call_count == 3
 

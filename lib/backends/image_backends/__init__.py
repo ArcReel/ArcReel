@@ -21,7 +21,6 @@ __all__ = [
     "get_registered_backends",
     "register_backend",
 ]
-# Backend auto-registration
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.providers import PROVIDER_ARK, PROVIDER_ARK_AGENT_PLAN, PROVIDER_GEMINI
 
@@ -67,15 +66,16 @@ from lib.backends.providers import PROVIDER_AGNES
 
 register_backend(PROVIDER_AGNES, AgnesTierImageBackend)
 
-# 按请求约定拆分的图片端点，预估与执行共用同一个类。
 from lib.backends.image_backends.agnes import AGNES_IMAGE_BACKENDS
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
+from lib.backends.image_backends.minimax import MINIMAX_IMAGE_BACKENDS
 
 for _endpoint, _backend in {
     **SEEDREAM_BACKENDS,
     **DASHSCOPE_IMAGE_BACKENDS,
     **AGNES_IMAGE_BACKENDS,
     **KLING_IMAGE_BACKENDS,
+    **MINIMAX_IMAGE_BACKENDS,
 }.items():
     register_backend(_endpoint, _backend)

@@ -17,6 +17,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_OPENAI
+from tests.factories import image_bytes
 from tests.fakes import captured_openai_clients
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -36,7 +37,6 @@ def _make_mock_image_response(
     datum.b64_json = b64_data
     datum.url = url
 
-    # spec 限定属性集，避免 MagicMock 自动创造未知属性
     response = MagicMock(spec=["data", "usage"])
     response.data = [datum]
     if usage is None:
@@ -116,9 +116,8 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_awaited_once()
         call_kwargs = mock_client.images.generate.call_args[1]
         assert call_kwargs["model"] == "gpt-image-2"
-        assert call_kwargs["size"] == "1008x1792"  # 9:16 精确（1K 短边 1024）
-        assert call_kwargs["quality"] == "medium"  # 1K
-        # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
+        assert call_kwargs["size"] == "1008x1792"
+        assert call_kwargs["quality"] == "medium"
         assert "response_format" not in call_kwargs
 
     async def test_sends_every_reference_above_the_channel_limit(self, tmp_path: Path):
@@ -129,7 +128,7 @@ class TestOpenAIImageBackend:
         refs = []
         for index in range(20):
             ref_path = tmp_path / f"ref{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            ref_path.write_bytes(image_bytes())
             refs.append(ReferenceImage(path=str(ref_path)))
 
         output_path = tmp_path / "output.png"
@@ -166,7 +165,7 @@ class TestOpenAIImageBackend:
         mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         ref_path = tmp_path / "ref.png"
-        ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        ref_path.write_bytes(image_bytes())
 
         with captured_openai_clients(mock_client):
             from lib.backends.image_backends.openai import OpenAIImageBackend
@@ -186,7 +185,6 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_not_awaited()
         edit_kwargs = mock_client.images.edit.call_args[1]
         assert "response_format" not in edit_kwargs
-        # I2I 与 T2I 对称下传 size：默认 9:16 + image_size=None → 兜底 720 短边 → 720x1280。
         assert edit_kwargs["size"] == "720x1280"
 
     async def test_empty_data_raises(self, tmp_path: Path):
@@ -255,7 +253,6 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # image_size="1K"（短边 1024）下遍历不同 aspect_ratio，比例精确
             for aspect, expected_size in [("16:9", "1792x1008"), ("1:1", "1024x1024"), ("9:16", "1008x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
@@ -279,7 +276,6 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # quality 仍按 image_size 档位映射；遍历有映射的档位
             for img_size, expected_quality in [("512px", "low"), ("1K", "medium"), ("2K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(
@@ -306,7 +302,6 @@ class TestOpenAIImageBackend:
                         "output_tokens": 2200,
                         "total_tokens": 2700,
                         "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
-                        # 不返回 output_tokens_details；img_out 应回退到顶层 output_tokens
                     },
                 }
             )
@@ -330,9 +325,8 @@ class TestOpenAIImageBackend:
 
         assert result.text_input_tokens == 500
         assert result.image_input_tokens == 0
-        assert result.image_output_tokens == 2200  # 顶层 fallback
+        assert result.image_output_tokens == 2200
         assert result.text_output_tokens is None
-        # 用量契约：按 token 上报，选择维度取自请求里的 size 与 quality
         assert result.usage is not None
         assert result.usage.quantities == {
             "uncached_input_tokens": 500,
@@ -363,7 +357,6 @@ class TestOpenAIImageBackend:
         assert result.image_output_tokens is None
         assert result.text_input_tokens is None
         assert result.text_output_tokens is None
-        # 拿不到 usage：只报输出张数，不按尺寸与质量估 token 记账
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1}
 
@@ -378,9 +371,9 @@ class TestOpenAIImageBackend:
             return_value=_make_mock_image_response(
                 b64_data,
                 usage={
-                    "input_tokens": 500,  # 顶层有
+                    "input_tokens": 500,
                     "output_tokens": 2200,
-                    "input_tokens_details": None,  # 但拆分缺失
+                    "input_tokens_details": None,
                 },
             )
         )
@@ -442,7 +435,6 @@ class TestOpenAIImageBackend:
             return_value=_make_mock_image_response(
                 b64_data,
                 usage={
-                    # 没有 output_tokens 顶层、没有 output_tokens_details
                     "input_tokens": 500,
                     "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
                 },
@@ -483,7 +475,7 @@ class TestOpenAIImageBackend:
         )
 
         ref_path = tmp_path / "ref.png"
-        ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        ref_path.write_bytes(image_bytes())
 
         with captured_openai_clients(mock_client):
             from lib.backends.image_backends.openai import OpenAIImageBackend
@@ -530,7 +522,7 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_generations_only_with_refs_raises(self, tmp_path):
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"\x89PNG")
+        ref.write_bytes(image_bytes())
         with patch("lib.backends.image_backends.openai.create_openai_client"):
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
@@ -562,7 +554,7 @@ class TestModeGating:
         with captured_openai_clients():
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
-            b = OpenAIImageBackend(api_key="x", model="m")  # mode="both" 默认
+            b = OpenAIImageBackend(api_key="x", model="m")
             req = ImageGenerationRequest(
                 prompt="p",
                 output_path=tmp_path / "o.png",
@@ -570,9 +562,8 @@ class TestModeGating:
             )
             with pytest.raises(ImageCapabilityError) as excinfo:
                 await b.generate(req)
-            assert excinfo.value.code == "image_endpoint_mismatch_no_i2i"
-            assert excinfo.value.params.get("model") == "m"
-            assert excinfo.value.params.get("detail") == "all reference images failed to open"
+            assert excinfo.value.code == "image_reference_images_unreadable"
+            assert excinfo.value.params == {"model": "m", "names": "ref.png"}
 
 
 def _image_entry(
@@ -597,10 +588,8 @@ def _image_entry(
     )
 
 
-#: 官方计算器的质量档基数（arcreel-catalog 收录的 GPT Image 2 / GPT Image 2.5）。
 _GPT_IMAGE_2_BASES = {"low": 16, "medium": 48, "high": 96}
 _GPT_IMAGE_2_5_BASES = {"low": 16, "medium": 24, "high": 48, "xhigh": 64, "max": 96}
-#: GPT Image 2.6 的目录形状：系数为 1 的档写普通基数，低、中档写带系数基数。
 _GPT_IMAGE_2_6_BASES = {"high": 48, "xhigh": 64, "max": 96}
 _GPT_IMAGE_2_6_SCALED_BASES = {
     "low": ScaledOutputTokenBase(base=16, multiplier=4.2),
@@ -626,7 +615,6 @@ class TestOutputTokenEstimate:
         from lib.backends.image_backends.openai import estimate_output_tokens
 
         assert estimate_output_tokens(size, quality, _GPT_IMAGE_2_BASES) == tokens
-        # 官方表按 $30 / 百万输出 token 折成单图价，保留三位小数
         assert round(tokens * 30 / 1_000_000, 3) == official_price
 
     def test_quality_missing_from_bases_or_unparsable_size_has_no_estimate(self) -> None:
@@ -651,16 +639,13 @@ class TestOutputTokenEstimate:
         )
         assert usage.dimensions == {"resolution": "1008x1792", "quality": "medium"}
         assert usage.quantities["image_output_tokens"] == 1234
-        # 提示词文字 token 拿不到，记 0；文生图没有参考图，图片输入 token 记 0
         assert usage.quantities["uncached_input_tokens"] == 0
         assert usage.quantities["uncached_image_input_tokens"] == 0
 
     @pytest.mark.parametrize(
         ("image_size", "aspect_ratio", "tokens"),
         [
-            # 1K → medium：2.5 的 medium 基数是 24（gpt-image-2 是 48），同尺寸 token 约为四分之一
             ("1K", "1:1", 439),
-            # 2K → high：2.5 的 high 基数是 48，1440x1440
             ("2K", "1:1", 2_347),
         ],
     )
@@ -690,7 +675,6 @@ class TestOutputTokenEstimate:
         assert output("relay-image-xyz", _image_entry("gpt-image-2", _GPT_IMAGE_2_BASES)) == 1756
         assert output("gpt-image-2", _image_entry("gpt-image-2")) is None
         assert output("gpt-image-2", None) is None
-        # 条目只收录了部分质量档：请求用的 medium 不在里面，不估算
         assert output("gpt-image-2", _image_entry("gpt-image-2", {"low": 16})) is None
 
     def test_estimate_without_quality_or_with_references_leaves_tokens_unknown(self) -> None:
@@ -731,13 +715,10 @@ class TestScaledOutputTokenEstimate:
             pytest.param("1024x1024", "high", 1756, id="系数为1的high"),
             pytest.param("1024x1024", "xhigh", 3122, id="系数为1的xhigh"),
             pytest.param("1024x1024", "max", 7024, id="系数为1的max"),
-            # 短边块数恰好 .5 时取偶：16 ÷ (1024÷672) = 10.5 → 10，token 108，108 × 4.2 = 453.6
             pytest.param("672x1024", "low", 454, id="公式内部取偶-low"),
             pytest.param("560x1280", "medium", 541, id="公式内部取偶-medium"),
-            # 乘系数后恰好 .5 时进位：165 × 3.3 = 544.5 → 545，145 × 3.3 = 478.5 → 479；round() 取偶会得到 544、478
             pytest.param("544x1360", "medium", 545, id="结果恰好点五进位"),
             pytest.param("496x1360", "medium", 479, id="结果恰好点五进位-奇数"),
-            # 先向上取整再乘系数：公式值 63.85 → 64，64 × 4.2 = 268.8 → 269；先乘系数会得到 268
             pytest.param("480x1376", "low", 269, id="先取整后乘系数"),
         ],
     )

@@ -70,7 +70,6 @@ def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
 
 
 async def _fake_thumbnail(_video_path: Path, thumbnail_path: Path):
-    # 生产的抽帧由 ffmpeg 子进程落盘，不占事件循环；替身同样在工作线程里写。
     await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")
     return thumbnail_path
 

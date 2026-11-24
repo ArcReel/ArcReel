@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import register_current_resource_artifact
+from lib.config.resolver import ImageBucketCapabilityError
 from lib.i18n import _ as i18n_message
 from lib.project.project_change_hints import get_project_change_source
 from lib.project.project_manager import ProjectManager
@@ -23,7 +24,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import grids
 from server.routers import versions as versions_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager
+from tests.factories import image_bytes
+from tests.fakes import use_image_admission_context, use_project_manager
 
 
 def _narration_script(count: int = 4):
@@ -82,7 +84,6 @@ class _FakeQueue:
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
     async def get_active_tasks_for_resources(self, *, resource_ids, **_kwargs):
-        # 未显式给 active_resource_ids 时沿用旧替身语义：所有待探测资源都有活动任务。
         active = set(resource_ids) if self.active_resource_ids is None else self.active_resource_ids
         return [
             {"task_id": f"active-{resource_id}", "resource_id": resource_id}
@@ -98,13 +99,10 @@ def _client(monkeypatch, **patches):
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
-    # app 级 Exception handler 已把未预期异常收口为 500；关闭 TestClient 的默认重抛，
-    # 以便断言收口后的响应体（而非让异常穿透到测试栈）。
     return TestClient(app, raise_server_exceptions=False)
 
 
 def test_generate_grid_unexpected_error_no_leak(monkeypatch):
-    # generate_grid 末端 catch-all：load_project 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_generate")),
@@ -119,7 +117,6 @@ def test_generate_grid_unexpected_error_no_leak(monkeypatch):
 
 
 def test_list_grids_unexpected_error_no_leak(monkeypatch):
-    # list_grids 末端 catch-all：get_project_path 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_list")),
@@ -131,7 +128,6 @@ def test_list_grids_unexpected_error_no_leak(monkeypatch):
 
 
 def test_get_grid_unexpected_error_no_leak(monkeypatch):
-    # get_grid 末端 catch-all：get_project_path 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_get")),
@@ -143,7 +139,6 @@ def test_get_grid_unexpected_error_no_leak(monkeypatch):
 
 
 def test_regenerate_grid_unexpected_error_no_leak(monkeypatch):
-    # regenerate_grid 末端 catch-all：load_project 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_regen")),
@@ -201,7 +196,6 @@ def _assert_grid_switch_rejected(resp, queue) -> None:
 
 @pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
 def test_generate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
-    # 宫格开关是入队闸门：未开宫格的项目直接 400，不产生计费任务
     fake_queue = _FakeQueue()
     client = _client(monkeypatch, get_project_manager=fake_pm, get_generation_queue=lambda: fake_queue)
     with client:
@@ -214,7 +208,6 @@ def test_generate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
 
 @pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
 def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
-    # 开关关闭后历史 grid 记录同样不可重新入队
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -228,7 +221,6 @@ def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
 
 
 def test_get_grid_not_found(monkeypatch):
-    # gm.get() 返回 None 时：raise NotFoundError("grid_not_found", ...) -> 404
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMPathOnly,
@@ -240,7 +232,6 @@ def test_get_grid_not_found(monkeypatch):
 
 
 def test_regenerate_grid_not_found(monkeypatch):
-    # ad 项目校验通过后 gm.get() 返回 None：raise NotFoundError("grid_not_found", ...) -> 404
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMNarration,
@@ -262,7 +253,6 @@ class _FakePMInvalidName:
 
 
 def test_generate_grid_invalid_project_name(monkeypatch):
-    # load_project 抛 ValueError：非法项目名是坏请求，不是「不存在」-> 400
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMInvalidName,
@@ -313,8 +303,6 @@ class _FakePMCorrupted:
 
 
 def test_generate_grid_corrupted_project_maps_to_500_not_invalid_name(monkeypatch):
-    # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
-    # 误判为「非法项目名」，须先于其拦截并映射为通用 500
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMCorrupted,
@@ -356,7 +344,6 @@ class _FakePMInvalidScriptFile:
 
 
 def test_generate_grid_invalid_script_file(monkeypatch):
-    # 非法 script_file（路径穿越等）是坏请求，400 而非落入下方 500 兜底
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMInvalidScriptFile,
@@ -391,7 +378,6 @@ class _FakePMGenerate:
         return _narration_script()
 
     def get_project_path(self, name):
-        # 缺失即生成按产物清单取证，清单只读磁盘上的规范文件：把替身声称的状态落盘
         (self._project_path / "scripts").mkdir(parents=True, exist_ok=True)
         (self._project_path / "project.json").write_text(json.dumps(self.load_project(name)), encoding="utf-8")
         script = json.dumps(self.load_script(name, "episode_1.json"))
@@ -451,7 +437,6 @@ def test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(
 
 
 def test_generate_grid_success(monkeypatch, tmp_path):
-    # 完整走一遍分组 -> 布局 -> prompt -> 入队，断言 200 且每组产出一个 grid_id/task_id
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -469,7 +454,6 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["grid_ids"]) == 1
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
-        # message 走 i18n（默认中文），不再硬编码
         assert body["message"] == "已提交 1 个多宫格分镜生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
@@ -558,7 +542,6 @@ def test_generate_grid_blocks_a_character_without_an_asset_sheet(monkeypatch, tm
 
 
 def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
-    # Accept-Language=en 时 message 按英文渲染，验证成功文案已接入 Translator
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -618,7 +601,6 @@ def test_generate_grid_uses_large_grid_when_4k(monkeypatch, tmp_path, scene_coun
     assert len(payloads) == 1
     assert payloads[0]["grid_size"] == grid_size
     assert (payloads[0]["rows"], payloads[0]["cols"]) == (side, side)
-    # 方形档整图比例即项目视频比例
     assert payloads[0]["grid_aspect_ratio"] == payloads[0]["video_aspect_ratio"] == "9:16"
 
 
@@ -631,7 +613,6 @@ def test_generate_grid_above_25_chunks_at_25(monkeypatch, tmp_path):
 @pytest.mark.parametrize("scene_count", [10, 17, 30])
 def test_generate_grid_caps_at_9_without_4k(monkeypatch, tmp_path, scene_count):
     payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=scene_count, allow_large_grid=False)
-    # 门控生效时切块封顶 9：不足一整块的余数落回更小的档位，但不会出现 4×4 / 5×5
     assert all(p["grid_size"] in {"grid_4", "grid_9"} for p in payloads)
     assert all(p["rows"] * p["cols"] <= 9 for p in payloads)
     assert sum(len(p["scene_ids"]) for p in payloads) == scene_count
@@ -639,7 +620,6 @@ def test_generate_grid_caps_at_9_without_4k(monkeypatch, tmp_path, scene_count):
 
 @pytest.mark.parametrize("scene_count", [5, 6])
 def test_generate_grid_5_and_6_scenes_use_grid_9(monkeypatch, tmp_path, scene_count):
-    # grid_6 已删除：5~6 场景落 grid_9，不足的格由占位格补齐
     payloads = _generate_with_gate(monkeypatch, tmp_path, scene_count=scene_count, allow_large_grid=False)
     assert len(payloads) == 1
     assert payloads[0]["grid_size"] == "grid_9"
@@ -655,7 +635,6 @@ def test_generate_grid_maps_each_grid_to_the_task_it_enqueued(monkeypatch, tmp_p
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
-        # 30 个分段在 9 格封顶下切成多张宫格，映射才有可分辨的对应关系
         get_project_manager=lambda: _FakePMScenes(tmp_path, 30),
         get_generation_queue=lambda: fake_queue,
         resolve_large_grid_allowed=_gate,
@@ -815,6 +794,70 @@ def test_grid_capability_reports_gate(monkeypatch, tmp_path):
         assert resp.json() == {"large_grid_allowed": True, "max_cell_count": 25}
 
 
+@pytest.fixture
+def grid_with_character(tmp_path):
+    class WithCharacter(_FakePMGenerate):
+        def load_project(self, name):
+            return {
+                **super().load_project(name),
+                "characters": {"小林": {"description": "林", "character_sheet": "characters/lin.png"}},
+            }
+
+        def load_script(self, name, script_file):
+            script = super().load_script(name, script_file)
+            for item in script["segments"]:
+                item["characters_in_segment"] = ["小林"]
+            return script
+
+    pm = WithCharacter(tmp_path)
+    path = pm.get_project_path("demo")
+    (path / "characters").mkdir()
+    (path / "characters/lin.png").write_bytes(image_bytes())
+    assert register_current_resource_artifact(path, resource_type="characters", resource_id="小林")
+
+    return pm
+
+
+@pytest.mark.parametrize("limit", [0, 1])
+def test_grid_capability_reports_real_chunk_counts_and_overflow(monkeypatch, grid_with_character, limit):
+    pm = grid_with_character
+
+    async def image_limit(*_args):
+        return limit, "local"
+
+    client = _client(monkeypatch, get_project_manager=lambda: pm, reference_image_limit=image_limit)
+    with client:
+        response = client.get("/api/v1/projects/demo/grid-capability?episode=1&script_file=episode_1.json")
+    assert response.status_code == 200, response.text
+    (chunk,) = response.json()["reference_inputs"]
+    assert chunk["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
+    assert (chunk["count"], chunk["limit"]) == (1, limit)
+    if limit == 0:
+        assert "小林" in chunk["message"]
+    else:
+        assert not chunk.get("message")
+
+
+def test_grid_submission_reports_the_blocker_when_no_group_can_generate(monkeypatch, grid_with_character):
+    async def no_reference_input(*_args, **_kwargs):
+        raise ImageBucketCapabilityError(generation_type="i2i", provider_id="openai", model_id="local")
+
+    use_image_admission_context(monkeypatch, no_reference_input)
+    queue = _FakeQueue()
+    with _client(
+        monkeypatch, get_project_manager=lambda: grid_with_character, get_generation_queue=lambda: queue
+    ) as client:
+        response = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert not result["success"]
+    assert result["task_ids"] == []
+    assert {item["code"] for item in result["blocked"]} == {"image_reference_images_exceeded"}
+    assert result["message"].splitlines() == [f"{item['scene_id']} · {item['message']}" for item in result["blocked"]]
+    assert queue.calls == []
+
+
 def test_grid_capability_gated_max_cell_count(monkeypatch, tmp_path):
     async def _gate(_project):
         return False
@@ -884,9 +927,9 @@ def test_get_grid_success(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "bad_id",
     [
-        "..%2F..%2Fetc%2Fpasswd",  # URL 编码的 ../../etc/passwd
-        "grid_..%2F..%2Fsecret",  # 前缀合法但含穿越段
-        "grid_ABCDEF123456",  # 大写十六进制不匹配白名单
+        "..%2F..%2Fetc%2Fpasswd",
+        "grid_..%2F..%2Fsecret",
+        "grid_ABCDEF123456",
         "not-a-grid-id",
     ],
 )
@@ -958,7 +1001,7 @@ def test_regenerate_grid_success(monkeypatch, tmp_path):
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
-        scene_ids=["a", "b", "c", "d"],
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
         rows=2,
         cols=2,
         grid_size="grid_4",
@@ -995,7 +1038,7 @@ def test_regenerate_replaces_an_orphan_with_an_active_task(monkeypatch, tmp_path
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
-        scene_ids=["a", "b", "c", "d"],
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
         rows=2,
         cols=2,
         grid_size="grid_4",
@@ -1102,7 +1145,7 @@ def _regenerate_with_frozen_ratio(monkeypatch, tmp_path, frozen: str | None) -> 
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
-        scene_ids=["a", "b", "c", "d"],
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
         rows=2,
         cols=2,
         grid_size="grid_4",
@@ -1143,9 +1186,6 @@ def test_regenerate_grid_backfills_missing_aspect_ratio(monkeypatch, tmp_path):
 
     assert saved.video_aspect_ratio == "9:16"
     assert payload["video_aspect_ratio"] == "9:16"
-
-
-# ==================== 切分端点 ====================
 
 
 def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration:
@@ -1215,7 +1255,6 @@ def test_split_grid_rejected_when_switch_off(monkeypatch, tmp_path):
 
 
 def test_split_grid_conflict_while_generating(monkeypatch, tmp_path):
-    # 生成在途的宫格拒绝切分：worker 完成时会覆写联合图，按旧图切分会被踩踏
     grid = _make_completed_grid(tmp_path)
     grid.status = "generating"
     GridManager(tmp_path).save(grid)
@@ -1251,7 +1290,6 @@ def test_split_grid_allows_record_left_generating_after_cancel_or_restart(monkey
 
 
 def test_split_grid_image_not_ready(monkeypatch, tmp_path):
-    # 联合图缺失（未生成完成且未上传）→ 400，业务语义明确不落通用 500
     grid = _make_completed_grid(tmp_path, with_image=False)
 
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
@@ -1270,9 +1308,6 @@ def test_split_grid_not_found(monkeypatch, tmp_path):
     with client:
         resp = client.post("/api/v1/projects/demo/grids/grid-missing/split")
         assert resp.status_code == 404
-
-
-# ==================== 联合图上传 ====================
 
 
 def _png_bytes(size=(64, 64), color=(1, 2, 3)) -> bytes:
@@ -1321,7 +1356,6 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
         assert body["path"] == f"grids/{grid.id}.png"
         assert body["asset_fingerprints"] == {f"grids/{grid.id}.png": 123}
 
-    # 落盘为合法 PNG
     from io import BytesIO
 
     from PIL import Image
@@ -1330,7 +1364,6 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     with Image.open(BytesIO(saved_bytes)) as img:
         assert img.format == "PNG"
 
-    # 旧联合图补登 + 新版本登记（source=upload）
     versions = VersionManager(tmp_path).get_versions("grids", grid.id)
     assert len(versions["versions"]) >= 2
 
@@ -1460,7 +1493,6 @@ def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
         "server.services.tasks.generation_tasks.emit_generation_success_batch",
         lambda **kw: {},
     )
-    # _FakePMRegenerate 的项目比例为 9:16，与记录冻结的 16:9 不同
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
     with client:
         resp = client.post(

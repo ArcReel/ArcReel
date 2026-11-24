@@ -26,10 +26,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 from lib.backends.artifact_download_guard import artifact_http_client
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
@@ -41,10 +41,10 @@ from lib.backends.image_backends.base import (
     download_image_to_path,
     per_image_usage,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_image_urls,
-    image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
@@ -62,9 +62,7 @@ _POLL_MAX_WAIT_SECONDS = 600.0
 class KlingImageBackend(KlingBackendBase):
     """可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。"""
 
-    # 文生图与图生图（多图主体）同一端点。
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：各图像模型多图主体的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     _media_label = "图像"
@@ -92,7 +90,6 @@ class KlingImageBackend(KlingBackendBase):
             http_timeout=http_timeout,
             transport_layer=transport_layer,
         )
-        # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
         self._api_model_name = api_model_name or self._model
 
     @property
@@ -101,8 +98,6 @@ class KlingImageBackend(KlingBackendBase):
 
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
-
-    # ── request building ────────────────────────────────────────────────
 
     def _build_payload(self, request: ImageGenerationRequest) -> dict:
         """构建图像请求体。无参考图 → 文生图；有参考图 → 图生图（image 数组）。"""
@@ -121,28 +116,7 @@ class KlingImageBackend(KlingBackendBase):
 
     def _encode_references(self, reference_images: list[ReferenceImage]) -> list[str]:
         """参考图 → 纯 base64 列表（无 data URI 前缀）；缺失/不可读 fail-loud。"""
-        if not reference_images:
-            return []
-        encoded: list[str] = []
-        unreadable: list[str] = []
-        # names 进多语言错误模板：空路径无文件名时用序号 #N 标识第几张，避免占位漏进非中文报错。
-        for idx, ref in enumerate(reference_images, start=1):
-            path = Path(ref.path) if ref.path else None
-            if path is None or not path.is_file():
-                # path.name 可能为空（如 "." / "/" 解析出空文件名）：回退序号 #N，避免空 token 漏进报错。
-                unreadable.append(path.name if (path and path.name) else f"#{idx}")
-                continue
-            try:
-                encoded.append(image_to_base64(path))
-            except OSError as exc:
-                logger.warning("Kling 参考图读取失败: %s (%s)", path, exc)
-                unreadable.append(path.name)
-        if unreadable:
-            # fail-loud：声明的参考图缺失即中止，不静默用子集生成出错误结果还照常计费。
-            raise ImageCapabilityError(
-                "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
-            )
-        return encoded
+        return [image.base64() for image in read_reference_images((ref.path for ref in reference_images), self.model)]
 
     @staticmethod
     def _safe_log_view(payload: dict) -> dict:
@@ -160,8 +134,6 @@ class KlingImageBackend(KlingBackendBase):
             "reference_count": len(images) if isinstance(images, list) else int(bool(images)),
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
-
-    # ── generate ────────────────────────────────────────────────────────
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
@@ -184,7 +156,6 @@ class KlingImageBackend(KlingBackendBase):
                 poll_interval=_POLL_INTERVAL_SECONDS,
                 max_wait=_POLL_MAX_WAIT_SECONDS,
             )
-            # 24h 有效的 image_url 必须在失效前落地：取首张转存本地（组图按张产出，单输出取 [0]）。
             download_url = extract_kling_image_urls(final)[0]
 
         await download_image_to_path(download_url, request.output_path)
@@ -215,6 +186,9 @@ class KlingSingleImageBackend(KlingImageBackend):
         if limit is not None and len(request.reference_images) > limit:
             raise ImageCapabilityError(
                 "image_reference_images_exceeded",
+                names=excess_image_names(
+                    limit, len(request.reference_images), (ref.path for ref in request.reference_images)
+                ),
                 model=self._model,
                 limit=limit,
                 count=len(request.reference_images),

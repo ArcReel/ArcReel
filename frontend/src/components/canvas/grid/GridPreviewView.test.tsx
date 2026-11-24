@@ -7,7 +7,6 @@ import type { TaskItem } from "@/types";
 import type { NarrationSegment } from "@/types";
 import { GridPreviewView } from "./GridPreviewView";
 
-// 面板本身有独立测试，这里只关心批次预览的档位与张数，避免拉进它的数据加载。
 vi.mock("./GridPreviewPanel", () => ({
   GridPreviewPanel: () => <div data-testid="grid-panel" />,
 }));
@@ -90,6 +89,41 @@ beforeEach(() => {
 });
 
 describe("GridPreviewView 的档位与批次预览", () => {
+  it("按实际装配展示每张联合图的参考数量和超限原因", async () => {
+    const reason = "本次有 3 张参考图，超出 2 张上限的是花店";
+    const capability = vi.spyOn(API, "getGridCapability").mockResolvedValue({
+      large_grid_allowed: false, max_cell_count: 9,
+      reference_inputs: [
+        { scene_ids: ["SEG-1"], count: 1, limit: 2 },
+        { scene_ids: ["SEG-10"], count: 3, limit: 2, message: reason },
+      ],
+    });
+    renderView(makeSegments(11));
+
+    expect(await screen.findByText(/参考图 1 张 .* 2/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
+    expect(capability).toHaveBeenCalledWith("demo", expect.objectContaining({ episode: 1, scriptFile: "episode_1.json" }));
+  });
+
+  it("切到另一集后不再显示上一集的超限原因，即使新一集的能力请求失败", async () => {
+    const reason = "本次有 3 张参考图，超出 2 张上限的是花店";
+    vi.spyOn(API, "getGridCapability")
+      .mockResolvedValueOnce({
+        large_grid_allowed: false, max_cell_count: 9,
+        reference_inputs: [{ scene_ids: ["SEG-1"], count: 3, limit: 2, message: reason }],
+      })
+      .mockRejectedValue(new Error("boom"));
+    const segments = makeSegments(2);
+    const view = renderView(segments);
+    expect(await screen.findByText(new RegExp(reason))).toBeInTheDocument();
+
+    view.rerender(
+      <GridPreviewView projectName="demo" episode={2} scriptFile="episode_2.json" segments={segments} contentMode="narration" />,
+    );
+
+    await waitFor(() => expect(screen.queryByText(new RegExp(reason))).not.toBeInTheDocument());
+  });
+
   it("放行大宫格时按 5×5 切块，批次数取实际入队张数", async () => {
     vi.spyOn(API, "getGridCapability").mockResolvedValue({
       large_grid_allowed: true,
@@ -98,7 +132,6 @@ describe("GridPreviewView 的档位与批次预览", () => {
 
     renderView(makeSegments(30));
 
-    // 30 格按 25 一张切成 2 张，摘要的批次数须跟随张数而非分组数（分组只有 1 个）
     await waitFor(() => expect(screen.getByText(/^1 组 · 2 张联合图 · 30 格/)).toBeInTheDocument());
     expect(screen.getByText(/5×5/)).toBeInTheDocument();
   });

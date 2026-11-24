@@ -14,10 +14,8 @@ paths:
 
 # Agent Runtime 与 Agent 配置
 
-SDK 调用、options、session、streaming、hooks、permissions 或消息类型发生变化时，先查 [Claude Agent SDK 官方在线文档](https://code.claude.com/docs/en/agent-sdk/overview)，再调用项目已启用的 `agent-sdk-dev@claude-plugins-official` 对应 Python verifier 核验当前 SDK 用法。普通的 Agent 运行时业务逻辑改动不触发 verifier。
+修改 SDK 调用、选项、会话、流式传输、钩子、权限或消息类型时，先查阅 [Claude Agent SDK 官方文档](https://code.claude.com/docs/en/agent-sdk/overview)，再通过项目开发环境提供的 Python verifier 核验。若需确认锁定版本的具体语义，查阅对应上游源码或仓库内的契约测试。
 
-该 plugin 属于 ArcReel 仓库的开发态 Claude Code 配置；内嵌创作 Agent 不继承它。历史版本行为以固定版本的上游源码或当前契约测试为依据，不引用可变网页的行号。
+读取 SDK transcript 须经由 [SdkTranscriptAdapter](../../server/agent_runtime/sdk_transcript_adapter.py)，由其按部署配置选择数据源。相关决策见 [ADR 0029](../../docs/adr/0029-sdk-transcript-mirrored-to-db.md)。
 
-读取 SDK transcript 经 `server/agent_runtime/sdk_transcript_adapter.py` 的 `SdkTranscriptAdapter`：它按 `ARCREEL_SDK_SESSION_STORE` 在 DB 镜像与 SDK jsonl 之间切换（`docs/adr/0029`），直接读 store 的代码在 `off` 部署下读不到记录。
-
-新增 Agent 工具或会话操作、改内嵌 Agent 的行为、放行 Agent 的文件或网络访问前，先读 `website/docs/dev/architecture.md` 的「5.3 确定性工具」「5.4 会话串行」「5.5 内嵌 Agent 配置源」「15. 沙箱和安全边界」。
+修改 Agent 工具、会话操作或内嵌配置时，先阅读 [Agent Runtime](../../website/docs/dev/architecture.md#agent-runtime)。修改文件或网络访问时，先阅读 [沙箱和安全边界](../../website/docs/dev/architecture.md#sandbox-and-security)。

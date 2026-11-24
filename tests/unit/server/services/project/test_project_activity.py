@@ -35,7 +35,6 @@ def test_takes_the_latest_of_ledger_timestamps_and_content_files(tmp_path):
 
 
 def test_files_rewritten_outside_creative_work_do_not_count(tmp_path):
-    # 迁移与配置同步会统一改写这些文件；按它们算，所有项目都会显示为刚刚更新。
     _write(tmp_path / "source" / "chapter.txt", OLD)
     for rewritten in (
         "project.json",
@@ -71,7 +70,6 @@ def test_project_memory_counts_but_internal_state_does_not(tmp_path):
 
 
 def test_activity_recorded_by_business_writes_counts(tmp_path):
-    # 草稿等 JSON 的改写与删除只在活动账本里留下时刻。
     _write(tmp_path / "source" / "chapter.txt", OLD)
     (tmp_path / ACTIVITY_FILENAME).write_text(NEW.isoformat(), encoding="utf-8")
 

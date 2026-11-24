@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -29,13 +28,14 @@ import httpx
 from arcreel_market_core.comfyui.bindings import targets_of
 from arcreel_market_core.video_backend_contract import ProviderResponseStage
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import notify_provider_response_to
+from lib.backends.backend_runtime import notify_provider_response_to, read_reference_images
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
@@ -43,15 +43,8 @@ from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workf
 
 logger = logging.getLogger(__name__)
 
-#: 本端点产出的是图像：产物扩展名白名单与失败文案共读这一个值
-#: （见 ``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``）。
 MEDIA_TYPE = "image"
 
-#: 一次图像执行等到终态的墙钟上限。
-#:
-#: 不读全局的 ``video_poll_timeout_seconds``：那个设置项说的是视频，把它的含义悄悄扩到图像上，
-#: 用户调它的时候就不知道自己在调几件事。图像这一维没有可配项——内置图像供应商都是一次同步调用，
-#: 而 ComfyUI 的出图既要排队又跑在用户自己的显卡上，故按后者的最坏情形取一个够宽的定值。
 IMAGE_POLL_TIMEOUT_SECONDS = 1800
 
 
@@ -115,7 +108,11 @@ class ComfyuiImageBackend:
         count = len(request.reference_images)
         if count > self._reference_slots:
             raise ImageCapabilityError(
-                "image_reference_images_exceeded", model=self._model, limit=self._reference_slots, count=count
+                "image_reference_images_exceeded",
+                names=excess_image_names(self._reference_slots, count, (ref.path for ref in request.reference_images)),
+                model=self._model,
+                limit=self._reference_slots,
+                count=count,
             )
         if self._definition["bindings"].get("aspect_ratio"):
             await asyncio.to_thread(
@@ -161,9 +158,6 @@ class ComfyuiImageBackend:
                 provider=self._provider,
                 model=self._model,
                 image_uri=self._execution.view_url(picked.artifact),
-                # 实发种子：``policy: "random"`` 是提交那一刻现随机的，请求里那个值说不出它。报出来
-                # 而不是留空——图像调用入口不把它并进版本元数据（``_merge_result_provenance`` 只挂在
-                # 视频那一条路上），而这一位是本层唯一说得清这一版用了哪个种子的地方。
                 seed=built.seed,
             )
 
@@ -172,11 +166,14 @@ class ComfyuiImageBackend:
     ) -> MediaInputs:
         """把已通过槽位容量校验的参考图全部上传。"""
         references: list[str] = []
-        for index, reference in enumerate(request.reference_images):
-            path = Path(reference.path)
+        images = await asyncio.to_thread(
+            read_reference_images, [ref.path for ref in request.reference_images], self.model
+        )
+        for index, image in enumerate(images):
+            path = image.path
             references.append(
                 await self._client.upload_media(
-                    http, path, filename=upload_filename(job_label, "reference_images", path, index)
+                    http, path, image=image, filename=upload_filename(job_label, "reference_images", path, index)
                 )
             )
         return MediaInputs(reference_images=tuple(references))
@@ -185,7 +182,7 @@ class ComfyuiImageBackend:
 def binding_reference_limit(definition: Mapping[str, Any]) -> int | None:
     """这份 workflow 的参考图上限：参考图格子数就是它能收几张；没有格子时为 ``None``。
 
-    多出来的图在构造层没有落点，编排层先按这个数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。没有格子时
+    编排层和调用通道都按槽位数拒绝超量输入。没有格子时
     这份 workflow 不实现图生图（:func:`binding_image_capabilities`），上限的生效值为不支持，与数量无关。
     """
     slots = len(targets_of((definition.get("bindings") or {}).get("reference_images")))

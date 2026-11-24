@@ -28,7 +28,6 @@ interface LobbyHeaderProps {
   onOpenDeleted: () => void;
 }
 
-/** 大厅顶栏：品牌与搜索靠左；资产库、外部 Agent 接入、已删除项目、「新建项目」分体按钮与设置靠右。 */
 export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing, onOpenDeleted }: LobbyHeaderProps) {
   const { t } = useTranslation(["dashboard", "common", "assets"]);
   const configComplete = useConfigStatusStore((s) => s.isComplete);

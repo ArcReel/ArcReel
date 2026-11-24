@@ -20,7 +20,6 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from lib.backends.input_limits import InputLimit
 from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.references.reference_catalog import build_reference_catalog, split_derivative_reference
 from lib.script.reference_video.text_parser import (
@@ -32,7 +31,6 @@ from lib.script.reference_video.text_parser import (
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_models import Utterance
 
-#: 未闭合花括号 warning 里回显的原行片段长度上限。
 _EXCERPT_LEN = 30
 
 WARN_UNREGISTERED_MENTION = "ref_warn_unregistered_mention"
@@ -165,11 +163,6 @@ def derive_voice_bindings(
 
     audio_speakers: list[str] = []
     if settings.is_silent:
-        # 只对带归属的台词知会：无归属旁白整段不进 prompt（见
-        # :func:`lib.script.reference_video.prompt_render._render_segment_two`），两条文案都说
-        # 「台词仅用于提示词参考」，对一份只有旁白的文稿会指错排查方向。未登记的说话人算带
-        # 归属——它的台词按原文照常渲染。本集关闭音频的提示优先于模型不产音——前者是用户
-        # 当下可改的开关。
         if any(entry.speaker for entry in utterances):
             if not settings.requested_generate_audio:
                 warnings.append(_warning(WARN_SILENT_EPISODE))
@@ -182,7 +175,6 @@ def derive_voice_bindings(
             if settings.audio_ready is not None
             else None
         )
-        # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
             char_data = characters.get(speaker)
             audio_field_set = bool(char_data.get("reference_audio")) if isinstance(char_data, dict) else False
@@ -225,8 +217,6 @@ def build_script_preview(
     text: str,
     project: dict,
     settings: VoiceRenderSettings,
-    *,
-    max_reference_images: int | None = None,
 ) -> ScriptPreview:
     """把视频单元正文派生成 utterances + 降级可见性 warning。
 
@@ -236,13 +226,6 @@ def build_script_preview(
     执行时才降级，用户直到生成后才发现声音没生效。``settings.audio_ready`` 在预览侧留 None：
     预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
 
-    ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
-    执行期会把正文派生的参考图先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的参考图
-    严格等长，见 ``render_unit_prompt`` docstring）。预览若按未裁剪的全量派生结果判定
-    ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，预览仍
-    显示音频已绑定，执行时才补发 warning。``None``（未收录或能力不可解析）与 ``0``（不接受参考图）都不裁，
-    与请求投影 ``clamp_reference_assets`` 的口径一致。
-
     未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
     说话人位写了该角色没有的衍生时同判——那个 ``@[角色/衍生]`` 不进参考图派生（说话人位一律
     不进），未登记的事实要另行报出来，否则编辑器对它完全沉默。本体本身未登记时不在此重复：
@@ -251,8 +234,6 @@ def build_script_preview(
     references, missing = derive_references_from_text(text, project)
 
     character_references = build_reference_catalog(project).reference_names("character")
-    # 同一个名字可能同时写在记号之外与说话人位，两处各自去重、彼此不排除；不减去 missing
-    # 会让同一个未登记衍生在预览面板上出现两条一模一样的提示。
     already_reported = set(missing)
     unknown_derivatives = [
         reference
@@ -270,11 +251,7 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 
-    # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
-    # 与执行层「先裁参考图再渲染」的口径对齐：上限为 0 时执行层同样不裁。
-    bound = InputLimit.from_json(max_reference_images).clamp_bound()
-    clipped_references = references[:bound] if bound is not None else references
-    character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}
+    character_image_names = {ref.name for ref in references if ref.type == "character"}
 
     bindings = derive_voice_bindings(
         utterances,

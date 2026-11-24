@@ -6,7 +6,6 @@ import { isTerminalStatus } from "@/types";
 import type { FinalCutStatus, JianyingDraftStatus, RenderKind, RenderOptions, SubtitleMode, TaskItem } from "@/types";
 import type { TimelineNarration } from "@/types/edit-timeline";
 
-/** 出片任务的轮询间隔：对话框打开期间按 task_id 拉取进度，比任务列表的兜底轮询更及时。 */
 export const RENDER_TASK_POLL_MS = 2000;
 
 const RENDER_TASK_TYPE: Record<RenderKind, string> = {
@@ -17,20 +16,13 @@ const RENDER_TASK_TYPE: Record<RenderKind, string> = {
 export type RenderArtifactView = FinalCutStatus | JianyingDraftStatus;
 
 export interface RenderArtifactState {
-  /** 当前交付物的产物现状；首次加载完成前为 null。 */
   artifact: RenderArtifactView | null;
   loading: boolean;
-  /** 读取现状失败的原因。 */
   loadError: string | null;
-  /** 本次提交的任务；未提交时为 null，终态后保留以展示结果（失败原因在任务上）。 */
   task: TaskItem | null;
-  /** 从提交到任务终态都为 true。 */
   submitting: boolean;
-  /** 提交请求在途（还没拿到 task_id）时为 true；接回已有任务时不经过这一段。 */
   requesting: boolean;
-  /** 提交请求本身失败的原因（如入队前检查不通过）。 */
   submitError: string | null;
-  /** 提交一次出片任务并开始轮询。 */
   submit: () => Promise<void>;
 }
 
@@ -46,7 +38,6 @@ function fetchArtifact(
     : API.getJianyingDraftStatus(projectName, timelineId, { narration: options.narration, signal });
 }
 
-/** 查找与产物同一剪辑时间线、同一交付物与版本的在途出片任务；查询失败时按没有处理。 */
 async function findActiveRenderTask(
   projectName: string,
   kind: RenderKind,
@@ -87,15 +78,6 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/**
- * 一个剪辑时间线某种交付物、某个版本的出片状态：产物现状、提交与任务进度。
- * 版本由旁白版本与是否烧入字幕决定；剪映草稿不看 ``subtitles``。
- *
- * 取消域是「项目 × 剪辑时间线 × 交付物 × 版本」：任一变化或卸载时作废在途的读取与轮询。
- * 调用方以这些为 key 挂载使用方组件，切换时整体重新挂载，本地状态不跨版本残留。
- * 读到产物现状后，若同一产物已有在途任务（如对话框关闭前提交的，或由 Agent 提交的），接着跟踪它。
- * 任务成功后补拉一次产物现状，失败时展示任务的失败原因。
- */
 export function useRenderArtifact(
   projectName: string,
   timelineId: string,
@@ -149,7 +131,6 @@ export function useRenderArtifact(
     [load],
   );
 
-  /** 从取得 task_id 到任务终态都处于 submitting；取 task_id 或轮询失败时记为提交失败。 */
   const follow = useCallback(
     async (start: () => Promise<string>, signal: AbortSignal) => {
       setSubmitting(true);

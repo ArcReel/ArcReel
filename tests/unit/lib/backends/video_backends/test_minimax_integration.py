@@ -41,7 +41,6 @@ class TestRegistry:
         assert models["MiniMax-M3"].default is True
         assert "vision" in models["MiniMax-M3"].capabilities
         assert models["MiniMax-M2.7"].default is False
-        # image-01：默认图像模型，T2I + I2I
         image = models["image-01"]
         assert image.media_type == "image"
         assert image.default is True
@@ -75,7 +74,6 @@ class TestTextProviderBilling:
             result = await b.generate(TextGenerationRequest(prompt="x"))
         assert result.provider == "minimax"
         assert result.model == "MiniMax-M2.7"
-        # token 数须透传，否则「实际」费用汇总按 0 token 算不出 MiniMax CNY 费率
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
@@ -123,7 +121,6 @@ class TestCatalogPricing:
             {"uncached_input_tokens": 1_000_000, "output_tokens": 1_000_000},
         )
         assert cur == "CNY"
-        # ¥2.1 入 + ¥8.4 出
         assert amount == pytest.approx(10.5)
 
     @pytest.mark.parametrize(
@@ -149,7 +146,6 @@ class TestCatalogPricing:
         [("768p", 4, 2.0), ("768p", 15, 7.5), ("2k", 5, 4.0), ("2k", 15, 12.0)],
     )
     def test_h3_per_second_by_resolution(self, resolution, duration, expected):
-        # H3 按秒 × 分辨率计价（768P 0.50、2K 0.80 元/秒），两档都钉死。
         amount, cur = builtin_price(
             PROVIDER_MINIMAX, "MiniMax-H3", "video", {"output_seconds": duration}, {"resolution": resolution}
         )
@@ -162,12 +158,10 @@ class TestVideoRegistry:
         models = catalog.list_models(PROVIDER_MINIMAX)
         h3 = models["MiniMax-H3"]
         assert h3.media_type == "video"
-        # H3 是 minimax 视频默认，海螺 2.3 仍可选回。
         assert h3.default is True
         assert models["MiniMax-Hailuo-2.3"].default is False
         assert h3.supported_durations == list(range(4, 16))
         assert h3.resolutions == ["768p", "2k"]
-        # 两档分辨率共用同一段时长，无需 duration_resolution_constraints 门控。
         assert h3.duration_resolution_constraints == {}
 
         hailuo = models["MiniMax-Hailuo-2.3"]
@@ -175,8 +169,6 @@ class TestVideoRegistry:
         assert hailuo.supported_durations == [6, 10]
         assert hailuo.duration_resolution_constraints == {"1080p": [6]}
 
-        # 目录不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
-        # ——t2v / i2v 判定读 backend。
         assert hailuo.capabilities == []
         assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []
 

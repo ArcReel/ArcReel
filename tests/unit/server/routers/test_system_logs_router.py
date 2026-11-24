@@ -92,7 +92,6 @@ async def test_oversized_file_skipped(logs_client) -> None:
 
 
 async def test_missing_logs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None) -> None:
-    # 数据根下的日志目录故意不创建
     assert not (tmp_path / "data" / "logs").exists()
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.infra.app_data_dir import reset_for_tests

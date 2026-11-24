@@ -1,4 +1,3 @@
-/** Copy text to clipboard. Falls back to execCommand for non-secure contexts (plain HTTP). */
 export async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     return navigator.clipboard.writeText(text);

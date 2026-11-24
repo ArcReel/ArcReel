@@ -64,7 +64,6 @@ const tts: PresentationReadModel = {
   },
 };
 
-// 本集第 1 个分镜是 E1S07：E1S01 是分镜 2、E1S02 是分镜 3，可访问名称写位置而不是 ID。
 const narrationScripts = {
   "episode_1.json": {
     episode: 1,
@@ -475,7 +474,6 @@ describe("PresentationPlayer", () => {
       fireEvent.loadedMetadata(video);
       expect(play).toHaveBeenCalledTimes(1);
 
-      // 视频已有元数据：下一个请求立即生效
       Object.defineProperty(video, "readyState", { configurable: true, value: HTMLMediaElement.HAVE_METADATA });
       view.rerender(
         <PresentationPlayer

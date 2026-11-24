@@ -75,8 +75,6 @@ def _client(
         pm.update_project("demo", lambda p: p.__setitem__("generation_mode", generation_mode))
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
-    # 面板档位与确认转换的档位断言都读视频请求事实，事实由用例经 ``set_video_request_facts`` /
-    # ``video_request_facts`` 供给；这里的解析器只是服务构造所需的占位，不触碰配置库。
     resolver = cast(ConfigResolver, FakeConfigResolver())
     monkeypatch.setattr(
         router_mod,
@@ -130,30 +128,25 @@ class TestScriptReviewRouter:
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
 
-            # script_plan 未产出
             got = client.get(base)
             assert got.status_code == 200
             assert got.json()["status"] == "no_script_plan"
 
-            # script_plan 产出 → pending_review，结构化内容可见
             _write_script_plan(pm, _admitted_drama_script_plan())
             got = client.get(base)
             body = got.json()
             assert body["status"] == "pending_review"
             assert body["content"]["scenes"][0]["utterances"][0]["speaker"] == "阿离"
 
-            # 确认前内容确认待审
             from lib.script import script_review
 
             assert (
                 script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
-            # 确认 → confirmed，prompt_authoring 放行
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
-            # 正式脚本由确认直接转出：状态只描述内容确认，确认之外没有预演或转换入口。
             assert "script_entry_currency" not in client.get(base).json()
             assert client.get(f"{base}/conversion-preview").status_code == 404
             assert client.post(f"{base}/convert").status_code == 404
@@ -225,7 +218,6 @@ class TestScriptReviewRouter:
                 "grid_count": 1,
             }
             expected_overwrite["text"] = script_review.render_overwrite_loss_text(expected_overwrite, i18n_message)
-            # 丢失清单列出配音、尾帧与宫格归属；Web 诊断按标题指称条目。
             for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
                 assert lost in expected_overwrite["text"]
 
@@ -366,7 +358,6 @@ class TestReferenceVideoRouter:
                 script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
-            # 编辑单元正文 → 重新等待确认
             edited = _rv_script_plan()
             edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
@@ -475,7 +466,6 @@ class TestReferenceVideoRouter:
             assert violations[0]["line"] == 1
             assert violations[0]["message"] != "stale"
 
-            # 草稿在场时确认被拒：正式 script_plan 还没有一份可放行的内容。
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
 
@@ -622,8 +612,6 @@ class TestReferenceVideoRouter:
             body = rv_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
             durations = body["supported_durations"]
             assert durations is None or (isinstance(durations, list) and all(isinstance(d, int) for d in durations))
-            # duration_tiers 字段始终存在（未收窄或无法解析型号时为 None），供前端区分「未收窄
-            # 全集」与「收窄后的逐 unit 生效档位」——不能靠 KeyError 兜底。
             assert "duration_tiers" in body
 
         drama_client, drama_pm = _client(monkeypatch, tmp_path / "drama")
@@ -684,8 +672,6 @@ class TestReferenceVideoRouter:
         real_read_quarantine = mod.read_quarantine
 
         def _read_after_concurrent_clear(*args, **kwargs):
-            # 模拟：本请求的存在性检查已经通过，但真正读取发生前，另一个请求（晋升工具）
-            # 把文件清掉了。
             quarantine_path.unlink()
             return real_read_quarantine(*args, **kwargs)
 
@@ -876,8 +862,6 @@ class TestReferenceVideoRouter:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             put_body = client.put(f"{base}/content", json=_rv_script_plan()).json()
             assert put_body["quarantine"] is not None
-            # meta.source 完整、重算能正常跑：断言到的是重算算出的真实违约，不是
-            # meta 缺失时降级出的 quarantine_unreadable 兜底条目。
             codes = [v["code"] for v in put_body["quarantine"]["violations"]]
             assert codes
             assert "quarantine_unreadable" not in codes
@@ -899,7 +883,6 @@ class TestReferenceVideoRouter:
             mine = _rv_script_plan()
             resp = client.put(f"{base}/content", params={"base_fingerprint": stale}, json=mine)
             assert resp.status_code == 409
-            # 冲突未覆盖：盘上仍是另一方保存的内容
             assert client.get(base).json()["content"]["units"][0]["text"] == "@[阿离] 转身离开。"
 
             fresh = client.get(base).json()["fingerprint"]

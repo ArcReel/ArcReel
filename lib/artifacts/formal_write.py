@@ -90,9 +90,6 @@ def formal_write_transaction(*paths: Path) -> Generator[None]:
     seen: set[Path] = set()
     for raw_path in paths:
         path = Path(raw_path)
-        # Resolve only the parent: resolving the final component would collapse
-        # two distinct symlink entries onto one external target and leave one of
-        # them outside rollback coverage.
         identity = path.parent.resolve(strict=False) / path.name
         if identity in seen:
             continue

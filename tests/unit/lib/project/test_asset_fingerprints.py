@@ -6,7 +6,6 @@ from lib.project.asset_derivatives import derivative_sheet_relative_path
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, version_snapshot_relative_path
 
-#: 指纹用例里写死的两个 mtime，只要求「不同」，取值本身无意义。
 _MTIME_BEFORE = 1_700_000_000
 _MTIME_AFTER = _MTIME_BEFORE + 60
 
@@ -110,11 +109,9 @@ class TestComputeAssetFingerprints:
     @pytest.mark.parametrize(
         "snapshot_rel",
         [
-            # 快照桶的真实位置：项目根 versions/{subdir}/，由 _MEDIA_SUBDIRS 白名单挡在扫描外。
             version_snapshot_relative_path(
                 CHARACTER_DERIVATIVE_RESOURCE_TYPE, "Hero/重甲", version=1, timestamp="20260101_000000"
             ),
-            # 媒体子目录内的同名目录：由 versions 跳过挡下，二级与四级同样有效。
             "storyboards/versions/scene_E1S01_v1_20260101_000000.png",
             "characters/derivatives/Hero/versions/重甲_v1_20260101_000000.png",
         ],

@@ -54,7 +54,6 @@ from lib.project.resource_paths import resource_relative_path
 
 logger = logging.getLogger(__name__)
 
-#: 周期清理时工作文件至少闲置多久才删除。
 DEFAULT_MIN_IDLE = timedelta(hours=24)
 
 
@@ -71,8 +70,6 @@ class MaterialConnectionUnavailableError(ConflictError):
     def __init__(self) -> None:
         super().__init__("material_object_connection_unavailable")
 
-
-# ---- 使用保护 ---------------------------------------------------------------------------------
 
 _LEASE_GUARD = threading.Lock()
 _LEASES: Counter[str] = Counter()
@@ -110,9 +107,6 @@ def _in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: floa
     return max(stat_result.st_mtime, last_used) > idle_before
 
 
-# ---- 工作文件与版本记录的对应 -------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class _WorkFile:
     path: str
@@ -121,7 +115,6 @@ class _WorkFile:
     content_version_id: str
     digest: str
     stored: ObjectLocator
-    #: 正式文件（选中版本的工作副本）；否则是版本快照位置。
     formal: bool
 
 
@@ -281,7 +274,6 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
         return _work_files(data, project)
 
 
-#: 远端内容版本的一个工作文件（版本快照位置或选中时的正式文件），供需要成批确保工作文件在场的读取方使用。
 RemoteWorkFile = _WorkFile
 
 
@@ -302,8 +294,6 @@ def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> b
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
     return work_file in _work_files(data, _load_project_json(project_path))
 
-
-# ---- 取回 -------------------------------------------------------------------------------------
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
@@ -466,7 +456,6 @@ async def held_work_files(
         try:
             await asyncio.gather(*fetches)
         except BaseException:
-            # 第一个失败原样抛出（调用方按它的状态码返回），其余取回随之取消；已安装的工作文件只是缓存。
             for fetch in fetches:
                 fetch.cancel()
             await asyncio.gather(*fetches, return_exceptions=True)
@@ -507,9 +496,6 @@ async def local_work_files(
     _real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
     async with held_work_files(project_path, relative, session_factory=session_factory):
         yield
-
-
-# ---- 清理 -------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

@@ -29,6 +29,14 @@ class TestCharacterPrompt:
         assert prompt.endswith("Avoid: 水印、多余文字、Logo")
         assert "Cinematic, low-key lighting" in prompt
 
+    def test_does_not_prompt_unspecified_body_patterns_and_forbids_unrequested_additions(self):
+        prompt = build_character_prompt("姜月茴", "黑发，素色长裙。")
+        assert "体表花纹" not in prompt
+        assert "纹身" not in prompt
+        assert "刺青" not in prompt
+        assert "面部与头部特征" in prompt
+        assert "不凭空增补" in prompt
+
 
 class TestScenePromptAndPropPrompt:
     def test_prop_includes_supplied_details(self):
@@ -48,7 +56,6 @@ class TestScenePromptAndPropPrompt:
 class TestFigureExclusion:
     """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
 
-    # 断言完整片段而非「人物」二字：正文里的普通描述也可能出现该词，按关键词断言会误判。
     _EXCLUSION = "Avoid: 出镜人物"
 
     def test_environment_and_object_sheets_exclude_people(self):
@@ -235,3 +242,12 @@ def test_derivative_keeps_reference_layout_and_has_no_style_block():
     assert "保持原图的三视图版式" in prompt
     assert "Style:" not in prompt
     assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+
+
+def test_derivative_does_not_prompt_unspecified_body_patterns_and_forbids_unrequested_additions():
+    prompt = build_character_derivative_prompt("换上黑色劲装")
+    assert "体表花纹" not in prompt
+    assert "纹身" not in prompt
+    assert "刺青" not in prompt
+    assert "保持原图的三视图版式" in prompt
+    assert "不凭空增补" in prompt

@@ -66,7 +66,6 @@ from lib.project.asset_types import ASSET_SPECS
 
 logger = logging.getLogger(__name__)
 
-#: 全局资产库条目作为正式对象引用方与供应商素材关联持有方时的键前缀（``docs/adr/0118`` 的非项目引用方格式）。
 LIBRARY_HOLDER_PREFIX = "asset-library:"
 
 
@@ -121,7 +120,6 @@ class GlobalImage:
         }
 
 
-#: 条目没有图片时写入的列值。
 NO_IMAGE_COLUMNS: dict[str, Any] = {
     "image_path": None,
     "image_digest": None,
@@ -144,7 +142,6 @@ class GlobalImageWriter:
     storage: ObjectContentStorage | None
     session_factory: async_sessionmaker[AsyncSession] | None = None
     saved: list[GlobalImage] = field(default_factory=list)
-    #: 本次写入落盘的库存储文件（相对数据根），失败时由 :meth:`discard` 删除。
     written: list[str] = field(default_factory=list)
     _committed: bool = field(default=False, init=False)
 
@@ -255,8 +252,6 @@ def _delete_files(data_root: Path, rel_paths: Iterable[str]) -> None:
             logger.warning("delete global asset file failed: %s", rel_path)
 
 
-# ---- 读取：工作文件取回 -------------------------------------------------------------------------
-
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
 
@@ -324,9 +319,6 @@ async def ensure_global_image(
         data = await fetch_object_content(image.stored, session_factory=session_factory)
         await asyncio.to_thread(_install, target, image.digest, data)
     return True
-
-
-# ---- 清理 -------------------------------------------------------------------------------------
 
 
 def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int]:

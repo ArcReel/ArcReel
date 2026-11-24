@@ -16,7 +16,7 @@ import { ProjectMemoryFiles } from "@/components/agent-memory/ProjectMemoryFiles
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { isValidEpisodeTargetDuration } from "@/components/shared/episode-target-duration";
-import { executingVideoModel } from "@/components/shared/model-layers";
+import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import { countModelOverrides } from "@/components/shared/model-overrides";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { narrationDeliveryProblem } from "@/components/shared/narration-delivery";
@@ -30,6 +30,7 @@ import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import type { CustomProviderInfo, NarrationDefaultsResponse, ProviderInfo } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { normalizeRoute } from "@/utils/generation-mode";
+import { styleUploadFailureReason } from "@/utils/style-upload-error";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { getCustomProviderModels, getProviderModels } from "@/utils/provider-models";
 
@@ -42,6 +43,7 @@ import {
   isFormTab,
   keepSavedStylePreview,
   pendingStyleUpload,
+  storedImageQuality,
   styleImageUrl,
   tabDirty,
   type GlobalModelDefaults,
@@ -61,7 +63,6 @@ const TABS: Record<ProjectSettingsTab, { labelKey: string; icon: LucideIcon }> =
   agent: { labelKey: "agent_profile_title", icon: Bot },
 };
 
-/** 侧栏分组：「项目」四个表单分页共用一个编辑单元，「Agent」两页各管各的保存。 */
 const TAB_GROUPS: { id: string; labelKey: string; tabs: ProjectSettingsTab[] }[] = [
   { id: "project", labelKey: "project_settings_group_project", tabs: ["basics", "style", "models", "voice"] },
   { id: "agent", labelKey: "project_settings_group_agent", tabs: ["memory", "agent"] },
@@ -77,7 +78,6 @@ interface LoadedSettings {
   title: string;
   facts: ProjectFacts & { sourceLanguage: string | null };
   globals: GlobalModelDefaults;
-  /** 全局「生成有声视频」的生效值，项目跟随全局时据此判定与执行模型的矛盾。未保存过时为 true。 */
   globalGenerateAudio: boolean;
   options: {
     videoBackends: string[];
@@ -99,7 +99,6 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
     getProviderModels({ signal }).catch(() => [] as ProviderInfo[]),
     getCustomProviderModels({ signal }).catch(() => [] as CustomProviderInfo[]),
     API.getNarrationDefaults({ signal }).catch(() => null),
-    // 自动选择的实际模型只用于展示与能力查询，读不到时退回只显示「自动选择」
     API.getAutoBackends({ signal }).catch(() => null),
   ]);
   const settings = configRes.settings;
@@ -122,7 +121,6 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
     facts: {
       contentMode: typeof project.content_mode === "string" ? project.content_mode : "narration",
       generationRoute: normalizeRoute(project.generation_mode),
-      // 源文语言由内容分析写入，此页只读，只用来决定语速的单位名词（字 / 词）
       sourceLanguage: typeof project.source_language === "string" ? project.source_language : null,
     },
     globals,
@@ -141,11 +139,9 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
   };
 }
 
-/** 项目设置：侧栏分页，「项目」组的四个表单分页共用一条保存栏，「Agent」组是项目记忆与 Agent 配置。 */
 export function ProjectSettingsPage() {
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName || "";
-  // 换项目即整页重建，上一个项目的未保存修改与在途请求不会带过来
   return <ProjectSettingsView key={projectName} projectName={projectName} />;
 }
 
@@ -204,7 +200,6 @@ function ProjectSettingsView({ projectName }: { projectName: string }) {
   );
 }
 
-/** 外壳：顶栏「返回」回到项目工作台，侧栏分页记在 `?tab=`。 */
 function SettingsShell({
   projectName,
   title,
@@ -212,7 +207,6 @@ function SettingsShell({
   children,
 }: {
   projectName: string;
-  /** 项目显示名，加载完成前不显示。 */
   title?: string;
   badges?: Partial<Record<ProjectSettingsTab, ReactNode>>;
   children: ReactNode;
@@ -272,7 +266,6 @@ function TabBadge({ overrides, dirty }: { overrides?: number; dirty: boolean }) 
   );
 }
 
-/** 基础分页里校验未通过的字段；行内已有提示，保存时只需指出分页。 */
 function basicsInvalid(value: ProjectSettingsForm, facts: ProjectFacts): boolean {
   return (
     !isValidSpeechRate(value.speechRate) ||
@@ -283,13 +276,12 @@ function basicsInvalid(value: ProjectSettingsForm, facts: ProjectFacts): boolean
 }
 
 function LoadedProjectSettings({ projectName, loaded }: { projectName: string; loaded: LoadedSettings }) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   const tab = parseTab(useSearch());
   const { facts, globals } = loaded;
 
   const { candidates, error: candidatesError, retrying: candidatesRetrying, reload: reloadCandidates } =
     useModelCandidates();
-  // 候选是全局配置，与项目无关；reload 的标识随界面语言变化，语言切换时只刷新候选与译名
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
@@ -304,8 +296,6 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
     candidates,
   );
 
-  // 一次保存依次提交项目 PATCH 与新参考图上传。上传失败时 PATCH 已经落盘：如实说明，
-  // 已保存内容推进到 PATCH 的结果，只有新参考图仍是未保存修改，再次保存会重新上传。
   const save = useCallback(
     async (value: ProjectSettingsForm, saved: ProjectSettingsForm): Promise<ProjectSettingsForm> => {
       if (basicsInvalid(value, facts)) {
@@ -316,7 +306,6 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
         throw new Error(t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"));
       }
       const res = await API.updateProject(projectName, buildProjectPatch(value, saved, facts, globals));
-      // grid_storyboard、video_backend 落盘后 /video-capabilities 按已存值解析，查询 key 不变，需显式失效
       useCapabilitiesStore.getState().invalidate();
       const next = keepSavedStylePreview(deriveForm(res.project, projectName, globals, null), saved);
       const file = pendingStyleUpload(value, saved);
@@ -325,21 +314,22 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
       try {
         uploaded = await API.uploadStyleImage(projectName, file);
       } catch (error) {
-        throw new PartialSaveError(t("project_settings_style_upload_failed", { message: errMsg(error) }), {
+        const detail = styleUploadFailureReason(error, i18n.t("errors:upload_failed"));
+        const message = detail
+          ? t("project_settings_style_upload_failed_with_reason", { message: detail })
+          : t("project_settings_style_upload_failed");
+        throw new PartialSaveError(message, {
           saved: next,
           value: { ...next, style: value.style },
           cause: error,
         });
       }
-      // 参考图文件名固定，地址要换版本才不会沿用旧图的缓存。上传响应不带文件 mtime，
-      // 以上传完成的时刻作版本：只在本页这次会话里用，重新进入时换成项目详情里的资产指纹。
       const preview = styleImageUrl(projectName, uploaded.style_image, Date.now());
       return { ...next, style: { kind: "image", preview, description: uploaded.style_description, file: null } };
     },
-    [projectName, facts, globals, t],
+    [projectName, facts, globals, t, i18n],
   );
 
-  // 四个表单分页之间切换不卸载编辑单元，不拦截；切到项目记忆、Agent 配置或离开本页时拦截
   const allowNavigation = useCallback(
     (to: string) => {
       const url = new URL(to, "http://project-settings.invalid");
@@ -355,7 +345,6 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
   const unit = useEditUnit({ source: loaded.source, save, isEqual: formEqual, allowNavigation });
   const { value, savedValue, setValue } = unit;
 
-  // 待上传参考图的预览地址由页面持有：不再使用（换图、放弃、保存）或离开页面时收回
   const stylePreview = value.style.kind === "image" ? value.style.preview : null;
   useEffect(() => {
     if (!stylePreview?.startsWith("blob:")) return;
@@ -371,9 +360,13 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
   };
 
   const usesReferenceImages = facts.generationRoute === "reference_video";
+  const t2iModel = executingImageModel(value.models, globals, "t2i");
   const modelValue: ModelConfigValue = {
     ...value.models,
-    videoResolution: value.models.videoResolutions?.[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
+    videoResolution: value.models.modelResolutions[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
+    videoResolutions: value.models.modelResolutions,
+    imageResolution: value.models.modelResolutions[t2iModel] ?? null,
+    imageResolutions: value.models.modelResolutions,
   };
 
   let content: ReactNode;
@@ -391,9 +384,30 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
           <ModelConfigSection
             projectName={projectName}
             value={modelValue}
-            onChange={({ videoResolution: _videoResolution, ...next }) =>
-              setValue((prev) => ({ ...prev, models: { ...prev.models, ...next } }))
-            }
+            onChange={({
+              videoResolution: _videoResolution,
+              videoResolutions,
+              imageResolution: _imageResolution,
+              imageResolutions,
+              ...next
+            }) => {
+              const nextT2iModel = executingImageModel(next, globals, "t2i");
+              const nextResolutions =
+                videoResolutions !== modelValue.videoResolutions
+                  ? videoResolutions
+                  : imageResolutions !== modelValue.imageResolutions
+                    ? imageResolutions
+                    : value.models.modelResolutions;
+              setValue((prev) => ({
+                ...prev,
+                models: {
+                  ...prev.models,
+                  ...next,
+                  imageQuality: nextT2iModel === t2iModel ? next.imageQuality : storedImageQuality(prev.modelSettings, nextT2iModel),
+                  modelResolutions: nextResolutions ?? prev.models.modelResolutions,
+                },
+              }));
+            }}
             providers={loaded.providers}
             customProviders={loaded.customProviders}
             options={{

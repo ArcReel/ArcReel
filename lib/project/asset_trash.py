@@ -73,9 +73,7 @@ ASSET_KIND = "asset"
 ASSET_DERIVATIVE_KIND = "asset_derivative"
 
 _VERSIONS_FILE = "versions/versions.json"
-#: 删除资产在同一临界区里改写的结构文件：资产条目、版本记录与清单登记。
 _STATE_FILES = ("project.json", _VERSIONS_FILE, MANIFEST_FILENAME)
-#: 换名时最多试的后缀数。
 _MAX_SUFFIX = 1000
 _NAME_TAKEN = (
     AssetRenameConflictError,
@@ -83,9 +81,6 @@ _NAME_TAKEN = (
     AssetRenameHistoryCollisionError,
     ProjectAssetNameConflictError,
 )
-
-
-# ---------------------------------------------------------------- 删除
 
 
 def state_paths(project_dir: Path) -> tuple[Path, ...]:
@@ -160,7 +155,6 @@ def _record(
     VersionManager(project_dir).detach_resources(_ids(histories))
     record = project_trash.record_deletion(project_dir, obj, [*files, *snapshots], snapshot=True, before=before)
     for directory in (derivative_sheet_dir(owner), derivative_version_dir(owner)):
-        # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
         with contextlib.suppress(OSError):
             (project_dir / directory).rmdir()  # hard-delete: infra -- 衍生图移进回收站后的空目录
     return record
@@ -182,16 +176,12 @@ def deleted_asset_record(project_dir: Path, asset_type: str, name: str) -> str |
     )
 
 
-# ---------------------------------------------------------------- 恢复
-
-
 def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
     """按资产名从迁移后的临时项目取出资产；落地时名字被占用就在临时项目里改名后再加回。"""
     spec = ASSET_SPECS[str(obj.get("asset_type"))]
     original = resolve_asset_key(_read_project(staged).get(spec.bucket_key), str(obj.get("name")))
     if original is None:
         raise ConflictError("trash_restore_failed", id=str(obj.get("name")))
-    #: 合并时迁到保留方名下的衍生属于保留方，不随被并方加回。
     moved = {str(item) for item in obj.get("derivatives_moved") or ()}
     projects = ProjectManager.for_project_dir(project_dir)
     staged_projects = ProjectManager.for_project_dir(staged)
@@ -236,7 +226,6 @@ def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Resto
         landed = _land_name(original, landing, free=free, rename=rename, files=files)
         entry = copy.deepcopy(_read_project(staged)[spec.bucket_key][landed])
         if landed != original and ALIASES_FIELD in entry:
-            # 改名级联把原名记成别名；原名此刻属于项目里的另一个资产，加回的资产不认领它。
             entry[ALIASES_FIELD] = copy.deepcopy(aliases) if isinstance(aliases, list) else []
         if spec.supports_derivatives:
             table = ensure_derivative_table(entry)
@@ -281,11 +270,9 @@ def take_asset_derivative(project_dir: Path, staged: Path, obj: Mapping[str, Any
         if key is None or not isinstance(bucket, dict) or not isinstance(bucket[key], dict):
             if deleted_asset_record(project_dir, spec.asset_type, owner) is not None:
                 raise RestoreBlocked("trash_restore_needs_character", name=owner)
-            # 本体已彻底删除：加回的衍生没有归属。
             raise ConflictError("trash_restore_failed", id=str(obj.get("name")))
         return key, bucket[key]
 
-    # 此处按取不出对象降级（本体已彻底删除）或拒绝（本体在回收站里）；落地时在锁内再核对一次。
     current_owner()
 
     def free(name: str) -> bool:
@@ -346,7 +333,7 @@ def _land_name(
             try:
                 rename(current, candidate)
             except _NAME_TAKEN:
-                continue  # 临时项目里删除时就有这个名字（或它的残留历史）
+                continue
             current = candidate
         if all(landing.free(rel) for rel in files(current)):
             return current
@@ -373,7 +360,6 @@ def _lift(
         projects.update_project_locked(project_dir.name, add)
         entries = {key: entry for key in claims if (entry := staged_manifest.get_entry(key)) is not None}
         if entries:
-            # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
             register_artifact_entries_atomically(
                 project_dir,
                 {key: ArtifactManifestEntry(entry.artifact_path, entry.basis_digest) for key, entry in entries.items()},

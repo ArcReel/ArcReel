@@ -56,7 +56,6 @@ class TestOverrideFieldSchema:
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
 
         assert {
-            # 模型事实
             "image_input",
             "structured_output",
             "max_output_tokens",
@@ -65,7 +64,6 @@ class TestOverrideFieldSchema:
             "durations",
             "resolutions",
             "duration_constraints",
-            # 通道事实
             "text_to_video",
             "first_frame",
             "last_frame",
@@ -194,10 +192,12 @@ class TestOptionalDimensionSchema:
 
 
 class TestSystemCapabilities:
-    def test_endpoint_declaring_int_cap_rebuilds_capabilities(self):
-        """endpoint 维度声明硬上限时原样落到 max_reference_images，其余维度取默认。"""
+    def test_openai_capabilities_keep_single_image_and_no_audio_switch(self):
+        """OpenAI 端点的单图槽与无音轨开关同取后端声明。"""
         caps = system_video_capabilities(endpoint="openai-video", model_id="sora-2")
-        assert caps == VideoCapabilities(first_frame=True, last_frame=False, max_reference_images=1)
+        assert caps == VideoCapabilities(
+            first_frame=True, last_frame=False, max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON
+        )
 
     def test_endpoint_declaring_zero_cap_yields_no_reference_images(self):
         caps = system_video_capabilities(endpoint="newapi-video", model_id="whatever")
@@ -233,7 +233,6 @@ class TestSynthesize:
             endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 对应不上条目：尾帧按保守回落不开，参考图上限只受通道约束（Ark 通道不设上限，为未收录）
         assert caps.last_frame is False
         assert caps.max_reference_images is None
 
@@ -251,7 +250,6 @@ class TestSynthesize:
             endpoint="openai-video", model_id="sora-2", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 未覆盖的数值维度不受布尔覆盖牵连
         assert caps.max_reference_images == 1
 
     def test_force_off_on_last_frame(self):
@@ -429,7 +427,7 @@ class TestReferenceAudioOverrideGuards:
                 overrides={"reference_audio_mode": "DIRECT"},
             )
 
-        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT  # 系统判定本身即 direct
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
         assert "reference_audio_mode" in caplog.text
 
     def test_direct_without_positive_count_falls_back_to_none(self, caplog: pytest.LogCaptureFixture):
@@ -466,4 +464,4 @@ class TestReferenceAudioOverrideGuards:
             overrides={"reference_audio_mode": "none"},
         )
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
-        assert caps.max_reference_audio_count == 3  # 系统判定原样保留，不被连坐清零
+        assert caps.max_reference_audio_count == 3

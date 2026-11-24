@@ -36,7 +36,6 @@ def test_backfill_video_endpoints_with_null_durations(
 ):
     """先回退到 backfill 之前一格，插入若干 NULL 行，再升级到 backfill，断言被填充。"""
     backfill_revision_id, parent_revision_id = backfill_revisions
-    # 1. 把 schema 升到 backfill 的 down_revision
     cfg, db_path = alembic_cfg
     command.upgrade(cfg, parent_revision_id)
 
@@ -50,7 +49,6 @@ def test_backfill_video_endpoints_with_null_durations(
                     "VALUES (1, 'P', 'openai', 'https://x', 'k', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
                 )
             )
-            # 四条：video endpoint 且 NULL → 应被回填；text endpoint 不动；非 NULL 也不动
             conn.execute(
                 sa.text(
                     "INSERT INTO custom_provider_model "
@@ -63,10 +61,8 @@ def test_backfill_video_endpoints_with_null_durations(
                 )
             )
 
-        # 2. 升级到 backfill
         command.upgrade(cfg, backfill_revision_id)
 
-        # 3. 断言
         with engine.begin() as conn:
             rows = conn.execute(
                 sa.text("SELECT model_id, supported_durations FROM custom_provider_model ORDER BY id")
@@ -75,11 +71,7 @@ def test_backfill_video_endpoints_with_null_durations(
         engine.dispose()
     by_id = {r[0]: r[1] for r in rows}
 
-    # sora-2-pro 命中第一条预设：[4, 8, 12]
     assert by_id["sora-2-pro"] == "[4, 8, 12]"
-    # 未知 → DEFAULT_FALLBACK [4, 8]
     assert by_id["unknown-foo"] == "[4, 8]"
-    # text endpoint 不动
     assert by_id["gpt-4o"] is None
-    # 已有非 NULL 不动
     assert by_id["sora-2"] == "[1,2,3]"

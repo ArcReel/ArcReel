@@ -33,7 +33,6 @@ _CATALOG = {
         _image("img-lite", shutdown_date=SHUTDOWN.isoformat(), successor="acme/img-pro"),
         _image("img-pro"),
         _image("img-old", discontinued=True),
-        # 只在本地保留、已不在任何清单里的条目
         _image("img-gone", shutdown_date="2026-01-31", successor="acme/img-pro"),
     ],
     "builtin_providers": {
@@ -51,7 +50,6 @@ _CATALOG = {
 
 @pytest.fixture
 def lifecycle_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
-    # 构建侧的严格校验不许默认模型带关停日期；实例侧读入照常，这里正好模拟默认模型到期的情形。
     install_catalog(monkeypatch, parse_catalog(_CATALOG))
 
 
@@ -76,9 +74,9 @@ class TestEntryLifecycle:
     @pytest.mark.parametrize(
         ("day", "status"),
         [
-            (date(2026, 11, 23), "retiring"),  # 关停日期在未来
-            (SHUTDOWN, "discontinued"),  # 关停当天即下线
-            (date(2026, 11, 25), "discontinued"),  # 关停日期已过
+            (date(2026, 11, 23), "retiring"),
+            (SHUTDOWN, "discontinued"),
+            (date(2026, 11, 25), "discontinued"),
         ],
     )
     def test_status_follows_the_shutdown_date(self, day, status):
@@ -106,7 +104,6 @@ class TestCrossingTheShutdownDate:
 
         today(SHUTDOWN)
         assert "img-lite" in disabled_without_state("acme")
-        # 默认模型已下线：按没有指定默认模型处理，不换成别的模型
         assert catalog.default_model("acme", "image") is None
         with pytest.raises(ModelDiscontinuedError) as excinfo:
             catalog.require_callable("acme", "img-lite", "image")
@@ -114,7 +111,6 @@ class TestCrossingTheShutdownDate:
             "model_discontinued",
             {"provider": "acme", "model": "img-lite", "shutdown_date": "2026-11-24", "successor": "acme/img-pro"},
         )
-        # 仍在供应商模型列表里，标明状态
         view = next(v for v in catalog.provider_models("acme") if v.model_id == "img-lite")
         assert (view.lifecycle.status, view.model.hidden, view.model.default) == ("discontinued", True, False)
 
@@ -124,7 +120,6 @@ class TestCrossingTheShutdownDate:
             catalog.require_callable("acme", "img-gone", "image")
         assert excinfo.value.params["shutdown_date"] == "2026-01-31"
         assert excinfo.value.params["successor"] == "acme/img-pro"
-        # 本地也没有条目的引用：只说不在清单里、请重新选择
         with pytest.raises(ModelNotInCatalogError) as excinfo:
             catalog.require_callable("acme", "img-unknown", "image")
         assert excinfo.value.code == "model_not_in_provider_catalog"

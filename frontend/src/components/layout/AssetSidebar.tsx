@@ -42,7 +42,6 @@ import { EpisodeCard } from "./EpisodeCard";
 import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
-  /** 收为 56px 图标栏：只显示导航图标与集序号，名称在悬停或聚焦时显示。 */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }
@@ -55,23 +54,16 @@ interface NavItem {
   count?: number;
 }
 
-/**
- * 工作区侧栏：上方是工作区导航（项目概览、分集、角色、场景、道具，广告项目另有商品、没有分集），
- * 下方是分集列表（搜索、排序与每集的操作）。宽度由外壳的调宽手柄决定；折叠时收为图标栏。
- */
 export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
   const { currentProjectName, currentProjectData } = useProjectsStore();
   const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
 
   const episodes = currentProjectData?.episodes ?? [];
-  // 广告/短片项目恒单集：隐藏「集」语义（标题/计数/搜索/添加），直达唯一视频
   const isAd = currentProjectData?.content_mode === "ad";
-  // 演示项目没有服务端侧数据，「分集」入口与添加菜单隐藏（导航其余项与分集列表照常渲染）
   const demoMode = useDemoWorkbench();
   const route = normalizeRoute(currentProjectData?.generation_mode);
 
@@ -79,7 +71,6 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
     if (currentProjectName) debouncedFetchCost(currentProjectName);
   }, [currentProjectName, debouncedFetchCost]);
 
-  // Derive active episode from `/episodes/:id`
   const activeEp = useMemo(() => {
     const m = location.match(/^\/episodes\/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
@@ -87,13 +78,11 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
 
   const moveEpisode = useMoveEpisode(currentProjectName);
   const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {
-    // 删的是正在看的那一集时回到「分集」视图
     if (episode === activeEp) setLocation(episodesViewPath());
   });
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    // 演示项目后端不存在，广告/短片恒单集、不经分集：隐藏入口而非渲染必然报错或无意义的页面
     ...(demoMode || isAd
       ? []
       : [
@@ -126,7 +115,6 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
       icon: Package,
       count: Object.keys(currentProjectData?.props ?? {}).length,
     },
-    // 商品资产仅广告/短片项目使用（v1 单商品设定），其余模式隐藏入口
     ...(isAd
       ? [
           {
@@ -138,21 +126,17 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
           },
         ]
       : []),
-    // 演示项目没有服务端文件可列
     ...(demoMode
       ? []
       : [{ key: "files", path: `/${WORKSPACE_ROUTE_FILES}`, label: t("dashboard:workspace_nav_files"), icon: FolderTree }]),
   ];
 
   const isNavActive = (item: NavItem): boolean => {
-    // 集页 /episodes/:id 由下方分集列表高亮，「分集」只在分集视图本身高亮
     if (item.path === "/" || item.key === "episodes") return location === item.path;
     return location === item.path || location.startsWith(item.path + "/");
   };
 
-  // 播出位置按完整账本的排列算，过滤不改变它；搜索按标题与播出位置匹配，集 ID 不参与。
   const positioned = episodes.map((ep, index) => ({ ep, position: index + 1 }));
-  // ad 隐藏搜索框，残留的 search state 不参与过滤，避免唯一视频入口被吞
   const filteredEps = isAd
     ? positioned
     : positioned.filter(
@@ -185,7 +169,6 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
       {collapsed ? (
         <div className="relative flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-2">
           {addEpisodeMenu}
-          {/* 图标栏不显示搜索框，按看不见的搜索词过滤会让集无故消失 */}
           {positioned.map(({ ep, position }) => (
             <RailLink
               key={ep.episode}
@@ -312,7 +295,6 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-/** 图标栏里的一项：只显示图标或集序号，名称经悬停或聚焦的提示显示，读屏读完整名称。 */
 function RailLink({
   href,
   label,

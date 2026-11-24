@@ -137,7 +137,6 @@ describe("CharacterDerivativeRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
 
     const confirm = await screen.findByRole("alertdialog");
-    // 弹窗先以「加载中」打开，影响摘要随后才到
     await waitFor(() => expect(confirm).toHaveTextContent("2 张分镜图、1 段视频"));
     expect(spy).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole("button", { name: "重新生成" }));
@@ -173,7 +172,6 @@ describe("CharacterDerivativeRow", () => {
     const spy = vi.spyOn(API, "generateCharacterDerivative");
     vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: false, storyboards: 0, videos: 0, derivatives: 0 });
     renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
-    // 渲染之后本体被另一次生成占用：提交时刻新鲜读复核应当拦下
     useTasksStore.setState({
       tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "阿岚" })],
       optimisticActive: new Set(),
@@ -235,7 +233,6 @@ describe("CharacterDerivativeRow", () => {
       account_id: 7,
       asset_id: "asset-1",
     });
-    // 导入在途：这条衍生的其他写入入口一起禁用（对话框打开时行在无障碍树外）
     expect(screen.getByRole("button", { name: "重新生成", hidden: true })).toBeDisabled();
 
     await act(async () =>

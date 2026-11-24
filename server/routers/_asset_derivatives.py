@@ -122,8 +122,6 @@ def register_derivative_routes(
             def _sync():
                 manager = pm_getter()
                 with project_change_source("webui"):
-                    # 本体的落盘真名在写入前解析一次：级联清理要用它拼衍生图的目录，而
-                    # 请求里的名字可能是另一种等价编码形式。
                     owner_key = _resolve_owner_key(manager, asset_type, project_name, entry_name)
 
                     def _commit(_project_file: Path) -> None:
@@ -138,7 +136,6 @@ def register_derivative_routes(
         except _DerivativeMissing as exc:
             raise NotFoundError("asset_derivative_not_found", name=exc.name) from exc
         except AssetRenameFileCollisionError as exc:
-            # 衍生图与本体资产图共用这两条冲突文案：拒绝的形状与用户要做的事完全一样。
             raise HTTPException(
                 status_code=409, detail=_t("asset_rename_file_conflict", filename=exc.destination.name)
             ) from exc

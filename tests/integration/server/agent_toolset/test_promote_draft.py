@@ -21,6 +21,7 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
+    render_report,
     write_quarantine,
 )
 from lib.script.item_ids import format_item_id
@@ -69,17 +70,7 @@ from tests.integration.server.agent_tool_support import (
 
 pytestmark = pytest.mark.usefixtures("video_request_facts")
 
-# ---------------------------------------------------------------------------
-# 草稿与修复晋升闭环（script_plan）
-# ---------------------------------------------------------------------------
 
-
-#: 六类阻断违约的最小触发样例（违约类 → 扁平 unit），共 7 条：「``@[X]`` 未登记」一类按出现位置
-#: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
-#: 合测会漏掉其中一处。逐类断言「落草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
-#: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
-#: ``duration_off_tier``（时长不在该 unit 引用状态的生效档位内）需要另一套 caps 才触发，
-#: 单列在 ``test_split_reference_video_units_rejects_duration_off_reference_tier``。
 _RV_VIOLATION_CASES = [
     ("unclosed_brace", rv_unit("@[张三] 起身，喊了一句 {我来了")),
     ("dialogue_line_syntax", rv_unit("门开了\n@[张三]：我来了。")),
@@ -106,11 +97,23 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["kind"] == QUARANTINE_KIND_SCRIPT_PLAN
     assert [v["code"] for v in envelope["violations"]] == [code]
     assert envelope["violations"][0]["label"] == "unit E1U01"
-    # 草稿装的是扁平草稿结构（Agent 要改的是正文 / 原文锚 / 时长），不是派生后的落盘形状
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
     report = said(out)
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+    assert draft is not None
+    assert (
+        report
+        == render_report(
+            rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path),
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
+            episode=1,
+        )
+        + "\n⚠️ 降级提示（不阻断，非违约、无需为此重改，草稿仍在场）:\n- unit E1U01：本单元未引用场景，画面地点将由模型自由决定"
+    )
+    assert out.problem.params == {"count": 1}
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
@@ -134,7 +137,6 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     envelope = read_rv_quarantine(fake_ctx)
     assert [v["label"] for v in envelope["violations"]] == ["unit E1U02", "unit E1U03"]
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset", "braces_in_description"]
-    # 合法的 unit 也原样留在草稿里：Agent 只需改坏的那些
     assert len(envelope["content"]["units"]) == 3
 
 
@@ -193,7 +195,6 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkey
     assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    # 落盘时由服务端发号：夹具剧本已用过 1 号
     assert saved["units"][0]["unit_id"] == "E1U2"
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
@@ -210,7 +211,6 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHar
         assert rv_quarantine_path(fake_ctx).exists()
         assert not rv_script_plan_path(fake_ctx).exists()
 
-    # 改成另一类违约后报告随之刷新，不是上一轮的陈旧快照
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 推门，音量 {}"
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
@@ -240,11 +240,6 @@ async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolHarness,
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-# ---------------------------------------------------------------------------
-# script_plan 乐观并发控制（取回时记基线指纹，晋升前锁内比对）
-# ---------------------------------------------------------------------------
-
-
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolHarness) -> None:
     """「用户在内容确认界面编辑 + Agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
@@ -253,7 +248,6 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     await open_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    # 模拟取回之后 Web 端保存改写了正式文件
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 在 @[村口] 等候")])
     web_version = rv_script_plan_path(fake_ctx).read_text(encoding="utf-8")
 
@@ -266,13 +260,10 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert "patch_draft" in report
     assert "base_revision" in report
     assert '"doc_type": "reference_script_plan"' in report
-    # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
-    # 正式文件未被覆盖，草稿仍在场
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == web_version
     assert rv_quarantine_path(fake_ctx).exists()
 
-    # 按报告指引通过工具合并并显式接受正式版本后，重新晋升即放行。
     refreshed = draft_of(await open_for_edit(fake_ctx))
     refreshed["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 等候"
     patched = await run_declared_tool(
@@ -335,7 +326,6 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
     envelope = read_rv_quarantine(fake_ctx)
     del envelope["meta"]["base_fingerprint"]
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-    # 取回后正式文件又被改过——存量草稿无基线可比，照旧覆盖（维持引入前语义）
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 在 @[村口] 等候")])
 
     out = await promote_reference_draft(fake_ctx)
@@ -354,7 +344,6 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     assert "base_fingerprint" in meta
     assert meta["base_fingerprint"] is None
 
-    # 草稿在场期间正式文件被写出（另一路径），修好草稿后晋升应报冲突而非覆盖
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 出场"
@@ -478,8 +467,6 @@ async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolHarness, m
     assert not rv_script_plan_path(fake_ctx).exists()
     refreshed = read_rv_quarantine(fake_ctx)
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
-    # 草稿留在原地且原样保留 Agent 写的那份内容：做收编会把它的原稿改形，它照着报告回看时
-    # 反而对不上自己写的东西，改完再晋升这条路就断了
     assert rv_quarantine_path(fake_ctx).exists()
     assert refreshed["content"] == edited_content
 
@@ -523,6 +510,31 @@ async def test_schema_breach_reaches_the_agent_verbatim(
     assert report in problem.detail
     opened = draft_of(await open_for_edit(fake_ctx))
     assert [(v["code"], v["message"]) for v in opened["violations"]] == expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "reason"),
+    [
+        ({"kind": "dialogue", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "dialogue", "speaker": "  ", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "voiceover", "speaker": "Hero", "text": "Hello"}, "voiceover utterance 不得带 speaker"),
+    ],
+    ids=["missing_speaker", "blank_speaker", "voiceover_speaker"],
+)
+async def test_custom_schema_breach_reaches_tools_verbatim(fake_ctx: ToolHarness, utterance, reason) -> None:
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["utterances"] = [utterance]
+    drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    expected = f"草稿的 content.scenes.0.utterances.0 不符合产出结构：Value error, {reason}"
+
+    problem = problem_of(await promote_drama(fake_ctx))
+    assert problem.code == "draft_invalid"
+    assert f"1. [schema_invalid] {expected}" in problem.detail.splitlines()
+    reopened = draft_of(await open_drama_for_edit(fake_ctx))
+    assert [(v["code"], v["message"]) for v in reopened["violations"]] == [("schema_invalid", expected)]
 
 
 async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:
@@ -588,7 +600,6 @@ async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx
     assert "unregistered_asset" in text
     assert "未引用场景" in text
     assert "unit E1U01：" in text
-    # 软违约不进待修复草稿的违约条目：合流的话「非空即挡下」的判定会把降级提示变成硬违约。
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["unregistered_asset"]
 
 
@@ -619,7 +630,6 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
     text = draft_of(out)["message"]
     assert "降级提示" in text
     assert "未引用场景" in text
-    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
     assert "unit E1U3：" in text
     assert "unit E1U2：" not in text
 
@@ -1083,13 +1093,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
-    # 卡在「尚无正式脚本」这道常规校验上，而不是参考路径的草稿
     assert "待处理的提示词编写草稿" not in said(out)
-
-
-# ---------------------------------------------------------------------------
-# drama script_plan 的取回编辑与晋升闭环
-# ---------------------------------------------------------------------------
 
 
 async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolHarness) -> None:
@@ -1137,7 +1141,7 @@ async def test_promote_drama_script_plan_reports_schema_breach_without_writing(f
 
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
     envelope = read_drama_quarantine(fake_ctx)
-    envelope["content"]["scenes"][0]["duration_seconds"] = 7  # 不在档位内
+    envelope["content"]["scenes"][0]["duration_seconds"] = 7
     drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await promote_drama(fake_ctx)
@@ -1352,11 +1356,6 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "本次生成内容"
 
 
-# ---------------------------------------------------------------------------
-# narration script_plan 的取回编辑与晋升闭环
-# ---------------------------------------------------------------------------
-
-
 async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
@@ -1385,7 +1384,6 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     assert envelope["kind"] == QUARANTINE_KIND_NARRATION_SCRIPT_PLAN
     assert envelope["content"]["segments"][0]["segment_id"] == "E1S01"
     assert envelope["meta"]["source"] == "source/episode_1.txt"
-    # 正式文件此刻不存在，基线即 null——这份草稿修好晋升时若已被别的写入方建出来，按基线比对报冲突。
     assert envelope["meta"]["base_fingerprint"] is None
 
 

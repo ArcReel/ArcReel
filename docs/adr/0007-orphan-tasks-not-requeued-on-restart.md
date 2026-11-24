@@ -2,25 +2,30 @@
 status: accepted
 ---
 
-# 重启后孤儿任务一律不重新触发生成，提交-轮询型按 job_id 恢复轮询
+# 重启恢复只续查已提交的视频任务
 
-`generation_worker.py` 在本决策前于 worker 获得 lease 且本实例无在途任务时调用 `requeue_running_tasks()`，把 DB 里所有 `status='running'` 的孤儿任务（worker 内存里没有对应 asyncio.Task，唯一现实成因是服务进程重启——部署或崩溃恢复）丢回 queued 让下次 claim 重跑。这在「外部服务可重入、按时长计费」的系统里是合理的自愈策略，但 ArcReel 不是：媒体生成的费用按**供应商 API 调用次数**结算，requeue 一次就多扣一次钱；且单次 video 生成动辄数毛到数元，重启高峰（部署窗口、容器 OOM）一次能把项目里几十个 running 任务全部重跑——2026-05-24 的一次真实用户事故里，custom-11 video pool 容量 3 的池被 3 个长轮询 Sora 任务占满，结合当时 cancel running 不能中断 asyncio.Task 的缺陷让整个项目卡死（取消语义的现行决策见 `docs/adr/0006-cancel-only-queued-tasks.md`），如果用户当时重启就会重复扣三笔。
+由于生成按供应商调用计费，将中断的任务自动重新入队会导致重复提交，因此重启恢复从不重新发起生成。图像、配音、文本和本地渲染任务中断后统一标为失败，由用户决定是否重试。
 
-我们决定：孤儿任务**绝不**自动重新触发生成。默认行为是把 status 标 `failed`，error_message 写明「服务重启中断」，让用户决定要不要重新提交。但对**提交-轮询型的 video** backend（如 Gemini/Ark/OpenAI/NewAPI 的 video——这些 backend 的 video 调用是「提交一次 job + 之后轮询 job_id 拿结果」），我们提供「恢复轮询」能力：Task 表新增 `provider_job_id` 列（alembic 迁移），各 video backend 在 submit 后立即把 job_id 持久化到对应 task；worker 启动扫表时，对带 job_id 的孤儿调用 backend 的新 `resume_video(job_id)` 接口继续 poll，不重复触发 submit。无 job_id（同步型 backend、或 submit 前进程就死了）、backend 不实现 resume、provider 返回 job 已过期/unknown——都标 failed，error_message 用 `[restart_lost]` / `[resume_unsupported]` / `[resume_expired]` 区分（三者为失败类别家族的简写，本文与代码注释同用此约定；实际 error_message 是 `encode_failure` 的结构化 token，按变体细分，如 `restart_lost_image` / `resume_unsupported_provider` / `resume_expired_detail`，见 `lib/generation/task_failure.py`）。Vidu 的 video 虽同为提交-轮询型，但 poll 完全内联在 `generate`、没有可供接续的独立轮询入口，`generate` 也不持久化 job_id，故不实现 resume；又因从不持久化 job_id，其孤儿在启动扫表分流中落「无 job_id」分支标 `[restart_lost]`（`restart_lost_no_job_id` / `restart_lost_checkpoint_no_job_id`），而非 `[resume_unsupported]`——`resume_unsupported_provider` 只兜「有 job_id + checkpoint 但 provider 不支持 resume」的防御路径（`NON_RESUMABLE_VIDEO_PROVIDERS`，防项目配置漂移把此类孤儿误判成可 resume）。**image 任务不在本 ADR 的 resume 范围内**：绝大多数 image backend 是同步型（请求-响应、HTTP 一断就丢），少数如 Vidu / NewAPI 的 image 虽然技术上也是 poll-based，但 image 任务时长短、补 image 的 resume 收益小，按 YAGNI 不做；这些 image 孤儿统一走「标 failed → 用户手动重新提交」的兜底。
+视频任务只有在调用通道支持恢复、已记录供应商任务号且执行检查点校验通过时才能续查。检查点冻结提交时的供应商、模型、调用通道、请求与输入媒体身份。恢复使用该检查点回放原请求事实，读取当前凭证构建相同调用通道，遇到不匹配的配置即失败。通过任务号继续查询和拉取原结果，沿用正常生成的正式版本登记路径。
 
-## Consequences
+## 提交与恢复边界
 
-- `requeue_running_tasks()` 调用点从 worker 主循环移除，函数本体保留但仅供单元测试或将来手动救援使用。worker 启动改走新的 `_handle_orphan_tasks_on_start()`，按上述策略分发：可 resume 的恢复轮询、其余标 failed。
-- 「恢复轮询」需要 backend 协作。`VideoBackend` 抽象类新增 `async def resume_video(job_id: str) -> ...` 可选方法（默认抛 `NotImplementedError`）。提交-轮询型 backend 复用各自现有的 `_poll_until_complete`，入口从「submit 后调」改为「直接用 job_id 调」即可，主体逻辑不重写。同步型 backend（Grok image/video，及 Gemini/Ark/OpenAI 的 image），以及 poll 内联在 `generate`、不持久化 job_id 的 Vidu video，不实现 resume，遇到孤儿直接标 failed（Vidu 孤儿因无 job_id 落 `[restart_lost]` 分流）。
-- 用户视角：重启后正在生成的 video 任务（绝大多数走轮询）会自动接续，体感无感；正在生成的 image 任务（绝大多数走同步）会变成 failed，用户需要手动重新提交。本次范围不做重试 UI（已确认），用户的「重新提交」走现有「点生成按钮」路径——这是 conscious trade-off，目的是把本次 PR 范围控制在「修队列瘫痪」三件事内。
-- 该 ADR 与「GenerationWorker 与 server 主进程始终捆绑」这一事实配套（参见 `lib/generation/generation_worker.py` 模块文档字符串）：单 uvicorn 进程下，唯一的孤儿成因就是重启；没有多 worker 协调时 lease/heartbeat 抖动制造的「假孤儿」（lease 失效但本进程其实活着）问题。若未来真做多 worker，该策略需要重审——具体说，需要区分「本进程刚启动的孤儿」（确实没人在跑）和「其他 worker 还活着的孤儿」（其他进程内存里 asyncio.Task 仍在）。本 ADR 不为该未来场景预留判定逻辑。
-- 孤儿扫描只处理 `running`。`cancelling` 中间态已随「取消只对排队中的任务开放」（`docs/adr/0006-cancel-only-queued-tasks.md`）移除，升级迁移把残留的 `cancelling` 行收敛为 `cancelled`，孤儿扫描不再有这条分支。
-- 与 `docs/adr/0006-cancel-only-queued-tasks.md` 互不重叠也互不冲突：0006 管「哪些任务可以被用户取消」（只有排队中的），0007 管「重启后还没死的任务怎么处理」。重启孤儿走 failed 或 resume，不写 `cancelled`（取消是用户主观意愿，重启是系统事件）。
-- 不要为了「让重启更无感」回退到 requeue：那会把费用模型从「次数计费」变成「次数 × 重启次数」，用户从账单上吃亏，且会让本 ADR 的费用语义保护点失效。
-- `provider_job_id` 持久化必须在进入轮询前**同步完成**——如果 `submit` 已返回 job_id 但 DB 写入失败（如 SQLite I/O 错、连接中断），task 必须立刻标 `failed`、**不**进入轮询。否则该 job 在 provider 那里继续 charge，但 ArcReel 既无法 resume（job_id 没存）也无法 cancel（worker 不知道这个 task 还在跑），形成不可追踪的「幽灵任务」。实现路径：`submit` 后用单独事务先 commit job_id，commit 失败立即抛出由 worker finally 标 failed；commit 成功才进入 `_poll_until_complete` 循环。
-- fail-fast 路径必须**可观测**：`provider_job_id` 持久化失败触发的「标 failed」分支打结构化日志，以稳定 token `provider_job_id_persist_failed` 起头（含 task_id / provider / submit 返回的 job_id / 错误原因），运维侧按该 token 检索即可把「幽灵任务防护触发」从「正常 provider 失败」噪声里挑出来——部署期回归（如 DB 偶发 I/O 故障）会被无声盖住，正是这条防护要避免的失败模式。本仓库无 metrics 基础设施（无 prometheus/statsd/otel 依赖），不为此单独引入计数指标。
-- 两条视频路线的可恢复身份都不能只靠 job_id。任务在首次 provider submit 紧前持久化专用、版本化且严格校验的 execution checkpoint，同一次事务写入实际 provider。checkpoint 冻结 task/project/script/unit 坐标、能力桶、provider/model/backend、自定义 endpoint 协议、最终 prompt/时长/请求设置，以及实际 provider 媒体的逻辑身份、字节摘要与受控定位。这些事实不写回 enqueue payload，也不与 task 状态、job_id 或 Artifact Manifest 的 current 指针混合；命中同档复用时不跨 submit 边界，也不创建 checkpoint。
-- 所有 video 孤儿按 checkpoint/job 组合穷举分流：两者均无是未到可恢复提交边界的普通中断；只有 checkpoint 表示已尝试 submit 但没有可轮询句柄，不伪装成可恢复；两者均有且 checkpoint 能严格解析/绑定才可 resume；有 job 但 checkpoint 缺失、损坏或坐标不匹配时为不可恢复的执行身份。resume 只从 checkpoint 回放提交时请求，当前 project 仅用于取凭证并构造同一 backend；provider/model/backend 或自定义 endpoint 发生漂移时显式失败。
-- 实际附加到 provider 请求的分镜首尾帧、参考图与音色参考在 submit 前物化到 task-local 不可变 staging，provider 只读该字节。staging 采用项目边界校验、字节摘要复核、原子发布与幂等冲突检查；失败、取消或任务终态只清这个任务的 provider-media 目录，不跟随 symlink/junction，也不删已登记的付费版本历史。
-- 参考载荷的 413 只在本地能证明 provider 尚未接受请求时允许降档重试；job 句柄已持久化后，或已经进入无法区分「收单前拒绝」与「收单后失败」的黑盒调用后，任何 413 都原样失败，绝不自动重提。
-- 正常生成与 resume 使用同一正式文件/版本登记交易：provider 先写同目录临时文件，只在下载、记账与版本登记完成后提升为正式文件。版本历史携带同一份 checkpoint 来源事实与标准视觉 basis；这些事实记录「该付费请求如何产生」，不宣称其与当前剧本/资产仍一致。
+- 供应商提交之前写入检查点。收到供应商任务号后，在轮询之前持久化该号码。持久化失败立即终止本地等待并记录 `provider_job_id_persist_failed`。
+- 检查点协议守卫只决定能否继续查询和拉取结果，续跑执行器仍校验提交时冻结的供应商、供应商模型与调用通道模型身份。`resume_guard_accepts` 仅在以下情形放行：提交与当前守卫完全相同（含两者均为空）；旧版提交守卫为空且当前仍为内置调用端点（`builtin:` 前缀）；提交端点已退役且当前端点在 `RETIRED_ENDPOINT_SUCCESSORS` 中显式登记为该退役端点的后继，且内置与自定义归属前缀及路径覆盖串均一致。同一退役端点的兄弟后继互换、跨内置与自定义切换或变更路径覆盖一律拒绝，实现见 [续跑协议守卫](../../lib/backends/resume_guard.py) 与 [续跑执行器](../../server/services/tasks/resume_executor.py)。
+- 缺少任务号、检查点不可用、供应商不支持续查或任务已过期都会失败。分流和故障码由 [恢复服务](../../lib/generation/restart_recovery.py) 和 [任务故障契约](../../lib/generation/task_failure.py) 定义。
+- 提交使用任务专属的引用媒体副本，恢复继续使用冻结的请求事实。任务结束时清理自身暂存副本，已登记的产物继续保留。
+- 执行期的提交、降档和取件重试见 [ADR 0123](0123-provider-submission-and-retrieval-retry-boundaries.md)。执行检查点与请求一致性见 [ADR 0086](0086-video-request-facts-evaluated-once.md)。
+
+## 进程内任务所有权与孤儿处理
+
+孤儿判定依赖单服务进程的任务所有权；引入多 worker 或多实例部署时，必须区分已终止的任务与其他实例仍在执行的任务。
+
+- **单一所有权与槽位台账分离**：进程内维护一份单一的任务所有权登记，统一覆盖正常认领、孤儿恢复与手动「重试下载」三条路径。任务被任一路径接手即在同步临界区登记归属，执行体完成收尾并退出时按归属令牌释放自身归属；并发槽位台账（`SlotTable`）只负责按 `provider × media_type` 记录并发占用。孤儿扫描跳过当前进程内已有归属的任务，且在派发前复核数据库仍为 `running`（查库瞬态报错时跳过本轮并留待下次心跳复查，不盲目执行）；全部后台恢复与重试派发器按活跃集合跟踪，关停时一并等待。
+- **正式版本提交幂等**：视频产物正式版本提交记录对应 `task_id`。若产物版本已写入而任务状态尚未落为 `succeeded`（如写终态前进程终止或写库重试耗尽），后续恢复检测到同一 `task_id` 已有已提交版本时直接复用该版本并补写任务成功结果，不再重复拉取或追加第二条版本记录。
+- **并发上限边界**：用户配置的供应商并发上限严格约束新提交的付费生成任务。重启续跑与手动「重试下载」仅轮询和下载已有供应商任务结果、不产生新的付费提交，单次派发按该供应商并发上限节流其批次并将占用计入 `SlotTable` 以暂停新任务认领，不在正常执行与多次并发手动重试之间共享跨路径硬门禁。
+- **停机准入与重启衔接**：收到停机信号后，Worker 立即关闭新任务认领与「重试下载」准入——认领返回前已停机则将未启动任务安全回队，停机后到达的「重试下载」直接返回 `503` 且不改写数据库；已通过准入的在途交接、活跃派发器与在途任务在容器停机宽限期内继续等待自然结束。停机超时时不主动取消在途视频任务，保留其 `running` 状态与已持久化的供应商任务号，由新实例重启后在检查点有效且通道支持续查时继续续查；若主动取消会将其写入 `cancelled` 并使原供应商任务失去续查资格。
+- **状态写入失败处理**：池满回队区分数据库瞬态异常与受影响行数为 0（状态已被其他路径变更）——瞬态异常经短时退避重试仍失败时向上抛出，交由主循环异常路径在下一心跳重扫（此时尚未向供应商提交，不会重复计费）。终态写入（`succeeded` / `failed`）遇到瞬时数据库故障时，在释放归属和槽位前执行有限次退避重试；重试耗尽仍失败时记录 `ERROR`、绝不回队重新提交，并由后续受控恢复配合正式版本幂等机制完成状态修复。
+- **调用记录结算顺序**：孤儿任务扫描之后才结算挂起的调用记录，使无法接续的任务先落终态，再按任务结局决定调用记录如何结算。
+- Worker 首次持有租约完成启动结算时，以 Worker 构造时刻作为严格上界（`started_at < _constructed_at`），一并结算无任务身份的 `pending` 调用行（如文本调用与测试连接），不触碰构造时刻及之后发起的调用。
+- 启动结算完成后，主循环异常或丢失租约超过 3 倍 TTL 再重新取得租约会触发存活期重扫；此时跳过全部无任务身份的调用行（它们可能仍在当前进程执行），仅检查绑定了任务身份的行。
+- 结算中断调用时，跳过对应任务仍处于非终态的行；缺失任务行按 `failed`（`interrupted`）结算，已取消任务按 `cancelled` 结算，已失败或已成功任务的未结算调用统一按 `failed` 结算，避免在缺乏可信计量维度时为已成功任务凭空补记费用。结算记录金额置 0、耗时留空，且每条更新带 `status = 'pending'` 守卫，避免覆写并发完成的正常结算。实现见[工作进程](../../lib/generation/generation_worker.py)与[用量仓储](../../lib/db/repositories/usage_repo.py)。用户主动取消的范围见 [ADR 0006](0006-cancel-only-queued-tasks.md)。

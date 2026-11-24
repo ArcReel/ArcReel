@@ -2,8 +2,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 
-# --- ProviderConfigRepository ---
-
 
 async def test_set_and_get(db_session: AsyncSession):
     repo = ProviderConfigRepository(db_session)
@@ -34,12 +32,9 @@ async def test_get_secrets_masked(db_session: AsyncSession):
     await repo.set("gemini-aistudio", "base_url", "https://example.com", is_secret=False)
     masked = await repo.get_all_masked("gemini-aistudio")
     assert masked["api_key"]["is_set"] is True
-    assert "AIzaSyD" not in masked["api_key"]["masked"]  # value is masked
+    assert "AIzaSyD" not in masked["api_key"]["masked"]
     assert masked["base_url"]["is_set"] is True
     assert masked["base_url"]["value"] == "https://example.com"
-
-
-# --- SystemSettingRepository ---
 
 
 async def test_setting_set_and_get(db_session: AsyncSession):

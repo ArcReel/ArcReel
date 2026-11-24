@@ -8,7 +8,6 @@ import { StreamMarkdown } from "./StreamMarkdown";
 const URL_ATTRS = ["href", "src", "xlink:href", "action", "formaction", "srcdoc", "data"];
 const ACTIVE_TAGS = ["script", "iframe", "object", "embed", "form", "svg", "math", "style", "base", "meta", "link"];
 
-// 按浏览器 URL 解析规则归一：去掉首尾 C0 控制符与空白、剔除中间的制表与换行后取协议。
 function urlScheme(value: string): string {
   let start = 0;
   let end = value.length;
@@ -42,7 +41,6 @@ function collectActiveContent(root: HTMLElement): string[] {
   return findings;
 }
 
-// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现可点击元素。
 function clickableElements(root: HTMLElement): string[] {
   return Array.from(
     root.querySelectorAll('a, button, [data-streamdown="link"]'),
@@ -163,7 +161,6 @@ describe("StreamMarkdown 渲染惰性", () => {
     for (let cut = 1; cut < payload.length; cut += 1) {
       rerender(<StreamMarkdown content={payload.slice(0, cut)} />);
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
-      // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
       for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
       expect(screen.queryByRole("button", { name: "打开链接" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
       expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
@@ -227,7 +224,7 @@ describe("StreamMarkdown 应用内链接", () => {
       "click",
       (event) => {
         prevented = event.defaultPrevented;
-        event.preventDefault(); // 挡掉 jsdom 的真实导航
+        event.preventDefault();
       },
       { once: true },
     );

@@ -19,12 +19,9 @@ Gateway = Annotated[OfficialServiceGateway, Depends(get_official_service_gateway
 
 
 class OfficialServiceStateResponse(BaseModel):
-    #: 官方服务地址非空。
     available: bool
-    #: 地址非空且总开关为开；为 false 时前端不展示任何官方服务元素。
     enabled: bool
     notice_seen: bool
-    #: 随请求发往官方服务的实例标识；尚未生成时为 null。
     instance_id: str | None
 
 

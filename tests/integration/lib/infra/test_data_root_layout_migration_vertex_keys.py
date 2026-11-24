@@ -22,7 +22,6 @@ def deployed_data_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "deploy" / "projects"
     root.mkdir(parents=True)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(root))
-    # 建库夹具可能已按默认数据根解析过一次。
     reset_for_tests()
     return root
 
@@ -75,7 +74,6 @@ async def _migrate(deployed_data_root: Path, session_factory: async_sessionmaker
     "recorded_in",
     [
         pytest.param("legacy", id="recorded-path-is-legacy-location"),
-        # Docker 部署里记录的是容器内路径，在当前进程看来不存在；文件在旧卷里、同名。
         pytest.param("container", id="recorded-path-is-stale-container-path"),
     ],
 )
@@ -154,7 +152,6 @@ async def test_rerunning_migration_keeps_credential_loadable(
 
     await _migrate(deployed_data_root, session_factory, tmp_path)
     first = await _loaded_credential(session_factory)
-    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
     DataRootLayout(deployed_data_root).layout_migration_marker_path.unlink()
     await _migrate(deployed_data_root, session_factory, tmp_path)
 
@@ -230,7 +227,6 @@ async def test_read_only_legacy_dir_does_not_block_migration(
 
     try:
         await _migrate(deployed_data_root, session_factory, tmp_path)
-        # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
         DataRootLayout(deployed_data_root).layout_migration_marker_path.unlink()
         await _migrate(deployed_data_root, session_factory, tmp_path)
     finally:

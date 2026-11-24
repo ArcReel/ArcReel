@@ -51,7 +51,6 @@ def load_env_file(env_path: Path) -> tuple[str, ...]:
     if os.environ.get("PYTHON_DOTENV_DISABLED", "").casefold() in {"1", "true", "t", "yes", "y"}:
         return ()
     try:
-        # 插值沿用 load_dotenv 的进程环境优先级，避免文件中的引用改变显式配置。
         file_values = DotEnv(env_path, encoding="utf-8", override=False).dict()
     except OSError:
         return ()
@@ -108,7 +107,6 @@ def init_environment():
     # 任何文件访问失败都视为 ".env 不可用"，降级继续 import。
     try:
         if not env_path.exists():
-            # 项目根没有 .env 时沿用 python-dotenv 默认的向上回溯查找
             found = find_dotenv()
             env_path = Path(found) if found else None
         if env_path is not None:

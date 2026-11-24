@@ -20,10 +20,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.backends.image_errors import ImageCapabilityError
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import EnqueuedTask, TaskSpec, submit_generation_batch
@@ -50,10 +52,10 @@ from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, reso
 from lib.project.episode_asset_references import ReferencedAsset, episode_referenced_assets
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.prompts.prompt_builders import build_character_derivative_prompt
+from server.services.admission.image_references import check_asset_image_limit, limit_problem, reference_image_limit
 
 ASSET_BATCH_OPERATION = "generate_assets"
 
-#: 缺描述的两种拒绝码：本体与衍生各一，与单张生成入口拒绝时同码。
 ASSET_DESCRIPTION_REQUIRED = "asset_description_required"
 DERIVATIVE_DESCRIPTION_REQUIRED = "derivative_description_required"
 DERIVATIVE_OWNER_SHEET_MISSING = "derivative_owner_sheet_missing"
@@ -89,7 +91,6 @@ class AssetSheetScope:
 
     asset_type: str | None = None
     episode_id: int | None = None
-    #: 点名的资产名（衍生写作 ``本体/衍生``）；必须配合 ``asset_type``。
     names: tuple[str, ...] | None = None
 
 
@@ -98,13 +99,9 @@ class AssetSheetUnit:
     """一张可生成的资产图：本体资产图或一套衍生的资产图。"""
 
     asset_type: str
-    #: 落盘真名；衍生为 ``本体/衍生``。
     name: str
-    #: 衍生所属本体的落盘真名；本体为 ``None``。
     owner: str | None
-    #: 去掉两端空白后的描述；衍生是外观变化描述。未填写为 ``None``。
     description: str | None
-    #: 是否声明了原图：声明了原图的资产图按图生图生成。
     has_originals: bool
     candidate: GenerationCandidate
 
@@ -232,12 +229,9 @@ class AssetSheetBatchPlan:
     """一次资产图批量生成的规划结果：要提交的目标、逐项拒绝与复用、批内依赖。"""
 
     selection: GenerationSelectionMode
-    #: 要提交的目标，本体在前、衍生在后。
     targets: tuple[GenerationTargetState, ...]
     units: Mapping[str, AssetSheetUnit]
-    #: 衍生单元 → 同批内的本体单元。
     dependencies: Mapping[str, str]
-    #: 目标里已有活动任务的单元：提交时并入原任务，不再计费。
     generating: frozenset[str]
     preflight: GenerationBatchResult
     states: Mapping[str, GenerationTargetState] = field(default_factory=dict)
@@ -300,6 +294,8 @@ def plan_asset_sheet_batch(
     scope: AssetSheetScope,
     *,
     referenced: frozenset[ReferencedAsset] | None = None,
+    project_path: Path | None = None,
+    image_limit: tuple[int | None, str] = (None, ""),
 ) -> AssetSheetBatchPlan:
     """按范围选出这一批的目标并逐项判准入；集范围由调用方传入本集引用的资产。"""
 
@@ -356,6 +352,20 @@ def plan_asset_sheet_batch(
                 artifact_status=state.status,
             )
             continue
+        if project_path is not None and unit.image_to_image:
+            try:
+                check_asset_image_limit(
+                    project, project_path, unit.asset_type, unit.name, owner=unit.owner, limit=image_limit
+                )
+            except ImageCapabilityError as exc:
+                builder.block(
+                    unit.unit_id,
+                    problem=limit_problem(exc),
+                    artifact_key=state.artifact_key,
+                    artifact_path=state.artifact_path,
+                    artifact_status=state.status,
+                )
+                continue
         owner_unit_id = unit.owner_unit_id
         if owner_unit_id is not None and owner_unit_id not in accepted_ids:
             owner_status = _owner_status(project, resolver, unit)
@@ -470,7 +480,17 @@ async def load_asset_sheet_batch_plan(
         return project, resolver, referenced
 
     project, resolver, referenced = await asyncio.to_thread(_read)
-    draft = await asyncio.to_thread(plan_asset_sheet_batch, project, resolver, scope, referenced=referenced)
+    project_path = await asyncio.to_thread(projects.get_project_path, project_name)
+    limit = await reference_image_limit(project_name, project, project_path)
+    draft = await asyncio.to_thread(
+        plan_asset_sheet_batch,
+        project,
+        resolver,
+        scope,
+        referenced=referenced,
+        project_path=project_path,
+        image_limit=limit,
+    )
     active = await active_asset_unit_ids(
         queue,
         project_name=project_name,

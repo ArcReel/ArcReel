@@ -56,7 +56,6 @@ def _producer_contracts():
                 kwargs = {arg.arg: arg.value for arg in node.keywords}
                 code = kwargs.get("code")
                 if not isinstance(code, ast.Constant) or code.value == "quarantined":
-                    # Aggregated reports are control-flow exceptions, not stored entries.
                     continue
                 params = kwargs.get("params")
                 assert isinstance(params, ast.Dict), (filename, node.lineno, code.value)
@@ -81,7 +80,6 @@ def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
         key = draft_violation_message_key(code)
         assert key in MESSAGES[locale], (locale, code)
         if code == "schema_invalid":
-            # The structured schema reason is rendered into {detail}; the template never names it.
             assert SCHEMA_ERROR_PARAM in fields, (locale, code)
             fields = fields - {SCHEMA_ERROR_PARAM}
         assert _fields(MESSAGES[locale][key]) == fields, (locale, code)

@@ -154,14 +154,13 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         options=ReferenceRequestOptions(),
     )
 
-    # 引用顺序即正文首次提及顺序，商品不再排最前。
     assert [(ref.type, ref.name) for ref in first.declared_references] == [
         ("product", "手袋"),
         ("scene", "大厅"),
         ("character", "阿离"),
         ("prop", "长剑"),
     ]
-    assert [asset.path.name for asset in first.request_assets] == ["product-sheet.png", "character.png"]
+    assert [asset.path.name for asset in first.request_assets] == ["product-sheet.png", "character.png", "prop.png"]
     assert first.declared_generation_type == "r2v"
     assert first.hydrated_generation_type == "r2v"
     assert first.request_duration.seconds == 8
@@ -171,7 +170,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
     assert first.cost.duration_seconds == 8
     assert [problem.code for problem in first.problems] == [
         "reference_asset_missing",
-        "reference_images_clamped",
+        "video_reference_images_exceeded",
         "reference_duration_confirmation_required",
     ]
 
@@ -392,7 +391,6 @@ def test_asset_adapter_prefers_sheets_and_preserves_missing_candidates(tmp_path:
 
     assets = resolve_reference_assets(project, tmp_path, unit)
 
-    # 候选顺序即正文首次提及顺序；有资产图的资产只出资产图，原图不再额外注入。
     assert [(item.reference.type, item.kind, item.path.name) for item in assets] == [
         ("scene", "sheet", "missing.png"),
         ("product", "sheet", "bag-sheet.png"),
@@ -526,3 +524,29 @@ async def test_production_entry_treats_an_unclaimed_sheet_as_unavailable_like_th
         "reference_capability_changed",
     ]
     assert dict(projections[1].problems[0].params)["missing"] == (("character", "李四"),)
+
+
+async def test_a_product_with_one_missing_original_cannot_send_only_its_other_original():
+    good = _asset("product", "手袋", "/fake/front.png")
+    missing = _asset("product", "手袋", "/fake/back.png")
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets({missing.path}))
+    unit = {"unit_id": "E1U1", "text": "@[手袋]", "duration_seconds": 6}
+    projection = await projector.project_current(
+        project={"products": {"手袋": {}}}, script={"video_units": [unit]}, unit=unit, resolved_assets=[good, missing]
+    )
+    problem = next(problem for problem in projection.problems if problem.code == "video_reference_images_unreadable")
+    assert problem.blocking
+    assert dict(problem.params)["names"] == "back.png"
+
+
+async def test_excess_originals_of_one_product_name_the_product_once():
+    originals = [_asset("product", "手袋", f"/fake/view-{index}.png") for index in range(4)]
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "@[手袋]", "duration_seconds": 8}
+    projection = await projector.project_current(
+        project={"products": {"手袋": {}}}, script={"video_units": [unit]}, unit=unit, resolved_assets=originals
+    )
+    problem = next(problem for problem in projection.problems if problem.code == "video_reference_images_exceeded")
+    assert problem.blocking
+    params = dict(problem.params)
+    assert (params["count"], params["limit"], params["names"]) == (4, 2, "手袋")

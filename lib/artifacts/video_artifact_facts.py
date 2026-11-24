@@ -236,14 +236,12 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
                 and _nonempty(prompt["action"])
                 and isinstance(prompt["camera_motion"], str)
             )
-            # 待生成的提示词只随缺席记录出现。
             or (has_gaps and prompt is None)
         )
         frames = inputs["frames"]
         roles = (
             [frame.get("role") for frame in frames if isinstance(frame, Mapping)] if isinstance(frames, list) else []
         )
-        # 不可用的分镜图只随缺席记录出现。
         allowed_roles = [["storyboard"], ["storyboard", "end_frame"]]
         if has_gaps:
             allowed_roles += [[], ["end_frame"]]
@@ -268,7 +266,6 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
     required = {"unit_id", "visual_lines", "style", "canvas", "request_references"}
     if set(inputs) - {"style_description", ABSENT_INPUTS_FIELD} != required:
         raise ValueError("reference visual basis has invalid canonical inputs")
-    # 风格描述非空才入依据：键在场时必为非空字符串。
     if "style_description" in inputs and not _nonempty(inputs["style_description"]):
         raise ValueError("reference visual basis has invalid canonical inputs")
     lines = inputs["visual_lines"]

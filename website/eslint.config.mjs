@@ -1,6 +1,3 @@
-// 与 frontend/eslint.config.js 规则集同构但刻意不共用：website 是独立包根，
-// 其 typescript 钉在 5.x（见 .github/dependabot.yml 的说明），两边无法共享同一份
-// 依赖与 tsconfig。改动规则时两份配置需要各自维护。
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import react from "eslint-plugin-react";
@@ -15,7 +12,6 @@ export default tseslint.config(
 
   js.configs.recommended,
 
-  // TypeScript + typed linting（站点配置、sidebars 与 src/ 下的 swizzle 组件）
   ...tseslint.configs.recommendedTypeChecked,
 
   {
@@ -54,9 +50,6 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
 
-  // swizzle 组件消费 @theme/* 与 @docusaurus/theme-common/internal。typed linting 对这两个
-  // 模块的推导不稳定：组件签名推导链路上的参数与返回值退化成 any，而 tsc 对同一段代码解析
-  // 完整。于是 no-unsafe-* 在本目录只会产出假阳性——类型正确性由 typecheck 那道闸保证。
   {
     files: ["src/theme/**/*.{ts,tsx}"],
     rules: {
@@ -67,7 +60,6 @@ export default tseslint.config(
     },
   },
 
-  // 项目惯例：_ 前缀变量/参数视为有意忽略，不报 unused-vars
   {
     rules: {
       "@typescript-eslint/no-unused-vars": [

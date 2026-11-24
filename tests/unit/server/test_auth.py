@@ -48,7 +48,6 @@ class TestTokenSecret:
             assert secret1 is not None
             assert len(secret1) > 0
 
-            # 再次调用应返回相同的缓存值
             secret2 = auth_module.get_token_secret()
             assert secret1 == secret2
 
@@ -120,7 +119,7 @@ class TestTokenSecretPersistence:
         monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
         data_root = tmp_path / "data-root"
         data_root.mkdir()
-        (data_root / "runtime").write_text("", encoding="utf-8")  # runtime/ 建不出来
+        (data_root / "runtime").write_text("", encoding="utf-8")
         monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
         reset_for_tests()
 
@@ -168,11 +167,10 @@ class TestCreateAndVerifyToken:
 
         secret = "test-secret-key-that-is-at-least-32-bytes"
         with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": secret}):
-            # 手动创建一个已过期的 token
             payload = {
                 "sub": "admin",
                 "iat": time.time() - 3600,
-                "exp": time.time() - 1,  # 已过期
+                "exp": time.time() - 1,
             }
             expired_token = jwt.encode(payload, secret, algorithm="HS256")
             result = auth_module.verify_token(expired_token)
@@ -242,7 +240,6 @@ class TestEnsureAuthPassword:
             result = auth_module.ensure_auth_password(env_path=str(env_file))
             assert len(result) == 16
             assert result.isalnum()
-            # 应该同步写入 os.environ
             assert os.environ["AUTH_PASSWORD"] == result
 
     def test_writeback_replace_existing_line(self, tmp_path):
@@ -255,7 +252,6 @@ class TestEnsureAuthPassword:
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             content = env_file.read_text()
             assert f"AUTH_PASSWORD={password}" in content
-            # 原有的其他行应保留
             assert "SOME_VAR=hello" in content
             assert "OTHER=world" in content
 
@@ -269,7 +265,6 @@ class TestEnsureAuthPassword:
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             content = env_file.read_text()
             assert f"AUTH_PASSWORD={password}" in content
-            # 原有内容应保留
             assert "SOME_VAR=hello" in content
 
     def test_env_file_not_exist_no_error(self, tmp_path):
@@ -278,7 +273,6 @@ class TestEnsureAuthPassword:
         env = os.environ.copy()
         env.pop("AUTH_PASSWORD", None)
         with patch.dict(os.environ, env, clear=True):
-            # 父目录不存在会触发 OSError，函数不应抛异常
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             assert len(password) == 16
             assert password.isalnum()
@@ -289,7 +283,6 @@ class TestEnsureAuthPassword:
         并降级（不持久化、保留进程内密码），否则服务无法启动。
         """
         env_file = tmp_path / ".env"
-        # cp936 编码的中文注释 + 现有 AUTH_PASSWORD，UTF-8 解码必失败
         env_file.write_bytes("# 注释\nAUTH_PASSWORD=old\n".encode("cp936"))
         env = os.environ.copy()
         env.pop("AUTH_PASSWORD", None)
@@ -297,7 +290,6 @@ class TestEnsureAuthPassword:
             password = auth_module.ensure_auth_password(env_path=str(env_file))
             assert len(password) == 16
             assert password.isalnum()
-            # .env 内容未被破坏（不强制覆写避免丢用户内容）
             assert env_file.read_bytes() == "# 注释\nAUTH_PASSWORD=old\n".encode("cp936")
 
 
@@ -308,8 +300,8 @@ class TestPasswordAcrossRestarts:
         from lib.infra.env_init import load_env_file
 
         _simulate_restart()
-        monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)  # 根 conftest 关掉了 .env 读取
-        monkeypatch.setenv("AUTH_PASSWORD", "")  # 容器创建时由模板 `AUTH_PASSWORD=` 固定下来的值
+        monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)
+        monkeypatch.setenv("AUTH_PASSWORD", "")
         load_env_file(env_file)
         return auth_module.ensure_auth_password(env_path=str(env_file))
 
@@ -414,7 +406,7 @@ class TestPasswordHash:
             auth_module.check_credentials("admin", "pass123")
             first_hash = auth_module._cached_password_hash
             auth_module.check_credentials("admin", "pass123")
-            assert auth_module._cached_password_hash is first_hash  # 同一对象
+            assert auth_module._cached_password_hash is first_hash
 
 
 class TestGetCurrentUser:

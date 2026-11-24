@@ -14,15 +14,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: 保留的索引文件名：它是记忆的目录页。
 INDEX_FILENAME = "MEMORY.md"
 
-#: 索引的加载上限：装配时按此截断，列表接口按此标 ``over_limit``，写入不受拦截。
 INDEX_MAX_LINES = 200
 INDEX_MAX_BYTES = 25_000
 
-#: 截断后追加的提示。Agent 看不到被丢掉的部分，只有提示能让它去整理索引，
-#: 而不是以为索引就这么长。
 _TRUNCATION_NOTICE = (
     "> 提示：`{filename}` 共 {line_count} 行 / {byte_size} 字节，"
     "超出 {max_lines} 行 / {max_bytes} 字节的加载上限，以上只是被加载的部分。"

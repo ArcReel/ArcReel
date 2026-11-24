@@ -46,10 +46,8 @@ from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 
 logger = logging.getLogger(__name__)
 
-#: 随机种子的取值区间上界（不含）：ComfyUI 各采样器的 seed 输入按 32 位无符号整数收。
 SEED_UPPER_BOUND = 2**32
 
-#: 种子条目缺省策略，与 schema 的 ``default`` 同值。
 _DEFAULT_SEED_POLICY = "random"
 
 
@@ -126,8 +124,6 @@ def build_workflow(
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
-    # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
-    # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
     driven = None if keeps_its_own_frame_count(definition) else duration_seconds
     frames = _write_frames(workflow, bindings, duration_seconds=driven)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
@@ -152,9 +148,6 @@ def workflow_sha256(workflow: Mapping[str, Any]) -> str:
     """
     canonical = json.dumps(workflow, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-# ---------------------------------------------------------------- 填值原语
 
 
 def _mutable_inputs(node: Any) -> dict[str, Any]:
@@ -189,9 +182,6 @@ def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], v
         _write_one(workflow, target, value)
 
 
-# ---------------------------------------------------------------- 负向提示词
-
-
 def _write_negative_prompt(workflow: dict[str, Any], targets: object, avoid_text: str) -> None:
     """把正文里拆出的排除项追加到负向节点的字面值之后。
 
@@ -201,9 +191,6 @@ def _write_negative_prompt(workflow: dict[str, Any], targets: object, avoid_text
     for target in _targets(targets):
         literal = _literal(workflow, target)
         _write_one(workflow, target, append_avoid_text(literal if isinstance(literal, str) else "", avoid_text))
-
-
-# ---------------------------------------------------------------- 尺寸
 
 
 def _write_size(
@@ -276,9 +263,6 @@ def _align_down(value: int, step: int) -> int:
     return max(step, value - value % step)
 
 
-# ---------------------------------------------------------------- 帧数
-
-
 def _write_frames(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, duration_seconds: float | None
 ) -> int | None:
@@ -311,9 +295,6 @@ def _write_frames(
     return written
 
 
-# ---------------------------------------------------------------- 种子
-
-
 def _write_seed(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, requested: int | None, rng: Random
 ) -> int | None:
@@ -337,9 +318,6 @@ def _write_seed(
     for target in rolling:
         _write_one(workflow, target, value)
     return value
-
-
-# ---------------------------------------------------------------- 改图
 
 
 def _apply_media(

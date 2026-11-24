@@ -13,6 +13,7 @@ from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoCapabilityError,
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
@@ -26,7 +27,7 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from tests.factories import custom_endpoint_definition
+from tests.factories import custom_endpoint_definition, image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
 
@@ -119,7 +120,6 @@ class TestDeclarativeVideoBackend:
 
         request = download.calls.last.request
         assert "Authorization" not in request.headers
-        # 签名 URL 的 query 是签名的一部分，附带 auth 节的 query 凭证会直接破坏它。
         assert request.url.query == b"sig=abc"
 
     async def test_artifact_on_the_fixed_submit_host_gets_credentials(self, tmp_path: Path):
@@ -307,7 +307,6 @@ class TestDeclarativeVideoBackend:
                 provider="custom-1",
             ).generate(_request(tmp_path))
 
-        # 定义指名的主机拿得到凭证；服务端把它引去的第三方主机拿不到。
         assert poll.calls.last.request.headers["X-API-Key"] == "secret"
         assert "X-API-Key" not in moved.calls.last.request.headers
 
@@ -631,7 +630,6 @@ class TestDeclarativeVideoBackend:
             )
             download = router.get(artifact_url).mock(return_value=httpx.Response(200, content=b"video"))
 
-            # 目的地不合规是确定性结果，不落可重试下载的 artifact_download_failed
             with pytest.raises(ArtifactDestinationRejectedError):
                 await DeclarativeVideoBackend(
                     api_key="secret",
@@ -752,7 +750,6 @@ class TestDeclarativeVideoBackend:
         assert old_host.call_count == 1
         assert new_host.call_count == 0
         assert result.video_path.read_bytes() == b"resumed"
-        # 同源判定跟着回放的域名走，凭证照常附上。
         assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
 
     async def test_submit_persists_the_base_url_it_used(self, tmp_path: Path):
@@ -849,7 +846,7 @@ class TestDeclarativeVideoBackend:
         with capture_http() as router:
             submit = router.post("https://relay.test/v1/video/create")
 
-            with pytest.raises(DeclarativeRuntimeError) as caught:
+            with pytest.raises(VideoCapabilityError) as caught:
                 await DeclarativeVideoBackend(
                     api_key="secret",
                     base_url="https://relay.test",
@@ -858,7 +855,7 @@ class TestDeclarativeVideoBackend:
                     provider="custom-1",
                 ).generate(_request(tmp_path, start_image=tmp_path / "vanished.png"))
 
-        assert caught.value.code == "declarative_template_render_failed"
+        assert caught.value.code == "video_start_image_unreadable"
         assert submit.call_count == 0
 
     async def test_template_failure_keeps_its_detail_locale_neutral(self, tmp_path: Path):
@@ -1148,8 +1145,6 @@ class TestDeclarativeVideoBackend:
                 return_value=httpx.Response(500, json={"error": "result exploded"})
             )
 
-            # 任务已成功、钱已花：二次取件的瞬态失败共用产物取件预算，耗尽后落可恢复的
-            # artifact_download_failed，而不是就地废掉一条已付费的成片。
             with pytest.raises(DeclarativeRuntimeError) as caught:
                 await DeclarativeVideoBackend(
                     api_key="secret",
@@ -1190,7 +1185,6 @@ class TestDeclarativeVideoBackend:
                 provider="custom-1",
             ).generate(_request(tmp_path))
 
-        # 断言范围限本模块写入的日志；httpx 自己的 `HTTP Request:` 行不在其内。
         logged = "\n".join(
             record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
         )
@@ -1203,7 +1197,7 @@ class TestDeclarativeVideoBackend:
         definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG" + b"x" * 1024)
+        frame.write_bytes(image_bytes())
         encoded_prefix = base64.b64encode(frame.read_bytes()).decode("ascii")[:64]
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1237,7 +1231,7 @@ class TestDeclarativeVideoBackend:
         definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG tiny")
+        frame.write_bytes(image_bytes())
         encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1272,7 +1266,7 @@ class TestDeclarativeVideoBackend:
         definition["submit"]["body"]["image"] = "prefix:{{ inputs.first_frame }}"
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG tiny")
+        frame.write_bytes(image_bytes())
         encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1372,3 +1366,53 @@ class TestExtractDuration:
                 "params": {"path_expression": "$[?@.a == 1e400]"},
             }
         }
+
+
+@pytest.mark.parametrize(
+    ("mode", "override", "expected"),
+    [
+        ("always_off", None, False),
+        ("always_on", None, True),
+        ("controllable", None, True),
+        ("controllable", "always_off", False),
+    ],
+)
+async def test_output_audio_and_metering_follow_effective_capabilities(tmp_path, mode, override, expected):
+    definition = _definition()
+    definition.setdefault("capabilities", {})["audio_track"] = mode
+    backend = DeclarativeVideoBackend(
+        api_key="k", base_url="https://relay.test", model="m", definition=definition, provider="custom-1"
+    )
+    if override:
+        from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities
+        from lib.custom_provider.backends import CustomVideoBackend
+
+        backend = CustomVideoBackend(
+            provider_id="custom-1",
+            model="m",
+            delegate=backend,
+            video_capabilities=VideoCapabilities(audio_track=VideoAudioMode(override)),
+        )
+    request = _request(tmp_path, generate_audio=True)
+    with capture_http() as http, bounded_poll_clock():
+        http.post("https://relay.test/v1/video/create").respond(200, json={"task_id": "1"})
+        http.get("https://relay.test/v1/video/fetch/1").respond(
+            200, json={"status": "completed", "video_url": "https://relay.test/video.mp4"}
+        )
+        http.get("https://relay.test/video.mp4").respond(200, content=b"video")
+        result = await backend.generate(request)
+    assert result.generate_audio is expected
+    assert backend.metered_usage("m", request).dimensions["audio"] is expected
+    assert backend.metered_usage("m", request, result).dimensions["audio"] is expected
+
+
+async def test_a_video_template_without_a_reference_input_cannot_drop_the_reference(tmp_path):
+    image = tmp_path / "ref.png"
+    image.write_bytes(image_bytes())
+    backend = DeclarativeVideoBackend(
+        api_key="test", base_url="https://relay.test", model="m", definition=_definition(), provider="custom-1"
+    )
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as refusal:
+        await backend.generate(_request(tmp_path, reference_images=[image]))
+    assert refusal.value.code == "video_reference_images_unsupported"
+    assert not router.calls

@@ -5,6 +5,8 @@ description: 为分镜生成分镜图。当用户说"生成分镜"、"预览分�
 
 # 生成分镜图
 
+生成前调用 `mcp__arcreel__get_image_capabilities`，读取图生图桶 `i2i.max_reference_images`。null 表示未收录，0 表示不接受。普通分镜按出场资产与可用的上一分镜图计数；get_prompt_preview 的 reference_count 和 previous_storyboard 给出当前装配结果，把当前分镜设为章节切分点（`segment_break`）即可不再带上一分镜图。超限时减少出场资产、拆分分镜或换用上限更高的模型，确认符合上限再提交。
+
 通过生成队列创建分镜图，画面比例根据 content_mode 自动设置。
 
 > 生成模式规格详见 `.claude/references/generation-modes.md`。

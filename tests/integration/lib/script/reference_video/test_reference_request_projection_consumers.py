@@ -63,7 +63,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "generation_mode": "reference_video",
         "video_units": [unit],
     }
-    # 生产项目一律处于当前 schema，甲、乙的资产图由补录认领进产物清单；丙的图登记了路径但文件不在。
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters/a.png").write_bytes(b"a")
     (tmp_path / "characters/b.png").write_bytes(b"b")
@@ -200,7 +199,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         duration_code = "needs_replan" if expected_input > expected_slot else "reference_duration_confirmation_required"
         expected_codes = [
             "reference_asset_missing",
-            "reference_images_clamped",
+            "video_reference_images_exceeded",
             duration_code,
         ]
         for projection in (quote_projection, precheck_detail, generate_detail, agent_projection):

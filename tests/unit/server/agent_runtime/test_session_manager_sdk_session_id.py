@@ -63,7 +63,6 @@ class TestSessionManagerSdkSessionId:
 
         assert managed.resolved_sdk_id == sdk_session_id
         assert managed.sdk_id_event.is_set()
-        # DB record should exist
         meta = await meta_store.get(sdk_session_id)
         assert meta is not None
         assert meta.project_name == "demo"
@@ -125,9 +124,8 @@ class TestSessionManagerSdkSessionId:
         await session_manager._on_sdk_session_id_received(
             managed, StreamEvent("sdk-existing"), {"session_id": "sdk-existing"}
         )
-        # Should not create duplicate DB record
         meta = await meta_store.get("sdk-existing")
-        assert meta is None  # No DB record was created
+        assert meta is None
 
     async def test_process_inbox_triggers_on_sdk_session_id_received(self, session_manager, meta_store):
         """_process_inbox drains messages and calls _on_sdk_session_id_received + _finalize_turn."""
@@ -135,7 +133,6 @@ class TestSessionManagerSdkSessionId:
         managed = _make_managed(session_id=sdk_session_id)
         session_manager.sessions[sdk_session_id] = managed
 
-        # Push stream event dict + result dict onto the inbox (mimicking on_actor_message).
         managed._inbox.put_nowait({"type": "stream_event", "session_id": sdk_session_id, "uuid": "u1"})
         managed._inbox.put_nowait(
             {
@@ -148,13 +145,12 @@ class TestSessionManagerSdkSessionId:
                 "num_turns": 1,
             }
         )
-        managed._inbox.put_nowait(None)  # sentinel to end processing
+        managed._inbox.put_nowait(None)
 
         await session_manager._process_inbox(managed)
 
         assert managed.resolved_sdk_id == sdk_session_id
         assert managed.sdk_id_event.is_set()
-        # DB record should have been created by _on_sdk_session_id_received
         meta = await meta_store.get(sdk_session_id)
         assert meta is not None
         assert meta.project_name == "demo"

@@ -14,8 +14,6 @@ function getFormatter(lang: string | undefined): Intl.ListFormat {
   return fmt;
 }
 
-// 名词列表按界面语言出分隔符（zh「、」/ en「, 」）；narrow-conjunction 不加连接词，
-// 适合嵌进句子里的名称枚举。
 export function formatNameList(items: string[], lang: string): string {
   return getFormatter(lang).format(items);
 }

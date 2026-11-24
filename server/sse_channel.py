@@ -36,8 +36,6 @@ class _IdleMarker:
 
 IDLE = _IdleMarker()
 
-# 溢出信号哨兵：溢出策略清空被移除订阅者的队列后注入，iterate 遇之即结束流
-# （流结束即重连信号）。对组件外不可见——消费方看到的只是流结束。
 _END_OF_STREAM = object()
 
 
@@ -48,7 +46,6 @@ def _end_stream(queue: asyncio.Queue) -> None:
             queue.get_nowait()
         except asyncio.QueueEmpty:
             break
-    # 清空后不应再满
     with contextlib.suppress(asyncio.QueueFull):
         queue.put_nowait(_END_OF_STREAM)
 
@@ -71,8 +68,7 @@ class EvictNonCriticalAndSignal:
             return True
         except asyncio.QueueFull:
             if not self._is_critical(item):
-                return True  # 非关键消息可接受丢弃
-        # 关键消息遇满队列——逐出一条非关键消息腾位。
+                return True
         self._evict_one_non_critical(queue)
         try:
             queue.put_nowait(item)
@@ -96,7 +92,7 @@ class EvictNonCriticalAndSignal:
             except asyncio.QueueEmpty:
                 break
             if not evicted and not self._is_critical(msg):
-                evicted = True  # 丢弃这一条
+                evicted = True
                 continue
             temp.append(msg)
         for msg in temp:
@@ -215,7 +211,7 @@ class SseChannel:
         """把订阅队列变为异步迭代器：逐条产出广播项，空闲时产出 :data:`IDLE`。
 
         本生成器刻意不带 ``finally`` 清理——退订由消费方的 async CM ``__aexit__``
-        确定性执行（见 docs/adr/0005），裸生成器的 finally 只在 GC 时跑，正是
+        确定性执行（见 docs/adr/0046），裸生成器的 finally 只在 GC 时跑，正是
         该设计要避免的泄漏路径。
         """
         while True:

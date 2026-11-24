@@ -26,7 +26,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DataRootLayout:
     data_root = tmp_path / "data"
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
-    # 建库夹具可能已按默认数据根解析过一次。
     reset_for_tests()
     return DataRootLayout.current()
 

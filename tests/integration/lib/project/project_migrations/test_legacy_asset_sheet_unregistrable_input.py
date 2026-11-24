@@ -48,7 +48,6 @@ def test_asset_sheets_with_generation_input_gaps_are_backfilled_and_read_current
     characters = status.artifacts["asset_sheets"]["character"]
     assert characters["current_ids"] == ["张三", "李四"]
     assert characters["missing_ids"] == []
-    # 生成仍被拒：缺口只拦生成。
     project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
     refusal = asset_sheet_input(
         project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)

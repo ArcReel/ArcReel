@@ -141,9 +141,6 @@ def test_format_placeholders_consistent():
     import string
 
     def placeholders(msg: str) -> set[tuple[str, str]]:
-        # 用 `str.format` 自己的解析器：转义花括号 `{{…}}`（如语法示例 `@[角色]：{台词}`）
-        # 被识别为字面文本而非占位符，带格式说明的 `{delta:.0%}` 也能正确取到字段名。
-        # 连同 format_spec 一起比较：某语言漏写 `.0%` / `.1f` 会让该语言渲染出原始数值。
         return {(name, spec or "") for _, name, spec, _ in string.Formatter().parse(msg) if name}
 
     base_locale = SUPPORTED_LOCALES[0]
@@ -229,10 +226,8 @@ def test_every_event_label_key_is_translated():
     emitted = {spec[2] for spec in _TASK_CHANGE_SPECS.values()}
     emitted |= set(_SKELETON_TASK_LABEL_KEYS.values())
     emitted |= set(SKELETON_ITEM_LABEL_KEYS.values())
-    # 快照差分按资产类型表派生的资产与衍生 key。
     emitted |= {f"named_entity_{asset_type}" for asset_type in ASSET_SPECS}
     emitted |= {f"named_entity_{t}_derivative" for t, spec in ASSET_SPECS.items() if spec.supports_derivatives}
-    # 快照差分与路由直接发布的固定 key（无表可枚举，在此登记）。
     emitted |= {
         "character_reference_audio",
         "project_settings",
@@ -270,14 +265,13 @@ def test_frontend_dashboard_covers_prompt_template_axes_and_categories():
         assert not missing, f"{locale} dashboard missing prompt template keys: {sorted(missing)}"
 
 
-#: 目录名里出现即需要译名的书写系统区段：拉丁字母以外的写法在 en/vi 界面上无法直接阅读。
 _NON_LATIN_RANGES = (
-    ("\u0400", "\u04ff"),  # 西里尔字母
-    ("\u3040", "\u30ff"),  # 平假名 / 片假名
-    ("\u3400", "\u4dbf"),  # CJK 扩展 A
-    ("\u4e00", "\u9fff"),  # CJK 统一表意文字
-    ("\uac00", "\ud7af"),  # 谚文音节
-    ("\uf900", "\ufaff"),  # CJK 兼容表意文字
+    ("\u0400", "\u04ff"),
+    ("\u3040", "\u30ff"),
+    ("\u3400", "\u4dbf"),
+    ("\u4e00", "\u9fff"),
+    ("\uac00", "\ud7af"),
+    ("\uf900", "\ufaff"),
 )
 
 

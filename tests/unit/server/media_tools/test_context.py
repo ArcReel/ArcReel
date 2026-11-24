@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# validate_script_filename — shared guard for all enqueue tools
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     "bad",
     [
         "",
-        "scripts/episode_1.json",  # 任何分隔符都拒（包括 scripts/ 前缀）
+        "scripts/episode_1.json",
         "../etc/passwd",
         "sub/dir/file.json",
         "a\\b.json",

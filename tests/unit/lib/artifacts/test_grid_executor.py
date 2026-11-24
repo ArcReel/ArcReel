@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
+from lib.backends.image_errors import ImageCapabilityError
 from lib.config.resolver import ProviderModel
 from lib.project.project_migrations.runner import migrate_project_dir
 from server.services.tasks.generation_context import GenerationContext, ImageLaneResult
@@ -143,13 +144,11 @@ def project_with_script(tmp_path):
             }
         )
     )
-    # 生产项目一律处于当前 schema，剧本与其取证链（分集原文 → script_plan）均已登记进产物清单
     (p / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (p / "drafts" / "episode_1" / "script_plan_segments.json").write_text(
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(p, bump_schema=True)
-    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
     migrate_project_dir(p)
     return p
 
@@ -194,7 +193,6 @@ class TestGroupBySegmentBreak:
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         items = script["segments"]
         groups = group_scenes_by_segment_break(items, "segment_id")
-        # E1S03 has segment_break=True, so groups: [E1S01,E1S02] and [E1S03,E1S04,E1S05,E1S06]
         assert len(groups) == 2
         assert len(groups[0]) == 2
         assert len(groups[1]) == 4
@@ -218,7 +216,6 @@ class TestGroupBySegmentBreak:
 
         items = [{"id": "a", "segment_break": True}, {"id": "b"}, {"id": "c"}]
         groups = group_scenes_by_segment_break(items, "id")
-        # segment_break on first item: current is empty so no split, all in one group
         assert len(groups) == 1
         assert len(groups[0]) == 3
 
@@ -252,7 +249,6 @@ class TestExecuteGridTask:
 
         grid = grid_json
 
-        # Create a fake 400x400 grid image (2x2, each cell 200x200)
         fake_grid_image = Image.new("RGB", (400, 400), color=(128, 200, 100))
         grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
         fake_grid_image.save(grid_image_path, format="PNG")
@@ -289,13 +285,10 @@ class TestExecuteGridTask:
         assert result["resource_type"] == "grids"
         assert result["resource_id"] == grid.id
         assert result["version"] == 1
-        # created_at 取选中版本的创建时间
         assert result["created_at"] == "2026-01-01T00:00:00Z"
         assert "grids/" in result["file_path"]
-        # 没有参考图被裁剪就没有 warning：结果不带该键
         assert "warnings" not in result
 
-        # Verify grid status was updated
         import json as json_mod
 
         updated_grid_data = json_mod.loads(
@@ -303,7 +296,6 @@ class TestExecuteGridTask:
         )
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
-        # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
     @pytest.mark.parametrize("status_before_claim", ["pending", "failed"])
@@ -502,28 +494,15 @@ class TestExecuteGridTask:
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
 
-            result = await execute_grid_task(
-                "test-project",
-                grid_json.id,
-                {"prompt": "queued prompt", "script_file": "episode_1.json"},
-                user_id="test-user",
-            )
-
-        assert len(captured[0]["reference_images"]) == 2
-        # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与分镜图 / 参考生视频同形的 warning
-        assert result["warnings"] == [
-            {"key": "ref_too_many_images", "params": {"count": 3, "model": "gpt-image-2", "max_count": 2}}
-        ]
-        prompt = captured[0]["prompt"]
-        assert prompt.startswith("Reference_Images: 图1、图2为角色参考图。")
-        assert "图1站在门口" in prompt
-        assert "图2站在门口" in prompt
-        # 第 3 张没随请求发出，正文只留裸名，不指认一个不存在的图3
-        assert "图3" not in prompt
-        assert "hero3站在门口" in prompt
-        # 宫格记录仍登记完整装配集：目标态规划器据此重建依据，上限是供应商属性、不进记录
-        stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
-        assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2", "hero3"]
+            with pytest.raises(ImageCapabilityError) as caught:
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+        assert not captured
+        assert caught.value.params == {"model": "gpt-image-2", "limit": 2, "count": 3, "names": "hero3"}
 
     async def test_every_member_sheet_is_sent_beyond_six_when_the_backend_allows(
         self,
@@ -594,7 +573,6 @@ class TestExecuteGridTask:
 
         project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        # hero 的资产图在盘上但未登记进清单；ghost 不是已登记的角色。
         project["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
         segments = {item["segment_id"]: item for item in script["segments"]}
@@ -633,13 +611,13 @@ class TestExecuteGridTask:
         stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
         assert stored["status"] == "failed"
 
-    async def test_a_dropped_reference_changing_before_submit_still_aborts(
+    async def test_a_reference_changing_before_submit_still_aborts(
         self,
         project_with_script,
         grid_json,
         monkeypatch,
     ):
-        """被去尾的第 3 张图仍是宫格依据的输入：它的登记在提交前被删，复核拦下，供应商未收到提交。"""
+        """第 3 张参考图也是宫格依据的输入：它的登记在提交前被删，复核拦下，供应商未收到提交。"""
         from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
         from server.services.tasks.generation_tasks import execute_grid_task
         from tests.fakes import hook_claim_recheck
@@ -665,7 +643,7 @@ class TestExecuteGridTask:
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
             patch(
                 "server.services.tasks.generation_tasks.resolve_generation_context",
-                new=_image_ctx(_Generator(), max_reference_images=2),
+                new=_image_ctx(_Generator(), max_reference_images=3),
             ),
         ):
             mock_pm = MagicMock()
@@ -940,7 +918,6 @@ class TestExecuteGridTask:
 
         grid = grid_json
 
-        # 预置一个已存在的分镜格，锁定「生成完成后分镜字节不变」
         storyboards_dir = project_with_script / "storyboards"
         existing = storyboards_dir / "scene_E1S01.png"
         existing.write_bytes(b"pre-existing-bytes")
@@ -977,11 +954,9 @@ class TestExecuteGridTask:
                 user_id="test-user",
             )
 
-        # 已有分镜格字节不变，未预置的分镜格不产生
         assert existing.read_bytes() == b"pre-existing-bytes"
         for sid in ("E1S02", "E1S03"):
             assert not (storyboards_dir / f"scene_{sid}.png").exists()
-        # 不回写剧本、不登记分镜版本
         assert not mock_pm.batch_update_scene_assets.called
         assert mock_generator.versions.committed == [("grids", grid.id)]
 
@@ -1051,8 +1026,6 @@ class TestGridMetadataT2II2ISlotSelection:
         mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
-            # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
-            # 假解析回显对应 payload 槽的 provider/model，锁定「槽选择 → 元数据回填」契约。
             provider, model = req_payload[f"image_provider_{image.generation_type}"].split("/")
             return GenerationContext(
                 generator=mock_generator,
@@ -1102,7 +1075,6 @@ class TestGridMetadataT2II2ISlotSelection:
 
     async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
         """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
-        # 给 project + script 注入已登记的 character sheet，让宫格参考图集非空
         project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))

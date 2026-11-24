@@ -52,7 +52,6 @@ async def _estimate(project_name: str, _t: Translator):
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
 
-        # 加载所有剧本
         scripts: dict[str, dict] = {}
         for ep in project_data.get("episodes", []):
             script_file = ep.get("script_file", "")

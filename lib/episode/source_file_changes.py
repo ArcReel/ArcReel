@@ -129,7 +129,6 @@ class SourceFileChangeOutcome:
 
     applied: bool
     impact: SourceFileImpact
-    #: 这份受影响集清单的版本；确认时原样带回。
     revision: str
 
 
@@ -137,22 +136,12 @@ class SourceFileChangeOutcome:
 class _Change:
     """一次文件改动的推演结果。推演只读；``commit`` 在确认之后改写源文件与整本源文清单。"""
 
-    #: 改动后的整本源文文件顺序（只含可读的文件），用来给切出集排源文位置。
     docs: list[SourceDoc]
     remaps: list[RangeRemap]
-    #: 改写源文件与整本源文清单；每改一处盘上文件都把撤销登记进 ``undo``。
     commit: Callable[[dict[str, Any], ExitStack], None]
-    #: 内容变了的文件：已记录的源文指纹随之更新或去掉。
     touched: list[str] = field(default_factory=list)
-    #: 调序时为 True：切出集按新的源文位置重新排列播出顺序。
     reorder: bool = False
-    #: 替换时改了类型：起点在这个文件、已有脚本规划的切出集的脚本规划判 stale。
     kind_change: tuple[str, SourceKind] | None = None
-
-
-# ---------------------------------------------------------------------------
-# 读取
-# ---------------------------------------------------------------------------
 
 
 def _filename_rel(project: Mapping[str, Any], filename: str) -> str:
@@ -200,11 +189,6 @@ def _require_text(text: str) -> str:
     if not normalized.strip():
         raise SourceFileChangeError("source_text_empty", "源文件不能为空；要去掉这个文件请删除它")
     return normalized
-
-
-# ---------------------------------------------------------------------------
-# 受影响集
-# ---------------------------------------------------------------------------
 
 
 def _order_after(
@@ -283,11 +267,6 @@ def _impact(
 def _revision(operation: Mapping[str, Any], impact: SourceFileImpact) -> str:
     payload = json.dumps({"operation": operation, "impact": impact.to_dict()}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
-# 提交
-# ---------------------------------------------------------------------------
 
 
 def _restore_file(path: Path, content: bytes | None) -> None:
@@ -407,11 +386,6 @@ def _run(
     return SourceFileChangeOutcome(applied=True, impact=impact, revision=current)
 
 
-# ---------------------------------------------------------------------------
-# 命令
-# ---------------------------------------------------------------------------
-
-
 def _text_digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -434,7 +408,6 @@ def _plan_rewrite(
 
         def commit(p: dict[str, Any], undo: ExitStack) -> None:
             if replace:
-                # 替换上传：旧文件连同原始上传件进项目回收站，原始上传件不再对应新内容。
                 trash_source_file(project_dir, rel, undo)
             _write_text(project_dir / rel, text, undo)
             if source_kind is not None:
@@ -650,10 +623,6 @@ def insert_whole_source_file(
     outcome = _run(pm, project_name, operation, plan, revision=revision)
     return outcome, written.get("rel")
 
-
-# ---------------------------------------------------------------------------
-# 确认清单
-# ---------------------------------------------------------------------------
 
 _IMPACT_LINES = (
     ("shifted", "source_file_impact_shifted"),

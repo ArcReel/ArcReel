@@ -22,7 +22,6 @@ _PER_SECOND = _table(_flat("output_seconds", 0.5))
 def test_meter_kinds_are_declared_in_the_vocabulary() -> None:
     kinds = {name: spec.kind for name, spec in METERS.items()}
     assert {kinds[name] for name in ("uncached_input_tokens", "output_tokens", "cache_read_tokens")} == {"token"}
-    # 视频 token 由秒数换算而来，但按 Seedance 的计价轴算作计数类；字符数同属计数类
     assert {
         kinds[name]
         for name in (

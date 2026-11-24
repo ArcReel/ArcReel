@@ -1,14 +1,8 @@
-# 供应商 API 文档索引维护
+# 维护供应商 API 文档索引
 
-本目录只保存导航：官方来源链接、ArcReel 依赖的主题和稳定代码入口。运行时事实仍归 registry、backend 与 endpoint 声明，不从索引反向加载。
+按任务需要，从[供应商索引](providers/README.md)或[调用端点索引](endpoints/README.md)查找官方文档和代码入口。这些索引用于核验上游依据：模型事实以模型目录为准，通道事实以调用端点与请求实现为准。选择依据见 [ADR 0060](../adr/0060-official-links-replace-vendored-api-docs.md)。
 
-「简介来源」一项是例外，它支撑 `lib/i18n/<locale>/providers.py` 的 `provider_desc_<id>`：简介只写平台是什么，来源优先取 Wikipedia 或 Wikidata 词条，词条缺失或过时时改用官方页面。
-
-## 修改流程
-
-1. 以 `PROVIDER_REGISTRY` / `ENDPOINT_REGISTRY` 的规范 id 定位对应文件；一个 id 一个文件。
-2. 用官方公开页面核对接口、能力与参数约束、计费。普通抓取不可用时依次尝试 Jina Reader、`agent-browser` 或用户浏览器，来源仍保持官方。
-3. 更新本 id 的官方入口、ArcReel 实际依赖页面和代码 `path::symbol`。共享文档可重复链接，不复制页面内容或数值。
-4. 新增或删除 registry 条目时同步更新本目录对应 README；完成标准是每个规范 id 都能从 README 到达一份同名索引，且索引能到达官方来源和实际消费代码。
-
-保存测试所需的最小请求/响应 fixture 属于代码契约，不属于文档镜像；保持 fixture 最小并附来源。仓库不保存第三方文档正文、完整参数/价格表或用于重建镜像的下载脚本。
+- 按规范 ID 定位文件。开放给自定义供应商的随版端点均在 `ENDPOINT_REGISTRY`；仅内置供应商可用的端点从供应商页定位，需独立索引的协议在端点目录单列。
+- 核验接口、能力约束与价格时，定位官方文档相应章节并链接该页面。代码入口用 `path::symbol` 指向实际读取这些字段的实现。新增、移除或改名时同步更新所在索引。
+- 「简介来源」仅用于 `lib/i18n/<locale>/providers.py` 中的 `provider_desc_<id>`。简介只写平台是什么，来源优先查 Wikipedia 或 Wikidata，缺失或过时时查官方说明。
+- 数值和完整协议正文查官方原文，运行时实际使用的数据查端点声明。测试只保存所需的最小响应 fixture。本地索引保留来源链接和所用主题。

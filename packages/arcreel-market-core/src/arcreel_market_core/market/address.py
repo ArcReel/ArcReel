@@ -17,7 +17,6 @@ from .issues import INDEX_FILENAME
 
 GITHUB_RAW_HOST = "raw.githubusercontent.com"
 DEFAULT_GITHUB_REF = "HEAD"
-#: 解析出的索引地址与规范键的长度上限，与 ``market_source`` 表对应列宽一致。
 MAX_RESOLVED_LENGTH = 2048
 
 _OWNER_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")

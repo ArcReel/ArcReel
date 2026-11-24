@@ -49,9 +49,6 @@ from server.tool_runtime import (
     submit_media_generation,
 )
 
-# Asset-type emoji shown in tool output. Other display fields (bucket_key,
-# label_zh, subdir) come from lib.project.asset_types.ASSET_SPECS — the cross-app
-# source of truth.
 _EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦", "product": "🛍️"}
 
 ALL_TYPES: tuple[str, ...] = tuple(ASSET_SPECS.keys())

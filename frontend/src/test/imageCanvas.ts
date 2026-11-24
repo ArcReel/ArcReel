@@ -1,31 +1,24 @@
 import { vi } from "vitest";
 import { createDeferred } from "./deferred";
 
-/** 一次 `canvas.toDataURL` 调用：画布尺寸即重编码后的像素尺寸。 */
 export interface EncodeCall {
   width: number;
   height: number;
   quality: number;
 }
 
-/** 一次在途的 `createImageBitmap` 解码，完成时机由测试决定。 */
 export interface PendingDecode {
   readonly file: File;
-  /** 以给定像素尺寸完成解码，并把附件流程推进到静止。 */
   finish(size: { width: number; height: number }): Promise<void>;
-  /** 让浏览器解码这张图失败（损坏文件、不支持的编码）。 */
   fail(): Promise<void>;
 }
 
 export interface ImageCanvasStub {
-  /** 按发起顺序收集的解码请求。 */
   readonly decodes: PendingDecode[];
-  /** 按发起顺序收集的重编码调用。 */
   readonly encodes: EncodeCall[];
 }
 
 interface StubOptions {
-  /** 每档质量编码出的 base64 负载；长度即字节预算的判据。默认为一段固定短串。 */
   encodedBase64?: (quality: number) => string;
 }
 

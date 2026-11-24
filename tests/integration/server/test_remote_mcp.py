@@ -452,6 +452,12 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
             "provider_id": "fake",
             "model": "video-1",
             "supported_durations": [4, 6],
+            "end_frame_unit_durations": {
+                "without_end_frame": [4, 6],
+                "with_end_frame": [4, 6],
+                "excluded": {},
+                "problem": None,
+            },
             "duration_constraints": {
                 "resolution": None,
                 "uses_reference_images": False,
@@ -525,7 +531,6 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 ) -> None:
     project = remote_projects.load_project("demo")
     project["grid_storyboard"] = True
-    # 预览渲染按集定位的宫格记录：剧本须已绑定集号
     project["episodes"] = [{"episode": 1, "script_file": "episode_1.json"}]
     remote_projects.save_project("demo", project)
 
@@ -870,7 +875,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert refused.isError
     assert refused_problem["code"] == "script_overwrite_required"
     assert refused_problem["params"]["script_overwrite"]["entries"] == []
-    # 回执正文就是服务端生成的丢失清单，与 params 里的文本同一份。
     assert refused_problem["params"]["script_overwrite"]["text"] in refused_problem["detail"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
@@ -1020,7 +1024,6 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
-    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
     (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
@@ -1119,7 +1122,7 @@ def _plant_migration_failure(project_dir: Path, origin: str) -> None:
             ),
             encoding="utf-8",
         )
-    else:  # 判定记录本身读不出：OSError 文本带着记录文件的绝对路径
+    else:
         (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
 
 

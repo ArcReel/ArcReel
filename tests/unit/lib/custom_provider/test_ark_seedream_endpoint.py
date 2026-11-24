@@ -31,7 +31,7 @@ from lib.db.models.custom_provider import CustomProvider
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import _ as translate_message
-from tests.factories import make_display_names
+from tests.factories import image_bytes, make_display_names
 from tests.http_capture import capture_http, only_request, request_json
 
 
@@ -55,13 +55,13 @@ def _refs(tmp_path: Path, count: int) -> list[ReferenceImage]:
     refs = []
     for i in range(count):
         path = tmp_path / f"ref-{i}.png"
-        path.write_bytes(f"img-{i}".encode())
+        path.write_bytes(image_bytes(i))
         refs.append(ReferenceImage(path=str(path)))
     return refs
 
 
 def _data_uri(i: int) -> str:
-    return "data:image/png;base64," + base64.b64encode(f"img-{i}".encode()).decode()
+    return "data:image/png;base64," + base64.b64encode(image_bytes(i)).decode()
 
 
 def _backend(path_overrides=None):
@@ -84,7 +84,6 @@ async def test_text_to_image_posts_generations_with_the_ark_size(tmp_path: Path)
     assert body["model"] == _MODEL
     assert body["prompt"] == "猫"
     assert body["size"] == "1600x2848"
-    # 方舟 SDK 把未传的字段序列化为 null
     assert body.get("image") is None
     assert result.usage is not None
     assert result.usage.quantities["output_images"] == 1
@@ -140,9 +139,7 @@ async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: 
 @pytest.mark.parametrize(
     ("base_url", "generations_url"),
     [
-        # 只填 host：补全方舟协议挂载路径 /api/v3
         ("https://ark.cn-beijing.volces.com", "https://ark.cn-beijing.volces.com/api/v3/images/generations"),
-        # 已写到 /api/v3：不重复拼接
         ("https://relay.example.com/api/v3/", "https://relay.example.com/api/v3/images/generations"),
     ],
 )

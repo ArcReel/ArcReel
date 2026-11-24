@@ -52,14 +52,12 @@ ANTHROPIC_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 class AnthropicTextBackend:
     """Anthropic Messages 文本生成后端，只服务自定义供应商的 ``anthropic-messages`` 端点。
 
-    凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0017）。
+    凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0027）。
     """
 
     def __init__(
         self, *, api_key: str, model: str, base_url: str | None = None, transport_layer: TransportLayer | None = None
     ):
-        # base_url 为空时显式回填官方地址，断掉 SDK 对 ANTHROPIC_BASE_URL 的环境回落；
-        # 禁用 SDK 内置重试，由 _generate_native 统一管理。
         self._client = AsyncAnthropic(
             api_key=api_key,
             base_url=(base_url or "").strip() or OFFICIAL_ANTHROPIC_BASE_URL,
@@ -92,18 +90,14 @@ class AnthropicTextBackend:
         本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成，复验与降级
         不进重试范围，免得降级失败连带重放已成功的原生调用。
         """
-        # 带图请求要读本地图片做 base64，放线程里构建，避免阻塞事件循环
         content = await asyncio.to_thread(_build_user_content, request)
         structured = bool(request.response_schema)
         native = await self._generate_native(request, content, structured=structured)
 
         if native is None:
-            # 网关不接受 output_config（schema 错误），结构化输出整体降级
             return await self._prompt_json_fallback(request)
 
         if request.response_schema:
-            # 中转站可能静默忽略 output_config 返回散文或违例 JSON。transform_schema 会把
-            # 不支持的约束挪进 description，原生请求等同未声明 strict，复验用 strict=False。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 logger.warning(
@@ -112,7 +106,6 @@ class AnthropicTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._prompt_json_fallback(request)
-                # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
                 merge_billed_usage(result, native)
                 return result
 
@@ -121,7 +114,6 @@ class AnthropicTextBackend:
     async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
         async def _once(fb_request: TextGenerationRequest) -> TextGenerationResult:
             content = await asyncio.to_thread(_build_user_content, fb_request)
-            # 降级请求已不带 output_config，不会再返回 schema 错误的降级信号
             result = await self._generate_native(fb_request, content, structured=True)
             assert result is not None
             return result
@@ -159,8 +151,6 @@ class AnthropicTextBackend:
             raise
 
         usage = message.usage
-        # Anthropic 的 input_tokens 不含缓存读写：总输入须加回缓存读与缓存写。缓存写按 TTL 分两档上报；
-        # 没有分档明细时按默认的 5 分钟档计。
         cache_read = usage.cache_read_input_tokens or 0
         cache_write = usage.cache_creation_input_tokens or 0
         breakdown = usage.cache_creation

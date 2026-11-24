@@ -74,7 +74,6 @@ class TestRewriteContract:
 
         assert response.status_code == 200
         payload = response.json()
-        # 与发送端点同构：status + session_id + 权威 entry；session_id 是新分支。
         assert payload["status"] == "accepted"
         assert payload["session_id"] == "branch-session"
         assert payload["origin_session_id"] == ORIGIN

@@ -74,7 +74,7 @@ def test_generation_checkpoint_dispatches_the_reviewer_and_leaves_regeneration_t
             "SKILL.narration.md",
             ["`generate_asset_sheets`：本集资产图", "`generate_storyboards` / `generate_grid`：分镜图生成"],
         ),
-        ("SKILL.ad.md", ["工作流步骤"]),
+        ("SKILL.ad.md", ["`generate_asset_sheets`：生成本集资产图", "`generate_storyboards`：生成分镜图"]),
     ],
 )
 def test_workflow_image_stages_route_to_the_generation_checkpoint(variant: str, stages: list[str]) -> None:

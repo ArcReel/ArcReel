@@ -82,7 +82,6 @@ def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> s
             entry = find_episode(p, episode)
             if entry is None:
                 raise BlankScriptError("episode_not_found", f"集（id={episode}）不在分集账本里")
-            # 旧的确认记录属于已弃置的规划，留着会让之后同内容的规划被当成已确认。
             entry.pop(script_review.REVIEW_FIELD, None)
 
         pm.save_script(project_name, build_blank_script(project, episode), filename, project_update=_drop_review)

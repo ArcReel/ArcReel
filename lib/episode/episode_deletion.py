@@ -58,10 +58,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 删除记录的对象类型；对象描述 ``{"kind": "episode", "id": 集 ID, "title": 标题}``。
 EPISODE_KIND = "episode"
 
-#: 条目媒体所在目录：文件名带条目 ID（``scene_E3S01.png``、``E3U1.mp4``）。
 _ITEM_MEDIA_DIRS = (
     "storyboards",
     "end_frames",
@@ -71,7 +69,6 @@ _ITEM_MEDIA_DIRS = (
     "audio",
     "thumbnails",
 )
-#: 按集分目录的产物与正式内容：``<dir>/episode_N/``。
 _EPISODE_DIRS = ("subtitles", "presentations", "edit_timelines", "renders")
 
 
@@ -81,7 +78,6 @@ class EpisodeDeletionImpact:
 
     episode: int
     origin: str
-    #: 自带原文的集原文体量（阅读单位）；其他来源为 0。
     source_units: int
     has_script: bool
     has_script_plan: bool
@@ -92,10 +88,8 @@ class EpisodeDeletionImpact:
     grid_count: int
     edit_timeline_count: int
     final_cut_count: int
-    #: 切出集按源文位置前后相邻的切出集（集 ID）；不是落位的切出集时都为 None。
     cut_before: int | None
     cut_after: int | None
-    #: 切出集落在整本源文里。
     placed: bool
 
     @property
@@ -236,22 +230,13 @@ def _language(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
-# ---------------------------------------------------------------------------
-# 删除
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class EpisodeContent:
     """一集在项目里的全部内容。"""
 
-    #: 进删除记录的普通文件（项目内相对 POSIX 路径）。
     files: list[str]
-    #: 这一集资源的版本记录（按资源类型分桶）；快照文件在 ``files`` 里。
     versions: dict[str, dict[str, Any]]
-    #: 锁与隐藏文件：基础设施，删集时直接删除。
     leftovers: list[Path] = field(default_factory=list)
-    #: 按集分的目录：文件移走后清掉空目录。
     dirs: list[Path] = field(default_factory=list)
 
 
@@ -328,7 +313,6 @@ def delete_episode(
         locked_impact = episode_deletion_impact(project_dir, p, episode)
         if locked_impact.revision != revision:
             raise _StaleConfirmation(locked_impact)
-        # 结构快照要删除前的账本：此刻盘上的 project.json 还没改写
         committed["before"] = project_file.read_bytes()
         committed["content"] = episode_content(project_dir, p, episode)
         committed["title"] = str(_ledger_entry(p, episode).get("title") or "")
@@ -341,7 +325,6 @@ def delete_episode(
         try:
             snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
         except ArtifactManifestError:
-            # 清单读不出时不可能有本集的有效登记，删除照常进行
             snapshot = {}
         committed["expected"] = {key: entry for key, entry in snapshot.items() if key.episode_number == episode}
         committed["project"] = p
@@ -351,7 +334,6 @@ def delete_episode(
         from lib.artifacts.artifact_activation import register_artifact_entries_atomically
 
         content: EpisodeContent = committed["content"]
-        # 删除记录先建：结构快照里的产物清单与版本历史还带着这一集的登记，恢复时从中取回
         record = project_trash.record_deletion(
             project_dir,
             {"kind": EPISODE_KIND, "id": episode, "title": committed["title"]},
@@ -378,7 +360,6 @@ def delete_episode(
         for directory in content.dirs:
             _remove_empty_dirs(directory)
 
-    # 摘版本记录之后的步骤失败时，版本历史随账本一起回到删除前。
     formal_paths = [
         VersionManager(project_dir).versions_file,
         *(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project)),
@@ -394,7 +375,6 @@ def delete_episode(
 
 def _remove_empty_dirs(directory: Path) -> None:
     for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
-        # 还有没移走的条目（如符号链接）时目录留着
         with contextlib.suppress(OSError):
             os.rmdir(dirpath)  # hard-delete: derived -- 文件都已移进项目回收站，只剩空目录
 
@@ -417,11 +397,6 @@ def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str
     ]
 
 
-# ---------------------------------------------------------------------------
-# 确认文本
-# ---------------------------------------------------------------------------
-
-#: 丢失清单的汇总项：（计数字段，文案 key）。计数为 0 的项不出现。
 _LOSS_COUNTS: tuple[tuple[str, str], ...] = (
     ("storyboard_count", "episode_delete_loss_storyboard"),
     ("video_count", "episode_delete_loss_video"),

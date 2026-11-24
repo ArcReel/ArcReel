@@ -273,7 +273,6 @@ class TestBuildGridPrompt:
         assert "- 格1~格2 是相邻场景的过渡帧" in prompt
 
     def test_no_placeholders_when_exact_fit(self):
-        # 4 scenes, 2x2 grid -> no placeholders needed (4 content cells: open, trans, trans, close)
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", style_description=""
@@ -322,14 +321,12 @@ class TestBuildGridPrompt:
         total = side * side
         assert f"{side}×{side} 宫格布局" in prompt
         assert f"恰好 {side} 行 {side} 列，共 {total} 个画格" in prompt
-        # 方形切分下单格比例等于整图比例
         assert "每个画格比例：16:9" in prompt
         for idx in range(total):
             assert f"格{idx}（row{idx // side + 1} col{idx % side + 1}）" in prompt
         assert prompt.count("空占位") == total - n_scenes
 
     def test_more_scenes_than_cells_fails_loud(self):
-        # 超员场景在成图中没有对应画格，调用方应先按 max_cell_count 切块
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 13)]
         with pytest.raises(ValueError, match="切块"):
             build_grid_prompt(

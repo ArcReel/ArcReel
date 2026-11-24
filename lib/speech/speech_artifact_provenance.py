@@ -349,7 +349,6 @@ def build_mechanical_subtitle_basis(
     )
 
 
-#: 呈现模型依据从这一 schema 起不记脚本条目上的转场。
 PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION = 16
 _PRESENTATION_BASIS_KIND = "artifact-speech/presentation"
 _PRESENTATION_BASIS_VERSION = 3

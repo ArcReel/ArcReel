@@ -133,12 +133,10 @@ async def test_spa_shell_responses_are_never_cached(
 
     transport = ASGITransport(app=app_module.app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 带扩展名的深链：命中我们自己注册的 spa_deep_link 路由
         deep_link_res = await client.get("/app/projects/demo/source/chapter1.txt")
         assert deep_link_res.status_code == 200
         assert deep_link_res.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
-        # 根路径：命中 app.frontend 原生 fallback（非我们自己的路由）
         root_res = await client.get("/", headers={"accept": "text/html"})
         assert root_res.status_code == 200
         assert root_res.headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
@@ -163,7 +161,6 @@ async def test_hashed_assets_are_immutable_but_unhashed_public_files_are_not(
         res = await client.get("/assets/index-abc123.js", headers={"accept-encoding": "gzip"})
         assert res.status_code == 200
         assert res.headers["cache-control"] == immutable
-        # 文本类构建产物经响应压缩下发
         assert res.headers["content-encoding"] == "gzip"
         assert res.text == bundle
 

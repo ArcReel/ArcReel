@@ -33,7 +33,6 @@ interface Scenario {
   steps?: WorkflowPlanStep[];
 }
 
-/** 一集的制作状态场景：计划的下一步与状态的下一步同一个。 */
 function scenario({ next, content, status, steps }: Scenario): WorkflowPlan {
   const built = makeStatus({ content: makeContent(content), next_action: next, ...status });
   return makePlan({ status: built, next_action: next, next_alternatives: built.next_alternatives, steps: steps ?? [] });
@@ -75,7 +74,6 @@ async function renderPanel(plan: WorkflowPlan, props: Partial<React.ComponentPro
   return screen.findByRole("button", { name: /制作进度/ });
 }
 
-/** 页头只有入口；逐行现状要先点开弹层。 */
 async function renderExpanded(plan: WorkflowPlan, props: Partial<React.ComponentProps<typeof WorkflowPanel>> = {}) {
   const toggle = await renderPanel(plan, props);
   fireEvent.click(toggle);
@@ -223,7 +221,6 @@ describe("WorkflowPanel 准入与置灰", () => {
     const entry = within(plan).getByRole("button", { name: "去规划脚本" });
     expect(entry).toHaveAttribute("aria-disabled", "true");
     expect(entry).toHaveAttribute("title", "需要先补充集原文");
-    // 下一步挂在正式脚本行，给的是从空白开始
     expect(within(screen.getByTestId("workflow-row-script")).getByText("下一步：从空白开始")).toBeInTheDocument();
   });
 
@@ -283,13 +280,11 @@ describe("WorkflowPanel 提醒", () => {
     expect(within(assets).getByText("1 张资产图已过期：林默")).toBeInTheDocument();
     expect(within(assets).getByText("1 个资产缺描述，不能生成资产图：祠堂")).toBeInTheDocument();
     expect(within(assets).getByText("1 个引用没有登记：路人")).toBeInTheDocument();
-    // 缺描述的资产不算待生成，但也不说成都有资产图
     expect(within(assets).getByText("本集引用的资产有 1 个还没有资产图")).toBeInTheDocument();
     expect(within(assets).queryByText(/待生成/)).not.toBeInTheDocument();
     expect(within(assets).queryByTestId("workflow-next-step")).not.toBeInTheDocument();
     const next = screen.getByTestId("workflow-next-step");
     expect(within(next).queryByText(/林默|祠堂|路人/)).not.toBeInTheDocument();
-    // 分镜图的生成入口会拒绝引用无图资产的分镜：下一步只附一条数量提示
     expect(within(next).getByText("1 个引用的资产还没有资产图，引用它们的分镜不能生成。")).toBeInTheDocument();
   });
 
@@ -375,7 +370,6 @@ describe("WorkflowPanel 剪辑", () => {
     expect(within(row).getByRole("button", { name: "新建剪辑时间线" })).toBeInTheDocument();
     expect(overview).toHaveBeenCalledWith("proj", 1, expect.anything());
 
-    // 跳走的入口收起弹层
     fireEvent.click(within(row).getByRole("button", { name: "去出片" }));
     expect(window.location.pathname).toBe("/episodes/1");
     expect(new URLSearchParams(window.location.search).get("tl")).toBe("tl-1");
@@ -772,7 +766,6 @@ describe("WorkflowPanel 分镜图与视频批量入口", () => {
   });
 });
 
-/** 第 1 集正式脚本只有条目 ID，界面按它们在数组里的位置称呼条目。 */
 function seedEpisodeScript(arrayKey: "segments" | "video_units", ids: string[]) {
   const idKey = arrayKey === "segments" ? "segment_id" : "unit_id";
   useProjectsStore.setState({
@@ -796,7 +789,6 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "重新生成 视频单元 3" }));
     expect(onRegenerate).toHaveBeenCalledWith("video", ["E1U2"]);
-    // 查看会跳到画布，弹层随之收起
     fireEvent.click(screen.getByRole("button", { name: "在画布上查看 视频单元 3" }));
     expect(onViewUnit).toHaveBeenCalledWith("E1U2");
     await waitFor(() => expect(screen.queryByTestId("workflow-row-videos")).not.toBeInTheDocument());
@@ -1032,7 +1024,6 @@ describe("WorkflowPanel 刷新纪律", () => {
     });
   }
 
-  /** 推过防抖窗口，把待发布的指纹变化结算掉。 */
   async function settleDebounce() {
     await advanceDebounce(400);
   }

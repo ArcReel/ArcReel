@@ -135,7 +135,6 @@ export function AboutSection() {
           </p>
         )}
 
-        {/* 发布说明默认收起，只展示最新一条；版本卡本身保持一屏内能看完。 */}
         <div className="border-t border-border px-4 py-3">
           <Collapsible>
             <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
@@ -184,7 +183,6 @@ export function AboutSection() {
         )}
       </section>
 
-      {/* Copyright & attribution — NOTICE §7(b) 要求的署名句与仓库链接，逐字保留，不走品牌占位 */}
       <section className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
         <h3 className="text-sm font-medium">{t("about_legal_title")}</h3>
         <div className="flex flex-col gap-1 text-sm text-muted-foreground">

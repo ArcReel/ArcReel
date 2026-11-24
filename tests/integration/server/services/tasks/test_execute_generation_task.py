@@ -54,8 +54,6 @@ class TestGenerationTasks:
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
-        # 参考图只按数组序位传输、不带任何标签；身份由 prompt 内的 Reference_Images 声明行按「图N」指认。
-        # provider 收到的是任务私有快照。
         assert [sorted(ref) for ref in storyboard_refs] == [["image"]] * 4
         assert all(not ref["image"].is_relative_to(project_path) for ref in storyboard_refs)
         assert fake_generator.image_reference_bytes[0] == [b"png"] * 4
@@ -299,7 +297,6 @@ class TestGenerationTasks:
         use_generation_context(monkeypatch, resolve_ctx)
         use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
-        # E1S02 引用角色/场景/道具 sheet → 带参考图 → i2i；character 带 reference_image → i2i
         await generation_tasks.execute_storyboard_task(
             "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
         )

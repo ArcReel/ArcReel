@@ -14,11 +14,6 @@ import type { ProjectChange } from "@/types";
 import { createDeferred } from "@/test/deferred";
 import { FakeSseStream } from "@/test/fakeSseStream";
 
-/**
- * 把 `API.openProjectEventStream` 打桩为返回 {@link FakeSseStream} 句柄的 spy：
- * 测试直接驱动 `options` 上的回调（onSnapshot/onChanges/onProjectDeleted），
- * 不经真实 fetch 流。`options` 反映被测 hook 最近一次注册的那组回调。
- */
 function mockProjectEventStream() {
   let capturedOptions: ProjectEventStreamOptions | undefined;
   FakeSseStream.reset();
@@ -30,7 +25,6 @@ function mockProjectEventStream() {
     get options() {
       return capturedOptions;
     },
-    /** 最近一次建立的连接；断言 close 次数时用它的 `close`。 */
     get source() {
       return FakeSseStream.instances[FakeSseStream.instances.length - 1];
     },
@@ -121,7 +115,6 @@ describe("useProjectEventsSSE", () => {
               entity_type: "character",
               action: "created",
               entity_id: "hero",
-              // label 是后端默认语言兜底；通知文案应由 label_key 按界面语言渲染而来。
               label: "backend fallback",
               label_key: "named_entity_character",
               label_params: { id: "hero" },
@@ -297,7 +290,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("invalidates episode draft views when a reconnect snapshot shows missed changes", () => {
-    // 草稿面板各自取数、只随 draft 事件重拉；断线期间错过的草稿变化要在重连快照时作废。
     useProjectsStore.setState({
       currentProjectData: { ...makeGetProjectResult("Demo").project, episodes: [{ episode: 4, title: "雨夜" }] },
     } as never);
@@ -328,7 +320,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("asks the assistant to re-check its session on every snapshot, the first one included", () => {
-    // 恢复通知只推一次：订阅建立之前发出的（含首次建连前的失败重试、断线空窗）要靠快照核对
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     const stream = mockProjectEventStream();
     renderHarness("/");
@@ -343,7 +334,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("names an episode the Agent just created from the refreshed ledger", async () => {
-    // 事件到达时本地账本还没有这一集；通知应等刷新后按标题成文，而不是显示未命名集。
     const stream = mockProjectEventStream();
 
     renderHarness("/");
@@ -377,7 +367,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("does not announce changes from a stale script when the refresh fails", async () => {
-    // 新建的分镜还不在旧剧本里；刷新失败时按旧剧本成文会把它写成「已删除」，此时只留同步失败告警。
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
     const stream = mockProjectEventStream();
 
@@ -521,8 +510,6 @@ describe("useProjectEventsSSE", () => {
   );
 
   it("ranks reference_video_ready/tts_ready alongside existing completion events, above entity changes", async () => {
-    // CHANGE_PRIORITY 中 reference_video_ready/tts_ready 排在 storyboard_ready/video_ready/grid_ready
-    // 之后：同批次多组变更时，toast 状态被逐组覆写，最终展示的应是优先级数值最大（最后处理）的一组。
     const stream = mockProjectEventStream();
 
     renderHarness("/episodes/1");
@@ -698,7 +685,6 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
-  // 草稿新建是唯一会自动导航的变更：Agent 写出的新草稿跳到对应集，用户自己在 Web 端保存的草稿留在原页。
   function emitDraftCreated(stream: ReturnType<typeof mockProjectEventStream>, source: "webui" | "worker") {
     act(() => {
       stream.options?.onChanges?.({
@@ -842,11 +828,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("一次不带聚焦目标的刷新（如 onSnapshot）落定时，不应抢先消费更晚一批 onChanges 排队的目标", async () => {
-    // onSnapshot 触发的 refreshProject() 不设置新的聚焦目标，落定后按旧逻辑会
-    // 无条件 flushQueuedFocus()。若它在途期间，一批带真实目标的 onChanges 已经
-    // 到达并排队（改写了 queuedFocusRef，但数据要等它自己那一轮 getProject 完成
-    // 才落库），onSnapshot 落定时若仍无条件消费 ref，会拿着尚未落库的目标提前
-    // 导航，且清空 ref 后 onChanges 那一批之后不再触发导航。
     const stream = mockProjectEventStream();
 
     const d1 = createDeferred<GetProjectResult>();
@@ -858,7 +839,6 @@ describe("useProjectEventsSSE", () => {
 
     renderHarness("/");
 
-    // 建立初始 fingerprint 基线（首次 onSnapshot 不触发刷新）。
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-a", generated_at: "2026-03-01T00:00:00Z" },
@@ -866,7 +846,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).not.toHaveBeenCalled();
 
-    // fingerprint 变化触发一次不带聚焦目标的刷新，getProject 卡在在途（d1 未 resolve）。
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-b", generated_at: "2026-03-01T00:00:01Z" },
@@ -874,7 +853,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 在途期间，一批带真实聚焦目标的 onChanges 到达并排队。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -896,10 +874,8 @@ describe("useProjectEventsSSE", () => {
         },
       );
     });
-    // 在途合并：这批只是排队，不会立即多发一次请求。
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // onSnapshot 那一轮落定：不应提前导航到 onChanges 排队的目标（/characters）。
     await act(async () => {
       d1.resolve(makeGetProjectResult("R1"));
       await Promise.resolve();
@@ -907,7 +883,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
 
-    // onChanges 排队的那一轮落定：导航到它真正的目标，且只补发了这一次请求。
     await act(async () => {
       d2.resolve(makeGetProjectResult("R2"));
       await Promise.resolve();
@@ -920,9 +895,6 @@ describe("useProjectEventsSSE", () => {
   });
 
   it("does not navigate to a stale focus target once a later SSE batch has queued a newer one", async () => {
-    // 复现:两批 onChanges 重叠到达,第一批的 refreshProject 仍在途(getProject 未落定)时
-    // 第二批已到达并把 queuedFocusRef 改写为自己的目标。第一批落定后不应消费已被取代的
-    // ref 值提前导航;要等第二批自己那一轮落定才导航到第二批的目标。
     const stream = mockProjectEventStream();
 
     const d1 = createDeferred<GetProjectResult>();
@@ -934,7 +906,6 @@ describe("useProjectEventsSSE", () => {
 
     renderHarness("/");
 
-    // 第一批:聚焦角色 hero → /characters。发起后 getProject 卡在在途(d1 未 resolve)。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -958,7 +929,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 第二批在第一批仍在途时到达:聚焦场景 酒馆 → /scenes，覆盖 queuedFocusRef。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -980,10 +950,8 @@ describe("useProjectEventsSSE", () => {
         },
       );
     });
-    // 在途合并:第二批只是排队，不会立即多发一次请求。
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 第一轮落定：不应提前导航到已被取代的第一批目标（/characters）。
     await act(async () => {
       d1.resolve(makeGetProjectResult("R1"));
       await Promise.resolve();
@@ -991,7 +959,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
 
-    // 排队轮（第二批）落定：导航到第二批真正的目标（/scenes），且只发了这一次补充请求。
     await act(async () => {
       d2.resolve(makeGetProjectResult("R2"));
       await Promise.resolve();
@@ -1031,7 +998,6 @@ describe("useProjectEventsSSE", () => {
       );
     });
 
-    // fingerprints 应立即（同步）写入 store，无需等待 getProject
     expect(useProjectsStore.getState().getAssetFingerprint("storyboards/scene_E1S01.png")).toBe(1710288000);
   });
 
@@ -1041,7 +1007,6 @@ describe("useProjectEventsSSE", () => {
     renderHarness("/");
     expect(stream.openSpy).toHaveBeenCalledTimes(1);
 
-    // 后端在项目删除后正常关流；断线重建由流式客户端承担，hook 关闭句柄即停止对已删项目的重连。
     act(() => {
       stream.options?.onProjectDeleted?.({ project_name: "demo" });
     });
@@ -1288,8 +1253,6 @@ describe("useProjectEventsSSE", () => {
     });
 
     it("任务终态不写入实体版本表（entity_id 是一次性 task_id，无人消费）", async () => {
-      // 每个终态任务的 entity_id 都是新的 task_id，若混进实体失效会在 entityRevisions
-      // 里留下永不消费、也不随切项目清空的键，长会话下无界增长。
       const stream = mockProjectEventStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
 
@@ -1303,8 +1266,6 @@ describe("useProjectEventsSSE", () => {
     });
 
     it("任务终态到达不清掉前一批实体变更排队中的聚焦目标", async () => {
-      // 实体批次的 refreshProject 尚在途时，任务终态批次到达。任务变更没有可导航目标，
-      // 若让它走通用聚焦逻辑会把排队的目标改写成 null，用户丢失本该发生的自动导航。
       const stream = mockProjectEventStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
       const d1 = createDeferred<GetProjectResult>();

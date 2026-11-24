@@ -80,7 +80,6 @@ def test_other_provider_fields_are_unchanged(config_client):
         if provider == "openai":
             expected.remove("video_max_workers")
         if provider == "ark-agent-plan":
-            # 测试目录数据里的 ark-agent-plan 还没有音频模型，音频并发字段不显示，见下一条用例
             expected.remove("audio_max_workers")
         assert {field["key"] for field in response.json()["fields"]} == expected
 
@@ -121,7 +120,6 @@ def test_save_reloads_audio_capacity_and_hidden_value_survives(config_client, db
     install_catalog(monkeypatch, _grok_catalog(audio=False))
     fields = config_client.get("/api/v1/providers/grok/config").json()["fields"]
     assert "audio_max_workers" not in {field["key"] for field in fields}
-    # 保存仍可见的字段不能清除已隐藏的音频值。
     assert config_client.patch("/api/v1/providers/grok/config", json={"image_max_workers": "3"}).status_code == 204
     assert capacity.get("grok", "audio") == 0
 
@@ -140,7 +138,6 @@ async def test_synced_lane_shows_field_and_follows_saved_value_until_sync_remove
     worker = GenerationWorker(executor=_unexpected_execution, resume_executor=refuse_resume_execution)
     await worker.reload_limits()
     app = _providers_app(file_db_factory)
-    # 保存配置的路由与同步回调重载的是同一个 worker
     app.state.generation_worker = worker
 
     def audio_capacity() -> int:

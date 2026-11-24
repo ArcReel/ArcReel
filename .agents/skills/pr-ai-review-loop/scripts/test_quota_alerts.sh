@@ -1,19 +1,4 @@
 #!/usr/bin/env bash
-# test_quota_alerts.sh — regression test for poll.sh's quota_alerts detection and
-# the CodeRabbit rate-limit banner match (cr_rate_limited_body, which also backs
-# walkthrough.is_rate_limited / reviewed_current_head suppression).
-#
-# USAGE
-#   bash test_quota_alerts.sh
-#
-# Extracts the `cr_rate_limited_body`, `quota_alerts` and `cr_walkthrough_rest`
-# jq defs verbatim out of poll.sh (so this test always exercises the functions
-# actually shipped, not a copy that can drift) and runs them against fixture
-# comment bodies in testdata/. `cr_walkthrough_rest` is exercised because the
-# banner match alone is not the guarantee that matters: what the loop reads is
-# the walkthrough projection, and a rate-limited body must surface there as
-# is_rate_limited=true AND reviewed_current_head=false even when updated_at is
-# newer than the last push. The fixtures:
 #   - quota_alert_pr1115_no_stack.txt / quota_alert_pr1115_review_stack.txt: real
 #     CodeRabbit rate-limit banners captured from the source PR's walkthrough
 #     comment edit history (GraphQL userContentEdits — the live GitHub body has
@@ -21,12 +6,6 @@
 #     way to recover the exact bytes). *_review_stack carries the change-stack
 #     link banner that pushes the alert phrase past the old 500-char scan window —
 #     this is the exact silent-miss regression this test guards against.
-#   - no_actionable_pr1115.txt: the same PR's final (non-alert) walkthrough body,
-#     also real, sharing the same change-stack banner prefix — proves the fix
-#     doesn't start matching on the banner alone.
-#   - synthetic_non_alert_mentions_limit.txt: constructed (not captured from a
-#     real PR) edge case where the body merely discusses rate limiting as a
-#     topic, to check bare keyword mentions still don't trigger.
 
 set -euo pipefail
 
@@ -39,52 +18,25 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-# Pull each def verbatim: cr_rate_limited_body ends on its single expression line
-# (`;`), quota_alerts on the line ending `];` that closes it.
-RL_DEF=$(awk '/^[[:space:]]*def cr_rate_limited_body:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
-if [[ -z "$RL_DEF" ]]; then
-  echo "could not extract cr_rate_limited_body def from $POLL_SH" >&2
-  exit 4
-fi
 QUOTA_DEF=$(awk '/^[[:space:]]*def quota_alerts:/{flag=1} flag{print; if (/\];[[:space:]]*$/) exit}' "$POLL_SH")
 if [[ -z "$QUOTA_DEF" ]]; then
   echo "could not extract quota_alerts def from $POLL_SH" >&2
   exit 4
 fi
-# cr_walkthrough_rest closes on its `end;` line — the same terminator rule as above. It calls
-# cr_walkthrough_head (the body's commit anchor), so that def is pulled verbatim as well.
 WT_HEAD_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_head:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
 if [[ -z "$WT_HEAD_DEF" ]]; then
   echo "could not extract cr_walkthrough_head def from $POLL_SH" >&2
   exit 4
 fi
-SKIP_DEF=""
-for name in cr_skip_marker_body cr_no_reviewable_changes_body cr_review_skipped_body; do
-  def=$(awk -v target="$name" '$0 ~ "^[[:space:]]*def " target ":" {flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
-  if [[ -z "$def" ]]; then
-    echo "could not extract $name def from $POLL_SH" >&2
-    exit 4
-  fi
-  SKIP_DEF+="$def"$'\n'
-done
-
 WT_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_rest:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
 if [[ -z "$WT_DEF" ]]; then
   echo "could not extract cr_walkthrough_rest def from $POLL_SH" >&2
   exit 4
 fi
 
-# The walkthrough fixture is stamped updated_at > LAST_PUSH on purpose, and the commit
-# anchor check is stubbed to "matches" (every fixture carries a "📥 Commits" range line, so
-# walkthrough_head is non-null): without the rate-limit suppression every case would read
-# reviewed_current_head=true, so the expected false on the banner fixtures can only come
-# from the suppression itself. The anchor rule has its own test (test_walkthrough_head.sh).
 LAST_PUSH="2026-07-13T00:30:00Z"
 WT_UPDATED_AT="2026-07-13T01:00:00Z"
 
-# name : user login : expect quota_alerts triggered : expect cr_rate_limited_body
-# (the two differ on *_no_stack-style bodies only if CodeRabbit ever drops its banner
-# marker; today every marker-bearing body triggers both)
 CASES=(
   "quota_alert_pr1115_no_stack.txt:coderabbitai[bot]:true:true"
   "quota_alert_pr1115_review_stack.txt:coderabbitai[bot]:true:true"
@@ -102,38 +54,36 @@ for tc in "${CASES[@]}"; do
     continue
   fi
 
-  got=$(jq -n \
+  got=$(jq -n -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     --arg login "$login" \
     "
+    include \"signals\";
     [{user: {login: \$login}, created_at: \"2026-07-13T00:00:00Z\", body: \$body}] as \$sub_a
-    | $RL_DEF
-      $QUOTA_DEF
+    | $QUOTA_DEF
       (quota_alerts | length) > 0
     ")
 
-  got_rl=$(jq -n \
+  got_rl=$(jq -n -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     "
-    $RL_DEF
+    include \"signals\";
     \$body | cr_rate_limited_body
     ")
 
-  # Rate-limited bodies must suppress reviewed_current_head; non-alert ones must not.
   if [[ "$expect_rl" == "true" ]]; then expect_wt="true:false"; else expect_wt="false:true"; fi
-  got_wt=$(jq -rn \
+  got_wt=$(jq -rn -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     --arg login "$login" \
     --arg last_push "$LAST_PUSH" \
     --arg updated_at "$WT_UPDATED_AT" \
     "
+    include \"signals\";
     [{id: 1, user: {login: \$login}, created_at: \"2026-07-13T00:00:00Z\",
       updated_at: \$updated_at, body: \$body}] as \$sub_a
     | {reviews: [], headRefOid: \"test-head\"} as \$main
     | {} as \$review_commit_by_id
     | def codex_commit_is_current_head: true;
-      $RL_DEF
-      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.is_rate_limited):\\(.reviewed_current_head)\")

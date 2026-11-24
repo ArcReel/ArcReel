@@ -94,8 +94,6 @@ def test_upgrade_adds_columns_and_backfills_video_task_id(
                     "FROM api_calls ORDER BY id"
                 )
             ).fetchall()
-        # video 任务反查到的那条带 task_id 与 generation_task；image 任务与无 api_call_id 的
-        # 任务都不回填；其余新列一律留空。
         assert [(row[0], row[1], row[2]) for row in rows] == [
             (1, "T-video", "generation_task"),
             (2, None, None),
@@ -119,7 +117,6 @@ def test_downgrade_drops_usage_record_columns(
 
         assert not _NEW_COLUMNS & _columns(engine)
         assert "idx_api_calls_task_id" not in _indexes(engine)
-        # 同表既有索引不因逐列 DROP 丢失
         assert _indexes(engine) >= {"idx_api_calls_project_name", "idx_api_calls_status"}
     finally:
         engine.dispose()

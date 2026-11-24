@@ -49,7 +49,6 @@ class TestReferenceAudioToDataUri:
         assert uri == f"data:audio/wav;base64,{expected}"
 
     def test_unlisted_suffix_fails_loud(self, tmp_path: Path):
-        # 音频不回落也不跳过：编号按条目顺序，静默丢一段会把音色错配到别的角色。
         path = tmp_path / "voice.ogg"
         path.write_bytes(b"ogg")
         with pytest.raises(VideoCapabilityError) as exc:

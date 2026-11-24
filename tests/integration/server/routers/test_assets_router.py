@@ -129,7 +129,6 @@ class TestAssetsCRUD:
         pm = assets_env["pm"]
         img_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
-        # First create: succeeds
         r1 = client.post(
             "/api/v1/assets",
             data={"type": "prop", "name": "玉佩"},
@@ -140,7 +139,6 @@ class TestAssetsCRUD:
         global_dir = pm.get_global_assets_root() / "prop"
         files_after_first = list(global_dir.iterdir())
 
-        # Duplicate create with image: must 409 AND not increase file count
         r2 = client.post(
             "/api/v1/assets",
             data={"type": "prop", "name": "玉佩"},
@@ -168,7 +166,6 @@ class TestAssetsCRUD:
         client = assets_env["client"]
         pm = assets_env["pm"]
 
-        # create asset with a valid image
         img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
         r = client.post(
             "/api/v1/assets",
@@ -182,7 +179,6 @@ class TestAssetsCRUD:
 
         aid = r.json()["asset"]["id"]
 
-        # try replacing with unsupported format → 415, old file must still exist
         bad = b"garbage"
         r2 = client.post(
             f"/api/v1/assets/{aid}/image",
@@ -193,10 +189,90 @@ class TestAssetsCRUD:
 
 
 class TestFromProject:
+    def test_exact_lookup_and_confirmed_overwrite_target_the_same_entry(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+        character = client.post(
+            "/api/v1/assets", data={"type": "character", "name": "Hero", "description": "original"}
+        ).json()["asset"]
+        scene = client.post("/api/v1/assets", data={"type": "scene", "name": "Hero", "description": "scene"}).json()[
+            "asset"
+        ]
+        for i in range(100):
+            response = client.post("/api/v1/assets", data={"type": "character", "name": f"Hero {i}"})
+            assert response.status_code == 200, response.text
+
+        page = client.get("/api/v1/assets", params={"type": "character", "q": "Hero"}).json()
+        assert page["total"] == 101
+        assert all(item["id"] != character["id"] for item in page["items"])
+        lookup = client.get("/api/v1/assets/by-name", params={"type": "character", "name": "Hero"})
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json()["asset"] == {"id": character["id"], "type": "character", "name": "Hero"}
+
+        request = {"project_name": "demo", "resource_type": "character", "resource_id": "Hero"}
+        conflict = client.post("/api/v1/assets/from-project", json=request)
+        assert conflict.status_code == 409, conflict.text
+        assert conflict.json()["detail"]["existing"] == character
+        assert client.get(f"/api/v1/assets/{character['id']}").json()["asset"] == character
+
+        overwritten = client.post(
+            "/api/v1/assets/from-project",
+            json={**request, "overwrite": True, "overwrite_asset_id": character["id"]},
+        )
+        assert overwritten.status_code == 200, overwritten.text
+        assert overwritten.json()["asset"]["id"] == character["id"]
+        assert client.get(f"/api/v1/assets/{character['id']}").json()["asset"]["description"] == "project description"
+        assert client.get(f"/api/v1/assets/{scene['id']}").json()["asset"] == scene
+
+    def test_overwrite_rejects_a_replacement_with_the_same_name(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+
+        original = client.post("/api/v1/assets", data={"type": "character", "name": "Hero"}).json()["asset"]
+        assert client.delete(f"/api/v1/assets/{original['id']}").status_code == 204
+        replacement = client.post("/api/v1/assets", data={"type": "character", "name": "Hero"}).json()["asset"]
+        response = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "Hero",
+                "overwrite": True,
+                "overwrite_asset_id": original["id"],
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["existing"] == replacement
+        assert client.get(f"/api/v1/assets/{replacement['id']}").json()["asset"] == replacement
+
+    def test_cross_type_name_does_not_conflict(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+        scene = client.post("/api/v1/assets", data={"type": "scene", "name": "Hero"}).json()["asset"]
+
+        lookup = client.get("/api/v1/assets/by-name", params={"type": "character", "name": "Hero"})
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json()["asset"] is None
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "Hero"},
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["asset"]["type"] == "character"
+        assert client.get(f"/api/v1/assets/{scene['id']}").json()["asset"] == scene
+
     def test_from_project_copies_image(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]
-        # 造 project + character + sheet 文件
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
@@ -221,7 +297,6 @@ class TestFromProject:
         ip = r.json()["asset"]["image_path"]
         assert ip
         assert ip.startswith("global_assets/character/")
-        # 落盘文件与源文件相同字节
         assert (pm.data_root / ip).read_bytes() == b"img"
 
     def test_from_project_conflict_409_and_overwrite(self, assets_env):
@@ -326,7 +401,6 @@ class TestFromProject:
 
         assert "角色" in zh.json()["detail"]
         assert "character" not in zh.json()["detail"]
-        # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
         assert en.json()["detail"] == translate_message(
             "asset_source_resource_not_found",
             locale="en",
@@ -413,8 +487,6 @@ class TestFromProject:
         pm.add_project_character("demo", "王", "d", "")
 
         def _set_fields(project):
-            # 项目内真实存在、但不在 characters/refs_audio 下的文件——模拟经通用 PATCH
-            # 写入的越权路径。
             project["characters"]["王"]["reference_audio"] = "project.json"
 
         pm.update_project("demo", _set_fields)
@@ -432,7 +504,6 @@ class TestFromProject:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
-        # No reference_audio set
 
         r = client.post(
             "/api/v1/assets/from-project",
@@ -471,7 +542,6 @@ class TestFromProject:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
-        # No character_sheet set
 
         r = client.post(
             "/api/v1/assets/from-project",
@@ -492,7 +562,6 @@ class TestApplyToProject:
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
-        # Create 2 scene assets in library
         for n in ("A", "B"):
             client.post("/api/v1/assets", data={"type": "scene", "name": n})
         ids = [a["id"] for a in client.get("/api/v1/assets?type=scene").json()["items"]]
@@ -518,7 +587,6 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert set(data["scenes"].keys()) == {"A", "B"}
 
-        # Second round: duplicates, skip all
         r2 = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -540,7 +608,6 @@ class TestApplyToProject:
         client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
         aid = client.get("/api/v1/assets?type=prop").json()["items"][0]["id"]
 
-        # Apply first — creates "玉佩"
         client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -549,7 +616,6 @@ class TestApplyToProject:
                 "conflict_policy": "rename",
             },
         )
-        # Apply again with rename — creates "玉佩 (2)"
         r = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -576,7 +642,6 @@ class TestApplyToProject:
         )
         aid = r0.json()["asset"]["id"]
 
-        # Pre-populate target with a different "王"
         pm.add_project_character("target", "王", "old desc", "")
 
         r = client.post(
@@ -1044,7 +1109,6 @@ class TestApplyToProject:
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
-        # Create asset with image
         img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
         r0 = client.post(
             "/api/v1/assets",
@@ -1054,7 +1118,6 @@ class TestApplyToProject:
         aid = r0.json()["asset"]["id"]
         rel = r0.json()["asset"]["image_path"]
 
-        # Simulate external deletion of the global file
         (pm.data_root / rel).unlink()
 
         r = client.post(
@@ -1070,7 +1133,6 @@ class TestApplyToProject:
         assert len(body["failed"]) == 1
         assert body["failed"][0]["id"] == aid
         assert body["failed"][0]["reason"] == "image_missing"
-        # project.json should NOT contain the entry
         data = pm.load_project("target")
         assert "A" not in (data.get("scenes") or {})
 
@@ -1093,7 +1155,6 @@ class TestApplyToProject:
         aid = r0.json()["asset"]["id"]
         ap = r0.json()["asset"]["audio_path"]
 
-        # Simulate external deletion of the global audio file
         (pm.data_root / ap).unlink()
 
         pm.create_project("target")
@@ -1150,7 +1211,6 @@ class TestApplyToProject:
         assert target_audio.read_bytes() == b"audio-bytes"
         data = pm.load_project("target")
         assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
-        # 「资产即开关」：导入即视为该项目新设置了这个声音，存量过渡横幅计数须能感知到
         assert data["characters"]["王"]["voice_updated_at"]
 
     def test_image_copied_to_target_project(self, assets_env):
@@ -1158,7 +1218,6 @@ class TestApplyToProject:
         client = assets_env["client"]
         pm = assets_env["pm"]
 
-        # 1) Create asset with image directly
         img = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
         r0 = client.post(
             "/api/v1/assets",
@@ -1167,11 +1226,9 @@ class TestApplyToProject:
         )
         aid = r0.json()["asset"]["id"]
 
-        # 2) Prepare target project
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 
-        # 3) Apply
         r = client.post(
             "/api/v1/assets/apply-to-project",
             json={
@@ -1181,7 +1238,6 @@ class TestApplyToProject:
             },
         )
         assert r.status_code == 200
-        # File copied to target
         assert (pm.projects_dir / "target" / "scenes" / "A.png").exists()
         data = pm.load_project("target")
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"

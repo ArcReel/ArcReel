@@ -19,9 +19,10 @@ from lib.backends.image_capabilities import (
     image_reference_limit,
     intersect_image_capabilities,
 )
+from lib.backends.image_errors import ImageCapabilityError
 from lib.backends.input_limits import InputLimit
 from lib.catalog import query
-from lib.prompts.reference_image_numbering import clamp_reference_images
+from lib.prompts.reference_image_numbering import require_reference_image_limit
 from tests.catalog_support import install_catalog, with_entry_facts
 
 T2I = ImageCapability.TEXT_TO_IMAGE
@@ -59,11 +60,8 @@ def test_custom_model_matches_entry_by_name(channel, model_id, expected):
 @pytest.mark.parametrize(
     ("model_id", "overrides", "expected"),
     [
-        # 条目说只接受图生图，能力覆盖把文生图整维替换为开启
         ("qwen-image-edit-plus", {"text_to_image": True}, {T2I, I2I}),
-        # 覆盖关掉一维，另一维仍取条目
         ("qwen-image-edit-plus", {"image_to_image": False}, set()),
-        # 对应不上条目：只覆盖的那一维受约束，另一维不加约束
         ("relay-image-x", {"image_to_image": False}, {T2I}),
     ],
 )
@@ -81,11 +79,6 @@ def test_comfyui_endpoint_ignores_entry_and_overrides():
     assert intersect_image_capabilities({T2I}, model) == {T2I}
 
 
-# ---------------------------------------------------------------------------
-# 参考图上限：条目与通道两侧求值，候选与编排层裁剪读同一个结果
-# ---------------------------------------------------------------------------
-
-
 def _sheets(count: int) -> list[VisualReference]:
     return [
         VisualReference(path=Path(f"角色{i}.png"), role="asset_sheet", logical_type="character", logical_id=f"角色{i}")
@@ -93,8 +86,8 @@ def _sheets(count: int) -> list[VisualReference]:
     ]
 
 
-def _clamped(limit: InputLimit[int], count: int) -> int:
-    return clamp_reference_images(_sheets(count), limit.clamp_bound(), model="m").kept
+def _require_limit(limit: InputLimit[int], count: int) -> None:
+    require_reference_image_limit(_sheets(count), limit.to_json(), model="m")
 
 
 def _grok(model: str = "grok-imagine-image") -> GrokImageBackend:
@@ -108,7 +101,8 @@ async def test_entry_below_the_channel_limit_wins_and_clamps(monkeypatch: pytest
     )
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(3)
-    assert _clamped(limit, 6) == 3
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 6)
 
 
 async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytest.MonkeyPatch):
@@ -117,7 +111,8 @@ async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytes
     )
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(5)
-    assert _clamped(limit, 6) == 5
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 6)
 
 
 async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(monkeypatch: pytest.MonkeyPatch):
@@ -128,7 +123,7 @@ async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(mon
     )
     limit = await backend_reference_image_limit(AgnesImageBackend(api_key="k"), provider_id="agnes")
     assert limit == InputLimit.unrecorded()
-    assert _clamped(limit, 20) == 20
+    _require_limit(limit, 20)
 
 
 async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monkeypatch: pytest.MonkeyPatch):
@@ -138,7 +133,8 @@ async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monk
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(0)
     assert not limit.accepts_input
-    assert _clamped(limit, 4) == 4
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 4)
     model_info = query.get_model("grok", "grok-imagine-image", media_type="image")
     assert model_info is not None
     assert builtin_model_buckets("grok", "grok-imagine-image", model_info) == {"t2i"}
@@ -159,12 +155,8 @@ def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
         channel_limit=None,
     )
     assert limit == InputLimit.unsupported()
-    assert _clamped(limit, 16) == 16
-
-
-# ---------------------------------------------------------------------------
-# 设置页的生效能力与候选读同一个求值结果
-# ---------------------------------------------------------------------------
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 16)
 
 
 def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(monkeypatch: pytest.MonkeyPatch):
@@ -183,7 +175,6 @@ def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(mo
     assert view.effective == zero_references
     assert builtin_model_buckets("grok", "grok-imagine-image", official) == {"t2i"}
 
-    # 自定义供应商按模型名对应同一个条目；图生图仍可修改，原值是求值后的不支持
     custom = custom_capability_view(
         model_id="gemini-3-pro-image",
         endpoint="gemini-image",
@@ -209,7 +200,7 @@ def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bind
     def view(definition: dict):
         spec = comfyui_endpoint_spec("ce-7", definition)
         return custom_capability_view(
-            model_id="doubao-seedream-4-5-251128",  # 对得上条目也不读条目
+            model_id="doubao-seedream-4-5-251128",
             endpoint="ce-7",
             spec=spec,
             raw_overrides=None,

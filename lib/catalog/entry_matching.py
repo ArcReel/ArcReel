@@ -10,7 +10,6 @@ from collections.abc import Iterable
 
 from arcreel_catalog_core import CatalogEntry, EntryKey, normalize_model_name
 
-# 命中的先后：精确命中优先于归一化命中；同等命中时，官方模型名优先于模型别名。
 _EXACT_NAME, _EXACT_ALIAS, _NORMALIZED_NAME, _NORMALIZED_ALIAS = range(4)
 
 

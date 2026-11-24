@@ -20,13 +20,11 @@ import type { Asset, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
 
-/** 在资产库里新建一个资产：名称必填，描述、声音风格（角色）与图片可选。 */
 export function AssetCreateDialog({
   type,
   onClose,
   onCreated,
 }: {
-  /** 为 null 时关闭。 */
   type: AssetType | null;
   onClose: () => void;
   onCreated: (asset: Asset) => void;
@@ -39,7 +37,6 @@ export function AssetCreateDialog({
     <Dialog
       open={type !== null}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免资产已建好却没回到列表
         if (!next && !creating) onClose();
       }}
     >

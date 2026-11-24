@@ -443,7 +443,6 @@ async def _custom_items(session: AsyncSession, provider_id: str, db_id: int) -> 
         try:
             media_type = (await resolve_endpoint_spec(row.endpoint, endpoint_repo.get)).media_type
         except ValueError:
-            # 调用端点已被删除：这一行调用不了，也无从归组，不在列表里出现；修复经自定义供应商表单。
             logger.warning("自定义供应商 %s 的模型 %s 的调用端点 %s 不存在", provider_id, row.model_id, row.endpoint)
             continue
         if media_type in MEDIA_TYPES:
@@ -463,7 +462,6 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         display_name=display_name or (entry.display_name if entry is not None else None),
         media_type=media_type,
         enabled=row.is_enabled,
-        # 与内置供应商一致：列表里的默认标记是实际生效的默认，停用或下线后不再标出（默认模型解析同样跳过它）
         is_default=row.is_enabled and row.is_default and not state.discontinued,
         official=False,
         flags=_flags(entry, provider_multiplier * row.multiplier, state),
@@ -627,7 +625,6 @@ async def add_provider_model(
     )
 
 
-#: 内置供应商获取模型时等待模型列表接口的上限。
 _DISCOVERY_TIMEOUT_SECONDS = 30
 
 
@@ -680,7 +677,6 @@ async def _builtin_discovery_config(session: AsyncSession, provider_id: str) -> 
     if cred is None:
         return None
     config = await ConfigService(session).get_provider_config(provider_id)
-    # 叠加凭证时会探测 Vertex 凭证文件是否存在，放进线程
     await asyncio.to_thread(cred.overlay_config, config)
     if not config.get("base_url") and (meta := PROVIDER_REGISTRY.get(provider_id)) and meta.default_base_url:
         config["base_url"] = meta.default_base_url
@@ -764,6 +760,7 @@ def _facts_json(entry: CatalogEntry) -> dict[str, Any]:
                 "duration_constraints": {
                     "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
                     "with_reference_images": list(constraints.with_reference_images),
+                    **({"with_end_frame": list(constraints.with_end_frame)} if constraints.with_end_frame else {}),
                 },
             }
         case AudioFacts():
@@ -1076,7 +1073,6 @@ async def update_provider_model(
     """保存供应商模型 Sheet 的供应商设置与模型信息，一次请求原子保存；返回保存后的 Sheet 内容。"""
     if not is_custom_provider(provider_id):
         _require_builtin(provider_id, _t)
-    # 先按保存前的对应关系写条目副本：Sheet 读到的就是这个条目，同一请求里改模型 ID 不影响改哪个条目
     entry_saved = body.entry is not None and await _save_entry(session, provider_id, model_id, body.entry, _t)
     binding = _plan_binding(body, _t)
     if is_custom_provider(provider_id):
@@ -1091,7 +1087,6 @@ async def update_provider_model(
             changes["entry_binding"] = binding.ref
         row = await update_custom_model(session, db_id, model_id, changes, _t)
         saved_model_id = row.model_id
-        # 换调用端点可能换了媒体类型：没改绑定时也按新的媒体类型核对原绑定
         if binding is None and "endpoint" in changes and row.entry_binding:
             binding = _BindingChange(ref=row.entry_binding, created=None)
         if binding is not None:

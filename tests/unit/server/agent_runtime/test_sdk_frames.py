@@ -52,7 +52,6 @@ class _ScriptedCLITransport(Transport):
         if request["subtype"] == "initialize":
             self._answer(message["request_id"], {})
         elif request["subtype"] == "cancel_async_message":
-            # 与 CLI 一致：只有仍在命令队列里的消息能撤回
             cancelled = request["message_uuid"] in self._queued_uuids
             self._queued_uuids.discard(request["message_uuid"])
             self._answer(message["request_id"], {"cancelled": cancelled})

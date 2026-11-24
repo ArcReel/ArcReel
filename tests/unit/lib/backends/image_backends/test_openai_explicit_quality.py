@@ -13,6 +13,7 @@ import pytest
 from arcreel_catalog_core import CatalogEntry, ImageFacts
 from lib.backends.image_backends.base import ImageGenerationRequest, ImageRequestFacts, ReferenceImage
 from lib.backends.image_backends.openai import OpenAIImageBackend
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 _BASES = {"low": 16, "medium": 48, "high": 96}
@@ -35,7 +36,7 @@ async def _sent(tmp_path: Path, *, image_size: str | None, quality: str | None, 
     refs: list[ReferenceImage] = []
     if edit:
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"\x89PNG\r\n\x1a\n")
+        ref.write_bytes(image_bytes())
         refs = [ReferenceImage(path=str(ref))]
     with capture_http() as router:
         path = "edits" if edit else "generations"
@@ -65,12 +66,10 @@ class TestExplicitQualityInRequest:
             "size": "1008x1792",
             "quality": "low",
         }
-        # 同一档位换画质，size 不变
         assert await _sent(tmp_path, image_size="1K", quality="high", edit=edit) == {
             "size": "1008x1792",
             "quality": "high",
         }
-        # 同一画质换档位，quality 不变
         assert await _sent(tmp_path, image_size="2K", quality="low", edit=edit) == {
             "size": "1440x2560",
             "quality": "low",

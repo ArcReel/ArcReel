@@ -19,8 +19,6 @@ from typing import Any
 
 from pydantic import ValidationError
 
-#: 违约的 Web 文案 key 前缀。违约 code 与错误码共用一张文案表，同名码（如 ``mixed_speech``）
-#: 不加前缀会覆盖既有的错误码文案。
 DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
 
 
@@ -29,9 +27,6 @@ def draft_violation_message_key(code: str) -> str:
     return f"{DRAFT_VIOLATION_MESSAGE_PREFIX}{code}"
 
 
-#: ``schema_invalid`` 条目里供 Web 成文的结构化原因：``type`` 为 pydantic 的错误类型码或
-#: 本仓的形状码（如 ``non_empty_list``），可选 ``msg``（pydantic 说明原文）、``ctx``（标量约束值）
-#: 与 ``input``（当前值）。Web 用它算出 ``detail`` 再代入文案，模板本身不引用这个参数。
 SCHEMA_ERROR_PARAM = "schema_error"
 
 
@@ -97,7 +92,6 @@ def schema_violations(
         show_value = error["type"] != "missing" and isinstance(value, (bool, int, float, str)) and len(str(value)) <= 40
         shown = f"（当前值：{json.dumps(value, ensure_ascii=False)}）" if show_value else ""
         schema_error: dict[str, object] = {"type": error["type"], "msg": error["msg"]}
-        # ctx 里可能带异常对象（自定义校验的 ``error``）；只留可落盘的标量约束值。
         ctx = {key: item for key, item in (error.get("ctx") or {}).items() if isinstance(item, (bool, int, float, str))}
         if ctx:
             schema_error["ctx"] = ctx
@@ -109,8 +103,6 @@ def schema_violations(
                 code="schema_invalid",
                 item_index=index,
                 item_id=item_id if isinstance(item_id, str) else None,
-                # Web 按 schema_error 的类型码与约束值成文；没有对应文案时退回 pydantic 原文，
-                # detail 留给缺少 schema_error 的旧条目。
                 params={
                     "path": "content." + ".".join(str(part) for part in loc),
                     "detail": error["type"] + (f" ({json.dumps(value, ensure_ascii=False)})" if shown else ""),

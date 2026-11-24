@@ -12,6 +12,7 @@ import httpx
 import openai
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
@@ -56,8 +57,10 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
+    render_report,
     write_quarantine,
 )
+from lib.script.draft_violation import DraftViolation
 from server import draft_repair as draft_repair_module
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
@@ -276,6 +279,57 @@ async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
     )
     assert "generate_episode_script 失败" not in problem.detail
     assert model.requests == []
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_prompt_authoring_quarantine_preserves_report_in_task_failure(monkeypatch) -> None:
+    projects = ProjectManager(DataRootLayout.current().root)
+    project_path = projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda project: project.update(generation_mode="reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    _admit_text_operations(projects, "demo")
+    projects.save_script(
+        "demo",
+        {
+            "title": "第一集",
+            "episode": 1,
+            "content_mode": "narration",
+            "video_units": [
+                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4, "pending_authoring": True}
+            ],
+        },
+        "episode_1.json",
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    model = FakeTextGenerator('{"title":"第一集","units":[{"text":"@[未登记角色] 起身"}]}')
+    use_text_generator(monkeypatch, model.create)
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(
+            {
+                "task_id": "bad-prompt",
+                "project_name": "demo",
+                "task_type": "text_episode_script",
+                "payload": {"episode": 1},
+            }
+        )
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "draft_generation_invalid",
+        GenerationAction.FIX_INPUT,
+        {"count": 1},
+    )
+    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    assert draft is not None
+    assert "open_draft" in problem.detail
+    assert "patch_draft" in problem.detail
+    assert problem.detail == "generate_episode_script 失败: " + render_report(
+        quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).relative_to(project_path),
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
+        episode=1,
+    )
 
 
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
@@ -525,7 +579,6 @@ async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_positio
     draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
     assert draft is not None
     revision = draft_revision(draft)
-    # 草稿无违约，修复不调用模型直接按保存口径重判；替身只为晋升装配 ScriptGenerator。
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
     payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
     task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
@@ -683,8 +736,6 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         task_type="text_drama_script_plan",
         media_type="text",
         resource_id="episode-1" if cancel_state == "membership" else "old",
-        # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
-        # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
         payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.data_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
@@ -742,7 +793,6 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     payload: dict[str, Any] = {"instructions": "按章节"}
     if legacy_data_root:
-        # 旧版本排入的任务在载荷里带着入队时的数据根；数据根此后已挪走。
         payload["projects_root"] = str(tmp_path / "moved-away")
     task = {
         "task_id": "task-plan",
@@ -895,6 +945,10 @@ _TEXT_TASK_SHAPES = [
 ]
 
 
+def _database_failure() -> Exception:
+    return IntegrityError("INSERT INTO api_calls (prompt) VALUES (?)", ("secret prompt",), Exception("value too long"))
+
+
 @pytest.mark.usefixtures("video_request_facts")
 @pytest.mark.parametrize(("content_mode", "task_type", "reference"), _TEXT_TASK_SHAPES)
 @pytest.mark.parametrize(
@@ -906,12 +960,14 @@ _TEXT_TASK_SHAPES = [
             GenerationAction.RETRY,
             id="unexpected",
         ),
+        pytest.param(_database_failure, "internal_server_error", GenerationAction.RETRY, id="database"),
         pytest.param(_content_filter_rejection, "generation_refused", GenerationAction.FIX_INPUT, id="content-policy"),
         pytest.param(_provider_rejected, "generation_refused", GenerationAction.FIX_INPUT, id="provider-rejected"),
     ],
 )
 async def test_queued_text_task_failure_is_refused_only_when_the_provider_refused(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     content_mode: str,
     task_type: str,
     reference: bool,
@@ -938,6 +994,17 @@ async def test_queued_text_task_failure_is_refused_only_when_the_provider_refuse
 
     problem = problem_from_task_failure(str(raised.value))
     assert (problem.code, problem.action) == (code, action)
+    if code == "generation_task_failed":
+        operation = "generate_episode_script" if task_type == "text_episode_script" else "generate_script_plan"
+        assert problem.detail == f"{operation} 失败: backend 构造失败"
+    if code == "internal_server_error":
+        from lib.generation.task_failure_encoding import encode_task_failure_message
+
+        encoded = encode_task_failure_message(raised.value)
+        assert "INSERT INTO" not in encoded
+        assert "secret prompt" not in encoded
+        assert "INSERT INTO" in caplog.text
+        assert "secret prompt" in caplog.text
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:
@@ -972,7 +1039,6 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     tmp_path: Path, file_db_factory, monkeypatch
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("script", content_mode="ad")
     projects.create_project_metadata("script", "Script", "", "ad")
@@ -995,7 +1061,6 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
 
         @classmethod
         async def create(cls, *_args, **_kwargs):
-            # 与生产的工厂一样在工作线程里构造：构造时读项目文件。
             return await asyncio.to_thread(cls)
 
         async def generate(self, *_args, **_kwargs):
@@ -1060,7 +1125,6 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     monkeypatch,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
@@ -1088,7 +1152,6 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
             return result
 
     async def create_planner(_cls, path):
-        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
         def _build() -> EpisodePlanner:
             planner = EpisodePlanner(path, generator=Generator())
             planner.pm = BlockingProjectManager(projects.data_root)
@@ -1170,7 +1233,6 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     generated_text: str,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    # worker 按当前配置解析数据根。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project(project_name, content_mode="narration")
     projects.create_project_metadata(project_name, project_name, "", "narration")
@@ -1232,7 +1294,13 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
         await worker.stop()
 
     assert task["status"] == "failed"
-    assert problem_from_task_failure(task["error_message"]).code == "generation_refused"
+    problem = problem_from_task_failure(task["error_message"])
+    assert problem.code == "draft_generation_invalid"
+    draft = read_quarantine(project_path, 1, quarantine_kind)
+    assert draft is not None
+    assert problem.params == {"count": len(draft.violations)}
+    assert "open_draft" in problem.detail
+    assert "base_revision" in problem.detail
     batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
     assert batch.done is True
     assert batch.members[0].status == "failed"

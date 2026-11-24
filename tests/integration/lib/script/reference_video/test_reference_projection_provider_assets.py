@@ -339,7 +339,6 @@ async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_c
         backend = await assemble_backend(
             provider_id="ark", media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
         )
-        # 执行闸门同一口径：调用通道的声明与绑定条目两侧求值
         executed = effective_builtin_video_capabilities(resolve_video_capabilities(backend), "ark", OPAQUE_MODEL)
     finally:
         catalog.install_user_added_models(())

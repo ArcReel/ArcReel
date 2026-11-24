@@ -78,7 +78,6 @@ class TestSystemVersionApi:
         assert body["latest"]["tag_name"] == "v0.9.1"
         assert body["has_update"] is True
         assert body["update_check_error"] is None
-        # checked_at 是实际 fetch 时间，带时区
         assert datetime.fromisoformat(body["checked_at"]).tzinfo is not None
 
     def test_sends_github_api_headers(self):
@@ -105,7 +104,6 @@ class TestSystemVersionApi:
         assert body["current"]["version"] == "0.9.0"
         assert body["latest"] is None
         assert body["has_update"] is False
-        # 信息不再泄漏：返回固定 i18n 文案，详细错误只在日志
         assert body["update_check_error"] == "检查更新失败，请稍后重试"
         assert "502" not in body["update_check_error"]
 
@@ -132,7 +130,6 @@ class TestSystemVersionApi:
 
         assert resp.status_code == 200
         body = resp.json()
-        # rc1 < 0.10.0 final，不视为新版本
         assert body["has_update"] is False
         assert body["update_check_error"] is None
 
@@ -162,7 +159,6 @@ class TestSystemVersionApi:
 
         assert resp.status_code == 500
         body = resp.json()
-        # 同样不泄漏底层异常文本
         assert "missing version" not in str(body)
 
 
@@ -191,7 +187,6 @@ class TestGetLatestReleaseCache:
             first = await system_config._get_latest_release()
             second = await system_config._get_latest_release()
 
-        # payload 与 fetched_at 都来自同一次 fetch（缓存命中不重置时间戳）
         assert first == second
         assert route.call_count == 1
 

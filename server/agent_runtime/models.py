@@ -30,7 +30,7 @@ class Heartbeat:
     """会话消息流的心跳事件：idle_timeout 内无消息时产出。
 
     消费方在其上执行存活自检（SSE 查断线、同步收集方查 deadline/会话状态），
-    保证空闲期也有确定性的醒来时机（见 ADR-0005）。
+    保证空闲期也有确定性的醒来时机（见 ADR-0046）。
     """
 
 
@@ -90,7 +90,7 @@ SessionStreamEvent = SubscriptionReady | LiveMessage | Heartbeat
 class SessionMeta(BaseModel):
     """Session metadata stored in database."""
 
-    id: str  # 对外暴露，填充 sdk_session_id 值
+    id: str
     project_name: str
     title: str = ""
     status: SessionStatus = "idle"

@@ -86,7 +86,6 @@ class TestAssertAudioSwitchSupported:
 
         await assert_audio_switch_supported({}, "i2v")
 
-        # 闸门放行后关音设置原样生效，没有被改写成有声
         assert await ConfigResolver(db_factory).video_generate_audio_for_project({}) is False
 
 
@@ -139,8 +138,6 @@ class TestReferenceRouteGate:
                 return {"allowed": True, "unit_id": "test", "problems": []}
 
         async def _record(*, unit, **_kwargs):
-            # 替身只需产出可预期的分桶信号：本用例的 project 为空，未登记名经生产侧的
-            # unit_reference_declarations 会被全部滤掉，故此处按正文提及直接判。
             seen.append("r2v" if extract_mentions(str(unit.get("text") or "")) else "i2v")
             return _Projection()
 
@@ -324,7 +321,6 @@ class TestStoryboardGateEntersAdmission:
             for problem in unit["problems"]
             if problem["code"] == "video_audio_switch_not_supported"
         ]
-        # 另一个供应商下同一上游模型 ID 名称不同：只有带上供应商才能查到这一个模型名
         models = {("custom-7", "shared-model"): "甲网关模型", ("custom-8", "shared-model"): "乙网关模型"}
         for locale in SUPPORTED_LOCALES:
             names = make_display_names(locale, providers={"custom-7": "我的网关"}, models=models)

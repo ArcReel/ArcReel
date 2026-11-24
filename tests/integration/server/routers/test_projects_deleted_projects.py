@@ -52,7 +52,6 @@ async def test_restored_project_takes_a_new_name_when_the_original_is_taken(tmp_
     assert (manager.get_project_path("demo-2") / "source" / "chapter.txt").read_text(encoding="utf-8") == "old text"
     async with db_factory() as session:
         tasks = TaskRepository(session)
-        # 记录随项目改回到恢复后的名字；删除时排队的任务仍是已取消
         assert (await tasks.get(old["queued"]) or {})["project_name"] == "demo-2"
         assert (await tasks.get(old["queued"]) or {})["status"] == "cancelled"
         assert (await tasks.list_tasks(project_name="demo"))["total"] == 0
@@ -188,7 +187,6 @@ async def test_purged_project_cannot_be_restored(tmp_path, monkeypatch, db_facto
         missing = client.post(f"{DELETED}/{quote(entry['id'], safe='')}/restore")
         assert missing.status_code == 404
         assert missing.json()["detail"].startswith("已删除项目里没有这个项目")
-        # 不是已删除项目 ID 的输入一律按不存在处理，不会解析到数据根里的其他位置
         assert client.delete(f"{DELETED}/projects").status_code == 404
 
     assert list(manager.layout.deleted_projects_dir.iterdir()) == []

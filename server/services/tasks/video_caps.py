@@ -154,6 +154,35 @@ async def capability_request_facts(
     )
 
 
+async def annotate_end_frame_tiers(
+    payload: dict,
+    project: dict,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    without_end_frame: VideoRequestFacts,
+    resolution_override: ResolutionOverride | None = None,
+) -> None:
+    """规划期与首尾帧路径各自的档位；尾帧路径失败不影响普通规划。"""
+    with_end_frame = await evaluate_video_request_facts(
+        project,
+        route=without_end_frame.route,
+        generation_type=generation_type,
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver,
+        resolution_override=resolution_override,
+        uses_end_frame=True,
+    )
+    payload["end_frame_unit_durations"] = {
+        "without_end_frame": list(without_end_frame.allowed_durations),
+        "with_end_frame": list(with_end_frame.allowed_durations)
+        if isinstance(with_end_frame, VideoRequestFacts)
+        else [],
+        "excluded": dict(with_end_frame.excluded_durations),
+        "problem": None if isinstance(with_end_frame, VideoRequestFacts) else video_facts_problem(with_end_frame),
+    }
+
+
 async def annotate_reference_unit_tiers(
     payload: dict,
     project: dict,
@@ -226,8 +255,6 @@ async def project_video_caps(
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         caps: dict = {}
-        # requested_generate_audio 不依赖能力接口，独立解析：能力解析失败不能连带把用户的
-        # 无声意图丢回默认值 True，否则预览会漏发 ref_warn_silent_episode、与执行层脱节。
         try:
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
         except (ValueError, SQLAlchemyError) as inner_exc:
@@ -257,7 +284,6 @@ async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGen
 
     判据读指定桶的视频请求事实。解析失败仍放行，由其他能力预检处理。
     """
-    # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)

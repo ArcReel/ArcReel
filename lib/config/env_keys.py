@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-# —— SDK 子进程需要的 Anthropic env keys（通过 options.env 注入）——
 ANTHROPIC_ENV_KEYS: tuple[str, ...] = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
@@ -16,10 +15,7 @@ ANTHROPIC_ENV_KEYS: tuple[str, ...] = (
     "CLAUDE_CODE_SUBAGENT_MODEL",
 )
 
-# —— 其他 provider env keys（options.env 用空值覆盖兜底）——
 OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
-    # Claude CLI / SDK 会优先读取这些旁路认证变量。它们不属于 ArcReel 的
-    # provider 凭证模型，但必须在 Agent 会话中显式置空，避免继承宿主环境。
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "ARK_API_KEY",
@@ -31,9 +27,6 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "AGNES_API_KEY",
     "OPENAI_API_KEY",
     "GOOGLE_APPLICATION_CREDENTIALS",
-    # OpenAI SDK 在 client 未显式传值时回落读的 env 旋钮（非密钥命名，
-    # _SECRET_ENV_NAME_PATTERNS 的子串匹配兜不到）。整组纳入覆盖名单，
-    # 避免它们经 fork 漏进 SDK / Bash 子进程。
     "OPENAI_BASE_URL",
     "OPENAI_ORG_ID",
     "OPENAI_PROJECT_ID",
@@ -48,7 +41,6 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "DEFAULT_VIDEO_PROVIDER",
 )
 
-# —— 启动断言：真密钥子集，命中即 fail-fast ——
 PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
     {
         "ANTHROPIC_API_KEY",

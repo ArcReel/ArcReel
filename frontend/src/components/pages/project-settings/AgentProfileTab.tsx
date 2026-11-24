@@ -37,7 +37,6 @@ function FileList({ files, label }: { files: string[]; label?: string }) {
   );
 }
 
-/** 「Agent 配置」：项目内 Agent 配置的状态，以及「重置为内置配置」。重置不可撤销，经 AlertDialog 确认。 */
 export function AgentProfileTab({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   const [status, setStatus] = useState<AgentProfileStatus | null>(null);
@@ -65,7 +64,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
     return () => controller.abort();
   }, [projectName, loadCount]);
 
-  // 打开确认前取一次最新状态，列出的就是将被丢弃的文件
   const openReset = async () => {
     try {
       const latest = await API.getAgentProfileStatus(projectName);
@@ -79,7 +77,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
   const reset = async () => {
     setResetting(true);
     try {
-      // 确认期间定制文件有变化时不重置：刷新列表，由创作者对新列表再确认一次
       const latest = await API.getAgentProfileStatus(projectName);
       if (!status || !sameFiles(status.customized_files, latest.customized_files)) {
         setStatus(latest);
@@ -135,7 +132,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
       <AlertDialog
         open={confirmOpen}
         onOpenChange={(next) => {
-          // 重置请求在途时不响应关闭，Esc 也关不掉
           if (!next && !resetting) setConfirmOpen(false);
         }}
       >
@@ -144,7 +140,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
             <AlertDialogTitle>{t("agent_profile_reset_confirm_title")}</AlertDialogTitle>
             <AlertDialogDescription>{t("agent_profile_reset_confirm_description")}</AlertDialogDescription>
           </AlertDialogHeader>
-          {/* 文件多时正文滚动，可聚焦以便键盘滚动 */}
           <AlertDialogBody
             tabIndex={0}
             role="region"

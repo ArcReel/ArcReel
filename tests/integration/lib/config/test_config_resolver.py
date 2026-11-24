@@ -40,7 +40,6 @@ def _ready_with_vertex_video() -> list[ProviderStatus]:
     ]
 
 
-#: 升级固化已完成、各媒体类型升级前的选择都能还原：没有默认模型设置时可以落到自定义供应商的默认模型。
 _FROZEN = {FROZEN_SETTING_KEY: "[]"}
 
 
@@ -209,7 +208,6 @@ class TestDefaultBackends:
             await session.flush()
             session.add_all(
                 [
-                    # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
                     CustomProviderModel(
                         provider_id=provider.id,
                         model_id="t2i-m",
@@ -321,7 +319,6 @@ class TestSessionReuse:
         resolver = ConfigResolver(db_factory)
         fake_backend = ("gemini-aistudio", "test-model")
 
-        # 不使用 session()：每次调用创建新 session
         call_count = 0
         with (
             patch.object(resolver, "_session_factory", side_effect=counting_factory),
@@ -332,7 +329,6 @@ class TestSessionReuse:
             await resolver.default_image_backend()
         assert call_count == 2, f"不使用 session() 应创建 2 个 session，实际 {call_count}"
 
-        # 使用 session()：只创建 1 个 session
         call_count = 0
         with patch.object(resolver, "_session_factory", side_effect=counting_factory):
             async with resolver.session() as r:
@@ -344,7 +340,6 @@ class TestSessionReuse:
                     await r.default_video_backend()
                     await r.default_image_backend()
                     await r.video_generate_audio()
-        # session() 自身创建 1 个，内部调用复用 bound session 不再创建
         assert call_count == 1, f"使用 session() 应只创建 1 个 session，实际 {call_count}"
 
     async def test_bound_resolver_shares_session_object(self, db_factory):
@@ -413,7 +408,6 @@ class TestVideoCapabilitiesBucketing:
     def test_generation_mode_maps_to_bucket(self):
         assert video_bucket_for_generation_mode("storyboard") == "i2v"
         assert video_bucket_for_generation_mode("reference_video") == "r2v"
-        # 缺省、未知值（含已退役的三值 grid）与非字符串脏数据一律落默认桶
         assert video_bucket_for_generation_mode(None) == "i2v"
         assert video_bucket_for_generation_mode("bogus") == "i2v"
         assert video_bucket_for_generation_mode("grid") == "i2v"
@@ -453,7 +447,6 @@ class TestVideoCapabilitiesBucketing:
         r2v_caps = await _video_caps(db_factory, {**project, "generation_mode": "reference_video"})
         assert i2v_caps["model"] == "kling-v3"
         assert r2v_caps["model"] == "happyhorse-1.1-r2v"
-        # 能力字典本身随之变：i2v 桶的型号不接受参考图
         assert i2v_caps["max_reference_images"] == 0
         assert r2v_caps["max_reference_images"] == 9
 
@@ -523,7 +516,6 @@ class TestVideoCapabilities:
                     "default_duration": 9,
                 }
             )
-            # 关键断言：load_project 一次都不能被调到
             mock_pm.return_value.load_project.assert_not_called()
         assert caps["provider_id"] == "grok"
         assert caps["max_duration"] == 15
@@ -603,7 +595,6 @@ class TestVideoCapabilities:
         definition = comfyui_endpoint_definition()
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
         assert "frames" not in definition["bindings"]
-        # 行上存着的那份覆盖，与端点此刻的答案分叉。
         backend = await self._seed_comfyui_video_model(db_factory, definition, [5])
 
         caps = await _video_caps(db_factory, {"video_backend": backend})
@@ -808,8 +799,6 @@ class TestVoiceConsistency:
             project_backend = f"custom-{provider.id}/sora-like"
 
         caps = await _video_caps(db_factory, {"video_backend": project_backend, "generation_mode": "reference_video"})
-        # openai-video endpoint 不带 reference_audio_capable，覆盖无法宣称 direct，故非 native；
-        # 无音轨目录声明时假定有声 → soft，不落 none。
         assert caps["voice_consistency"] == "soft"
 
     async def test_custom_provider_with_direct_override_and_reference_video_is_native(self, db_factory):
@@ -830,8 +819,6 @@ class TestVoiceConsistency:
                 model_id="seedance-like",
                 display_name="Seedance-like",
                 endpoint="ark-seedance-2",
-                # max_reference_images 覆盖是让该 model 落进 r2v 桶的前提：参考生视频项目按
-                # r2v 定桶解析，ark-seedance-2 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
                 capability_overrides={
                     "reference_audio_mode": "direct",
                     "max_reference_audio_count": 2,
@@ -889,7 +876,6 @@ class TestUnmatchedCustomVideoModelOverrides:
 
         assert caps["supported_durations"] == [5, 10]
         assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
-        # 对应不上条目：参考图上限只受通道约束，方舟通道不设上限，为未收录
         assert caps["max_reference_images"] is None
 
     @pytest.mark.parametrize(
@@ -926,8 +912,6 @@ class TestVideoPricingGenerateAudio:
     async def test_falls_back_to_provider_rule_for_registry_unknown_model(self, db_factory):
         """注册表已下线的 veo model id 仍按含音档出价，不因能力解析失败被低估为静音档。"""
         resolver = ConfigResolver(db_factory)
-        # veo-3.1-generate-001 只留在 gemini-vertex 注册表：能力查询抛错，而价目查询
-        # 仍会回落到 Gemini 家族费率出价。
         result = await resolver.video_pricing_generate_audio("gemini-aistudio", "veo-3.1-generate-001")
         assert result is True
 
@@ -940,8 +924,6 @@ class TestVideoPricingGenerateAudio:
     async def test_keeps_requested_audio_for_vertex_unknown_model(self, db_factory):
         """gemini-vertex 上注册表没有的 model：backend 照请求值下发并结算，估算不得降为静音档。"""
         resolver = ConfigResolver(db_factory)
-        # lite 只登记在 gemini-aistudio：把 backend 切到 vertex 却留着旧 model id 时，
-        # 能力查询抛 model not found，而价目查询仍按 Gemini 家族含音费率出价。
         result = await resolver.video_pricing_generate_audio("gemini-vertex", "veo-3.1-lite-generate-preview")
         assert result is True
 
@@ -1061,8 +1043,8 @@ class TestResolveImageBackend:
         """in-flight 历史任务 payload 携带 legacy 名（写边界拦不到）→ 不予信任，回退已迁移的 project。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"image_provider_t2i": "openai/gpt-image-2"}  # 启动期已迁移为规范名
-        payload = {"image_provider": "vertex", "image_model": "legacy"}  # legacy，不可识别
+        project = {"image_provider_t2i": "openai/gpt-image-2"}
+        payload = {"image_provider": "vertex", "image_model": "legacy"}
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
@@ -1070,7 +1052,7 @@ class TestResolveImageBackend:
         """半截 payload（已知 provider 但缺 model）→ 不按目录推荐补模型，回退配置层，不带空 model 到执行层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
-        payload = {"image_provider": "openai"}  # 只有 provider，无 image_model
+        payload = {"image_provider": "openai"}
         resolved = await resolver._resolve_image_provider_model(fake_svc, db_session, {}, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
 
@@ -1126,7 +1108,7 @@ class TestLayeredBackendSkeleton:
         elif g_def:
             assert result == ("g-def", "m")
         else:
-            assert result == ("custom-1", "m")  # 全层缺失 → 最后一层（自定义供应商默认模型）
+            assert result == ("custom-1", "m")
 
     async def test_none_keys_skip_that_level(self):
         """键位为 None 的层直接跳过——项目默认层未声明时项目里的同名字段不生效。"""
@@ -1247,7 +1229,6 @@ class TestResolveVideoBackend:
             await resolver.resolve_video_backend(
                 {project_key: f"custom-{provider.id}/sora-2"}, None, generation_type=generation_type
             )
-        # 出厂目录记 Sora 2 于 2026-09-24 关停，下线错误带上关停日期
         assert excinfo.value.params == {
             "provider": f"custom-{provider.id}",
             "model": "sora-2",
@@ -1296,7 +1277,6 @@ class TestResolveVideoBackend:
         with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, project, {})
         assert (exc_info.value.provider_id, exc_info.value.media_type) == ("openai", "video")
-        # 没有模型名可报：文案说该供应商给不出这一类生成，不渲染出 "openai/" 这样的残缺引用
         assert (exc_info.value.code, exc_info.value.params) == (
             "provider_unsupported_media",
             {"provider_id": "openai", "media_type": "video"},
@@ -1502,18 +1482,17 @@ def test_parse_int_variants():
     assert _parse_int("100", 7) == 100
     assert _parse_int("", 7) == 7
     assert _parse_int("abc", 7) == 7
-    assert _parse_int("0", 7) == 7  # 非正回 default
-    assert _parse_int("-5", 7) == 7  # "-5".isdigit() == False
+    assert _parse_int("0", 7) == 7
+    assert _parse_int("-5", 7) == 7
     assert _parse_int(None, 7) == 7
     assert _parse_int(50, 7) == 50
-    assert _parse_int(True, 7) == 7  # bool 显式排除（避免 True→1）
+    assert _parse_int(True, 7) == 7
 
 
 class TestReferencePayloadLimits:
     """验证 reference_payload_limits 的默认、per-provider 覆盖、容错与 None 短路。"""
 
     async def test_none_provider_returns_default_without_db(self):
-        # 无需 DB：provider_id=None 直接返回保守通用默认
         resolver = ConfigResolver.__new__(ConfigResolver)
         total, single = await resolver.reference_payload_limits(None)
         from lib.config.service import (
@@ -1551,7 +1530,6 @@ class TestReferencePayloadLimits:
         from lib.config.service import DEFAULT_REFERENCE_TOTAL_MAX_BYTES
 
         resolver = ConfigResolver(db_factory)
-        # 未知 provider → get_provider_config 抛 ValueError → catch 回退默认
         total, _single = await resolver.reference_payload_limits("totally-unknown-provider")
         assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
 
@@ -1568,14 +1546,14 @@ class TestReferencePayloadLimits:
             await session.commit()
         resolver = ConfigResolver(db_factory)
         total, single = await resolver.reference_payload_limits("gemini-aistudio")
-        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES  # 非数字回退
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
         assert single == DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
 
 class TestTextBackendTierResolution:
     """文本档位五级解析链：项目档位 > 项目默认 > 全局档位 > 全局默认 > 自动推断。"""
 
-    _AUTO = ("custom-1", "m")  # 全层缺失时的最后一层（自定义供应商默认模型），由用例替换
+    _AUTO = ("custom-1", "m")
 
     @pytest.mark.parametrize("p_tier", [False, True])
     @pytest.mark.parametrize("p_def", [False, True])
@@ -1682,7 +1660,6 @@ class TestStyleAnalysisVisionGuard:
         from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        # qwen3-max 在 registry 中未声明 vision
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "dashscope/qwen3-max"})
         with pytest.raises(ValueError, match="vision"):
             await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)

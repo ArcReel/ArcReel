@@ -722,7 +722,6 @@ class PresentationReadModelService:
             try:
                 script = await run_sync_transaction(self._project_manager.load_script, project_name, script_file)
             except FileNotFoundError:
-                # 分集规划阶段已写入 script_file 但剧本尚未生成，属于正常状态，跳过该集。
                 continue
             items, id_field, kind = resolve_items(script)
             expected_type = "reference_videos" if kind == "video_units" else "videos"
@@ -794,8 +793,6 @@ class PresentationReadModelService:
                 )
                 if current_video != selected_video:
                     raise _PresentationSelectionChanged
-                # The outer admission guard keeps the hashed immutable selection stable. Under
-                # the version lock only the current manifest pointer needs to be revalidated.
                 self._require_current_manifest_pointer(
                     project_path=project_path,
                     resource_type=result.resource_type,

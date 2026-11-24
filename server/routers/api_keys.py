@@ -37,7 +37,7 @@ API_KEY_DEFAULT_EXPIRY_DAYS = 30
 
 def _generate_api_key() -> str:
     """生成格式为 arc-<32位随机字符> 的 API Key。"""
-    random_part = secrets.token_hex(16)  # 32 hex chars
+    random_part = secrets.token_hex(16)
     return f"{API_KEY_PREFIX}{random_part}"
 
 
@@ -47,13 +47,13 @@ def _default_expires_at() -> datetime:
 
 class CreateApiKeyRequest(BaseModel):
     name: str
-    expires_days: int | None = Field(None, ge=0)  # None 使用默认 30 天，0 表示不过期
+    expires_days: int | None = Field(None, ge=0)
 
 
 class CreateApiKeyResponse(BaseModel):
     id: int
     name: str
-    key: str  # 完整 key，仅在创建时返回
+    key: str
     key_prefix: str
     created_at: str
     expires_at: str | None
@@ -78,7 +78,7 @@ async def create_api_key(
     _require_jwt_auth(user, _t)
     key = _generate_api_key()
     key_hash = hash_api_key(key)
-    key_prefix = key[:8]  # e.g. "arc-abcd"
+    key_prefix = key[:8]
 
     if body.expires_days == 0:
         expires_at: datetime | None = None
@@ -137,8 +137,6 @@ async def delete_api_key(
         if row is None:
             raise HTTPException(status_code=404, detail=_t("api_key_not_found", key_id=key_id))
         key_hash = row["key_hash"]
-        # 先失效缓存再删库：即使事务提交后崩溃，缓存也已清除，
-        # 不会出现 DB 已删但缓存仍有效的宽限窗口。
         invalidate_api_key_cache(key_hash)
         deleted = await repo.delete(key_id)
 

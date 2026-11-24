@@ -63,10 +63,8 @@ def test_migrate_v0_to_v1_project_json(tmp_path: Path):
     assert "clues" not in data
     assert set(data["scenes"].keys()) == {"庙宇"}
     assert set(data["props"].keys()) == {"玉佩"}
-    # importance / type 字段被清理
     assert "importance" not in data["props"]["玉佩"]
     assert "type" not in data["props"]["玉佩"]
-    # sheet 字段重命名
     assert data["props"]["玉佩"]["prop_sheet"] == "props/玉佩.png"
     assert "clue_sheet" not in data["props"]["玉佩"]
 
@@ -95,7 +93,7 @@ def test_migrate_v0_to_v1_script_clues_split(tmp_path: Path):
 def test_migrate_idempotent(tmp_path: Path):
     p = _make_v0_project(tmp_path)
     migrate_v0_to_v1(p)
-    migrate_v0_to_v1(p)  # 再跑一次不应抛错
+    migrate_v0_to_v1(p)
     data = json.loads((p / "project.json").read_text())
     assert data["schema_version"] == 1
 
@@ -116,13 +114,12 @@ def test_migrate_order_files_before_schema_bump(tmp_path: Path):
     with pytest.raises(AttributeError):
         mod.migrate_v0_to_v1(p)
 
-    # 第一步（搬图）确实先跑完了，崩溃卡在第二步
     assert (p / "props" / "玉佩.png").exists()
     assert (p / "scenes" / "庙宇.png").exists()
 
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data.get("schema_version", 0) == 0
-    assert "clues" in data  # project.json 未升级，幂等检查会重试
+    assert "clues" in data
 
 
 def test_migrate_self_heals_half_migrated(tmp_path: Path):
@@ -135,7 +132,6 @@ def test_migrate_self_heals_half_migrated(tmp_path: Path):
     (p / "clues" / "庙宇.png").write_bytes(b"scene-image")
     (p / "scripts").mkdir()
 
-    # 模拟"半迁移"状态：project.json 已 v1，但 clues/ 文件未搬走、剧本 clues[] 未拆
     (p / "project.json").write_text(
         json.dumps(
             {

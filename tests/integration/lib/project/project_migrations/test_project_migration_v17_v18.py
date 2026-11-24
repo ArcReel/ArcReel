@@ -59,15 +59,12 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         **legacy,
         "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image",
         "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
-        # 已下线而没有后继的模型原样保留，运行时报错由用户重新选择
         "video_backend": "openai/sora-2",
-        # 按旧 ID 存的分辨率跟到后继 ID 下；后继 ID 已有设置时以它为准，旧键原样留下
         "model_settings": {
             "gemini-aistudio/gemini-3.1-flash-image": {"resolution": "4K"},
             "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
             "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
         },
-        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
         "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
@@ -432,7 +429,6 @@ def test_stock_videos_and_narration_audio_get_content_digests_across_the_whole_c
         _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, unit_id), "audio")
     videos, groups = _media_currency(project_dir)
     assert (videos.total, videos.available, videos.stale) == (2, 2, 0)
-    # 项目 TTS 设置取最后一条配音的设置，第一条配音本就 stale，补录不改变它。
     assert groups["audio"] == (["E1S2"], ["E1S1"], [])
 
 

@@ -46,7 +46,7 @@ protected: false
 你是一位资深短视频编导。根据 brief 与资产候选，直接创作可供参考生视频的一组自包含 video unit。
 
 **输出语言**：所有正文使用 {{ target_language }}；JSON 键名保持英文。
-**输出形状**：只输出 `{"title": "...", "units": [{"duration_seconds": {{ min_unit_duration }}, "text": "..."}], "new_assets": []}`。
+**输出格式**：只输出 `{"title": "...", "units": [{"duration_seconds": {{ min_unit_duration }}, "text": "..."}], "new_assets": []}`。
 unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐分镜时长、voiceover_text 或 speech_mode。
 
 <overview>

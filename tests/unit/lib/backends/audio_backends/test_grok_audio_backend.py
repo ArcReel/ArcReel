@@ -124,7 +124,6 @@ async def test_out_of_range_speed_fails_before_any_billed_request(tmp_path: Path
     assert route.call_count == 0
     assert not (tmp_path / "o.wav").exists()
 
-    # 任务失败原因落结构化编码，读侧按语言渲染，并写明可用范围与当前值
     stored = encode_task_failure_message(caught.value)
     for locale in ("zh", "en"):
         rendered = render_failure(stored, partial(translate, locale=locale), make_display_names(locale))

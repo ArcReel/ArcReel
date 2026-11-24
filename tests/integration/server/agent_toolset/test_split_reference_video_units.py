@@ -57,11 +57,6 @@ def _veo_720p_facts(set_video_request_facts) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# split_reference_video_units
-# ---------------------------------------------------------------------------
-
-
 async def test_fetch_reference_split_caps_returns_declared_slots(set_video_request_facts) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自两桶事实（不与任何静态区间求交）。"""
     from server import text_generation as mod
@@ -78,7 +73,7 @@ async def test_fetch_reference_split_caps_returns_declared_slots(set_video_reque
     assert caps.reference_durations == [1, 8, 16, 18]
     assert caps.text_durations == [1, 8, 16, 18]
     assert caps.max_duration == 18
-    assert caps.default_duration == 16  # 是档位成员，照常采信
+    assert caps.default_duration == 16
     assert caps.max_refs is None
     assert caps.text_problem is None
 
@@ -286,10 +281,8 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolHarness, video_
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
-    # 集号、资产候选与能力约束进 prompt；引用语法规范随之注入
     assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
-    # 上限是两套逐 unit 档位并集的最大值，随能力解析派生
     assert "8 秒" in prompt_text
     assert "紧跟它所对应的那句动作" in prompt_text
 
@@ -313,10 +306,8 @@ async def test_split_reference_video_units_happy_derives_structure(
 
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     unit = saved["units"][0]
-    # 夹具剧本已用过 E1S01：本集编号只分配、不复用，单元从 2 号起
     assert unit["unit_id"] == "E1U2"
     assert unit["text"] == text
-    # 参考图不落盘：读侧一律从正文的 @[名称] 派生
     assert "references" not in unit
     assert derived_reference_names(fake_ctx, unit["text"]) == ["张三", "村口"]
     assert unit["source_text"] == _RV_NOVEL
@@ -399,7 +390,6 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     text = said(out)
     assert "生效档位" in text
     assert "[8]" in text
-    # 与其余违约类同口径落草稿：档位越界同样是 Agent 改一改草稿就能修好的内容违约
     assert not rv_script_plan_path(fake_ctx).exists()
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
@@ -502,7 +492,7 @@ async def test_split_reference_video_units_rejects_dialogue_overload(
 ) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     rv_source(fake_ctx)
-    long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
+    long_line = "这是一段非常长的台词" * 6
     units = [rv_unit(f"@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.problem is not None
@@ -571,7 +561,6 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
 
     assert out.problem is None, out
     text = said(out)
-    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
     assert "unit E1U3：" in text
     assert "unit E1U2：" not in text
     assert "未引用场景" in text
@@ -595,7 +584,6 @@ async def test_split_reference_video_units_counts_this_episodes_new_scenes_as_sc
 
     assert out.problem is None, out
     text = said(out)
-    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
     assert "unit E1U3：" in text
     assert "unit E1U2：" not in text
 
@@ -661,7 +649,6 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         ("reference_audio", True, 2, False),
         ("reference_audio", True, None, False),
         ("prompt", True, 1, False),
-        # 绑定为参考音频但模型不收参考音频：生效上限为 0，没有音频可绑，不约束说话人数
         ("reference_audio", False, 1, False),
     ],
 )

@@ -1,7 +1,6 @@
 import type enWorkflow from '../en/workflow';
 
 export default {
-  // ---- Panel shell ----
   'panel_title': 'Ход производства',
   'panel_blocker_count_one': '{{count}} проблема требует исправления',
   'panel_blocker_count_few': '{{count}} проблемы требуют исправления',
@@ -18,7 +17,6 @@ export default {
   'technical_detail': 'Технические детали',
   'next_step': 'Далее: {{step}}',
 
-  // ---- Step list ----
   'next_label': 'Далее',
   'alternatives_lead': 'или',
   'summary_row': '{{title}}: {{status}}',
@@ -239,7 +237,6 @@ export default {
   'refusal_operation_not_applicable': 'Недоступно для этого типа проекта',
   'refusal_unknown': 'Сейчас недоступно',
 
-  // ---- Stale artifacts ----
   'stale_title_one': '{{count}} результат старше текущего содержимого',
   'stale_title_few': '{{count}} результата старше текущего содержимого',
   'stale_title_many': '{{count}} результатов старше текущего содержимого',
@@ -254,7 +251,6 @@ export default {
   'stale_regenerate_all_many': 'Сгенерировать заново все {{count}} результатов',
   'stale_regenerate_all_other': 'Сгенерировать заново все {{count}} результата',
 
-  // ---- Tasks and provider checkpoint ----
   'tasks_title_one': '{{count}} попытка выполняется',
   'tasks_title_few': '{{count}} попытки выполняются',
   'tasks_title_many': '{{count}} попыток выполняются',
@@ -284,7 +280,6 @@ export default {
   'task_status_interrupted': 'прервано',
   'checkpoint_submitted': 'Уже отправлено провайдеру — повторная попытка может быть списана ещё раз.',
 
-  // ---- Batch admission ----
   'admission_blocked_intro': 'Этот пакет не создал ни одной задачи, списаний не было. Исправьте пункты ниже и отправьте заново.',
   'admission_withheld_title_one': '{{count}} видеофрагмент в порядке, но задержан вместе с пакетом:',
   'admission_withheld_title_few': '{{count}} видеофрагмента в порядке, но задержаны вместе с пакетом:',
@@ -314,7 +309,6 @@ export default {
   'duration_seconds': '{{value}} с',
   'unit_request_tier': 'запрошено {{request}}',
 
-  // ---- Next-step phrases ----
   'action_unknown': 'следуйте указаниям агента',
   'action_none': 'ничего делать не нужно',
   'action_retry': 'повторите попытку чуть позже',
@@ -351,7 +345,6 @@ export default {
   'action_create_edit_timeline': 'создайте таймлайн монтажа и передайте его агенту',
   'action_retry_project_migration': 'исправьте указанные файлы проекта и повторите обновление данных',
 
-  // ---- Problem summaries ----
   'problem_generation_unit_not_found': 'Этого фрагмента больше нет в сценарии.',
   'problem_generation_unit_input_unusable': 'Этому фрагменту не хватает нужных входных данных.',
   'problem_generation_unit_request_invalid': 'Запрос для этого фрагмента некорректен.',

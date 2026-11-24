@@ -158,7 +158,6 @@ class TestKlingTwoSecretCredential:
             )
         assert resp.status_code == 201
         kwargs = mock_repo.create.await_args.kwargs
-        # 粘贴密钥常带首尾空白/换行，边界处统一 strip，避免静默鉴权失败
         assert kwargs["name"] == "可灵账号"
         assert kwargs["access_key"] == "AK-new"
         assert kwargs["secret_key"] == "SK-new"
@@ -171,7 +170,6 @@ class TestKlingTwoSecretCredential:
             resp = client.get("/api/v1/providers/kling/credentials")
         assert resp.status_code == 200
         cred = resp.json()["credentials"][0]
-        # 两段各自独立脱敏，互不混用，且不泄漏明文
         assert cred["access_key_masked"] is not None
         assert cred["secret_key_masked"] is not None
         assert cred["access_key_masked"] != cred["secret_key_masked"]
@@ -206,7 +204,6 @@ class TestKlingTwoSecretCredential:
             )
         assert resp.status_code == 204
         kwargs = mock_repo.update.await_args.kwargs
-        # 提供的密钥 strip 首尾空白；未提供的字段不进 kwargs（保留既有值）
         assert kwargs["secret_key"] == "SK-rotated"
         assert "access_key" not in kwargs
 
@@ -326,7 +323,6 @@ class TestCredentialGroupSwitch:
         """存量共存行（两组凭证并存）上例行轮换 api_key：不视为切组，另一组休眠凭证不被清空。"""
         app, _ = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
-        # 本功能上线前可创建的共存行：api_key 与 access_key/secret_key 同时留存
         mock_repo.get_by_id = AsyncMock(
             return_value=_fake_kling_cred(api_key="AK-old", access_key="AK-legacy", secret_key="SK-legacy")
         )

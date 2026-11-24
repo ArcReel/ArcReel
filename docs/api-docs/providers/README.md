@@ -1,6 +1,6 @@
-# Provider 官方文档索引
+# 供应商官方文档索引
 
-文件名与 `lib.config.registry.PROVIDER_REGISTRY` 的规范 provider id 一致。Agent 凭证 preset、运行时 `custom-{id}` 和 legacy provider 名不在本清单内。
+文件名对应 [`PROVIDER_REGISTRY`](../../../lib/config/registry.py) 的规范 ID。供应商页索引官方平台、凭证、价格或下线公告。具体请求协议还可查[调用端点索引](../endpoints/README.md)。
 
 - [agnes](agnes.md)
 - [ark](ark.md)

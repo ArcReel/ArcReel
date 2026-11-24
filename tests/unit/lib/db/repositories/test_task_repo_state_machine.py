@@ -22,7 +22,6 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # queued → mark_succeeded 守卫 status='running' 拒绝
         rows = await repo.mark_succeeded(t["task_id"], {"file": "x"})
         assert rows == 0
         assert (await repo.get(t["task_id"]))["status"] == "queued"
@@ -32,7 +31,6 @@ class TestRepoStateMachineGuards:
         assert rows == 1
         assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
-        # 已 succeeded 再调 → 0 rows
         rows = await repo.mark_succeeded(t["task_id"], {"file": "y"})
         assert rows == 0
 
@@ -64,10 +62,8 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # queued → cancelled
         assert await repo.finalize_interrupted(t["task_id"]) == 1
         assert (await repo.get(t["task_id"]))["status"] == "cancelled"
-        # 重复调 → 0 rows
         assert await repo.finalize_interrupted(t["task_id"]) == 0
 
     async def test_finalize_interrupted_rejects_terminal(self, db_session):
@@ -102,7 +98,6 @@ class TestRepoStateMachineGuards:
         assert exc_info.value.task_id == t["task_id"]
         assert (await repo.get(t["task_id"]))["status"] == "running"
 
-        # 被拒绝的取消不改变执行：任务照常收尾为 succeeded
         assert await repo.mark_succeeded(t["task_id"], {"x": 1}) == 1
         assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
@@ -136,7 +131,6 @@ class TestRepoStateMachineGuards:
         await repo.persist_provider_job_id(t["task_id"], "provider-job-42")
         refreshed = await repo.get(t["task_id"])
         assert refreshed["provider_job_id"] == "provider-job-42"
-        # 内置供应商无 endpoint 维度，该列保持 NULL
         assert refreshed["provider_endpoint"] is None
 
     async def test_persist_provider_job_id_writes_endpoint_alongside(self, db_session):
@@ -290,7 +284,6 @@ class TestRepoStateMachineGuards:
     async def test_claim_next_excludes_pool_full_providers(self, db_session):
         """claim_next 用 pool_full_providers 黑名单：排除池满 provider；NULL 和未知 provider 不受影响。"""
         repo = TaskRepository(db_session)
-        # provider_id 显式 set 为 'gemini-aistudio'
         t1 = await repo.enqueue(
             project_name="demo",
             task_type="storyboard",
@@ -300,7 +293,6 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
             provider_id="gemini-aistudio",
         )
-        # 不设 provider_id（老数据 IS NULL 兜底）
         t2 = await repo.enqueue(
             project_name="demo",
             task_type="storyboard",
@@ -309,7 +301,6 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # 未知 provider（例如自定义 provider 已被删除，DB 仍留有 provider_id）
         t3 = await repo.enqueue(
             project_name="demo",
             task_type="storyboard",
@@ -319,18 +310,15 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
             provider_id="custom-deleted",
         )
-        # gemini 池满 → 黑名单含 gemini-aistudio，应跳过 t1，FIFO 领 t2（NULL）
         first = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert first is not None
         assert first["task_id"] == t2["task_id"]
 
-        # 继续：仍然只 gemini 池满，t1 不能领，t3（custom-deleted 不在黑名单）应被领
         await repo.mark_succeeded(t2["task_id"], {})
         second = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert second is not None
         assert second["task_id"] == t3["task_id"], "未知 provider（已删除的自定义 provider）不应被白名单/黑名单误过滤"
 
-        # 黑名单清空 → t1 可领
         await repo.mark_succeeded(t3["task_id"], {})
         third = await repo.claim_next("image", pool_full_providers=None)
         assert third is not None
@@ -377,7 +365,6 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # 状态推到 running
         claimed = await repo.claim_next("image")
         assert claimed is not None
         assert claimed["task_id"] == t["task_id"]

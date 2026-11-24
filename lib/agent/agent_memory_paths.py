@@ -16,11 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-#: ArcReel 内部状态目录名：校验器跳过点目录、归档导出只拷贝可见项，记忆因此
-#: 天然不入归档、不报未识别目录。
 ARCREEL_DIRNAME = ".arcreel"
 
-#: 记忆目录名。两级共用同一层级名，便于「记忆」在两处一眼可辨。
 MEMORY_DIRNAME = "memory"
 
 

@@ -444,8 +444,6 @@ def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_
     presentation_file = project_dir / presentation_entry.artifact_path
     before_artifacts = (subtitle_file.read_bytes(), presentation_file.read_bytes())
 
-    # Official archives retain the visible typed artifacts and managed version
-    # snapshot, but deliberately filter the hidden Manifest sidecar.
     (project_dir / MANIFEST_FILENAME).unlink()
 
     assert ensure_imported_artifact_target_state(project_dir) == ()
@@ -577,8 +575,6 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
     writer_done = Event()
     failures: list[BaseException] = []
 
-    # 迁移链以一次清单激活收尾，它才是落当前版本的那一步；前面几步先走完，
-    # 等锁的写入方在它放行后看到的就是迁移完成的状态，与启动扫描先迁完再对外服务同口径。
     for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, CURRENT_SCHEMA_VERSION - 1):
         MIGRATORS[version](project_dir)
 
@@ -638,7 +634,6 @@ def test_formal_script_plan_transaction_holds_the_project_lock_through_the_write
     from lib.script.script_review import formal_script_plan_write_transaction
 
     project_dir, _project_data, _script_plan, _script = _project(tmp_path)
-    # 正式写事务要登记产物清单，只在已迁移到 v8 的项目上成立。
     assert artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True) is True
     migrate_project_dir(project_dir)
     formal_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
@@ -909,8 +904,6 @@ def test_v7_schema_commit_failure_leaves_complete_manifest_retryable(tmp_path: P
     def fail_schema(*_args: object, **_kwargs: object) -> None:
         raise OSError("injected schema failure")
 
-    # migrate_v7_to_v8 只是 activate_artifact_target_state 的一行委托（另有用例守这层委托），
-    # 失败注入直接对着被委托的入口下，不必为此给迁移函数加一层转发参数。
     with pytest.raises(OSError, match="injected schema failure"):
         artifact_activation.activate_artifact_target_state(project_dir, bump_schema=True, commit_schema=fail_schema)
 
@@ -955,7 +948,6 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(tmp_
         artifact_activation._ensure_activation_backup(source, stamp=stamp, from_version=7)
         if source == project_path:
             writer_released.set()
-            # 写入方此刻必须还卡在项目锁上：拿得到锁就说明 activation 的临界区没罩住提升。
             assert not writer_finished.wait(timeout=0.2)
 
     writer = Thread(target=_update_project)
@@ -999,7 +991,6 @@ def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(
             project_dir, bump_schema=True, backup_file=_drift_project_after_backup
         )
 
-    # 漂移写入原样留存，schema 未被快照里的旧值覆盖；清单回到激活前的「不存在」
     landed = _read_json(project_path)
     assert landed["title"] == "Drifted inside the lock"
     assert landed["schema_version"] == 7

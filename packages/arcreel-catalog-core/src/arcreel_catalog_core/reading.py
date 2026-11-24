@@ -46,7 +46,6 @@ from .vocabulary import (
     is_valid_dimension_value,
 )
 
-#: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CONTEXT_TIER = "context_tier"
@@ -124,7 +123,7 @@ _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "audio": frozenset(),
 }
 _SCALED_OUTPUT_TOKEN_BASE_FIELDS = frozenset({"base", "multiplier"})
-_CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
+_CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
 _PRICE_FIELDS = frozenset({"currency", "meters"})
 _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance", "cjk_double"})
 _ROW_FIELDS = frozenset({"when", "price"})
@@ -155,8 +154,6 @@ class CatalogReader:
 
     def flag(self, path: str, code: str, detail: str) -> None:
         self.strict.append(CatalogIssue(path, code, detail))
-
-    # ---- 基础取值 ----
 
     def obj(self, value: object, path: str) -> dict[str, object]:
         if isinstance(value, dict):
@@ -273,8 +270,6 @@ class CatalogReader:
                 self.reject(f"{path}[{index}]", "invalid_positive_int", "应为正整数秒")
         return tuple(result)
 
-    # ---- 目录数据 ----
-
     def catalog(self, raw: object) -> CatalogData:
         data = self.obj(raw, "")
         self.known_fields(data, "", _DATA_FIELDS)
@@ -335,7 +330,6 @@ class CatalogReader:
         if data.get("price") is not None:
             price = self.price_table(data["price"], known_media_type, _at(path, "price"))
             self.check_price_resolutions(price, facts, _at(path, "price"))
-            self.check_output_token_rules(price, facts, _at(path, "facts"))
         return CatalogEntry(
             maker=maker,
             name=name,
@@ -474,13 +468,15 @@ class CatalogReader:
             by_resolution[resolution] = values
         with_reference_images = self.durations(data.get("with_reference_images"), _at(path, "with_reference_images"))
         self.check_constraint_durations(with_reference_images, durations, _at(path, "with_reference_images"))
-        return DurationConstraints(by_resolution=by_resolution, with_reference_images=with_reference_images)
+        with_end_frame = self.durations(data.get("with_end_frame"), _at(path, "with_end_frame"))
+        self.check_constraint_durations(with_end_frame, durations, _at(path, "with_end_frame"))
+        return DurationConstraints(
+            by_resolution=by_resolution, with_reference_images=with_reference_images, with_end_frame=with_end_frame
+        )
 
     def check_constraint_durations(self, values: tuple[int, ...], durations: tuple[int, ...], path: str) -> None:
         if any(value not in durations for value in values):
             self.flag(path, "constraint_outside_facts", "约束中的时长不在可选时长内")
-
-    # ---- 价目表 ----
 
     def price_table(self, raw: object, media_type: MediaType, path: str) -> PriceTable:
         data = self.obj(raw, path)
@@ -572,7 +568,7 @@ class CatalogReader:
         by_casefold = {resolution.casefold(): resolution for resolution in resolutions}
         for meter_index, meter in enumerate(price.meters):
             if "resolution" not in meter.dims:
-                continue  # 未声明的维度已报 dimension_not_declared
+                continue
             meter_path = _at(path, f"meters[{meter_index}]")
             selections = [(_at(meter_path, f"rows[{i}].when"), row.when) for i, row in enumerate(meter.rows)]
             selections.append((_at(meter_path, "defaults"), meter.defaults))
@@ -605,8 +601,6 @@ class CatalogReader:
                 self.flag(_at(path, dim), "dimension_not_declared", "选择维度没有列在 dims 中")
             elif dim in DIMENSIONS and not is_valid_dimension_value(dim, value):
                 self.flag(_at(path, dim), "invalid_dimension_value", "选择维度的取值不合法")
-
-    # ---- 内置供应商清单 ----
 
     def listing(self, raw: object, path: str) -> BuiltinProviderListing:
         data = self.obj(raw, path)
@@ -642,8 +636,6 @@ class CatalogReader:
             endpoint=self.optional_text(data, "endpoint", path),
         )
 
-    # ---- 跨条目的构建侧检查 ----
-
     def check_entry_identities(self, entries: tuple[CatalogEntry, ...]) -> None:
         """条目身份唯一；同一媒体类型内，官方模型名与模型别名归一化后只能属于一个条目。"""
         seen: set[EntryKey] = set()
@@ -674,6 +666,8 @@ class CatalogReader:
                 self.flag(path, "unknown_successor", "后继模型指向的条目不存在")
 
     def check_listings(self, data: CatalogData) -> None:
+        entry_indices = {id(entry): index for index, entry in enumerate(data.entries)}
+        checked_token_rules: set[int] = set()
         for provider_id, listing in data.builtin_providers.items():
             path = f"builtin_providers.{provider_id}"
             listed: dict[tuple[str, str], CatalogEntry] = {}
@@ -685,6 +679,17 @@ class CatalogReader:
                     unresolved.add(model.api_model_name)
                     continue
                 self.check_endpoint(provider_id, model, entry, model_path)
+                declared = BUILTIN_ENDPOINTS.get(model.endpoint) if model.endpoint is not None else None
+                if (
+                    declared is not None
+                    and declared.requires_output_token_rules
+                    and entry.price is not None
+                    and id(entry) not in checked_token_rules
+                ):
+                    checked_token_rules.add(id(entry))
+                    self.check_output_token_rules(
+                        entry.price, entry.facts, f"entries[{entry_indices[id(entry)]}].facts"
+                    )
                 slot = (model.api_model_name, entry.media_type)
                 if slot in listed:
                     self.flag(model_path, "duplicate_provider_model", "同一供应商下 API 模型名与媒体类型重复")
@@ -697,7 +702,7 @@ class CatalogReader:
                 default_entry = listed.get((api_model_name, media_type))
                 if default_entry is None:
                     if api_model_name in unresolved:
-                        continue  # 引用问题已在清单条目上报告
+                        continue
                     self.flag(default_path, "unknown_default_model", "默认模型不在这个供应商这一媒体类型的清单中")
                 elif default_entry.discontinued:
                     self.flag(default_path, "default_model_discontinued", "默认模型已下线")
@@ -757,9 +762,6 @@ def _overlaps(a: Mapping[str, object], b: Mapping[str, object]) -> bool:
 
 def _same_value(a: object, b: object) -> bool:
     return type(a) is type(b) and a == b
-
-
-# ---- 公开入口 ----
 
 
 def parse_catalog(raw: object) -> CatalogData:

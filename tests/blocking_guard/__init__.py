@@ -67,7 +67,6 @@ _GUARD_DIR = str(Path(__file__).resolve().parent) + os.sep
 _GUARD_MODULE = __name__
 _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 _BLOCKBUSTER_DIR = str(Path(blockbuster.__file__).resolve().parent) + os.sep
-# 非仓库帧在预览里去掉这些前缀，只留包内或标准库内的相对路径。
 _STDLIB_DIRS = tuple(
     sorted(
         {
@@ -80,7 +79,6 @@ _STDLIB_DIRS = tuple(
     )
 )
 
-# 与业务阻塞无关、在任何栈上都放行的帧：日志落盘、traceback 取源码行、函数内延迟 import。
 # realpath 逐段 lstat（不在拦截点内），只有路径经过符号链接时才 readlink：macOS 的临时目录
 # 在 /var -> /private/var 之下，Linux 不是，不放行会让同一段代码只在 macOS 上违规。
 # asyncpg 解析连接参数时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接
@@ -101,8 +99,6 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("coverage/collector.py", frozenset({"lock_data"})),
 )
 
-# 栈预览的两份预算互不挤占：仓库帧（lib/server/tests）至多这么多条，看得出调用方；拦截点到第一个
-# 仓库帧之间的非仓库帧另取最内层的几条，看得出阻塞的到底是谁，超出的注明省略条数。
 _REPO_PREVIEW_FRAMES = 6
 _NON_REPO_PREVIEW_FRAMES = 4
 
@@ -136,8 +132,6 @@ class BlockingGuard:
         self.scanned_prefixes = tuple(str(self.root / name) + os.sep for name in SCANNED_DIRS)
         self.tests_prefix = str(self.root / TESTS_DIR) + os.sep
 
-    # ------------------------------------------------------------------ 启停
-
     def activate(self) -> None:
         blockbuster = BlockBuster()
         # 绝对路径的 abspath 只做字符串规范化，不碰文件系统；相对路径才会读 cwd。
@@ -155,8 +149,6 @@ class BlockingGuard:
             self._blockbuster.deactivate()
         while self._restore:
             self._restore.pop()()
-
-    # ------------------------------------------------------------------ 记录
 
     def _recording_predicate(self, function: BlockBusterFunction) -> Callable[..., bool]:
         allowed = function.can_block_predicate
@@ -189,8 +181,6 @@ class BlockingGuard:
             if _is_guard_frame(candidate):
                 continue
             if self._is_tests_frame(candidate):
-                # 替身、测试辅助函数的帧不终止查找：外层若有 lib/server 的 async 函数，
-                # 换成生产依赖后同一位置同样阻塞事件循环，照样记到它名下。
                 driven_by_tests = True
                 continue
             if filename.startswith(self.scanned_prefixes):
@@ -199,7 +189,6 @@ class BlockingGuard:
                     break
                 outermost_scanned = candidate
         if key is None:
-            # 没有 lib/server 的 async 函数包住阻塞点：经过 tests/ 帧说明由测试自身驱动
             # （测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层。
             if outermost_scanned is None or driven_by_tests:
                 return
@@ -248,8 +237,6 @@ class BlockingGuard:
 
     def _key(self, frame: FrameType) -> str:
         return f"{self._relpath(frame.f_code.co_filename)}::{frame.f_code.co_qualname}"
-
-    # ------------------------------------------------------------------ 结算
 
     def settle(self) -> list[Violation]:
         """取走待结算的违规，登记豁免的触发情况，返回豁免之外的部分。"""
@@ -303,9 +290,6 @@ def _frame_allowed(filename: str, function: str, allowed_frames: Iterable[tuple[
     return any(normalized.endswith(suffix) and function in names for suffix, names in allowed_frames)
 
 
-# ---------------------------------------------------------------------- 锁规则
-
-
 class _WatchedRLock:
     """包住版本管理的 ``RLock``，让 ``with`` 加锁经过可拦截的 Python 层 ``acquire``。
 
@@ -344,7 +328,6 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     def rlock_nonblocking(_lock: object, blocking: bool = True, timeout: float = -1) -> bool:
         return not blocking or timeout == 0
 
-    # 版本管理锁按 versions.json 路径缓存 RLock；从工厂处换成可拦截的包装，实例照旧共享同一把锁。
     original_factory = version_manager._get_versions_file_lock
 
     watched: dict[int, _WatchedRLock] = {}
@@ -358,7 +341,6 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     restore.append(lambda: setattr(version_manager, "_get_versions_file_lock", original_factory))
 
     rules = [
-        # 项目文件锁、ProjectManager.file_lock、生成准入的同步锁都经 portalocker 阻塞模式落到 flock。
         (
             "文件锁（portalocker 阻塞模式）",
             BlockBusterFunction(portalocker, "lock", can_block_predicate=portalocker_nonblocking),
@@ -367,16 +349,12 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
             "文件锁（portalocker 阻塞模式）",
             BlockBusterFunction(portalocker_impl, "lock", can_block_predicate=portalocker_nonblocking),
         ),
-        # 产物清单锁以非阻塞尝试加 time.sleep 轮询，最长等 10 秒；进入它就是一次锁等待。
         ("产物清单锁（轮询等待）", BlockBusterFunction(ProjectArtifactManifestAdapter, "_locked")),
         ("版本管理锁（RLock）", BlockBusterFunction(_WatchedRLock, "acquire", can_block_predicate=rlock_nonblocking)),
     ]
     for label, function in rules:
         function.full_name = label
     return [function for _, function in rules]
-
-
-# ---------------------------------------------------------------------- 清单
 
 
 def load_exemptions(root: Path) -> dict[str, str]:
@@ -392,8 +370,6 @@ def load_exemptions(root: Path) -> dict[str, str]:
             exemptions[key] = reason
     return exemptions
 
-
-# ---------------------------------------------------------------------- pytest 钩子
 
 _GUARD_KEY = pytest.StashKey[BlockingGuard]()
 _SESSION_KEY = pytest.StashKey["_SessionTotals"]()
@@ -417,7 +393,6 @@ def _is_xdist_controller(config: pytest.Config) -> bool:
 
 
 def _executes_tests(config: pytest.Config) -> bool:
-    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
     return not any(getattr(config.option, name, None) for name in ("collectonly", "setuponly", "setupplan"))
 
 
@@ -532,7 +507,6 @@ def pytest_testnodedown(node: Any, error: object) -> None:
 
 
 def _finish(config: pytest.Config, session: pytest.Session, totals: _SessionTotals) -> None:
-    # 显式选项声明「这批用例应触发每一条豁免」，筛选掉的用例不影响判定。
     complete = (
         (totals.expect_all or (totals.full_run and totals.deselected == 0))
         and not session.shouldstop

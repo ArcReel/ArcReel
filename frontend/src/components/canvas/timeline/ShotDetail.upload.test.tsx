@@ -30,7 +30,6 @@ function renderDetail(onRestoreStoryboard: () => Promise<unknown>) {
   );
 }
 
-/** 经分镜图卡片的上传按钮旁的文件输入选一张图。 */
 function chooseStoryboard() {
   const input = screen.getByRole("button", { name: "上传分镜图" }).previousElementSibling as HTMLInputElement;
   fireEvent.change(input, { target: { files: [new File(["png"], "shot.png", { type: "image/png" })] } });
@@ -51,7 +50,6 @@ describe("ShotDetail 媒体上传", () => {
   });
 
   it("上传后项目数据已刷新时报告上传完成", async () => {
-    // 提示里按本集位置称呼分镜：E1S01 排在第 2 位
     useProjectsStore.setState({
       currentScripts: {
         "episode_1.json": {

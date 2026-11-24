@@ -16,10 +16,6 @@ const FLAG_TONE: Record<ProviderModelFlag, string> = {
   modified: "border-border text-muted-foreground",
 };
 
-/**
- * 模型的状态标记（即将下线、已下线、未定价、已修改），列表行与 Sheet 标题共用。
- * 「即将下线」写明关停日期，取自 `shutdownDate`。
- */
 export function ProviderModelFlags({
   flags,
   shutdownDate = null,

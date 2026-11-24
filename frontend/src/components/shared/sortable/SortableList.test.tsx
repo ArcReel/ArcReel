@@ -91,7 +91,6 @@ describe("SortableList", () => {
     render(<Harness onMove={onMove} />);
     const handle = screen.getByRole("button", { name: "调整「甲」的顺序" });
     handle.focus();
-    // 同一轮事件循环，不留时间给传感器的 timer 与测量完成。
     fireEvent.keyDown(handle, { code: "Space", key: " " });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
@@ -128,7 +127,6 @@ describe("SortableList", () => {
 
   it("refuses moves rejected by canMove, also when dropped with the keyboard", async () => {
     const onMove = vi.fn();
-    // 第一项固定在最前
     render(<Harness onMove={onMove} canMove={(move) => move.id !== "甲" && move.to !== 0} />);
     expect(screen.getByRole("button", { name: "上移 乙" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下移 甲" })).toBeDisabled();

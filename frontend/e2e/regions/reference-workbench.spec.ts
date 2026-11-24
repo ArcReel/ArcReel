@@ -4,7 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 参考生视频项目的「视频单元」视图：单元列表（窄画布下是图标栏）、文稿编辑器与成片预览三栏。
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
 const UNITS_API = "/api/v1/projects/demo/reference-videos/episodes/1/units";
 
@@ -19,7 +18,6 @@ const unitId = (n: number) => `E1U${n}`;
 const LONG_LINE =
   "@[林夕] 推开旧城茶馆二楼临街的雕花木窗，雨后的石板路泛着青光，巡夜人提着那盏蒙着油纸的旧马灯从箭楼下慢慢走过，灯影在湿漉漉的墙面上晃来晃去。";
 
-// 压力数据：14 个单元，正文多行且有长句；第 1 个单元需重新规划，并带参考图分裂的阻断提示。
 const UNITS = Array.from({ length: 14 }, (_, i) => ({
   unit_id: unitId(i + 1),
   text: [
@@ -73,7 +71,6 @@ const CAPABILITIES = Object.fromEntries(
   ]),
 );
 
-/** 把单元移到 afterId 之后（null 移到最前）后的列表。 */
 function movedUnits(id: string, afterId: string | null) {
   const rest = UNITS.filter((unit) => unit.unit_id !== id);
   const moving = UNITS.find((unit) => unit.unit_id === id)!;
@@ -82,7 +79,6 @@ function movedUnits(id: string, afterId: string | null) {
 }
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -93,7 +89,6 @@ const API: ApiOverrides = {
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };
 
-// 文稿编辑器的高度下限（12rem）。
 const EDITOR_MIN_HEIGHT = 192;
 
 const workbench = (page: Page) => page.getByRole("tabpanel", { name: "视频单元" });
@@ -106,18 +101,14 @@ async function workbenchReady(page: Page) {
   await editor(page).waitFor();
 }
 
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再点画布右侧的控件。 */
 
-/** 窄画布下只有图标栏；单元的预览叠在编辑器同一格，经「视频」子页签切换。 */
 async function showPreview(page: Page) {
   const previewTab = page.getByRole("tab", { name: "视频", exact: true });
   if (await previewTab.isVisible()) await previewTab.click();
 }
 
-/** 编辑器与预览都不低于高度下限：编辑器 12rem，竖屏画框高 min(55dvh, 栏宽 × 16/9)。 */
 async function expectHeightFloors(page: Page) {
   const viewport = page.viewportSize()!;
-  // 量编辑框（含边框），输入框本身在边框之内
   expect((await box(editor(page).locator(".."))).height).toBeGreaterThanOrEqual(EDITOR_MIN_HEIGHT);
   await showPreview(page);
   const frame = await box(previewFrame(page));
@@ -180,7 +171,6 @@ defineRegionScenarios("参考视频工作台", [
     api: API,
     ready: workbenchReady,
     act: async (page) => {
-      // 窄画布下列表收成图标栏，从图标栏展开完整列表再排序
       const handle = page.getByRole("button", { name: "调整「视频单元 2」的顺序" });
       if (!(await handle.isVisible())) {
         await clearAgentOverlay(page);
@@ -198,7 +188,6 @@ defineRegionScenarios("参考视频工作台", [
       await expect(page.getByText("「视频单元 2」移到第 1 项，共 14 项。")).toBeAttached();
       await page.keyboard.press("Space");
       expect((await moved).postDataJSON()).toEqual({ after_unit_id: null });
-      // 移到最前后它成了视频单元 1：编号跟着位置走，正文跟着单元走
       const first = page.getByRole("list", { name: "视频单元" }).getByRole("listitem").first();
       await expect(first.getByRole("img", { name: "视频单元 1" })).toBeVisible();
       await expect(first).toContainText("镜头 2：");

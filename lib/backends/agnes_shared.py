@@ -11,10 +11,8 @@ apihub 网关提供 OpenAI 风格端点，单 `/v1` base，Bearer 单 key 鉴权
 
 from __future__ import annotations
 
-# 默认 base（含 /v1）；用户可经配置覆盖 base_url 指向自建中转。
 AGNES_BASE_URL = "https://apihub.agnes-ai.com/v1"
 
-# 单一已知路径后缀，归一化 host 时剥除以容忍用户填入完整 base。
 _V1_SUFFIX = "/v1"
 
 
@@ -30,8 +28,6 @@ def agnes_host(configured: str | None = None) -> str:
     网关并非所有端点都挂在 `/v1` 下——成片查询 `/agnesapi` 直接挂在 host 根，需要这个不带
     版本段的 base。
     """
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
-    # 否则 base 变空串、派生出 "/v1" 这类非法相对 URL。
     base = ((configured or "").strip() or AGNES_BASE_URL).rstrip("/")
     if base.endswith(_V1_SUFFIX):
         return base[: -len(_V1_SUFFIX)]

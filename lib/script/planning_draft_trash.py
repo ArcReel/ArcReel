@@ -62,10 +62,8 @@ def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any])
 
     def require_episode() -> None:
         if find_episode(projects.load_project(project_dir.name), episode) is None:
-            # 所属的集已删除：加回的草稿没有归属。
             raise ConflictError("trash_restore_failed", id=rel)
 
-    # 此处抛错按取不出对象降级；落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
     require_episode()
 
     def land(landing: Landing) -> Mapping[str, Any]:
@@ -79,7 +77,6 @@ def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any])
         landing.place(staged_file, target, original=rel)
         landed.append(target)
         if target == rel and claim is not None and claim.artifact_path == rel:
-            # 补录：依据摘要不变，输入此后变过的照常读为过期。
             register_artifact_entries_atomically(
                 project_dir, {key: ArtifactManifestEntry(claim.artifact_path, claim.basis_digest)}
             )

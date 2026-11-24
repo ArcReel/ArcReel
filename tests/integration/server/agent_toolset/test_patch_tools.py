@@ -300,7 +300,6 @@ class TestPatchEpisodeScript:
         )
 
         assert (result.problems[0].operation_index, result.problems[0].unit_id) == (1, "E9")
-        # 同批的合法编辑未落盘（all-or-nothing）
         assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
     async def test_invalid_value_rolls_back_whole_batch(self, ctx: ToolHarness) -> None:
@@ -311,8 +310,8 @@ class TestPatchEpisodeScript:
             )
         )
         saved = _load(ctx)["segments"]
-        assert saved[0]["duration_seconds"] == 4  # 未落盘
-        assert saved[1]["image_prompt"]["scene"] == "场景描述"  # 同批回滚
+        assert saved[0]["duration_seconds"] == 4
+        assert saved[1]["image_prompt"]["scene"] == "场景描述"
 
     async def test_error_localizes_scene_id_and_field(self, ctx: ToolHarness) -> None:
         """字段路径不存在 → 错误精确指出触发的 scene_id + field。"""
@@ -646,7 +645,6 @@ class TestPatchEpisodeScriptStructuralOperations:
     @pytest.mark.parametrize(
         ("removed_id", "structural"),
         [
-            # 删掉末条再新增：编号只分配、不复用，不会取回被删的号。
             ("E1S02", {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}),
             ("E1S01_1", {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}),
         ],
@@ -679,14 +677,12 @@ class TestPatchEpisodeScriptStructuralOperations:
         assert adapter.get_entry(old_video) is None
 
     async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolHarness) -> None:
-        # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [part_a, _segment("b")]}])
         _committed(out)
         saved = _load(ctx)["segments"]
         ids = [s["segment_id"] for s in saved]
-        # 后续部分取本集用过的最大号之后的新主序号，不再加 _k 后缀
         assert ids == ["E1S01", "E1S03", "E1S02"]
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
@@ -746,7 +742,6 @@ class TestPatchEpisodeMeta:
         )
         assert out.problem is None
         assert _load(ctx)["title"] == "新标题"
-        # project.json 镜像同步（locked_script 退出经 sync_episode_from_script）
         episodes = ctx.pm.load_project("demo")["episodes"]
         entry = next(e for e in episodes if e["episode"] == 1)
         assert entry["title"] == "新标题"
@@ -768,7 +763,7 @@ class TestPatchEpisodeMeta:
                 {"script": "episode_1.json", "field": "title", "value": blank},
             )
             assert out.problem is not None
-        assert _load(ctx)["title"] == "标题"  # 原值未改
+        assert _load(ctx)["title"] == "标题"
 
     async def test_non_whitelist_field_rejected(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -777,7 +772,7 @@ class TestPatchEpisodeMeta:
             {"script": "episode_1.json", "field": "episode", "value": 9},
         )
         assert out.problem is not None
-        assert _load(ctx)["episode"] == 1  # 未被改写
+        assert _load(ctx)["episode"] == 1
 
     async def test_non_string_value_rejected(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
@@ -850,11 +845,9 @@ class TestPatchProject:
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
-            # description 类型非法的 entry，写入引入的「新错误」
             {"table": "scenes", "entries": {"空场景": {"description": 1}}},
         )
         assert out.problem is not None
-        # 不落盘：空场景没写入
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolHarness) -> None:
@@ -878,7 +871,7 @@ class TestPatchProject:
         )
         assert out.problem is None
         chars = ctx.pm.load_project("demo")["characters"]
-        assert "李白" in chars  # 规范化后存储
+        assert "李白" in chars
         assert "  李白  " not in chars
 
     async def test_blank_entry_name_rejected(self, ctx: ToolHarness) -> None:
@@ -906,13 +899,11 @@ class TestPatchProject:
         """least-privilege：Agent 仅能改 description + spec.extra_string_fields。
         sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 Agent
         覆写本不该碰的字段。"""
-        # 先 upsert 一个干净 entry，再尝试用 patch 改 sheet（应被忽略）+ 加 unknown key
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟系统通过 _update_asset_sheet 写入 sheet 路径
         ctx.pm.update_project(
             "demo", lambda p: p["characters"]["李白"].update({"character_sheet": "characters/li_bai.png"})
         )
@@ -926,8 +917,8 @@ class TestPatchProject:
                     "李白": {
                         "description": "改后描述",
                         "voice_style": "沉稳",
-                        "character_sheet": "fake/agent_overwrite.png",  # 应被丢弃
-                        "random_extra_field": "noise",  # 应被丢弃
+                        "character_sheet": "fake/agent_overwrite.png",
+                        "random_extra_field": "noise",
                     }
                 },
             },
@@ -936,8 +927,8 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 Agent 覆写
-        assert "random_extra_field" not in char  # spec 外字段不入库
+        assert char["character_sheet"] == "characters/li_bai.png"
+        assert "random_extra_field" not in char
 
     async def test_upsert_strips_reference_audio(self, ctx: ToolHarness) -> None:
         """reference_audio 与 reference_image 同性质（用户上传路径），不进
@@ -963,14 +954,14 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "改后描述",
-                        "reference_audio": "fake/agent_overwrite.wav",  # 应被丢弃
+                        "reference_audio": "fake/agent_overwrite.wav",
                     }
                 },
             },
         )
         assert out.problem is None
         char = ctx.pm.load_project("demo")["characters"]["李白"]
-        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 Agent 覆写
+        assert char["reference_audio"] == "characters/refs_audio/李白.wav"
 
     async def test_non_string_description_rejected(self, ctx: ToolHarness) -> None:
         """description 必须是字符串：Agent 误传数字（如 LLM 把"1"输出成 int）
@@ -1009,7 +1000,6 @@ class TestPatchProject:
             },
         )
         assert out.problem is not None
-        # 任何一个版本都不应入库（mutation 在校验阶段就 raise，不落盘）
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_upsert_strips_reference_image_field(self, ctx: ToolHarness) -> None:
@@ -1017,17 +1007,14 @@ class TestPatchProject:
         agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 Agent
         覆写用户已上传的角色参考图。更新走专用 API update_character_reference_image。
         validator 维度的 extra_string_fields 仍保留 reference_image 用于类型校验。"""
-        # 先 upsert 一个干净 entry
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟用户通过 WebUI 上传参考图
         ctx.pm.update_character_reference_image("demo", "李白", "characters/refs/li_bai.jpg")
         assert ctx.pm.load_project("demo")["characters"]["李白"]["reference_image"] == "characters/refs/li_bai.jpg"
 
-        # Agent 尝试改描述时顺带覆写 reference_image——应被丢弃
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1037,7 +1024,7 @@ class TestPatchProject:
                     "李白": {
                         "description": "改后描述",
                         "voice_style": "沉稳",
-                        "reference_image": "",  # 应被白名单过滤掉
+                        "reference_image": "",
                     }
                 },
             },
@@ -1046,7 +1033,6 @@ class TestPatchProject:
         char = ctx.pm.load_project("demo")["characters"]["李白"]
         assert char["description"] == "改后描述"
         assert char["voice_style"] == "沉稳"
-        # 用户上传的 reference_image 不被 Agent 覆写
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
 
     async def test_product_upsert_selling_points_editable(self, ctx: ToolHarness) -> None:
@@ -1141,8 +1127,8 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "白衣剑客",
-                        "reference_image": "x.jpg",  # 系统管理,应被忽略
-                        "character_sheet": "y.jpg",  # 资产流水线回写,应被忽略
+                        "reference_image": "x.jpg",
+                        "character_sheet": "y.jpg",
                     }
                 },
             },
@@ -1156,13 +1142,11 @@ class TestPatchProject:
         """已存在的 entry,Agent 提交的全部字段都被白名单/legacy strip 丢空时,
         cleaned[name]={} → bucket.update({}) 是 no-op。工具应明确报『无可写字段已跳过』,
         不应误报『合并改字段 1 个』让 Agent 以为有变更。"""
-        # 先建一个干净 entry
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
         )
-        # 再提交一个只有被丢字段的 patch(reference_image 系统管理 / type 历史字段)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1173,10 +1157,8 @@ class TestPatchProject:
         )
         assert out.problem is None
         text = _said(out)
-        # 不报 merged,应报 noop / 无可写字段
         assert "合并改字段" not in text
         assert "无可写字段已跳过" in text or "无变更" in text
-        # 描述未被改写,仍为原值
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
 
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolHarness) -> None:
@@ -1189,8 +1171,8 @@ class TestPatchProject:
                 "entries": {
                     "李白": {
                         "description": "白衣剑客",
-                        "type": "主角",  # 历史字段,应被剔除
-                        "importance": "high",  # 历史字段,应被剔除
+                        "type": "主角",
+                        "importance": "high",
                     }
                 },
             },
@@ -1501,7 +1483,6 @@ class TestPatchProjectNarrationSettings:
     async def test_invalid_narration_speed_rejected(self, ctx: ToolHarness, bad: Any) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": bad}})
         assert out.problem is not None
-        # 超出 float 范围的巨大整数同样收到清晰的校验文案，而非底层溢出信息
         assert "narration_speed 必须是正的有限数值" in _said(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 
@@ -1566,7 +1547,7 @@ class TestPatchProjectOverview:
         assert out.problem is None
         ov = ctx.pm.load_project("demo")["overview"]
         assert ov["genre"] == "悬疑"
-        assert ov["synopsis"] == "原始梗概"  # 未传字段保留
+        assert ov["synopsis"] == "原始梗概"
 
     async def test_creates_overview_when_absent(self, ctx: ToolHarness) -> None:
         assert "overview" not in ctx.pm.load_project("demo")
@@ -1678,7 +1659,6 @@ class TestPatchProjectBriefSetting:
     async def test_non_string_brief_rejected(self, ad_ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ad_ctx, {"settings": {"brief": 42}})
         assert out.problem is not None
-        # 创建时写入的 brief=""（可空）不被非法写入污染
         assert ad_ctx.pm.load_project("ad-demo")["brief"] == ""
 
 

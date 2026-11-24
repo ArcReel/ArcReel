@@ -42,7 +42,6 @@ def _valid_script(segments: list[dict] | None = None) -> dict:
 
 
 def _invalid_script() -> dict:
-    # 缺 summary/novel，image_prompt/video_prompt 形状错 —— 结构非法
     return {
         "episode": 1,
         "title": "标题",
@@ -65,7 +64,6 @@ class TestNoWorseSemantics:
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
-            # 把合法 segment 的 duration 改成越界值
             script["segments"][0]["duration_seconds"] = 999
 
     def test_invalid_to_invalid_is_allowed(self, tmp_path: Path):
@@ -73,7 +71,6 @@ class TestNoWorseSemantics:
         pm = _pm(tmp_path)
         pm.save_script("demo", _invalid_script(), "episode_1.json", validate=False)
 
-        # 在本就非法的旧剧本上做一次合法编辑（改 title），不应被拦
         with pm.locked_script("demo", "episode_1.json") as script:
             script["title"] = "新标题"
 
@@ -95,7 +92,6 @@ class TestNoWorseSemantics:
         with pytest.raises(ScriptStructureValidationError):
             pm.save_script("demo", _invalid_script(), "episode_1.json")
 
-        # 拒绝后文件不应落盘
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_1.json").exists()
 
@@ -112,7 +108,6 @@ class TestValidateDefaultsOn:
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
-        # locked_script 不传 validate
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
             script["segments"][0]["video_prompt"] = 123
 
@@ -277,12 +272,10 @@ class TestAssetWritebackExemption:
         pm = _pm(tmp_path)
         self._seed_corrupted_null_video_units(tmp_path)
 
-        # 非结构性变更走 validate=False（资产回写热路径）
         with pm.locked_script("demo", "episode_1.json", validate=False) as script:
             script["generated_assets_demo"] = "anything"
 
         saved = pm.load_script("demo", "episode_1.json")
-        # 旧 metadata 完全保留（除 updated_at 必然刷新外）
         assert saved["metadata"]["total_scenes"] == 5
         assert saved["metadata"]["estimated_duration_seconds"] == 40
         assert saved.get("generated_assets_demo") == "anything"
@@ -314,7 +307,6 @@ class TestAssetWritebackExemption:
         """读取侧容错：列表内 item 缺 generated_assets 字段（结构脏数据但列表本身完好）时
         不应抛 KeyError，按"未生成"算进 pending——与 get_scenes_needing_storyboard 的容错对齐。"""
         pm = _pm(tmp_path)
-        # 直接落盘：segments 是合法 list，但内部 item 缺 generated_assets
         script_dir = tmp_path / "projects" / "demo" / "scripts"
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "episode_1.json").write_text(
@@ -323,7 +315,6 @@ class TestAssetWritebackExemption:
             '"novel": {"title": "n", "chapter": "c"}, "summary": ""}',
             encoding="utf-8",
         )
-        # 不应抛 KeyError；item 缺字段 → pending（含进结果）
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
         assert result[0]["segment_id"] == "E1S01"
@@ -373,7 +364,6 @@ class TestAssetWritebackExemption:
         )
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
-        # 同样 get_scenes_needing_storyboard 也容错
         result2 = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
         assert len(result2) == 1
 

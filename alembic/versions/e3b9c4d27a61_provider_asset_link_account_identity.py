@@ -33,7 +33,6 @@ _SCOPE = ["site", "region", "provider_project_name"]
 
 
 def _account_identity(site: str, access_key_id: str) -> str:
-    # 与 lib.asset_library.bindings.account_identity 保持一致；迁移冻结算法，不导入运行时代码。
     payload = json.dumps(
         {"domain": "arcreel/asset-library-account/v1", "site": site, "access_key_id": access_key_id.strip()},
         sort_keys=True,
@@ -86,7 +85,6 @@ def upgrade() -> None:
     with op.batch_alter_table(_TABLE, table_kwargs={"sqlite_autoincrement": True}) as batch_op:
         batch_op.alter_column("account_identity", existing_type=sa.String(length=64), nullable=False)
 
-    # 同一云账号若被登记成多条账号记录，旧键允许各有一条选定记录；按身份合并后只保留最新的一条。
     conn.execute(
         sa.text(
             f"UPDATE {_TABLE} SET selected = :false, unlinked_at = CURRENT_TIMESTAMP "
@@ -105,7 +103,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(_SELECTED_INDEX, table_name=_TABLE)
-    # 同一账号记录换 Key 前后可以各有一条选定记录；回到按账号记录 ID 的键时只保留最新的一条。
     conn = op.get_bind()
     conn.execute(
         sa.text(

@@ -11,7 +11,6 @@ from arcreel_market_core.endpoint_definition import definition_media_type, valid
 from .index import ENDPOINT_ENTRY_TYPE, MarketIndexEntry
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, join_path
 
-#: 从定义 ``meta`` 投影进索引条目的字段，顺序即生成器写出的顺序。
 PROJECTED_META_FIELDS = ("name", "author", "version", "description", "homepage", "min_app_version")
 
 

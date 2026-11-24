@@ -1,25 +1,4 @@
 #!/usr/bin/env bash
-# round.sh — per-PR round ledger for the review loop. One entry per disposed batch of
-# reviewer feedback: a fix push, or a batch answered entirely by pushback (no push).
-#
-# USAGE
-#   bash round.sh --repo-root <path> <PR_NUMBER> mark --implemented <n> --pushback <n> [--note "<one sentence>"]
-#   bash round.sh --repo-root <path> <PR_NUMBER> show
-#
-# LEDGER
-#   <snapshot>.rounds.json beside poll.sh's snapshot (same user-private dir and repo/PR
-#   naming), shape {pr, rounds: [{round, head, marked_at, implemented, pushback, note}]}.
-#   Append-only within a PR: round = entries so far + 1, head = PR head at mark time (a
-#   pushback-only round repeats the previous head). poll.sh surfaces the entry count as
-#   `rounds` in its index, so the ledger survives context compaction and looper hand-offs.
-#   What counts as a round is defined once, in SKILL.md「推进循环」.
-#
-# OUTPUT
-#   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry.
-#         The triage and convergence reminder lives in poll.sh's `triage_hint`, shown when a
-#         new batch arrives — before it is judged, not after it is disposed.
-#   show: the whole ledger ({pr, rounds: []} when nothing is marked yet).
-#   Errors are loud: non-zero exit + `ROUND_ERROR:` on stderr.
 
 set -euo pipefail
 
@@ -99,8 +78,6 @@ case "$CMD" in
     }
     MARKED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    # Every write, the first included, lands via mktemp + mv so the ledger is never
-    # observed half-written; a missing ledger is synthesised in-stream instead.
     TMP_FILE=$(mktemp "$SNAP_DIR/rounds.XXXXXX")
     trap 'rm -f "$TMP_FILE"' EXIT
     if [[ -f "$LEDGER_FILE" ]]; then

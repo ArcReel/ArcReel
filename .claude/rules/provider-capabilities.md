@@ -18,4 +18,4 @@ paths:
 
 # 供应商能力与契约
 
-修改 provider、endpoint、供应商 API 契约、能力、参数约束或计费前，先读 `docs/api-docs/AGENTS.md`，并同步对应官方文档索引。
+改供应商、调用端点、供应商 API 契约、能力、参数约束或计费前，读[供应商文档索引规则](../../docs/api-docs/AGENTS.md)，按需更新官方来源与代码入口。
