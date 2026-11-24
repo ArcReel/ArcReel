@@ -52,11 +52,18 @@ export function AssetOriginalsField({
       ? t("assets:original_replace")
       : t("assets:original_upload");
 
+  const rejectIfImageBusy = () =>
+    assetType === "character" && rejectIfAssetBusy("image", assetType, projectName, name, t, "assets:gallery_busy_hint");
+
+  const openFilePicker = () => {
+    if (!busy && !uploading && !rejectIfImageBusy()) inputRef.current?.click();
+  };
+
   const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0 || busy || uploading) return;
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
+    if (rejectIfImageBusy()) return;
     setUploading(true);
     let uploaded = 0;
     try {
@@ -112,7 +119,7 @@ export function AssetOriginalsField({
       ) : readOnly ? null : (
         <button
           type="button"
-          onClick={() => inputRef.current?.click()}
+          onClick={openFilePicker}
           disabled={disabled}
           className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -122,7 +129,7 @@ export function AssetOriginalsField({
       )}
       {readOnly || urls.length === 0 ? null : (
         <div>
-          <Button variant="outline" size="sm" onClick={() => inputRef.current?.click()} disabled={disabled}>
+          <Button variant="outline" size="sm" onClick={openFilePicker} disabled={disabled}>
             {uploadIcon}
             {uploadLabel}
           </Button>

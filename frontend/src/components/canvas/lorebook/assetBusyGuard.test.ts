@@ -11,7 +11,7 @@ describe("isAssetBusy", () => {
       tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" })],
     });
 
-    expect(isAssetBusy("character_derivative", "demo", "林夕/战斗装")).toBe(true);
-    expect(isAssetBusy("character_derivative", "demo", "苏白/战斗装")).toBe(false);
+    expect(isAssetBusy("derivative_image", "character", "demo", "林夕/战斗装")).toBe(true);
+    expect(isAssetBusy("derivative_image", "character", "demo", "苏白/战斗装")).toBe(false);
   });
 });

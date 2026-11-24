@@ -24,7 +24,7 @@ import type { CharacterVoiceBinding } from "@/types";
 import { errMsg } from "@/utils/async";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 
@@ -115,16 +115,24 @@ export function CharacterVoiceField({
   const track = useTrackWrite();
   const audioFp = useProjectsStore((s) => (referenceAudio ? s.getAssetFingerprint(referenceAudio) : null));
   const audioUrl = referenceAudio ? API.getFileUrl(projectName, referenceAudio, audioFp) : null;
-  const disabled = busy || uploading || deleting;
+  const localBusy = busy || uploading || deleting;
+  const voiceBusy = useAssetBusy("voice", "character", projectName, name);
+  const disabled = localBusy || voiceBusy;
 
   const refresh = () =>
     track(refreshAfterWrite(projectName, t, { invalidateKeys: [buildEntityRevisionKey("character", name)] }));
+
+  const openFilePicker = () => {
+    if (!localBusy && !rejectIfAssetBusy("voice", "character", projectName, name, t, "dashboard:voice_sample_resource_busy")) {
+      inputRef.current?.click();
+    }
+  };
 
   const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || disabled) return;
-    if (rejectIfAssetBusy("character", projectName, name, t, "assets:gallery_busy_hint")) return;
+    if (rejectIfAssetBusy("voice", "character", projectName, name, t, "dashboard:voice_sample_resource_busy")) return;
     setUploading(true);
     try {
       await track(API.uploadFile(projectName, "character_audio_ref", file, name));
@@ -137,13 +145,13 @@ export function CharacterVoiceField({
   };
 
   const requestDelete = () => {
-    if (disabled || rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) return;
+    if (disabled || rejectIfAssetBusy("voice", "character", projectName, name, t, "assets:delete_audio_busy_hint")) return;
     setConfirmingDelete(true);
   };
 
   const executeDelete = async () => {
     if (disabled) return;
-    if (rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) {
+    if (rejectIfAssetBusy("voice", "character", projectName, name, t, "assets:delete_audio_busy_hint")) {
       setConfirmingDelete(false);
       return;
     }
@@ -169,7 +177,7 @@ export function CharacterVoiceField({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => inputRef.current?.click()}
+                onClick={openFilePicker}
                 disabled={disabled}
                 aria-label={t("assets:reference_audio_replace")}
               >
@@ -193,7 +201,7 @@ export function CharacterVoiceField({
         <>
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
+            onClick={openFilePicker}
             disabled={disabled}
             className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-3 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -210,7 +218,7 @@ export function CharacterVoiceField({
               key={JSON.stringify([projectName, name])}
               projectName={projectName}
               characterName={name}
-              busy={disabled}
+              busy={localBusy}
               onSaved={refresh}
             />
           </div>

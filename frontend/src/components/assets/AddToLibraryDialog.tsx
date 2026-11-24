@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isAssetBusy } from "@/components/canvas/lorebook/assetBusyGuard";
+import { isAssetBusy, useAssetBusy } from "@/components/canvas/lorebook/assetBusyGuard";
 import { errMsg } from "@/utils/async";
 import type { AssetIdentity, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
@@ -67,6 +67,7 @@ export function AddToLibraryDialog({
   ...props
 }: Props & { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [submitting, setSubmitting] = useState(false);
+  const occupied = useAssetBusy("image", props.resourceType, props.projectName, props.resourceId);
 
   return (
     <Dialog
@@ -80,7 +81,7 @@ export function AddToLibraryDialog({
         <AddToLibraryForm
           key={`${props.resourceType}:${props.resourceId}`}
           {...props}
-          busy={busy}
+          busy={busy || occupied}
           submitting={submitting}
           setSubmitting={setSubmitting}
           onDone={() => onOpenChange(false)}
@@ -134,10 +135,11 @@ function AddToLibraryForm({
   }, [checkedName, resourceType]);
 
   const conflictAsset = getConflictAsset(trimmedName, lookup, submittedConflict);
+  const submitDisabled = busy || submitting;
 
   const submit = async (target?: AssetIdentity) => {
     if (!trimmedName || submitting) return;
-    if (busy || isAssetBusy(resourceType, projectName, resourceId)) {
+    if (busy || isAssetBusy("image", resourceType, projectName, resourceId)) {
       setError(t("add_to_library_busy_hint"));
       return;
     }
@@ -241,11 +243,11 @@ function AddToLibraryForm({
       <DialogFooter>
         <DialogClose render={<Button variant="outline" disabled={submitting} />}>{t("cancel")}</DialogClose>
         {conflictAsset && (
-          <Button variant="destructive" disabled={busy || submitting} onClick={() => void submit(conflictAsset)}>
+          <Button variant="destructive" disabled={submitDisabled} onClick={() => void submit(conflictAsset)}>
             {t("overwrite_existing")}
           </Button>
         )}
-        <Button disabled={!trimmedName || submitting || conflictAsset !== null} onClick={() => void submit()}>
+        <Button disabled={submitDisabled || !trimmedName || conflictAsset !== null} onClick={() => void submit()}>
           {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
           {t("confirm_import")}
         </Button>

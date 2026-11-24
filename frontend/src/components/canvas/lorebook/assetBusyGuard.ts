@@ -1,33 +1,65 @@
 import type { TFunction } from "i18next";
 import { useAppStore } from "@/stores/app-store";
-import { isResourceBusy, selectActiveResourceIds, useActiveResourceIds, useTasksStore, type ResourceKind } from "@/stores/tasks-store";
+import { selectActiveResourceIds, useTasksStore, type ResourceKind } from "@/stores/tasks-store";
+import type { AssetKind } from "@/types/reference-video";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 
-export function isAssetBusy(kind: ResourceKind, projectName: string, name: string): boolean {
-  if (isResourceBusy(kind, projectName, name)) return true;
-  if (kind === "character_derivative") {
-    const owner = name.split("/")[0];
-    return owner !== name && isAssetBusy("character", projectName, owner);
-  }
-  if (kind !== "character") return false;
-  const state = useTasksStore.getState();
-  return [...selectActiveResourceIds(state, "character_derivative", projectName)]
-    .some((id) => id.startsWith(`${name}/`));
+type AssetDimension = "image" | "derivative_image" | "voice" | "whole_asset";
+type TaskState = ReturnType<typeof useTasksStore.getState>;
+
+function derivativeParts(id: string) {
+  const [owner, derivative = ""] = id.split("/");
+  return [normalizeAssetName(owner), normalizeAssetName(derivative)] as const;
 }
 
-export function useAssetBusyNames(kind: ResourceKind, projectName: string): ReadonlySet<string> {
-  const own = useActiveResourceIds(kind, projectName);
-  const derivatives = useActiveResourceIds("character_derivative", kind === "character" ? projectName : null);
-  return new Set([...own, ...[...derivatives].map((id) => id.split("/")[0])]);
+function selectAssetBusy(
+  state: TaskState,
+  dimension: AssetDimension,
+  kind: AssetKind,
+  projectName: string,
+  name: string,
+): boolean {
+  const [owner, derivative] = dimension === "derivative_image"
+    ? derivativeParts(name)
+    : [normalizeAssetName(name), ""];
+  const hasOwner = (slot: ResourceKind) =>
+    [...selectActiveResourceIds(state, slot, projectName)].some((id) => normalizeAssetName(id) === owner);
+
+  if (dimension === "voice") return kind === "character" && hasOwner("voice_sample");
+  if (hasOwner(kind)) return true;
+  if (kind !== "character") return false;
+  if (dimension === "whole_asset" && hasOwner("voice_sample")) return true;
+
+  return [...selectActiveResourceIds(state, "character_derivative", projectName)].some((id) => {
+    const [activeOwner, activeDerivative] = derivativeParts(id);
+    return activeOwner === owner && (dimension !== "derivative_image" || activeDerivative === derivative);
+  });
+}
+
+export function isAssetBusy(dimension: AssetDimension, kind: AssetKind, projectName: string, name: string): boolean {
+  return selectAssetBusy(useTasksStore.getState(), dimension, kind, projectName, name);
+}
+
+export function useAssetBusy(
+  dimension: AssetDimension,
+  kind: AssetKind | undefined,
+  projectName: string,
+  name: string | undefined,
+): boolean {
+  return useTasksStore((state) =>
+    kind !== undefined && name !== undefined && selectAssetBusy(state, dimension, kind, projectName, name),
+  );
 }
 
 export function rejectIfAssetBusy(
-  kind: ResourceKind,
+  dimension: AssetDimension,
+  kind: AssetKind,
   projectName: string,
   name: string,
   t: TFunction,
   hintKey = "assets:upload_sheet_busy_hint",
 ): boolean {
-  if (!isAssetBusy(kind, projectName, name)) return false;
+  if (!isAssetBusy(dimension, kind, projectName, name)) return false;
   useAppStore.getState().pushToast(t(hintKey), "info");
   return true;
 }

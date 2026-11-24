@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { VERSION_RESOURCE, type GalleryAsset } from "./gallery-model";
 
 export interface AssetImageViewerProps {
@@ -58,7 +58,8 @@ export function AssetImageViewer({
   const asset = live ?? last;
   const previous = index > 0 ? assets[index - 1].name : undefined;
   const next = index >= 0 && index < assets.length - 1 ? assets[index + 1].name : undefined;
-  const busy = asset !== undefined && busyNames.has(asset.name);
+  const occupied = useAssetBusy("image", asset?.type, projectName, asset?.name);
+  const busy = occupied || (asset !== undefined && busyNames.has(asset.name));
 
   const [viewing, setViewing] = useState<number | null>(null);
   const [confirming, setConfirming] = useState<number | null>(null);
@@ -123,14 +124,14 @@ export function AssetImageViewer({
 
   const requestRestore = () => {
     if (!oldInfo || busy || restoring) return;
-    if (rejectIfAssetBusy(asset.type, projectName, asset.name, t, "assets:viewer_restore_busy_hint")) return;
+    if (rejectIfAssetBusy("image", asset.type, projectName, asset.name, t, "assets:viewer_restore_busy_hint")) return;
     setRestoreError(null);
     setConfirming(oldInfo.version);
   };
 
   const executeRestore = async (version: number) => {
     if (busy || restoring) return;
-    if (rejectIfAssetBusy(asset.type, projectName, asset.name, t, "assets:viewer_restore_busy_hint")) return;
+    if (rejectIfAssetBusy("image", asset.type, projectName, asset.name, t, "assets:viewer_restore_busy_hint")) return;
     setRestoring(true);
     setRestoreError(null);
     try {

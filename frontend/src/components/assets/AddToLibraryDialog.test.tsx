@@ -1,7 +1,8 @@
 import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { AssetGallery } from "@/components/canvas/lorebook/AssetGallery";
+import { seedTasks } from "@/test/task-state";
 import { makeTask } from "@/test/factories";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -154,9 +155,9 @@ describe("AddToLibraryDialog", () => {
 
     const dialog = await screen.findByRole("dialog");
     rerender(dialogFor(true));
-    await user.click(within(dialog).getByRole("button", { name: "加入资产库" }));
-
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("生成或编辑进行中，暂无法加入资产库");
+    const submit = within(dialog).getByRole("button", { name: "加入资产库" });
+    expect(submit).toBeDisabled();
+    await user.click(submit);
     expect(addSpy).not.toHaveBeenCalled();
   });
 });
@@ -187,7 +188,15 @@ it("keeps overwrite locked while an active asset task is outside the latest 200 
   await act(refreshTasks);
   expect(overwrite).toBeDisabled();
   rerender(dialogFor(false));
-  await userEvent.click(await screen.findByRole("button", { name: "覆盖已有" }));
+  const directOverwrite = await screen.findByRole("button", { name: "覆盖已有" });
+  expect(directOverwrite).toBeDisabled();
+  act(() => seedTasks([]));
+  expect(directOverwrite).toBeEnabled();
+  act(() => {
+    seedTasks([hero]);
+    expect(directOverwrite).toBeEnabled();
+    fireEvent.click(directOverwrite);
+  });
   expect(await screen.findByRole("alert")).toHaveTextContent("生成或编辑进行中");
   expect(add).not.toHaveBeenCalled();
   setRefreshScope(null);

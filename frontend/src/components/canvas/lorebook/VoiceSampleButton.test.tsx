@@ -394,10 +394,15 @@ describe("VoiceSampleButton", () => {
     });
   });
 
-  it("keeps an evicted sample available for playback and confirmation after unified lookup", async () => {
+  it("generates and confirms an evicted sample during character image generation", async () => {
     const { task } = mockVoiceSampleEnqueue();
     const { active, recent } = mockTaskRefresh();
-    active.mockResolvedValueOnce({ items: [task], truncated: false });
+    const imageTask = makeTask({
+      task_id: "character-image", project_name: "demo", task_type: "character",
+      media_type: "image", resource_id: "艾莉", status: "running",
+    });
+    active.mockResolvedValue({ items: [imageTask], truncated: false });
+    active.mockResolvedValueOnce({ items: [imageTask, task], truncated: false });
     recent.mockResolvedValueOnce({ items: [task], total: 1, page: 1, page_size: 200 });
     const lookup = vi.spyOn(API, "lookupTasks").mockResolvedValue({
       items: [{ ...task, status: "succeeded", result: { file_path: "audio/voice_sample__艾莉__task-1.wav" } }],
@@ -409,6 +414,7 @@ describe("VoiceSampleButton", () => {
     const onSaved = vi.fn();
     const { refreshTasks, setRefreshScope } = useTasksStore.getState();
     setRefreshScope({ projectName: "demo" });
+    seedTaskState({ tasks: [imageTask] });
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={onSaved} />);
     await openSampleModal();
     await submitSample();
@@ -423,7 +429,7 @@ describe("VoiceSampleButton", () => {
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "播放" })).toBeEnabled();
 
-    active.mockResolvedValueOnce({ items: [task], truncated: false });
+    active.mockResolvedValueOnce({ items: [imageTask, task], truncated: false });
     await act(refreshTasks);
     expect(screen.getByRole("button", { name: "确认并保存" })).toBeEnabled();
     await act(async () => {

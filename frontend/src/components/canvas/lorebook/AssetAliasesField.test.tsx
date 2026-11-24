@@ -81,7 +81,7 @@ describe("AssetAliasesField", () => {
     expect(useAppStore.getState().toast).toBeNull();
   });
 
-  it("retains the add form when a task occupies the asset before submission", async () => {
+  it("saves a text alias when a task occupies the asset before submission", async () => {
     const user = userEvent.setup();
     const update = stubSave();
     render(<AssetAliasesField projectName="p" name="村口" assetType="scene" aliases={[]} />);
@@ -89,9 +89,8 @@ describe("AssetAliasesField", () => {
     await user.type(await screen.findByLabelText("别名"), "槐树下");
     seedTaskState({ tasks: [makeTask({ project_name: "p", task_type: "scene", resource_id: "村口", status: "running" })] });
     await user.click(screen.getByRole("button", { name: "添加" }));
-    expect(update).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("别名")).toHaveValue("槐树下");
-    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
+    expect(update).toHaveBeenCalledWith("p", "村口", { aliases: ["槐树下"] });
+    expect(screen.queryByLabelText("别名")).not.toBeInTheDocument();
   });
 
   it("only lists aliases when read-only", () => {
