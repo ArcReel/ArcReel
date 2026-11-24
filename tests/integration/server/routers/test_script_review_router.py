@@ -122,6 +122,7 @@ def _admitted_drama_script_plan() -> dict:
     return plan
 
 
+@pytest.mark.usefixtures("video_request_facts")
 class TestScriptReviewRouter:
     def test_full_gate_flow(self, tmp_path, monkeypatch, video_request_facts):
         client, pm = _client(monkeypatch, tmp_path)
@@ -889,3 +890,83 @@ class TestReferenceVideoRouter:
             resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
             assert resp.status_code == 200
             assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"
+
+
+async def test_blocked_first_generation_and_regeneration_transaction(tmp_path, monkeypatch, video_request_facts):
+    from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
+    from tests.fakes import use_text_generator
+    from tests.integration.server.agent_tool_support import (
+        ToolHarness,
+        run_declared_tool,
+        rv_generator_returning,
+        rv_unit,
+    )
+
+    client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+    project_path = pm.get_project_path("demo")
+    pm.update_project("demo", lambda project: project["episodes"][0].update(source_origin="own"))
+    source = project_path / "source/episode_1.txt"
+    source.parent.mkdir(exist_ok=True)
+    source.write_text("山雨初歇。", encoding="utf-8")
+    url = "/api/v1/projects/demo/episodes/1/script-review"
+    ctx = ToolHarness("demo", pm.data_root, pm, config_resolver=cast(ConfigResolver, FakeConfigResolver()))
+    path = script_review.official_reference_script_plan_path(project_path, 1)
+    manifest = ProjectArtifactManifestAdapter(project_path)
+    key = ArtifactKey.episode_script_plan(1)
+
+    async def generate(text):
+        use_text_generator(monkeypatch, rv_generator_returning([rv_unit(text, source_text="山雨初歇。")]))
+        return await generate_reference_script_plan(
+            TextGenerationRequest(episode=1),
+            project_name="demo",
+            projects=pm,
+            config_resolver=ctx.services.capabilities,
+        )
+
+    def snapshot():
+        return path.read_bytes(), manifest.get_entry(key), script_review.stored_review(pm.load_project("demo"), 1)
+
+    bad = "@[未登记] 出场"
+    good = "天光微亮"
+    first = await generate(bad)
+    assert first.blocking_issues[0]["code"] == "unregistered_asset"
+    assert manifest.get_entry(key) is not None
+    assert not list(path.parent.glob("*.invalid.json"))
+    state = client.get(url).json()
+    agent = await run_declared_tool("get_script_plan_content", ctx, {"episode_id": 1})
+    assert agent.problem is None
+    assert agent.value.revision == state["revision"]
+    assert [i["code"] for i in state["blocking_issues"]] == [i["code"] for i in agent.value.blocking_issues]
+    assert client.post(f"{url}/confirm").status_code == 422
+    pending = snapshot()
+    with pytest.raises(TextGenerationError, match="原规划"):
+        await generate(bad)
+    assert snapshot() == pending
+
+    await generate(good)
+    assert client.post(f"{url}/confirm").json()["status"] == "confirmed"
+    confirmed = snapshot()
+    with pytest.raises(TextGenerationError, match="原规划"):
+        await generate(bad)
+    assert snapshot() == confirmed
+    pm.update_project(
+        "demo", lambda project: script_review.mark_ledger_stale(project_path, project, project["episodes"][0], 1)
+    )
+    with monkeypatch.context() as fault:
+
+        def fail_registration(*args, **kwargs):
+            raise OSError("injected registration failure")
+
+        fault.setattr("lib.artifacts.artifact_activation.register_current_artifact", fail_registration)
+        with pytest.raises(TextGenerationError, match="injected registration failure"):
+            await generate("雨停了")
+    assert snapshot() == confirmed
+    assert script_review.STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD not in pm.load_project("demo")["episodes"][0]
+    await generate(good)
+    assert path.read_bytes() == confirmed[0]
+    assert client.get(url).json()["status"] == "confirmed"
+    assert (
+        pm.load_project("demo")["episodes"][0][script_review.STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD]
+        == confirmed[2]["fingerprint"]
+    )

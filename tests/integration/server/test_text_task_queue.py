@@ -1227,7 +1227,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
         ),
     ],
 )
-async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_running_to_its_refusal(
+async def test_cancel_during_first_blocked_plan_write_finishes_registration(
     tmp_path: Path,
     file_db_factory,
     monkeypatch,
@@ -1253,13 +1253,14 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
 
     use_text_generator(monkeypatch, create_generator)
     draft_path = quarantine_path(project_path, 1, quarantine_kind)
+    formal_path = draft_path.with_name(draft_path.name.replace(".invalid.json", ".json"))
     started = threading.Event()
     release = threading.Event()
     original_replace = os.replace
 
-    def blocking_replace(src, dst):
-        original_replace(src, dst)
-        if Path(dst) == draft_path and not started.is_set():
+    def blocking_replace(src, dst, **kwargs):
+        original_replace(src, dst, **kwargs)
+        if Path(dst) == formal_path and not started.is_set():
             started.set()
             release.wait()
 
@@ -1298,18 +1299,13 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     finally:
         await worker.stop()
 
-    assert task["status"] == "failed"
-    problem = problem_from_task_failure(task["error_message"])
-    assert problem.code == "draft_generation_invalid"
-    draft = read_quarantine(project_path, 1, quarantine_kind)
-    assert draft is not None
-    assert problem.params == {"count": len(draft.violations)}
-    assert "open_draft" in problem.detail
-    assert "base_revision" in problem.detail
+    assert task["status"] == "succeeded"
+    assert [issue["code"] for issue in task["result"]["blocking_issues"]] == ["unregistered_asset"]
+    assert formal_path.is_file()
+    assert not draft_path.exists()
     batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
     assert batch.done is True
-    assert batch.members[0].status == "failed"
-    assert draft_path.exists()
+    assert batch.members[0].status == "succeeded"
 
 
 @pytest.mark.usefixtures("video_request_facts")

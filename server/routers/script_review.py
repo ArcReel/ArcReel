@@ -48,8 +48,9 @@ async def _attach_duration_tiers(
     state["duration_tiers"] = await service.get_reference_duration_tiers(
         project_name, episode, units if isinstance(units, list) else ()
     )
-    for soft in state.get("soft_violations") or []:
-        soft["message"] = render_message(soft["code"], soft["params"], _t, names)
+    localize_draft_view(
+        {"violations": state.get("blocking_issues", []), "soft_violations": state.get("soft_violations", [])}, _t, names
+    )
     return state
 
 

@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from contextlib import nullcontext
+from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -30,7 +31,6 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
     episode_source_relpath,
 )
-from lib.episode.episode_sources import episode_entry
 from lib.episode.source_kinds import DEFAULT_SOURCE_KIND
 from lib.generation.video_request_facts import (
     VideoRequestFacts,
@@ -42,6 +42,7 @@ from lib.generation.video_request_facts import (
 from lib.i18n import _ as translate
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import prefixed_sha256_file
+from lib.infra.json_io import load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
@@ -57,9 +58,9 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
-    quarantine_and_report,
     quarantine_path,
     read_quarantine,
+    violation_entries,
 )
 from lib.script.draft_violation import DraftViolation
 from lib.script.plan_new_assets import (
@@ -85,10 +86,13 @@ from lib.script.script_models import (
     build_narration_script_plan_model,
     build_reference_units_script_plan_model,
 )
+from lib.script.script_plan_entries import ScriptPlanKind, entry_id_field, plan_variant
 from lib.script.script_plan_validation import (
     EpisodePlanSource,
     ReferenceSplitCaps,
+    ScriptPlanValidation,
     SoftViolation,
+    read_episode_plan_source,
     validate_script_plan,
 )
 from lib.script.script_skeleton import resolve_kind_items
@@ -100,7 +104,6 @@ from lib.workflow.operation_admission import (
     admit_ad_script,
     admit_author_prompts,
     admit_script_plan,
-    episode_source_present,
 )
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.tasks.video_caps import reference_request_facts_lookup, storyboard_request_facts
@@ -150,6 +153,7 @@ class TextGenerationResult:
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
     no_pending_authoring: bool = False
+    blocking_issues: list[dict[str, Any]] = dataclass_field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -248,76 +252,160 @@ def _assert_draft_revision(path: Path, expected: str | None) -> None:
     actual = _draft_file_revision(path)
     if actual != expected:
         raise TextGenerationError(
-            f"draft_revision_conflict: draft changed during generation; expected {expected}, actual {actual}"
+            f"draft_revision_conflict: draft changed during generation; expected {expected}, actual {actual}。{_PRESERVED_PLAN}"
         )
 
 
-def _after_draft_revision_check[**P, T](
-    draft_path: Path,
-    expected: str | None,
-    func: Callable[P, T],
-    /,
-    *args: P.args,
-    **kwargs: P.kwargs,
-) -> T:
-    """草稿修订校验与随后的写入放进同一次线程调用，二者之间不让出事件循环。"""
-    _assert_draft_revision(draft_path, expected)
-    return func(*args, **kwargs)
+_PRESERVED_PLAN = "原规划已保留，可继续编辑或调整指令后重新生成。"
 
 
-def _quarantine_formal_generation_conflict(
-    project_path: Path,
-    episode: int,
-    kind: str,
-    content: dict[str, Any],
-    source: str | None,
-    expected: str | None,
-    actual: str | None,
-) -> str:
-    return quarantine_and_report(
-        project_path,
-        episode,
-        kind,
-        content=content,
-        violations=[
-            DraftViolation(
-                f"正式内容在模型生成期间已变化（expected {expected}, actual {actual}）；"
-                "本次生成结果已保留为草稿，请合并最新正式内容后再晋升",
-                code="formal_revision_conflict",
-                params={},
-            )
-        ],
-        meta={"source": source, "base_fingerprint": expected},
+def _generation_issues(issues: list[DraftViolation], baseline: str | None) -> str:
+    if not issues:
+        return ""
+    report = "\n确认阻断项：\n" + "\n".join(f"- [{issue.code}] {issue}" for issue in issues)
+    if baseline is not None:
+        raise TextGenerationError(f"{_PRESERVED_PLAN}{report}")
+    return report
+
+
+PlanCapabilities = list[int] | ReferenceSplitCaps | VideoRequestFactsFailure | None
+
+
+def plan_capability_inputs(project: Mapping[str, Any]) -> tuple[object, ...]:
+    return tuple(
+        project.get(key)
+        for key in (
+            "content_mode",
+            "generation_mode",
+            "video_backend",
+            "video_provider_i2v",
+            "video_provider_r2v",
+            "model_settings",
+            "video_model_settings",
+            "video_generate_audio",
+            "default_duration",
+        )
     )
 
 
-def _commit_generated_reference_script_plan(
+async def resolve_plan_capabilities(project: dict[str, Any], resolver: ConfigResolver | None) -> PlanCapabilities:
+    try:
+        if script_review.script_plan_kind(project) == "reference_video":
+            return await fetch_reference_split_caps(project, config_resolver=resolver)
+        if script_review.script_plan_kind(project) is not None:
+            return (await fetch_storyboard_durations(project, config_resolver=resolver))[1]
+    except VideoRequestFactsError as exc:
+        return exc.failure
+    return None
+
+
+def _retain_ids_for_identical_plan(path: Path, content: dict[str, Any], kind: ScriptPlanKind) -> None:
+    key = plan_variant(kind).plan_items_key
+    previous = load_json_or_none(path)
+    id_field = entry_id_field(kind)
+    old = previous.get(key) if isinstance(previous, dict) else None
+    if (
+        isinstance(old, list)
+        and len(old) == len(content[key])
+        and all(isinstance(item, dict) and isinstance(item.get(id_field), str) for item in old)
+    ):
+        same_ids = [item | {id_field: prior[id_field]} for item, prior in zip(content[key], old, strict=True)]
+        if content | {key: same_ids} == previous:
+            content[key][:] = same_ids
+
+
+async def _commit_generated_plan(
+    projects: ProjectManager,
+    project_name: str,
     project_path: Path,
     episode: int,
+    kind: ScriptPlanKind,
     content: dict[str, Any],
-    expected_fingerprint: str | None,
+    project: dict[str, Any],
+    source: EpisodePlanSource,
+    capabilities: PlanCapabilities,
+    resolver: ConfigResolver,
+    draft_baseline: str | None,
+    formal_baseline: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
-) -> None:
-    if before_commit is not None:
-        before_commit()
-    draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
-    prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-    formal_path = script_review.official_reference_script_plan_path(project_path, episode)
-    pm = ProjectManager.for_project_dir(project_path)
-    with (
-        pm.file_lock(prompt_authoring_path),
-        script_review.script_plan_write_lock(project_path, episode),
-        formal_write_transaction(formal_path, prompt_authoring_path, draft_path),
-    ):
-        script_review.write_script_plan_locked(
-            project_path,
-            episode,
-            content,
-            expected_fingerprint=expected_fingerprint,
-            basis=basis,
+) -> tuple[ScriptPlanValidation, str]:
+    capability_inputs = plan_capability_inputs(project)
+    if formal_baseline is not None:
+        latest = await asyncio.to_thread(projects.load_project, project_name)
+        capability_inputs = plan_capability_inputs(latest)
+        capabilities = await resolve_plan_capabilities(latest, resolver)
+
+    def commit() -> tuple[ScriptPlanValidation, str]:
+        path = script_review.script_plan_path(project_path, project, episode)
+        draft = script_review.script_plan_quarantine_path(project_path, project, episode)
+        assert path is not None
+        assert draft is not None
+        pm = ProjectManager.for_project_dir(project_path)
+        dependent = (
+            quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
+            if kind == "reference_video"
+            else None
         )
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
+        if before_commit:
+            before_commit()
+        with (
+            pm.file_lock(draft),
+            pm.file_lock(dependent) if dependent else nullcontext(),
+            script_review.formal_script_plan_lock(project_path, episode, path),
+        ):
+            _assert_draft_revision(draft, draft_baseline)
+            try:
+                script_review.assert_base_fingerprint(path, formal_baseline)
+            except script_review.ScriptPlanWriteConflict as exc:
+                raise TextGenerationError(f"formal_revision_conflict: {exc}。{_PRESERVED_PLAN}") from exc
+            key = plan_variant(kind).plan_items_key
+            if formal_baseline is not None:
+                current = projects.load_project(project_name)
+                if (
+                    plan_capability_inputs(current) != capability_inputs
+                    or script_review.script_plan_kind(current) != kind
+                ):
+                    raise TextGenerationError(f"视频模型配置已变化。{_PRESERVED_PLAN}")
+                validation_source = read_episode_plan_source(project_path, current, episode)
+                if validation_source.text is None and validation_source.problem is None:
+                    raise TextGenerationError(f"本集缺少原文。{_PRESERVED_PLAN}")
+                _retain_ids_for_identical_plan(path, content, kind)
+            else:
+                current = project
+                validation_source = source
+            validation = validate_script_plan(
+                kind,
+                content,
+                project=current,
+                project_path=project_path,
+                episode=episode,
+                source=validation_source,
+                capabilities=capabilities,
+            )
+            report = _generation_issues(validation.blocking_issues, formal_baseline)
+            if kind == "drama":
+                for issue in validation.blocking_issues:
+                    if issue.reason is not None and issue.item_index is not None:
+                        content[key][issue.item_index]["needs_replan"] = True
+            try:
+                script_review.write_formal_script_plan_locked(
+                    project_path,
+                    episode,
+                    path,
+                    content,
+                    expected_fingerprint=formal_baseline,
+                    basis=basis,
+                    dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if dependent else None,
+                    generated_from=project,
+                )
+            except Exception as exc:
+                if formal_baseline is not None:
+                    raise UnexpectedTextGenerationError(f"{exc}。{_PRESERVED_PLAN}") from exc
+                raise
+            return validation, report
+
+    return await run_sync_transaction(commit)
 
 
 def plan_item_ids(path: Path) -> list[str]:
@@ -391,26 +479,6 @@ def commit_single_script_plan(
             basis=basis,
         )
         clear_quarantine(project_path, episode, kind)
-
-
-def _quarantine_invalid_script_plan_generation(
-    project_path: Path,
-    episode: int,
-    kind: str,
-    content: dict[str, Any],
-    violations: list[DraftViolation],
-    source: str | None,
-    base_fingerprint: str | None,
-) -> str:
-    with formal_write_transaction(quarantine_path(project_path, episode, kind)):
-        return quarantine_and_report(
-            project_path,
-            episode,
-            kind,
-            content=content,
-            violations=violations,
-            meta={"source": source or None, "base_fingerprint": base_fingerprint},
-        )
 
 
 def _instructions(value: Any) -> str | None:
@@ -540,10 +608,16 @@ def load_script_plan_source_with_basis(
     project: dict[str, Any],
     episode: int,
     expected_variant: ScriptPlanPromptVariant,
+    *,
+    legacy_draft: bool = False,
 ) -> tuple[str, dict[str, object], ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a script_plan request."""
 
-    novel_text = load_novel_source(project_path, source, episode=episode)
+    novel_text = (
+        load_novel_source(project_path, source, episode=episode)
+        if legacy_draft
+        else _canonical_plan_source(project_path, project, episode, source)
+    )
     prompt_inputs, basis = build_script_plan_request(
         novel_text,
         episode=episode,
@@ -697,14 +771,25 @@ def prompt_authoring_preflight(
 
 
 def script_plan_preflight(project_path: Path, project: Mapping[str, Any], episode: int, source: str | None) -> None:
-    """AI 规划脚本的准入：本集有集原文（按账本记录的来源判定）。显式指定源文件时以该文件为输入，由生成时校验。"""
-    has_source = source is not None or episode_source_present(project_path, episode, episode_entry(project, episode))
+    _canonical_plan_source(project_path, project, episode, source)
+
+
+def _canonical_plan_source(project_path: Path, project: Mapping[str, Any], episode: int, source: str | None) -> str:
+    canonical = episode_source_relpath(episode)
+    if source is not None and source != canonical:
+        raise TextGenerationError(f"source 仅接受本集规范集原文路径 {canonical}")
+    current = read_episode_plan_source(project_path, project, episode)
     require_admitted(
         "prepare_script_plan",
-        admit_script_plan(project.get("content_mode", "narration"), episode_source=has_source),
+        admit_script_plan(project.get("content_mode", "narration"), episode_source=current.path is not None),
         episode=episode,
         detail=translate("operation_episode_source_location", path=episode_source_relpath(episode)),
     )
+
+    if current.problem:
+        raise TextGenerationError(str(current.problem))
+    assert current.text is not None
+    return current.text
 
 
 def _load_project_context(projects: ProjectManager, project_name: str) -> tuple[Path, dict[str, Any]]:
@@ -897,6 +982,7 @@ async def generate_drama_script_plan(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path, project = await asyncio.to_thread(_load_project_context, projects, project_name)
+    formal_baseline: str | None = None
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
             load_script_plan_source_with_basis,
@@ -964,77 +1050,33 @@ async def generate_drama_script_plan(
         await reissue_plan_item_ids(projects, project_name, episode, content)
         content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
-        validation = await asyncio.to_thread(
-            validate_script_plan,
+        validation, report = await _commit_generated_plan(
+            projects,
+            project_name,
+            project_path,
+            episode,
             "drama",
             content,
-            project=project,
-            project_path=project_path,
-            episode=episode,
-            source=EpisodePlanSource(novel_text, request.source),
-            capabilities=supported_durations,
+            project,
+            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
+            supported_durations,
+            config_resolver,
+            draft_baseline,
+            formal_baseline,
+            script_plan_basis,
         )
-        violations: list[DraftViolation] = []
-        for issue in validation.blocking_issues:
-            if issue.reason is not None and issue.item_index is not None:
-                raw_scenes[issue.item_index]["needs_replan"] = True
-            elif issue.code != "source_text_not_verbatim":
-                violations.append(issue)
-        if violations:
-            async with draft_locks.async_file_lock(draft_path):
-                report = await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    _quarantine_invalid_script_plan_generation,
-                    project_path,
-                    episode,
-                    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-                    content,
-                    violations,
-                    request.source,
-                    formal_baseline,
-                )
-            raise DraftQuarantinedError(report, len(violations))
-
-        async with draft_locks.async_file_lock(draft_path):
-            try:
-                await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    commit_single_script_plan,
-                    project_path,
-                    episode,
-                    script_plan_path,
-                    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-                    content,
-                    formal_baseline,
-                    script_plan_basis,
-                )
-            except script_review.ScriptPlanWriteConflict as exc:
-                raise TextGenerationError(
-                    await run_sync_transaction(
-                        _quarantine_formal_generation_conflict,
-                        project_path,
-                        episode,
-                        QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-                        content,
-                        request.source,
-                        formal_baseline,
-                        exc.actual,
-                    )
-                ) from exc
-
         return TextGenerationResult(
             drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes, action="生成")
+            + report,
+            blocking_issues=violation_entries(validation.blocking_issues),
         )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        preserved = f"。{_PRESERVED_PLAN}" if formal_baseline is not None else ""
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}{preserved}") from exc
 
 
 async def fetch_reference_split_caps(
@@ -1198,6 +1240,7 @@ async def generate_reference_script_plan(
     instructions = _instructions(request.instructions)
     project_path, project = await asyncio.to_thread(_load_project_context, projects, project_name)
 
+    formal_baseline: str | None = None
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
             load_script_plan_source_with_basis,
@@ -1274,72 +1317,28 @@ async def generate_reference_script_plan(
         flat_units = flat["units"]
         new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
 
-        validation = await asyncio.to_thread(
-            validate_script_plan,
-            "reference_video",
-            with_new_assets({"units": flat_units}, new_assets),
-            project=project,
-            project_path=project_path,
-            episode=episode,
-            source=EpisodePlanSource(novel_text, request.source),
-            capabilities=split_caps,
-        )
-        violations = validation.blocking_issues
-        if violations:
-            soft_violations = render_soft_violation_lines(validation.soft_violations)
-            async with draft_locks.async_file_lock(draft_path):
-                report = await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    _quarantine_invalid_script_plan_generation,
-                    project_path,
-                    episode,
-                    QUARANTINE_KIND_SCRIPT_PLAN,
-                    with_new_assets({"units": flat_units}, new_assets),
-                    violations,
-                    request.source,
-                    formal_baseline,
-                )
-            raise DraftQuarantinedError(
-                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED),
-                len(violations),
-            )
-
         unit_ids = await run_sync_transaction(
             projects.reserve_item_ids, project_name, episode, "video_units", len(flat_units)
         )
         raw_units = build_reference_units_from_flat(flat_units, unit_ids=unit_ids)
-        soft_violations = render_soft_violation_lines(
-            [replace(issue, item_id=unit_ids[issue.item_index]) for issue in validation.soft_violations]
+        content = with_new_assets({"units": raw_units}, new_assets)
+        validation, report = await _commit_generated_plan(
+            projects,
+            project_name,
+            project_path,
+            episode,
+            "reference_video",
+            content,
+            project,
+            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
+            split_caps,
+            config_resolver,
+            draft_baseline,
+            formal_baseline,
+            script_plan_basis,
+            before_commit,
         )
-        async with draft_locks.async_file_lock(draft_path):
-            try:
-                await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    _commit_generated_reference_script_plan,
-                    project_path,
-                    episode,
-                    with_new_assets({"units": raw_units}, new_assets),
-                    formal_baseline,
-                    script_plan_basis,
-                    before_commit,
-                )
-            except script_review.ScriptPlanWriteConflict as exc:
-                raise TextGenerationError(
-                    await run_sync_transaction(
-                        _quarantine_formal_generation_conflict,
-                        project_path,
-                        episode,
-                        QUARANTINE_KIND_SCRIPT_PLAN,
-                        with_new_assets({"units": flat_units}, new_assets),
-                        request.source,
-                        formal_baseline,
-                        exc.actual,
-                    )
-                ) from exc
+        soft_violations = render_soft_violation_lines(validation.soft_violations)
         return TextGenerationResult(
             reference_result_text(
                 script_review.official_reference_script_plan_path(project_path, episode).relative_to(project_path),
@@ -1347,13 +1346,16 @@ async def generate_reference_script_plan(
                 soft_violations,
                 action="拆分",
             )
+            + report,
+            blocking_issues=violation_entries(validation.blocking_issues),
         )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        preserved = f"。{_PRESERVED_PLAN}" if formal_baseline is not None else ""
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}{preserved}") from exc
 
 
 async def generate_narration_script_plan(
@@ -1367,6 +1369,7 @@ async def generate_narration_script_plan(
     instructions = _instructions(request.instructions)
     project_path, project = await asyncio.to_thread(_load_project_context, projects, project_name)
 
+    formal_baseline: str | None = None
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
             load_script_plan_source_with_basis,
@@ -1437,69 +1440,30 @@ async def generate_narration_script_plan(
         await reissue_plan_item_ids(projects, project_name, episode, content)
         content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
-        validation = await asyncio.to_thread(
-            validate_script_plan,
+        validation, report = await _commit_generated_plan(
+            projects,
+            project_name,
+            project_path,
+            episode,
             "narration",
             content,
-            project=project,
-            project_path=project_path,
-            episode=episode,
-            source=EpisodePlanSource(novel_text, request.source),
-            capabilities=supported_durations,
+            project,
+            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
+            supported_durations,
+            config_resolver,
+            draft_baseline,
+            formal_baseline,
+            script_plan_basis,
         )
-        violations = validation.blocking_issues
-        if violations:
-            async with draft_locks.async_file_lock(draft_path):
-                report = await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    _quarantine_invalid_script_plan_generation,
-                    project_path,
-                    episode,
-                    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-                    content,
-                    violations,
-                    request.source,
-                    formal_baseline,
-                )
-            raise DraftQuarantinedError(report, len(violations))
-
-        async with draft_locks.async_file_lock(draft_path):
-            try:
-                await run_sync_transaction(
-                    _after_draft_revision_check,
-                    draft_path,
-                    draft_baseline,
-                    commit_single_script_plan,
-                    project_path,
-                    episode,
-                    script_plan_path,
-                    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-                    content,
-                    formal_baseline,
-                    script_plan_basis,
-                )
-            except script_review.ScriptPlanWriteConflict as exc:
-                raise TextGenerationError(
-                    await run_sync_transaction(
-                        _quarantine_formal_generation_conflict,
-                        project_path,
-                        episode,
-                        QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-                        content,
-                        request.source,
-                        formal_baseline,
-                        exc.actual,
-                    )
-                ) from exc
-
         return TextGenerationResult(
             narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments, action="拆分")
+            + report,
+            blocking_issues=violation_entries(validation.blocking_issues),
         )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        preserved = f"。{_PRESERVED_PLAN}" if formal_baseline is not None else ""
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}{preserved}") from exc

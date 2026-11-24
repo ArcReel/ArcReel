@@ -58,14 +58,13 @@ from tests.integration.server.agent_tool_support import (
     read_nr_quarantine,
     read_rv_quarantine,
     run_declared_tool,
-    run_rv_split,
     rv_project,
     rv_quarantine_path,
     rv_saved_unit,
     rv_script_plan_path,
     rv_source,
-    rv_unit,
     said,
+    seed_legacy_reference_draft,
     use_fake_caps,
     write_drama_script_plan,
     write_nr_script_plan,
@@ -136,7 +135,7 @@ async def test_open_draft_returns_existing_draft_without_clobbering(fake_ctx: To
     """已有草稿在场时不覆盖：那份草稿可能已含 Agent 未晋升的修改（或本就是待修复草稿），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     before = rv_quarantine_path(fake_ctx).read_text(encoding="utf-8")
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
 
@@ -801,6 +800,7 @@ async def test_formal_revision_matches_the_script_plan_content_and_workflow_plan
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
 
+    fake_ctx.pm = ProjectManager(fake_ctx.data_root)
     content = await run_declared_tool("get_script_plan_content", fake_ctx, {"episode_id": 1})
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
     status = WorkflowStateService(ProjectManager(fake_ctx.data_root)).get_status(fake_ctx.project_name, 1)
