@@ -1,10 +1,39 @@
 import type * as React from "react"
+import { useEffect, useRef } from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
 
-function InfoTip({ ...props }: PopoverPrimitive.Root.Props) {
-  return <Popover data-slot="info-tip" {...props} />
+type HoverOpenMode = "idle" | "hover" | "pinned"
+
+function InfoTip({ open, onOpenChange, ...props }: PopoverPrimitive.Root.Props) {
+  const hoverModeRef = useRef<HoverOpenMode>("idle")
+
+  useEffect(() => {
+    if (open === false) {
+      hoverModeRef.current = "idle"
+    }
+  }, [open])
+
+  function handleOpenChange(nextOpen: boolean, details: PopoverPrimitive.Root.ChangeEventDetails) {
+    if (!nextOpen && details.reason === "trigger-press" && hoverModeRef.current === "hover") {
+      hoverModeRef.current = "pinned"
+      details.cancel()
+      return
+    }
+
+    if (!nextOpen && details.reason === "trigger-hover" && hoverModeRef.current === "pinned") {
+      details.cancel()
+      return
+    }
+
+    onOpenChange?.(nextOpen, details)
+    if (!details.isCanceled) {
+      hoverModeRef.current = nextOpen && details.reason === "trigger-hover" ? "hover" : "idle"
+    }
+  }
+
+  return <Popover data-slot="info-tip" open={open} onOpenChange={handleOpenChange} {...props} />
 }
 
 function InfoTipTrigger({

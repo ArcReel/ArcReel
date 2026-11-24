@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
@@ -31,11 +32,43 @@ from lib.script.script_skeleton import SKELETONS
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import assets, usage
+from server.services.tasks.generation_context import reset_backend_cache_for_tests
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import bind_safe_session_factory, bind_session_factory, use_assets_router_sessions
 from tests.integration.server.agent_tool_support import CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
+
+
+@pytest.fixture
+def configure_storyboard_image_model(monkeypatch):
+    async def configure(sessions: async_sessionmaker[AsyncSession], limit: int) -> tuple[str, str]:
+        bind_session_factory(monkeypatch, sessions)
+        model_id = f"storyboard-limit-{limit}"
+        async with sessions() as session:
+            provider = CustomProvider(
+                display_name="Storyboard test provider",
+                discovery_format="openai",
+                base_url="https://storyboard.test/v1",
+                api_key="test-key",
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id=model_id,
+                    display_name=model_id,
+                    endpoint="openai-images",
+                    capability_overrides={"max_reference_images": limit},
+                )
+            )
+            await session.commit()
+        return f"{provider.provider_id}/{model_id}", model_id
+
+    reset_backend_cache_for_tests()
+    yield configure
+    reset_backend_cache_for_tests()
 
 
 class FakePM:

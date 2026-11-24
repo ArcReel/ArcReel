@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
+import pytest
+
+from lib.infra.async_thread import run_sync_transaction
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     activate_unbound_project,
@@ -46,6 +50,108 @@ async def test_generate_storyboards_happy(fake_ctx: ToolHarness) -> None:
 
     assert read_generation_result(out).succeeded == ["E1S01"]
     assert captured[0].payload["prompt"] == semantic_prompt
+
+
+@pytest.mark.parametrize(
+    "previous_state",
+    ["active", "chapter-break", "finished-during-probe", "finished-during-probe-missing-only", "already-available"],
+)
+async def test_generate_storyboards_previous_outside_requested_ids(
+    idle_fake_ctx: ToolHarness,
+    concurrent_session_factory,
+    configure_storyboard_image_model,
+    monkeypatch,
+    previous_state,
+) -> None:
+    ctx = idle_fake_ctx
+    model_key, model_id = await configure_storyboard_image_model(concurrent_session_factory, limit=4)
+    ctx.pm.project_payload["image_provider_i2i"] = model_key
+    first = ctx.pm.script_payload["segments"][0]
+    previous_assets = first["generated_assets"]
+    if previous_state != "already-available":
+        (ctx.project_path / previous_assets["storyboard_image"]).unlink()
+        first["generated_assets"] = {}
+    ctx.pm.script_payload["segments"].append(
+        dict(
+            first,
+            segment_id="E1S02",
+            generated_assets={},
+            products_in_shot=["保温杯"],
+            segment_break=previous_state == "chapter-break",
+        )
+    )
+    originals = [f"products/refs/cup_{n}.jpg" for n in range(3 if previous_state == "already-available" else 4)]
+    ctx.pm.project_payload["products"]["保温杯"]["reference_images"] = originals
+    (ctx.project_path / "products" / "refs").mkdir(parents=True)
+    for path in originals:
+        (ctx.project_path / path).write_bytes(b"reference")
+    previous = None
+    if previous_state != "already-available":
+        previous = await ctx.queue.enqueue_task(
+            project_name=ctx.project_name,
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            script_file="episode_1.json",
+            payload={"prompt": first["image_prompt"]},
+            source="webui",
+            user_id=ctx.caller.user_id,
+        )
+
+    if previous_state.startswith("finished-during-probe"):
+        assert previous is not None
+        task_id = previous["task_id"]
+        original_load = ctx.pm.load_script
+        original_probe = ctx.queue.get_active_tasks_for_resources
+        assert await ctx.queue.claim_next_task("image")
+
+        def commit_previous():
+            first["generated_assets"] = previous_assets
+            (ctx.project_path / previous_assets["storyboard_image"]).write_bytes(b"storyboard")
+            ctx.pm.mirror_to_disk()
+
+        async def probe(**kwargs):
+            await run_sync_transaction(commit_previous)
+            assert await ctx.queue.mark_task_succeeded(task_id, {"file_path": previous_assets["storyboard_image"]})
+            return await original_probe(**kwargs)
+
+        monkeypatch.setattr(ctx.pm, "load_script", lambda *args: deepcopy(original_load(*args)))
+        monkeypatch.setattr(ctx.queue, "get_active_tasks_for_resources", probe)
+
+    submitted = []
+
+    async def capture_batch(*, specs, **kwargs):
+        submitted.extend(spec.resource_id for spec in specs)
+        return await _succeed_every_spec(specs=specs, **kwargs)
+
+    arguments: dict[str, Any] = {"script": "episode_1.json"}
+    if previous_state != "finished-during-probe-missing-only":
+        arguments["segment_ids"] = ["E1S02"]
+    out = await run_declared_tool(
+        "generate_storyboards",
+        ctx,
+        arguments,
+        batch_waiter=capture_batch,
+    )
+
+    result = read_generation_result(out)
+    if previous_state in {"chapter-break", "already-available"}:
+        assert result.succeeded == submitted == ["E1S02"]
+        return
+    assert result.blocked == ["E1S02"]
+    problem = result.items[0].problem
+    assert problem is not None
+    assert problem.code == "image_reference_images_exceeded"
+    assert problem.params == {
+        "model": model_id,
+        "limit": 4,
+        "count": 5,
+        "names": "E1S01",
+        "previous_storyboard": "E1S01",
+    }
+    if previous_state == "finished-during-probe-missing-only":
+        assert [item.unit_id for item in result.skipped] == ["E1S01"]
+    assert submitted == []
 
 
 async def test_generate_storyboards_rejects_unbound_active_script_before_enqueue(fake_ctx: ToolHarness) -> None:
