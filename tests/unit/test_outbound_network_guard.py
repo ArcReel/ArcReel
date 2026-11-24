@@ -1,5 +1,4 @@
 import errno
-import os
 import socket
 from concurrent.futures import ThreadPoolExecutor
 
@@ -7,6 +6,7 @@ import httpx
 import pytest
 
 _BLOCKED = "Non-loopback network blocked"
+_UNIX_SOCKET_FAMILY = getattr(socket, "AF_UNIX", None)
 
 
 @pytest.mark.parametrize("method", ["connect", "connect_ex"])
@@ -33,6 +33,26 @@ def test_blocks_httpx_before_external_hostname_resolution(monkeypatch: pytest.Mo
         client.get("https://provider.invalid")
 
 
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [
+        ("gethostbyname", ("provider.invalid\0",)),
+        ("gethostbyname_ex", ("provider.invalid\0",)),
+        ("gethostbyaddr", ("203.0.113.10\0",)),
+        ("getnameinfo", (("203.0.113.10\0", 443), 0)),
+    ],
+)
+def test_blocks_external_socket_dns_before_native_argument_processing(method: str, args: tuple):
+    """Embedded NULs make native calls fail before DNS even if the guard regresses."""
+    with pytest.raises(AssertionError, match=_BLOCKED):
+        getattr(socket, method)(*args)
+
+
+def test_allows_numeric_reverse_lookup_without_dns():
+    address = ("203.0.113.10", 443)
+    assert socket.getnameinfo(address, socket.NI_NUMERICHOST | socket.NI_NUMERICSERV) == ("203.0.113.10", "443")
+
+
 async def test_blocks_async_httpx_before_external_socket_connection(monkeypatch: pytest.MonkeyPatch):
     connect = socket.socket.connect
     with socket.socket() as closed:
@@ -46,7 +66,14 @@ async def test_blocks_async_httpx_before_external_socket_connection(monkeypatch:
 
 @pytest.mark.parametrize(
     ("method", "payload"),
-    [("sendto", (b"test",)), ("sendmsg", ([b"test"], [], 0))],
+    [
+        ("sendto", (b"test",)),
+        pytest.param(
+            "sendmsg",
+            ([b"test"], [], 0),
+            marks=pytest.mark.skipif(not hasattr(socket.socket, "sendmsg"), reason="socket.sendmsg is unavailable"),
+        ),
+    ],
 )
 def test_blocks_non_loopback_datagram(method: str, payload: tuple):
     address = ("203.0.113.10", 443)
@@ -62,11 +89,21 @@ def test_blocks_non_loopback_datagram(method: str, payload: tuple):
         (socket.AF_INET, ("127.0.0.1", 1)),
         (socket.AF_INET, ("localhost", 1)),
         (socket.AF_INET6, ("::1", 1)),
-        (socket.AF_UNIX, "unused.sock"),
+        pytest.param(
+            _UNIX_SOCKET_FAMILY,
+            "unused.sock",
+            marks=pytest.mark.skipif(_UNIX_SOCKET_FAMILY is None, reason="socket.AF_UNIX is unavailable"),
+        ),
     ],
 )
 def test_allows_loopback_and_unix_socket_destinations(family: socket.AddressFamily, address):
     with socket.socket(family) as sock:
         sock.close()
-        with pytest.raises(OSError, match=os.strerror(errno.EBADF)):
+        with pytest.raises(
+            OSError,
+            check=lambda error: (
+                error.errno == errno.EBADF
+                or getattr(error, "winerror", None) == getattr(errno, "WSAENOTSOCK", errno.EBADF)
+            ),
+        ):
             sock.connect(address)
