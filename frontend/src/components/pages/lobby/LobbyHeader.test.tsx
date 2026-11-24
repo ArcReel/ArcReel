@@ -5,6 +5,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { LobbyHeader } from "@/components/pages/lobby/LobbyHeader";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { BRAND } from "@/branding";
 import i18n from "@/i18n";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 
@@ -44,15 +45,18 @@ describe("LobbyHeader", () => {
     const docsLink = screen.getByRole("link", { name: "使用文档" });
     const settingsLink = screen.getByRole("link", { name: "设置" });
 
-    expect(docsLink).toHaveAttribute("href", "https://docs.arc-reel.com/");
+    expect(docsLink).toHaveAttribute("href", `${BRAND.docsUrl}/`);
     expect(docsLink).toHaveAttribute("target", "_blank");
     expect(docsLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(docsLink.nextElementSibling).toBe(settingsLink);
 
     await user.hover(docsLink);
     await waitFor(() => {
       expect(screen.getByText("使用文档")).toBeVisible();
     });
+
+    docsLink.focus();
+    await user.tab();
+    expect(settingsLink).toHaveFocus();
   });
 
   it.each([
@@ -64,7 +68,7 @@ describe("LobbyHeader", () => {
     renderLobbyHeader();
 
     const docsLink = screen.getByRole("link", { name: label });
-    expect(docsLink).toHaveAttribute("href", "https://docs.arc-reel.com/en/");
+    expect(docsLink).toHaveAttribute("href", `${BRAND.docsUrl}/en/`);
     expect(docsLink).toHaveAttribute("target", "_blank");
     expect(docsLink).toHaveAttribute("rel", "noopener noreferrer");
   });

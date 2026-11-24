@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { BRAND } from "@/branding";
 import i18n from "@/i18n";
 import { AboutSection } from "./AboutSection";
 import type { GetSystemVersionResponse } from "@/types/system";
@@ -129,7 +130,7 @@ describe("AboutSection documentation link", () => {
 
     const link = await screen.findByRole("link", { name: "打开使用文档" });
     expect(link).toBeVisible();
-    expect(link).toHaveAttribute("href", "https://docs.arc-reel.com/");
+    expect(link).toHaveAttribute("href", `${BRAND.docsUrl}/`);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
@@ -144,7 +145,7 @@ describe("AboutSection documentation link", () => {
 
     const link = await screen.findByRole("link", { name: linkName });
     expect(link).toBeVisible();
-    expect(link).toHaveAttribute("href", "https://docs.arc-reel.com/en/");
+    expect(link).toHaveAttribute("href", `${BRAND.docsUrl}/en/`);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });

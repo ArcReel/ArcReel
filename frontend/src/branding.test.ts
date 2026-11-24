@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BRAND, getDocsUrl } from "@/branding";
+import { getDocsUrl } from "@/branding";
 
 describe("branding docs URL", () => {
   afterEach(() => {
@@ -7,21 +7,24 @@ describe("branding docs URL", () => {
     vi.resetModules();
   });
 
-  it("defaults BRAND.docsUrl to https://docs.arc-reel.com", () => {
+  it("defaults BRAND.docsUrl to https://docs.arc-reel.com", async () => {
+    vi.stubEnv("VITE_BRAND_DOCS_URL", undefined);
+    vi.resetModules();
+    const { BRAND } = await import("@/branding");
     expect(BRAND.docsUrl).toBe("https://docs.arc-reel.com");
   });
 
   it.each(["zh", "zh-CN", "zh-Hans", "ZH-tw", "zh_CN"])(
     "resolves Chinese locale %s to the root docs URL",
     (language) => {
-      expect(getDocsUrl(language)).toBe("https://docs.arc-reel.com/");
+      expect(getDocsUrl(language, "https://docs.example.com")).toBe("https://docs.example.com/");
     },
   );
 
   it.each(["en", "en-US", "vi", "vi-VN", "ru", "ru-RU", "", undefined])(
     "resolves non-Chinese locale %s to the English docs path",
     (language) => {
-      expect(getDocsUrl(language)).toBe("https://docs.arc-reel.com/en/");
+      expect(getDocsUrl(language, "https://docs.example.com")).toBe("https://docs.example.com/en/");
     },
   );
 
