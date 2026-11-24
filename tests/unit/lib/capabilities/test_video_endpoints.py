@@ -128,3 +128,87 @@ def test_builtin_and_custom_legacy_audio_overrides_share_the_protocol_and_model_
             assert snapshot.effective["max_prompt_chars"] == 8000
     finally:
         catalog.install_user_added_models(())
+
+
+def test_gemini_interactions_declares_frame_and_reference_mutual_exclusion():
+    from lib.backends.video_backends.gemini_interactions import GeminiInteractionsVideoBackend
+    from lib.capabilities.kernel import RequestConditions, resolve
+
+    endpoint = GeminiInteractionsVideoBackend.describe_video_endpoint("gemini-omni-1.2-flash")
+    for inputs in (frozenset({"first_frame", "reference_images"}), frozenset({"last_frame", "reference_images"})):
+        with pytest.raises(ValueError, match="incompatible input combination"):
+            resolve(endpoint, request=RequestConditions("r2v", inputs=inputs))
+
+
+def test_vidu_prompt_limit_is_hard_ceiling():
+    from lib.custom_provider.capabilities import custom_video_snapshot
+
+    endpoint = get_endpoint_spec("vidu-video-q3-turbo").video_description("viduq3-turbo")
+    assert endpoint.validate({"max_prompt_chars": 3000}) == {"max_prompt_chars": 3000}
+    for invalid in (5001, None):
+        with pytest.raises(ValueError, match="max_prompt_chars"):
+            endpoint.validate({"max_prompt_chars": invalid})
+    snapshot = custom_video_snapshot(
+        endpoint="vidu-video-q3-turbo", model_id="viduq3-turbo", overrides={"max_prompt_chars": 8000}
+    )
+    assert snapshot.effective["max_prompt_chars"] == 5000
+    assert "max_prompt_chars" not in snapshot.overrides
+
+
+def test_builtin_capability_view_degrades_on_unavailable_endpoint_and_drops_rejected_overrides():
+    fallback = catalog.CatalogModel(
+        display_name="Missing Endpoint Video",
+        media_type="video",
+        capabilities=["first_frame"],
+        supported_durations=[4, 8],
+        resolutions=["720p"],
+    )
+    degraded = builtin_capability_view("nonexistent-provider", "m1", base_model=fallback, official=False, overrides={})
+    assert degraded.base["durations"] == [4, 8]
+    assert degraded.base["resolutions"] == ["720p"]
+
+    model = "relay-openai"
+    catalog.install_user_added_models(
+        [
+            catalog.UserAddedModel(
+                "openai",
+                model,
+                "video",
+                endpoint="openai-video",
+                capability_overrides={"last_frame": True, "max_reference_images": 5, "audio_track": "always_off"},
+            )
+        ]
+    )
+    try:
+        view = builtin_capability_view(
+            "openai",
+            model,
+            base_model=fallback,
+            official=False,
+            overrides={"last_frame": True, "max_reference_images": 5, "audio_track": "always_off"},
+        )
+        assert view.overrides == {"audio_track": "always_off"}
+        assert view.effective["last_frame"] is False
+        assert view.effective["max_reference_images"] == 1
+        assert view.effective["audio_track"] == "always_off"
+    finally:
+        catalog.install_user_added_models(())
+
+
+@pytest.mark.parametrize(
+    ("route", "slot", "field", "accepted_value", "blocked_value"),
+    [
+        ("i2v", "last_frame", "last_frame", True, False),
+        ("r2v", "reference_images", "max_reference_images", None, 0),
+    ],
+)
+def test_grok_endpoint_describes_reference_route_resolution_limit(route, slot, field, accepted_value, blocked_value):
+    from lib.backends.video_backends.grok import GrokVideoBackend
+    from lib.backends.video_capabilities import channel_projection
+    from lib.capabilities.kernel import RequestConditions
+
+    endpoint = GrokVideoBackend.describe_video_endpoint("grok-imagine-video")
+    at_720p = channel_projection(endpoint, RequestConditions(route, "720p", inputs=frozenset({slot})))
+    at_1080p = channel_projection(endpoint, RequestConditions(route, "1080p", inputs=frozenset({slot})))
+    assert getattr(at_720p, field) == accepted_value
+    assert getattr(at_1080p, field) == blocked_value

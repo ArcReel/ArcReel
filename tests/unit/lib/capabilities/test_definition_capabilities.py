@@ -3,9 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from arcreel_market_core.endpoint_definition import validate_definition
+from arcreel_market_core.endpoint_definition import requires_image_input, validate_definition
 from lib.capabilities.kernel import AudioProtocol, FixedDuration, bucket_fit, resolve
-from lib.custom_provider.builtin_definitions import declarative_video_capabilities
 from lib.custom_provider.definition_capabilities import decode_definition
 from tests.factories import comfyui_endpoint_definition, image_endpoint_definition
 
@@ -14,33 +13,40 @@ from tests.factories import comfyui_endpoint_definition, image_endpoint_definiti
     "path", sorted(Path("lib/custom_provider/builtin_endpoints").glob("*.json")), ids=lambda path: path.stem
 )
 def test_shipped_declarations_retain_wire_capabilities(path):
-    definition = json.loads(path.read_text())
+    definition = json.loads(path.read_text(encoding="utf-8"))
     assert validate_definition(definition).valid
-    old = declarative_video_capabilities(definition)
+    declared = definition.get("capabilities", {})
     endpoint = decode_definition(definition)
     snapshot = resolve(endpoint, facts={"last_frame": True, "reference_audio": True})
-    for key in (
-        "text_to_video",
-        "first_frame",
-        "last_frame",
-        "max_reference_images",
-        "max_reference_audio_count",
-        "max_prompt_chars",
-        "reference_audio_per_image",
-        "first_frame_ratio_adaptive_only",
-        "reference_audio_mode",
-    ):
-        assert snapshot.effective[key] == getattr(old, key)
-    for route in ("i2v", "r2v"):
-        mode = old.audio_track_for_route(route)
-        assert (
-            endpoint.protocol(route)
-            == {
-                "controllable": AudioProtocol.SWITCH,
-                "always_on": AudioProtocol.NO_SWITCH,
-                "always_off": AudioProtocol.SILENT,
-            }[mode]
-        )
+    expected = {
+        "text_to_video": not requires_image_input(definition.get("inputs")),
+        "first_frame": bool(declared.get("first_frame", False)),
+        "last_frame": bool(declared.get("last_frame", False)),
+        "max_reference_images": int(declared.get("max_reference_images", 0)),
+        "max_reference_audio_count": int(declared.get("max_reference_audio_count", 0)),
+        "max_reference_audio_total_seconds": declared.get("max_reference_audio_total_seconds"),
+        "max_prompt_chars": declared.get("max_prompt_chars"),
+        "reference_audio_per_image": bool(declared.get("reference_audio_per_image", False)),
+        "first_frame_ratio_adaptive_only": bool(declared.get("first_frame_ratio_adaptive_only", False)),
+        "reference_audio_mode": declared.get("reference_audio_mode", "none"),
+    }
+    for key, value in expected.items():
+        assert snapshot.effective[key] == value
+    audio_map = {
+        "controllable": AudioProtocol.SWITCH,
+        "always_on": AudioProtocol.NO_SWITCH,
+        "always_off": AudioProtocol.SILENT,
+    }
+    primary = declared.get("audio_track", "controllable")
+    reference = declared.get("reference_route_audio_track") or primary
+    assert endpoint.protocol("i2v") == audio_map[primary]
+    assert endpoint.protocol("r2v") == audio_map[reference]
+
+
+def test_decode_definition_handles_null_max_reference_images():
+    endpoint = decode_definition({"kind": "declarative", "capabilities": {"max_reference_images": None}})
+    assert resolve(endpoint).effective["max_reference_images"] == 0
+    assert "reference_images" not in endpoint.slots
 
 
 def test_market_image_and_binding_owned_fixed_duration_use_the_same_kernel():

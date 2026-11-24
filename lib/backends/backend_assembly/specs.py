@@ -683,13 +683,27 @@ def builtin_video_snapshot(
     endpoint: str | None = None,
     overrides: object = None,
     official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
 ) -> CapabilitySnapshot:
-    view = catalog.provider_model_view(provider_id, model_id)
+    from arcreel_catalog_core import DurationConstraints, VideoFacts
+
+    view = catalog.provider_model_view(provider_id, model_id, media_type="video")
     entry = view.entry if view else None
     description = _builtin_video_description(provider_id, model_id, endpoint, entry)
     facts = entry_video_facts(entry)
     if view and entry is None:
         facts = replace(facts, durations=tuple((view.base_model or view.model).supported_durations))
+    elif view is None and base_model is not None:
+        facts = VideoFacts(
+            durations=tuple(base_model.supported_durations),
+            resolutions=tuple(base_model.resolutions),
+            duration_constraints=DurationConstraints(
+                by_resolution={k: tuple(v) for k, v in base_model.duration_resolution_constraints.items()},
+                with_reference_images=tuple(base_model.reference_image_durations),
+                with_end_frame=tuple(base_model.end_frame_durations),
+            ),
+            max_reference_images=base_model.max_reference_images,
+        )
     return resolve_video_model(
         description,
         facts,
@@ -770,6 +784,7 @@ def builtin_request_video_capabilities(
         description,
         entry_video_facts(entry),
         catalog.user_added_capability_overrides(provider_id, model_id),
+        provider_id=provider_id,
         request=conditions,
     )
     return projected_video_capabilities(snapshot)

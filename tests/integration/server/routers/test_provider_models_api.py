@@ -434,6 +434,30 @@ async def test_custom_unmatched_video_model_detail_and_settings(
     assert resp.status_code == 422
 
 
+async def test_custom_kling_omni_reference_audio_is_read_only(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    model_id = "kling-v3-omni"
+    db_id = await _custom_provider(
+        db_factory,
+        [{"model_id": model_id, "display_name": model_id, "endpoint": "kling-video-audio", "is_enabled": True}],
+    )
+    url = f"/api/v1/providers/custom-{db_id}/models/{model_id}"
+    field = "reference_route_audio_track"
+
+    saved = models_client.patch(url, json={"capability_overrides": {field: "always_on"}})
+    assert saved.status_code == 200
+
+    detail = models_client.get(url)
+    assert detail.status_code == 200
+    caps = detail.json()["capabilities"]
+    assert field in caps["displayed"]
+    assert caps["effective"][field] == "always_off"
+    assert field not in caps["overrides"]
+    assert field not in caps["editable"]
+    assert "audio_track" in caps["editable"]
+
+
 async def test_custom_model_rename_rewrites_and_remove_clears_references(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -2266,6 +2266,48 @@ class TestEntryBoundVideoRequests:
         assert "sound" not in body
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("audio_track", [None, "always_on"])
+    async def test_builtin_kling_720p_preserves_saved_audio_override(self, tmp_path, audio_track):
+        from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+        from lib.backends.backend_assembly.specs import builtin_video_metered_usage, builtin_video_snapshot
+        from lib.catalog import query as catalog
+
+        catalog.install_user_added_models(
+            [
+                catalog.UserAddedModel(
+                    "kling",
+                    _OPAQUE,
+                    "video",
+                    endpoint="kling-video-pro-audio",
+                    capability_overrides={"audio_track": audio_track} if audio_track else {},
+                )
+            ]
+        )
+        backend = await _builtin_video_backend("kling", _OPAQUE, None)
+        gen = self._generator(tmp_path, backend, "kling")
+        gen._config = FakeConfigResolver(requested_generate_audio=False)
+
+        with capture_http() as router:
+            submit = router.post(url__regex=r".*/v1/videos/text2video$").mock(
+                return_value=httpx.Response(400, json={"code": 1201, "message": "stop"})
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await gen.generate_video_async(
+                    prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds=5, resolution="720p"
+                )
+
+        assert request_json(only_request(submit)).get("sound") == ("on" if audio_track else None)
+        quote_request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "quote.mp4", duration_seconds=5, resolution="720p", generate_audio=False
+        )
+        assert builtin_video_metered_usage("kling", _OPAQUE, quote_request).dimensions["audio"] is bool(audio_track)
+
+        snapshot = builtin_video_snapshot("kling", _OPAQUE)
+        assert snapshot.audio_track("i2v", base=True) == "controllable"
+        assert snapshot.audio_track("i2v") == (audio_track or "controllable")
+        assert snapshot.audio_track("r2v") == "always_off"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
     async def test_agnes_bound_to_2_5_uses_the_2_5_contract(self, tmp_path, model, binding):
         """绑定 Agnes 2.5 条目的不透明 ID 走 2.5 契约：5 张参考图以 reference 模式发出，不按 v2.0 的 4 张上限拒绝。"""

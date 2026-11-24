@@ -28,6 +28,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 
+from arcreel_catalog_core import DurationConstraints, VideoFacts
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
@@ -47,8 +48,9 @@ from lib.backends.image_capabilities import (
     image_reference_limit,
     image_reference_override,
 )
-from lib.backends.video_capabilities import projected_video_capabilities
+from lib.backends.video_capabilities import projected_video_capabilities, resolve_video_model, video_endpoint
 from lib.capabilities.kernel import CapabilitySnapshot
+from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS
 from lib.catalog.query import CatalogModel
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -66,6 +68,7 @@ from lib.custom_provider.model_facts import (
     model_fact_type_name,
     model_fact_value_matches,
     text_model_facts,
+    video_model_facts,
 )
 
 logger = logging.getLogger(__name__)
@@ -209,16 +212,31 @@ def _video_view(snapshot: CapabilitySnapshot, raw: Mapping[str, object]) -> Capa
             },
         }
 
-    editable = snapshot.editable if snapshot.endpoint.binding_owned else overridable_keys("video")
+    editable = snapshot.editable
+    if not snapshot.endpoint.binding_owned:
+        locked_audio = {legacy for legacy, key in LEGACY_AUDIO_KEYS.items() if key not in snapshot.editable}
+        editable = overridable_keys("video") - locked_audio
     overrides = _normalized_overrides(raw)
-    if snapshot.endpoint.binding_owned:
-        overrides = {k: v for k, v in overrides.items() if k in snapshot.overrides}
+    overrides = {k: v for k, v in overrides.items() if LEGACY_AUDIO_KEYS.get(k, k) in snapshot.overrides}
     return CapabilityView(
         "video",
         editable=() if snapshot.official else _ordered(editable),
         base=values(True),
         effective_values=values(False),
         overrides={} if snapshot.official else overrides,
+    )
+
+
+def _catalog_video_facts(base_model: CatalogModel) -> VideoFacts:
+    return VideoFacts(
+        durations=tuple(base_model.supported_durations),
+        resolutions=tuple(base_model.resolutions),
+        duration_constraints=DurationConstraints(
+            by_resolution={k: tuple(v) for k, v in base_model.duration_resolution_constraints.items()},
+            with_reference_images=tuple(base_model.reference_image_durations),
+            with_end_frame=tuple(base_model.end_frame_durations),
+        ),
+        max_reference_images=base_model.max_reference_images,
     )
 
 
@@ -235,9 +253,23 @@ def custom_capability_view(
     media_type = spec.media_type
     if media_type == "video":
         raw = raw_overrides if isinstance(raw_overrides, Mapping) else {}
-        snapshot = custom_video_snapshot(
-            endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding, overrides=raw
-        )
+        try:
+            snapshot = custom_video_snapshot(
+                endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding, overrides=raw
+            )
+        except ValueError:
+            logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
+            video = video_model_facts(model_id, None, entry_binding=entry_binding)
+            snapshot = resolve_video_model(
+                video_endpoint(VideoCapabilities()),
+                VideoFacts(
+                    durations=tuple(video.durations),
+                    resolutions=tuple(video.resolutions or ()),
+                    duration_constraints=video.duration_constraints,
+                ),
+                raw,
+                model_id=model_id,
+            )
         return _video_view(snapshot, raw if spec.kind == COMFYUI_KIND else applied_overrides or {})
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
@@ -374,7 +406,20 @@ def builtin_capability_view(
     """内置供应商模型的参数视图。官方收录的模型只读；用户添加的可以修改该媒体类型的全部维度。"""
     media_type = base_model.media_type
     if media_type == "video":
-        snapshot = builtin_video_snapshot(provider_id, model_id, overrides=overrides, official=official)
+        try:
+            snapshot = builtin_video_snapshot(
+                provider_id, model_id, overrides=overrides, official=official, base_model=base_model
+            )
+        except ValueError:
+            logger.warning("无法读取内置视频能力: provider=%r model_id=%r", provider_id, model_id)
+            snapshot = resolve_video_model(
+                video_endpoint(VideoCapabilities()),
+                _catalog_video_facts(base_model),
+                overrides,
+                provider_id=provider_id,
+                model_id=model_id,
+                official=official,
+            )
         return _video_view(snapshot, overrides)
     base = _catalog_model_facts(base_model)
     editable = set(overridable_keys(media_type)) if not official else set()

@@ -19,7 +19,8 @@ def decode_definition(definition: Mapping[str, Any]) -> Endpoint:
     if definition["kind"] == COMFYUI_KIND:
         return comfyui_description(definition, media)
     declared = dict(definition.get("capabilities", {}))
-    count = int(declared.get("max_reference_images", 0))
+    raw_count = declared.get("max_reference_images")
+    count = 0 if raw_count is None else int(raw_count)
     if media == "image":
         slots = {key for key in ("text_to_image", "image_to_image") if declared.get(key)}
         if "image_to_image" in slots:
