@@ -31,6 +31,7 @@ const FAILURE_KEYS: Record<string, string> = {
   audio_missing: "apply_failed_audio_missing",
   invalid_name: "apply_failed_invalid_name",
   project_name_conflict: "apply_failed_name_conflict",
+  resource_busy: "errors:apply_failed_resource_busy",
 };
 
 export function ApplyToProjectDialog({ asset, onClose }: { asset: Asset | null; onClose: () => void }) {

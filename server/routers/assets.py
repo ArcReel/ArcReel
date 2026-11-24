@@ -32,7 +32,7 @@ from lib.db import async_session_factory
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_repo import AssetRepository
-from lib.generation.asset_admission import AssetTarget, asset_admission_locks, require_asset_idle
+from lib.generation.asset_admission import AssetResourceBusy, AssetTarget, asset_admission_locks, require_asset_idle
 from lib.infra.api_errors import NotFoundError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.material.formal_objects import formal_commit
@@ -880,7 +880,7 @@ async def apply_to_project(
             bucket_key = BUCKET_KEY[a.type]
             sheet_key = SHEET_KEY[a.type]
             try:
-                desired_name = _validate_asset_name(a.name, _t)
+                requested_name = desired_name = _validate_asset_name(a.name, _t)
             except HTTPException:
                 failed.append({"id": a.id, "reason": "invalid_name"})
                 continue
@@ -978,7 +978,7 @@ async def apply_to_project(
             plans.append(
                 {
                     "asset": a,
-                    "requested_name": _validate_asset_name(a.name, _t),
+                    "requested_name": requested_name,
                     "bucket_key": bucket_key,
                     "sheet_key": sheet_key,
                     "desired_name": desired_name,
@@ -997,6 +997,15 @@ async def apply_to_project(
             )
 
         file_copies: list[tuple[Path, Path]] = []
+        bridge = EventLoopBridge.capture()
+        overwrite = req.conflict_policy == "overwrite"
+
+        class AllOverwriteTargetsBusy(Exception):
+            pass
+
+        async def _require_overwrite_target_idle(asset_type: str, name: str) -> None:
+            async with async_session_factory() as session:
+                await require_asset_idle(session, req.target_project, AssetTarget(asset_type, name, "whole_asset"))
 
         def _apply_all(data: dict) -> None:
             applied_plans: list[dict] = []
@@ -1019,6 +1028,18 @@ async def apply_to_project(
                         existing = None
                     elif not existing.is_entry(a_.type, name_):
                         raise ProjectAssetNameConflictError(name_, existing, a_.type)
+                    else:
+                        try:
+                            bridge.run(_require_overwrite_target_idle(a_.type, existing.name))
+                        except AssetResourceBusy:
+                            failed.append(
+                                {
+                                    "id": a_.id,
+                                    "reason": "resource_busy",
+                                    "message": _t("apply_failed_resource_busy"),
+                                }
+                            )
+                            continue
 
                 plan["desired_name"] = name_
                 plan["derivative_sheet_names"] = []
@@ -1099,6 +1120,8 @@ async def apply_to_project(
                 applied_plans.append(plan)
 
             plans[:] = applied_plans
+            if overwrite and not plans:
+                raise AllOverwriteTargetsBusy
 
         if plans:
 
@@ -1116,7 +1139,6 @@ async def apply_to_project(
                 }
                 register_artifact_entries_atomically(project_dir, owner_entries | derivative_entries)
 
-            bridge = EventLoopBridge.capture()
             copied_links: list[int] = []
 
             async def _record_links(targets: list[tuple[str, str, LinkHolder]]) -> None:
@@ -1160,24 +1182,33 @@ async def apply_to_project(
                     return
                 VersionManager(project_dir).commit_installed_versions(commits, on_commit=_after_versions_committed)
 
-            try:
-                async with formal_commit(req.target_project):
-                    with project_change_source("webui"):
-                        await run_noninterruptible_async(
-                            run_sync_transaction(
+            async def _commit_plans() -> None:
+                try:
+                    async with formal_commit(req.target_project):
+                        with project_change_source("webui"):
+                            await run_sync_transaction(
                                 project_manager.update_project_with_file_copies,
                                 req.target_project,
                                 _apply_all,
                                 file_copies,
                                 on_commit=_select_imported_sheets,
                             )
-                        )
-            except ProjectAssetNameConflictError as exc:
-                await _discard_copied_links(copied_links)
-                raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
-            except BaseException:
-                await _discard_copied_links(copied_links)
-                raise
+                except AllOverwriteTargetsBusy:
+                    pass
+                except ProjectAssetNameConflictError as exc:
+                    await _discard_copied_links(copied_links)
+                    raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
+                except BaseException:
+                    await _discard_copied_links(copied_links)
+                    raise
+
+            targets = (
+                [AssetTarget(plan["asset"].type, plan["requested_name"], "whole_asset") for plan in plans]
+                if overwrite
+                else []
+            )
+            async with asset_admission_locks(req.target_project, *targets):
+                await run_noninterruptible_async(_commit_plans())
 
         succeeded.extend({"id": plan["asset"].id, "name": plan["desired_name"]} for plan in plans)
 
