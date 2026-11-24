@@ -398,6 +398,8 @@ ArcReel determines an artifact's state from the direct inputs used to generate i
 
 By default, batch generation fills only missing items; both current and stale artifacts are preserved. After changing a prompt, character, narration, or another input, explicitly regenerate the affected shots if you want to refresh existing results. A same-named file in the project directory is not, by itself, a formal artifact. The project must retain either the artifact reference in its script or a verifiable version record.
 
+In both Storyboard and Reference-to-Video modes, open **Versions** to switch between uploaded and generated videos. An uploaded version stays current when you change the prompt, as long as the video file is unchanged. After you switch back to a generated version, ArcReel checks its freshness against the inputs used to generate it.
+
 ### Stage 6: Quality Control and Export {#stage-qa-and-export}
 
 Check:

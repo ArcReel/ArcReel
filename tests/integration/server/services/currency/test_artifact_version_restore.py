@@ -270,6 +270,8 @@ def test_video_restore_rejects_composite_kind_without_complete_v3_components(tmp
     with pytest.raises(ValueError, match="typed artifact metadata"):
         get_typed_media_restore_target(
             vm,
+            project_manager=ProjectManager(tmp_path),
+            project_name=project_path.name,
             resource_type="videos",
             resource_id="E1S01",
             version=version,
@@ -336,7 +338,12 @@ def test_video_restore_rejects_currency_duration_outside_frozen_tiers_without_mu
 
     with pytest.raises(ValueError, match="currency duration"):
         get_typed_media_restore_target(
-            VersionManager(project_path), resource_type="videos", resource_id="E1S1", version=1
+            VersionManager(project_path),
+            project_manager=ProjectManager(project_path.parent),
+            project_name=project_path.name,
+            resource_type="videos",
+            resource_id="E1S1",
+            version=1,
         )
 
     assert current.read_bytes() == video_bytes
