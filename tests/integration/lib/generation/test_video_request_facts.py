@@ -572,8 +572,9 @@ async def test_custom_audio_facts_agree_across_settings_preflight_and_voice(
         applied_overrides=overrides,
         entry_binding=None,
     )
-    assert view.effective["audio_track"] == mode
-    assert view.effective["reference_route_audio_track"] == mode
+    assert view.effective["has_audio_track"] is has_audio
+    assert view.effective["reference_route_has_audio_track"] is has_audio
+    assert view.effective["audio_switch_controllable"] is controllable
     generation_type = "r2v" if endpoint == "minimax-s2v-01" else "i2v"
     with capture_http() as http:
         facts = await _read(
@@ -601,6 +602,8 @@ async def test_custom_audio_facts_agree_across_settings_preflight_and_voice(
             endpoint=endpoint, model_id="unrecorded-model", overrides=overrides
         ),
     )
+    assert request.video_capabilities
+    assert request.video_capabilities.audio_track == mode
     usage = custom_video_usage(video_metering_for(spec.metering_backend, spec.definition), "unrecorded-model", request)
     assert usage.dimensions["audio"] is has_audio
 
@@ -639,7 +642,7 @@ async def test_comfyui_silent_binding_reaches_preflight_and_voice(resolver, db_f
             applied_overrides=None,
             entry_binding=None,
         )
-    assert view.effective["audio_track"] == "always_off"
+    assert view.effective["has_audio_track"] is False
     usage = custom_video_usage(
         None,
         "wan-workflow",

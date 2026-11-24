@@ -453,7 +453,7 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         </FieldRow>
       )}
 
-      {media === "video" && !isComfyuiProtocol(protocol) && (
+      {media === "video" && endImageCapable && !isComfyuiProtocol(protocol) && (
         <FieldRow label={t("cap_override_last_frame_label")}>
           <CapabilityOverrideRow
             override={row.capability_overrides?.last_frame}

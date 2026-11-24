@@ -553,3 +553,30 @@ class TestComfyuiDurationsOverrideApi:
         resp = self._create(comfyui_client, key, {"durations": [0, 5]})
 
         assert resp.status_code == 422
+
+    async def test_workflow_fixed_duration_rejects_duration_override(
+        self, comfyui_client, custom_providers_app_session_factory
+    ):
+        key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
+        resp = self._create(comfyui_client, key, {"durations": [5]})
+        assert resp.status_code == 422
+        assert "durations" in resp.json()["detail"]
+
+    async def test_switch_to_fixed_workflow_cleans_echoed_legacy_durations(
+        self, comfyui_client, custom_providers_app_session_factory
+    ):
+        old = await _store_endpoint(custom_providers_app_session_factory, _with_frames())
+        fixed = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
+        pid = _create_provider(comfyui_client, models=[_model(old)])["id"]
+        async with custom_providers_app_session_factory() as session:
+            (row,) = await CustomProviderRepository(session).list_models(pid)
+            row.capability_overrides = {"durations": [10, 5]}
+            await session.commit()
+        url = f"/api/v1/custom-providers/{pid}"
+        provider = comfyui_client.get(url).json()
+        (model,) = provider["models"]
+        assert model["capability_overrides"] == {"durations": [5, 10]}
+        model["endpoint"] = fixed
+        saved = comfyui_client.put(url, json=provider)
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["models"][0]["capability_overrides"] is None

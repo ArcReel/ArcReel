@@ -16,30 +16,20 @@
 只有用户负责的供应商模型可以修改：自定义供应商的模型，以及内置供应商下用户添加的模型。ComfyUI 端点只开放视频
 的可选时长，且端点驱动不了时长时这一维也不开放（docs/adr/0082）。图片的文生图、图生图只开放调用通道实现了的
 那一维：通道没实现的能力覆盖为开启也打不开。
-
-本模块还承担内置供应商下用户添加的模型的能力覆盖写入校验与装入过滤；自定义供应商模型的写入校验在
-``server/routers/custom_providers.py``，两边的值形状判定共用 :func:`model_fact_value_matches` 与
-:func:`capability_value_matches`。
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 
 from arcreel_catalog_core import DurationConstraints, VideoFacts
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
-from arcreel_market_core.video_backend_contract import (
-    ReferenceAudioMode,
-    VideoAudioMode,
-    VideoCapabilities,
-    audio_capability_pair_is_coherent,
-)
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.backend_assembly.specs import (
     builtin_video_snapshot,
-    declared_builtin_video_capabilities,
-    two_sided_builtin_video_capabilities,
+    builtin_video_snapshot_from_view,
 )
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_capabilities import (
@@ -48,21 +38,13 @@ from lib.backends.image_capabilities import (
     image_reference_limit,
     image_reference_override,
 )
-from lib.backends.video_capabilities import projected_video_capabilities, resolve_video_model, video_endpoint
-from lib.capabilities.kernel import CapabilitySnapshot
-from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS
-from lib.catalog.query import CatalogModel
-from lib.custom_provider.capabilities import (
-    AUDIO_OVERRIDE_KEYS,
-    CAPABILITY_OVERRIDE_FIELDS,
-    CHANNEL_FACT_OVERRIDE_KEYS,
-    capability_type_name,
-    capability_value_matches,
-    custom_video_snapshot,
-)
+from lib.backends.video_capabilities import resolve_video_model, video_endpoint
+from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, FixedDuration
+from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS, OVERRIDE_KEYS, normalized_value, valid_value
+from lib.catalog.query import CatalogModel, ProviderModelView
+from lib.custom_provider.capabilities import custom_video_snapshot
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
-    MODEL_FACT_OVERRIDE_KEYS,
     image_model_facts,
     model_fact_overrides,
     model_fact_type_name,
@@ -90,8 +72,10 @@ OVERRIDE_KEY_ORDER: tuple[str, ...] = (
     "max_reference_audio_count",
     "max_reference_audio_total_seconds",
     "max_prompt_chars",
-    "audio_track",
-    "reference_route_audio_track",
+    "audio_switch_controllable",
+    "reference_route_audio_switch_controllable",
+    "has_audio_track",
+    "reference_route_has_audio_track",
 )
 
 _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
@@ -133,74 +117,28 @@ class CapabilityView:
 
 def overridable_keys(media_type: str) -> frozenset[str]:
     """该媒体类型可以覆盖的全部维度：模型事实，视频另有通道事实。"""
-    keys = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset())
-    return keys | CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else keys
-
-
-def override_value_check(media_type: str, key: str, value: object) -> tuple[bool, str]:
-    """覆盖值能否整维替换该维度，以及该维度期望的值形状（写入被拒时的文案参数）。
-
-    视频的通道事实按 ``VideoCapabilities`` 字段校验，其余按模型事实校验；图片的参考图上限与视频通道事实同名，
-    按模型事实校验。自定义供应商与内置用户添加模型的写入校验共用这一判定。
-    """
-    if media_type == "video" and key in CHANNEL_FACT_OVERRIDE_KEYS:
-        expected = CAPABILITY_OVERRIDE_FIELDS[key]
-        return capability_value_matches(value, expected), capability_type_name(expected)
-    return model_fact_value_matches(key, value), model_fact_type_name(key)
+    return OVERRIDE_KEYS.get(media_type, frozenset())
 
 
 def _ordered(keys: frozenset[str] | set[str]) -> tuple[str, ...]:
     return tuple(key for key in OVERRIDE_KEY_ORDER if key in keys)
 
 
-def _channel_json(caps: VideoCapabilities) -> dict[str, object]:
-    """通道事实维度的原值；音轨视图保留端点的开关声明与确定的无声信号。"""
-    raw = asdict(caps)
-    values: dict[str, object] = {}
-    for key in CHANNEL_FACT_OVERRIDE_KEYS:
-        value = raw[key]
-        values[key] = value.value if isinstance(value, ReferenceAudioMode | VideoAudioMode) else value
-    values["reference_route_audio_track"] = caps.audio_track_for_route("r2v").value
-    return values
-
-
-def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
-    """覆盖值按生效形状回显：可选时长去重排序，时长联动约束的分辨率键小写。"""
-    result = dict(overrides)
-    durations = result.get("durations")
-    if isinstance(durations, list):
-        result["durations"] = sorted({int(d) for d in durations})
-    constraints = result.get("duration_constraints")
-    if isinstance(constraints, Mapping):
-        by_resolution = constraints.get("by_resolution")
-        with_reference = constraints.get("with_reference_images")
-        with_end_frame = constraints.get("with_end_frame")
-        result["duration_constraints"] = {
-            "by_resolution": (
-                {str(res).strip().lower(): list(allowed) for res, allowed in by_resolution.items()}
-                if isinstance(by_resolution, Mapping)
-                else {}
-            ),
-            "with_reference_images": list(with_reference) if isinstance(with_reference, list) else [],
-            **({"with_end_frame": list(with_end_frame)} if isinstance(with_end_frame, list) and with_end_frame else {}),
+def _video_view(snapshot: CapabilitySnapshot) -> CapabilityView:
+    def values(data: Mapping) -> dict[str, object]:
+        audio = {
+            "audio_switch_controllable": snapshot.primary_protocol == AudioProtocol.SWITCH,
+            "reference_route_audio_switch_controllable": snapshot.reference_protocol == AudioProtocol.SWITCH,
+            "has_audio_track": data["has_audio_track"],
+            "reference_route_has_audio_track": data["reference_route_has_audio_track"],
         }
-    return result
-
-
-def _video_view(snapshot: CapabilitySnapshot, raw: Mapping[str, object]) -> CapabilityView:
-    def values(base: bool) -> dict[str, object]:
-        data = snapshot.base if base else snapshot.effective
-        channel = _channel_json(projected_video_capabilities(snapshot, base=base))
         durations = list(data.get("durations", ()))
         if snapshot.endpoint.binding_owned:
-            return {
-                "durations": durations,
-                "audio_track": channel["audio_track"],
-                "reference_route_audio_track": channel["reference_route_audio_track"],
-            }
+            return {"durations": durations, "duration_fixed": isinstance(snapshot.duration, FixedDuration), **audio}
         constraints = data.get("duration_constraints", {})
         return {
-            **channel,
+            **{k: data.get(k) for k in OVERRIDE_KEYS["video"]},
+            **audio,
             "durations": durations,
             "resolutions": list(data.get("resolutions") or ()) or None,
             "duration_constraints": {
@@ -212,18 +150,12 @@ def _video_view(snapshot: CapabilitySnapshot, raw: Mapping[str, object]) -> Capa
             },
         }
 
-    editable = snapshot.editable
-    if not snapshot.endpoint.binding_owned:
-        locked_audio = {legacy for legacy, key in LEGACY_AUDIO_KEYS.items() if key not in snapshot.editable}
-        editable = overridable_keys("video") - locked_audio
-    overrides = _normalized_overrides(raw)
-    overrides = {k: v for k, v in overrides.items() if LEGACY_AUDIO_KEYS.get(k, k) in snapshot.overrides}
     return CapabilityView(
         "video",
-        editable=() if snapshot.official else _ordered(editable),
-        base=values(True),
-        effective_values=values(False),
-        overrides={} if snapshot.official else overrides,
+        editable=_ordered(snapshot.editable),
+        base=values(snapshot.base),
+        effective_values=values(snapshot.effective),
+        overrides=snapshot.override_dict(),
     )
 
 
@@ -270,7 +202,7 @@ def custom_capability_view(
                 raw,
                 model_id=model_id,
             )
-        return _video_view(snapshot, raw if spec.kind == COMFYUI_KIND else applied_overrides or {})
+        return _video_view(snapshot)
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
             return CapabilityView(
@@ -309,7 +241,7 @@ def custom_capability_view(
             )
         case _:
             editable = set()
-    overrides = _normalized_overrides(applied_overrides or {})
+    overrides = dict(applied_overrides or {})
     return CapabilityView(media_type, editable=_ordered(editable), base=base, overrides=overrides)
 
 
@@ -420,7 +352,7 @@ def builtin_capability_view(
                 model_id=model_id,
                 official=official,
             )
-        return _video_view(snapshot, overrides)
+        return _video_view(snapshot)
     base = _catalog_model_facts(base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
     if media_type == "image":
@@ -440,25 +372,21 @@ def builtin_capability_view(
         )
     if official:
         return CapabilityView(media_type, base=base)
-    return CapabilityView(
-        media_type, editable=_ordered(editable), base=base, overrides=_normalized_overrides(overrides)
-    )
+    return CapabilityView(media_type, editable=_ordered(editable), base=base, overrides=dict(overrides))
 
 
 def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_id: str = "") -> dict[str, object]:
     """用户添加的模型装入目录查询时采用的能力覆盖：该媒体类型的维度里值合法的那些，其余丢弃并告警。"""
     if not isinstance(raw, Mapping):
         return {}
-    applied = model_fact_overrides(raw, media_type, model_id=model_id)
     if media_type == "video":
-        for key, value in raw.items():
-            if key not in CHANNEL_FACT_OVERRIDE_KEYS:
-                continue
-            if capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS[key]):
-                applied[key] = value
-            else:
-                logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法，该维度回到调用通道的声明", model_id, key, value)
-    return applied
+        return {
+            key: normalized_value(key, value)
+            for key, value in raw.items()
+            if (key in OVERRIDE_KEYS["video"] and valid_value(key, value))
+            or (key in LEGACY_AUDIO_KEYS and value in ("always_on", "always_off", "controllable"))
+        }
+    return model_fact_overrides(raw, media_type, model_id=model_id)
 
 
 class OverrideRejected(Exception):
@@ -473,10 +401,12 @@ class OverrideRejected(Exception):
 def check_user_added_overrides(
     provider_id: str,
     model_id: str,
-    media_type: str,
+    view: ProviderModelView,
     overrides: Mapping[str, object] | None,
     *,
     endpoint: str | None = None,
+    carried: Mapping[str, object] | None = None,
+    explicit: bool = True,
 ) -> dict[str, object] | None:
     """内置供应商下用户添加的模型的能力覆盖写入校验，通过时返回要存下的覆盖（空覆盖为 ``None``）。
 
@@ -484,8 +414,25 @@ def check_user_added_overrides(
     开启时调用通道须实现了它；音频两维合起来须有意义（不足的一维取调用通道的声明）。调用通道取模型挂接的内置调用
     端点，``endpoint`` 给出时取它（同一次保存里换了端点）。
     """
+    media_type = view.model.media_type
     if not overrides:
         return None
+    if media_type == "video":
+        try:
+            snapshot = builtin_video_snapshot_from_view(
+                provider_id, model_id, view, endpoint=endpoint, overrides={}, always_bill_audio=False
+            )
+            if not explicit:
+                overrides = snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
+            return snapshot.validate_overrides(overrides, carried=carried) or None
+        except ValueError as exc:
+            raise OverrideRejected(
+                "capability_override_not_applicable",
+                model_id=model_id,
+                endpoint=endpoint or provider_id,
+                media_type=media_type,
+                capability=str(exc),
+            ) from exc
     applicable = overridable_keys(media_type)
     for key, value in overrides.items():
         if key not in applicable:
@@ -496,10 +443,12 @@ def check_user_added_overrides(
                 media_type=media_type,
                 capability=key,
             )
-        valid, expected_name = override_value_check(media_type, key, value)
-        if not valid:
+        if not model_fact_value_matches(key, value):
             raise OverrideRejected(
-                "capability_override_invalid_value", model_id=model_id, capability=key, expected=expected_name
+                "capability_override_invalid_value",
+                model_id=model_id,
+                capability=key,
+                expected=model_fact_type_name(key),
             )
         image_capability = _IMAGE_CAPABILITY_BY_KEY.get(key)
         if (
@@ -510,17 +459,4 @@ def check_user_added_overrides(
             raise OverrideRejected(
                 "capability_override_image_unsupported", model_id=model_id, endpoint=provider_id, capability=key
             )
-    if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
-        try:
-            base = two_sided_builtin_video_capabilities(
-                declared_builtin_video_capabilities(provider_id, model_id, endpoint=endpoint), provider_id, model_id
-            )
-        except ValueError:
-            base = VideoCapabilities()
-        mode = overrides.get("reference_audio_mode", base.reference_audio_mode)
-        count = overrides.get("max_reference_audio_count", base.max_reference_audio_count)
-        if count is not None and not isinstance(count, int):
-            count = 0
-        if not audio_capability_pair_is_coherent(mode=mode, count=count):
-            raise OverrideRejected("capability_override_audio_pair_incoherent", model_id=model_id)
     return dict(overrides)

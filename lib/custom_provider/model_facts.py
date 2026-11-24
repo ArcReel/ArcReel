@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from arcreel_catalog_core import CatalogEntry, DurationConstraints, ImageFacts, TextFacts, VideoFacts
+from lib.capabilities.override_schema import valid_value
 from lib.catalog import query as catalog
 from lib.custom_provider.duration_presets import infer_supported_durations
 
@@ -36,57 +37,10 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})
-_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
-
-
-def _is_positive_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def _is_duration_list(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and all(_is_positive_int(item) for item in value)
-
-
-def _is_constraints(value: object) -> bool:
-    if not isinstance(value, dict) or not value.keys() <= _CONSTRAINT_KEYS:
-        return False
-    by_resolution = value.get("by_resolution", {})
-    if not isinstance(by_resolution, dict):
-        return False
-    if any(
-        not isinstance(res, str) or not res.strip() or not _is_duration_list(allowed)
-        for res, allowed in by_resolution.items()
-    ):
-        return False
-    with_reference = value.get("with_reference_images", [])
-    with_end_frame = value.get("with_end_frame", [])
-    return (
-        isinstance(with_reference, list)
-        and all(_is_positive_int(item) for item in with_reference)
-        and isinstance(with_end_frame, list)
-        and all(_is_positive_int(item) for item in with_end_frame)
-    )
 
 
 def model_fact_value_matches(key: str, value: object) -> bool:
-    """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
-
-    布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
-    ``by_resolution``（分辨率 → 非空时长列表）、``with_reference_images`` 与 ``with_end_frame``（时长列表）三个键。
-    """
-    if key in _BOOL_KEYS:
-        return isinstance(value, bool)
-    if key == "max_reference_images":
-        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    if key == "max_output_tokens":
-        return _is_positive_int(value)
-    if key == "durations":
-        return _is_duration_list(value)
-    if key == "resolutions":
-        return isinstance(value, list) and bool(value) and all(isinstance(r, str) and r.strip() for r in value)
-    if key == "duration_constraints":
-        return _is_constraints(value)
-    return False
+    return key in ALL_MODEL_FACT_OVERRIDE_KEYS and valid_value(key, value)
 
 
 _TYPE_NAMES: Mapping[str, str] = {
@@ -150,9 +104,15 @@ class VideoModelFacts:
     duration_constraints: DurationConstraints = field(default_factory=DurationConstraints)
 
 
-def model_entry(model_id: str, media_type: str, entry_binding: str | None = None) -> CatalogEntry | None:
+def model_entry(
+    model_id: str, media_type: str, entry_binding: str | None = None, *, pending: CatalogEntry | None = None
+) -> CatalogEntry | None:
     """供应商模型对应的条目：先看条目绑定，再按名字现查（docs/adr/0105）。媒体类型取调用端点。"""
-    return catalog.find_entry(model_id, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
+    binding = catalog.binding_key(entry_binding, media_type)
+    if pending and binding == pending.key:
+        return pending
+    matched = catalog.find_entry(model_id, media_type=media_type, binding=binding)
+    return pending if pending and matched and pending.key == matched.key else matched
 
 
 def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> TextModelFacts:

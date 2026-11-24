@@ -41,7 +41,31 @@ def test_video_endpoints_match_frozen_settings_and_bucket_decisions(case):
         expected, unmet = case["output"]["capabilities"], case["output"]["unmet"]
     assert asdict(caps) == expected
     assert {k: list(v) for k, v in fit.unmet.items()} == unmet
-    assert {"base": view.base, "effective": view.effective, "editable": list(view.editable)} == case["settings"]
+    for section, actual in (("base", view.base), ("effective", view.effective)):
+        expected_values = dict(case["settings"][section])
+        for prefix in ("", "reference_route_"):
+            mode = expected_values.pop(prefix + "audio_track")
+            expected_values[prefix + "has_audio_track"] = mode != "always_off"
+            expected_values[prefix + "audio_switch_controllable"] = mode == "controllable"
+        if model == "workflow":
+            expected_values["duration_fixed"] = True
+        assert actual == expected_values
+
+    editable = {
+        "has_audio_track"
+        if key == "audio_track"
+        else "reference_route_has_audio_track"
+        if key == "reference_route_audio_track"
+        else key
+        for key in case["settings"]["editable"]
+    }
+    unsupported = {
+        "wan2.7-i2v": {"last_frame", "max_reference_images"},
+        "kling-v3-omni": {"max_reference_images"},
+    }.get(model, set())
+    if model in ("wan2.7-i2v", "custom-model", "kling-v3-omni"):
+        unsupported.update(("reference_audio_mode", "max_reference_audio_count", "max_reference_audio_total_seconds"))
+    assert set(view.editable) == editable - unsupported
 
 
 def test_kling_multi_image_protocol_cannot_be_overridden_to_have_sound():
@@ -187,10 +211,10 @@ def test_builtin_capability_view_degrades_on_unavailable_endpoint_and_drops_reje
             official=False,
             overrides={"last_frame": True, "max_reference_images": 5, "audio_track": "always_off"},
         )
-        assert view.overrides == {"audio_track": "always_off"}
+        assert view.overrides == {"has_audio_track": False}
         assert view.effective["last_frame"] is False
         assert view.effective["max_reference_images"] == 1
-        assert view.effective["audio_track"] == "always_off"
+        assert view.effective["has_audio_track"] is False
     finally:
         catalog.install_user_added_models(())
 

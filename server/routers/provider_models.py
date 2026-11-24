@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Annotated, Any, Literal, assert_never, cast
 
@@ -947,8 +947,8 @@ async def _current_entry(session: AsyncSession, provider_id: str, model_id: str,
 
 async def _save_entry(
     session: AsyncSession, provider_id: str, model_id: str, update: EntryUpdate, _t: Translator
-) -> bool:
-    """把「模型信息」的修改存为条目的用户副本；返回是否写入（与当前条目相同时不写，条目照旧跟随官方）。"""
+) -> CatalogEntry | None:
+    """把「模型信息」的修改存为条目的用户副本；返回本次写入的条目供同一事务校验能力覆盖。"""
     current = await _current_entry(session, provider_id, model_id, _t)
     if current is None or (current.maker, current.name, current.media_type) != (
         update.maker,
@@ -966,9 +966,9 @@ async def _save_entry(
     except EntryEditRejected as exc:
         raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
     if entry == current:
-        return False
+        return None
     await save_user_entry(session, entry)
-    return True
+    return entry
 
 
 @dataclass(frozen=True)
@@ -1013,6 +1013,7 @@ async def _save_builtin_settings(
     body: ProviderModelSettingsUpdate,
     binding: _BindingChange | None,
     _t: Translator,
+    pending: CatalogEntry | None,
 ) -> str:
     fields = body.model_fields_set
     if unsupported := sorted(fields - _BUILTIN_SETTING_FIELDS):
@@ -1021,23 +1022,40 @@ async def _save_builtin_settings(
             detail=_t("provider_model_setting_not_applicable", model=model_id, setting=unsupported[0]),
         )
     kwargs: dict[str, Any] = {}
-    if "capability_overrides" in fields:
+    if "capability_overrides" in fields or body.endpoint is not None:
         item = next(
             (i for i in await builtin_models.list_builtin_models(session, provider_id) if i.view.model_id == model_id),
             None,
         )
         if item is not None and not item.view.official:
-            try:
-                kwargs["capability_overrides"] = check_user_added_overrides(
-                    provider_id,
-                    model_id,
-                    item.view.model.media_type,
-                    body.capability_overrides,
-                    endpoint=_endpoint_in_options(provider_id, item.view.model.media_type, body.endpoint),
-                )
-            except OverrideRejected as exc:
-                raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
-        else:
+            media = item.view.model.media_type
+            endpoint = _endpoint_in_options(provider_id, media, body.endpoint)
+            rebound = (
+                media == "video"
+                and endpoint is not None
+                and endpoint != (item.view.endpoint or builtin_model_endpoint(provider_id, media, model_id))
+            )
+            if rebound or "capability_overrides" in fields:
+                carried = item.view.capability_overrides if rebound else None
+                view = item.view
+                target = (body.model_id or model_id).strip()
+                if media == "video" and (binding is not None or pending or target != model_id):
+                    row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)
+                    ref = binding.ref if binding else row.entry_binding if row else None
+                    view = replace(view, entry=model_entry(target, media, ref, pending=pending))
+                try:
+                    kwargs["capability_overrides"] = check_user_added_overrides(
+                        provider_id,
+                        target,
+                        view,
+                        body.capability_overrides if "capability_overrides" in fields else carried,
+                        endpoint=endpoint or view.endpoint,
+                        carried=carried,
+                        explicit="capability_overrides" in fields,
+                    )
+                except OverrideRejected as exc:
+                    raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+        elif "capability_overrides" in fields:
             kwargs["capability_overrides"] = body.capability_overrides
     if binding is not None:
         kwargs["entry_binding"] = binding.ref
@@ -1073,8 +1091,9 @@ async def update_provider_model(
     """保存供应商模型 Sheet 的供应商设置与模型信息，一次请求原子保存；返回保存后的 Sheet 内容。"""
     if not is_custom_provider(provider_id):
         _require_builtin(provider_id, _t)
-    entry_saved = body.entry is not None and await _save_entry(session, provider_id, model_id, body.entry, _t)
+    entry_saved = await _save_entry(session, provider_id, model_id, body.entry, _t) if body.entry else None
     binding = _plan_binding(body, _t)
+    pending = binding.created if binding and binding.created else entry_saved
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         renames = {"enabled": "is_enabled"}
@@ -1085,7 +1104,7 @@ async def update_provider_model(
         }
         if binding is not None:
             changes["entry_binding"] = binding.ref
-        row = await update_custom_model(session, db_id, model_id, changes, _t)
+        row = await update_custom_model(session, db_id, model_id, changes, _t, pending=pending)
         saved_model_id = row.model_id
         if binding is None and "endpoint" in changes and row.entry_binding:
             binding = _BindingChange(ref=row.entry_binding, created=None)
@@ -1098,7 +1117,7 @@ async def update_provider_model(
         await invalidate_provider_caches(request)
         await rename_project_model_refs(db_id, model_id, saved_model_id)
         return await _custom_detail(session, provider_id, db_id, saved_model_id, _t)
-    saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, binding, _t)
+    saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, binding, _t, pending)
     await session.commit()
     if entry_saved or (binding is not None and binding.created is not None):
         await reload_user_entries(session)

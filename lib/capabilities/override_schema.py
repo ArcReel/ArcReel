@@ -80,3 +80,15 @@ def normalized_value(key: str, value: Any) -> Any:
             "by_resolution": {r.strip().lower(): list(ns) for r, ns in value.get("by_resolution", {}).items()},
         }
     return value
+
+
+def same_override_value(key: str, stored: object, submitted: object) -> bool:
+    if type(stored) is not type(submitted):
+        return False
+    if stored == submitted:
+        return True
+    return (
+        valid_value(key, stored)
+        and valid_value(key, submitted)
+        and normalized_value(key, stored) == normalized_value(key, submitted)
+    )
