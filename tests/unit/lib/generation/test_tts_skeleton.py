@@ -483,6 +483,9 @@ class TestOrphanAudioRestartLost:
                     }
                 ]
 
+            async def get_task(self, task_id):
+                return {"task_id": task_id, "status": "running"}
+
             async def mark_task_failed(self, task_id, error):
                 self.failed.append((task_id, error))
                 return 1

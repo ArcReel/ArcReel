@@ -24,6 +24,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy import update
@@ -55,6 +56,8 @@ from lib.generation.render_lane import RENDER_LANE_CONCURRENCY, RENDER_MEDIA_TYP
 from lib.generation.restart_recovery import InterruptedCallSettler, RestartRecovery
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.generation.task_ownership import TaskLease, TaskOwnership
+from lib.generation.task_writes import TaskWrites
 from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner, fail_task_of_deleted_project
 from lib.project.project_manager import get_project_manager
 from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
@@ -432,6 +435,10 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     return resolved.provider_id or DEFAULT_PROVIDER
 
 
+class WorkerStoppingError(Exception):
+    pass
+
+
 class GenerationWorker:
     """Queue worker with per-provider image/video/audio/text lanes, the local render lane and single-active lease."""
 
@@ -444,6 +451,7 @@ class GenerationWorker:
         provider_projection: ProviderProjection = _extract_provider,
         lanes: tuple[str, ...] = ("image", "video", "audio", "text", RENDER_MEDIA_TYPE),
         *,
+        write_backoff: Callable[[float], Awaitable[None]] = asyncio.sleep,
         executor: TaskExecutor,
         resume_executor: ResumeExecutor,
         settle_interrupted_calls: InterruptedCallSettler | None = None,
@@ -472,12 +480,19 @@ class GenerationWorker:
         self._startup_settled: bool = False
         self._lease_lost_monotonic: float | None = None
 
+        self._ownership = TaskOwnership()
+        self._writes = TaskWrites(self.queue, write_backoff)
+        self._handoffs: set[asyncio.Task] = set()
         self._resume = VideoResumeRunner(
+            writes=self._writes,
             queue=self.queue,
             resume_executor=resume_executor,
             provider_projection=provider_projection,
         )
         self._recovery = RestartRecovery(
+            ownership=self._ownership,
+            request_rescan=self._request_rescan,
+            writes=self._writes,
             queue=self.queue,
             capacity=self._capacity,
             slots=self._slots,
@@ -511,16 +526,23 @@ class GenerationWorker:
         if self._main_task and not self._main_task.done():
             return
         await self.reload_limits()
-        self._stop_event.clear()
         self._wake_event.clear()
         self._main_task = asyncio.create_task(self._run_loop(), name="generation-worker")
 
-    async def stop(self) -> None:
+    def stop_admission(self) -> None:
         self._stop_event.set()
         self.wake()
+
+    async def stop(self) -> None:
+        self.stop_admission()
         if self._main_task:
             await self._main_task
             self._main_task = None
+        else:
+            await self._wait_inflight_completion()
+
+    def _request_rescan(self) -> None:
+        self._orphan_handled_once = False
 
     def wake(self) -> None:
         """Wake the local worker without changing cross-process polling."""
@@ -578,12 +600,12 @@ class GenerationWorker:
             self._lease_lost_monotonic = None
 
         if self._owns_lease and not self._orphan_handled_once:
+            self._orphan_handled_once = True
             await self._recovery.handle_orphans()
             await self._recovery.settle_interrupted_calls(
                 taskless_started_before=None if self._startup_settled else self._constructed_at
             )
             self._startup_settled = True
-            self._orphan_handled_once = True
 
         if not self._owns_lease:
             await self._wait_for_wake(self.heartbeat_interval)
@@ -626,61 +648,78 @@ class GenerationWorker:
         claimed_any = False
 
         for media_type in self._lanes:
-            while True:
+            while not self._stop_event.is_set():
                 pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(media_type=media_type, pool_full_providers=pool_full)
                 if not task:
                     break
 
-                provider_id, recorded = await self._slot_provider(task, media_type)
-                cap = self._capacity.get(provider_id, media_type)
+                lease = self._ownership.try_acquire(task["task_id"])
+                if lease is None:
+                    lease = await self._ownership.acquire(task["task_id"])
+                transferred = False
+                try:
+                    if self._stop_event.is_set():
+                        await self._requeue_single_task(task["task_id"])
+                        return claimed_any
+                    provider_id, recorded = await self._slot_provider(task, media_type)
+                    if self._stop_event.is_set():
+                        await self._requeue_single_task(task["task_id"])
+                        return claimed_any
+                    cap = self._capacity.get(provider_id, media_type)
 
-                if cap <= 0:
-                    logger.warning(
-                        "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
-                        provider_id,
-                        media_type,
-                        task["task_id"],
-                    )
-                    await self.queue.mark_task_failed(
-                        task["task_id"],
-                        encode_failure(
-                            "provider_unsupported_media",
-                            provider_id=provider_id,
-                            media_type=media_type,
-                        ),
-                    )
-                    claimed_any = True
-                    continue
-
-                if not self._slots.has_room(provider_id, media_type, cap):
-                    logger.info(
-                        "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
-                        provider_id,
-                        media_type,
-                        task["task_id"],
-                    )
-                    if not recorded:
-                        recorded = await self._record_provider(task["task_id"], provider_id)
-                    await self._requeue_single_task(task["task_id"])
-                    if recorded:
+                    if cap <= 0:
+                        logger.warning(
+                            "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
+                            provider_id,
+                            media_type,
+                            task["task_id"],
+                        )
+                        await self._writes.failed(
+                            task["task_id"],
+                            encode_failure(
+                                "provider_unsupported_media",
+                                provider_id=provider_id,
+                                media_type=media_type,
+                            ),
+                        )
+                        claimed_any = True
                         continue
-                    break
 
-                claimed_any = True
-                self._slots.register(
-                    provider_id,
-                    media_type,
-                    task["task_id"],
-                    asyncio.create_task(
+                    if not self._slots.has_room(provider_id, media_type, cap):
+                        logger.info(
+                            "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
+                            provider_id,
+                            media_type,
+                            task["task_id"],
+                        )
+                        if not recorded:
+                            recorded = await self._record_provider(task["task_id"], provider_id)
+                        await self._requeue_single_task(task["task_id"])
+                        if recorded:
+                            continue
+                        break
+
+                    claimed_any = True
+                    execution = asyncio.create_task(
                         self._process_task(task, claimed_provider_id=provider_id),
                         name=f"generation-{media_type}-{task['task_id']}",
-                    ),
-                )
-                if media_type in ("text", RENDER_MEDIA_TYPE):
-                    break
+                    )
+                    self._slots.register(provider_id, media_type, task["task_id"], execution)
+                    execution.add_done_callback(partial(self._execution_done, lease))
+                    transferred = True
+                    if media_type in ("text", RENDER_MEDIA_TYPE):
+                        break
+                finally:
+                    if not transferred:
+                        lease.release()
 
         return claimed_any
+
+    def _execution_done(self, lease: TaskLease, task: asyncio.Task) -> None:
+        lease.release()
+        if not task.cancelled() and task.exception() is not None:
+            self._request_rescan()
 
     async def _slot_provider(self, task: dict[str, Any], media_type: str) -> tuple[str, bool]:
         """任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
@@ -715,8 +754,9 @@ class GenerationWorker:
         provider 漂移时也复用同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
         回队不改 ``queued_at``，任务保留原排队位置。
         """
-        try:
-            async with safe_session_factory() as session:
+
+        async def write() -> bool:
+            async with self.queue.session_factory() as session:
                 result = await session.execute(
                     update(Task)
                     .where(Task.task_id == task_id, Task.status == "running")
@@ -733,9 +773,8 @@ class GenerationWorker:
                 return False
             logger.debug("回队任务 %s (供应商池已满)", task_id)
             return True
-        except Exception:
-            logger.warning("回队任务 %s 失败", task_id, exc_info=True)
-            return False
+
+        return await self._writes.retry(task_id, write)
 
     async def _drain_finished_tasks(self) -> None:
         for task_id, finished_task in self._slots.drain_finished():
@@ -751,6 +790,8 @@ class GenerationWorker:
                 logger.debug("已处理的任务异常已在 _process_task 中记录")
 
     async def _wait_inflight_completion(self) -> None:
+        if self._handoffs:
+            await asyncio.gather(*self._handoffs, return_exceptions=True)
         await self._recovery.wait_dispatchers()
 
         active_tasks = self._slots.all_active_tasks()
@@ -791,7 +832,7 @@ class GenerationWorker:
             raise
         except DispatchProviderChanged as exc:
             if claim.revoked:
-                await fail_task_of_deleted_project(self.queue, task)
+                await fail_task_of_deleted_project(self._writes, task)
                 return
             try:
                 await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
@@ -811,7 +852,7 @@ class GenerationWorker:
                     exc.actual_provider_id,
                 )
                 await asyncio.shield(
-                    self.queue.mark_task_failed(
+                    self._writes.failed(
                         task_id,
                         encode_failure(
                             "dispatch_provider_requeue_failed",
@@ -830,17 +871,17 @@ class GenerationWorker:
             return
         except Exception as exc:
             if claim.revoked:
-                await fail_task_of_deleted_project(self.queue, task)
+                await fail_task_of_deleted_project(self._writes, task)
                 return
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            await asyncio.shield(self.queue.mark_task_failed(task_id, encode_task_failure_message(exc)))
+            await asyncio.shield(self._writes.failed(task_id, encode_task_failure_message(exc)))
             return
 
         if claim.revoked:
-            await fail_task_of_deleted_project(self.queue, task)
+            await fail_task_of_deleted_project(self._writes, task)
             return
         try:
-            await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
+            await asyncio.shield(self._writes.succeeded(task_id, result))
         except asyncio.CancelledError:
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
@@ -853,14 +894,37 @@ class GenerationWorker:
         ledger = Ledger(session_factory=self.queue.session_factory)
         return await ledger.settle_interrupted_calls(taskless_started_before=taskless_started_before)
 
-    async def read_video_poll_timeout_seconds(self) -> int:
-        """派发前解析全局轮询超时。
+    async def retry_artifact_download(self, task_id: str) -> dict[str, Any]:
+        if self._stop_event.is_set():
+            raise WorkerStoppingError
 
-        调用方在翻任务状态之前先取它：状态一旦提交就没有回滚点，派发侧此后再抛错任务就永久
-        停在 running 上无人接手（与 ``provider_id`` 同为资格条件，见 ``retry_artifact_download``）。
-        """
-        return await read_video_poll_timeout_seconds()
+        async def handoff() -> dict[str, Any]:
+            poll_timeout_seconds = await read_video_poll_timeout_seconds()
+            lease = self._ownership.try_acquire(task_id)
+            if lease is None:
+                row = await self.queue.get_task(task_id)
+                if row is None or row["status"] != "failed":
+                    raise ValueError("task is not eligible for download retry")
+                lease = await self._ownership.acquire(task_id)
+            try:
+                task = await self.queue.retry_artifact_download(task_id)
+            except ValueError:
+                raise
+            except Exception:
+                self._request_rescan()
+                raise
+            finally:
+                lease.release()
+            self._recovery.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
+            return task
 
-    async def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
-        """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
-        await self._recovery.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
+        pending = asyncio.create_task(handoff(), name=f"retry-handoff-{task_id}")
+        self._handoffs.add(pending)
+
+        def completed(done: asyncio.Task) -> None:
+            self._handoffs.discard(done)
+            if not done.cancelled():
+                done.exception()
+
+        pending.add_done_callback(completed)
+        return await asyncio.shield(pending)

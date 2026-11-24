@@ -44,25 +44,9 @@ class _RetryQueue:
         return {"task_id": task_id, "status": "running", "error_message": None}
 
 
-class _RetryWorker:
-    def __init__(self, *, timeout_error: Exception | None = None):
-        self.tasks = []
-        self.poll_timeouts = []
-        self._timeout_error = timeout_error
-
-    async def read_video_poll_timeout_seconds(self) -> int:
-        if self._timeout_error is not None:
-            raise self._timeout_error
-        return 3600
-
-    async def retry_artifact_download(self, task, *, poll_timeout_seconds: int):
-        self.tasks.append(task)
-        self.poll_timeouts.append(poll_timeout_seconds)
-
-
 class TestRetryArtifactDownload:
     @staticmethod
-    def _app(queue: _RetryQueue, worker: _RetryWorker | None) -> FastAPI:
+    def _app(worker):
         app = FastAPI()
         app.state.generation_worker = worker
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -70,36 +54,47 @@ class TestRetryArtifactDownload:
         register_error_handlers(app)
         return app
 
-    def test_dispatches_existing_task_without_creating_another(self, monkeypatch):
-        queue = _RetryQueue()
-        worker = _RetryWorker()
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+    def test_returns_the_reopened_task(self):
+        class Worker:
+            async def retry_artifact_download(self, task_id):
+                return {"task_id": task_id, "status": "running", "error_message": None}
 
-        with TestClient(self._app(queue, worker)) as client:
+        with TestClient(self._app(Worker())) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
-
         assert response.status_code == 200
-        assert queue.calls == ["task-1"]
-        assert worker.tasks == [{"task_id": "task-1", "status": "running", "error_message": None}]
-        assert worker.poll_timeouts == [3600]
+        assert response.json()["task"]["task_id"] == "task-1"
+        assert response.json()["task"]["status"] == "running"
 
     def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
+        from lib.generation.generation_worker import GenerationWorker
+
+        async def unavailable():
+            raise RuntimeError("config database unavailable")
+
+        monkeypatch.setattr("lib.generation.generation_worker.read_video_poll_timeout_seconds", unavailable)
         queue = _RetryQueue()
-        worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
-
-        with TestClient(self._app(queue, worker), raise_server_exceptions=False) as client:
+        worker = GenerationWorker(queue=queue, executor=None, resume_executor=None)
+        with TestClient(self._app(worker), raise_server_exceptions=False) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
-
         assert response.status_code == 500
         assert queue.calls == []
-        assert worker.tasks == []
+
+    def test_worker_stopping_rejects_before_reopening_task_and_call(self):
+        from lib.generation.generation_worker import GenerationWorker
+
+        queue = _RetryQueue()
+        worker = GenerationWorker(queue=queue, executor=None, resume_executor=None)
+        worker.stop_admission()
+        with TestClient(self._app(worker)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+        assert response.status_code == 503
+        assert queue.calls == []
 
     def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
         queue = _RetryQueue()
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
 
-        with TestClient(self._app(queue, None)) as client:
+        with TestClient(self._app(None)) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
 
         assert response.status_code == 400

@@ -1196,6 +1196,10 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
+        if formal_output and task_id is not None:
+            version_metadata.update(task_id=task_id, video_uri=video_uri)
+            if warnings:
+                version_metadata["warnings"] = list(warnings)
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
@@ -1359,6 +1363,10 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
+        if formal_output and task_id is not None:
+            version_metadata.update(task_id=task_id, video_uri=video_uri)
+            if warnings:
+                version_metadata["warnings"] = list(warnings)
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,

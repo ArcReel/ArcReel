@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lib.artifacts.rendered_artifact import cleanup_interrupted_render_staging
+from lib.artifacts.version_manager import VersionManager
 from lib.backends.providers import PROVIDER_GROK, PROVIDER_VIDU
 from lib.config.service import read_video_poll_timeout_seconds
+from lib.db.repositories.project_records import is_deleted_project_name
 from lib.generation.render_lane import RENDER_MEDIA_TYPE
 from lib.generation.task_failure import encode_failure
 from lib.generation.video_resume import VideoResumeRunner, cleanup_video_staging
 from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
+from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.execution_checkpoint import VideoResumeState, classify_video_resume_state
 
 if TYPE_CHECKING:
@@ -27,6 +31,8 @@ if TYPE_CHECKING:
 
     from lib.generation.generation_queue import GenerationQueue
     from lib.generation.generation_worker import CapacityTable, SlotTable
+    from lib.generation.task_ownership import TaskLease, TaskOwnership
+    from lib.generation.task_writes import TaskWrites
 
     ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
 
@@ -39,6 +45,38 @@ def _cleanup_orphan_render_staging(project_name: str) -> None:
     """在工作线程里定位项目目录并清理中断渲染留下的临时文件。"""
 
     cleanup_interrupted_render_staging(get_project_manager().get_project_path(project_name))
+
+
+def _committed_video_result(task: dict[str, Any]) -> dict[str, Any] | None:
+    if task.get("task_type") not in ("video", "reference_video") or task.get("resource_id") is None:
+        return None
+    if is_deleted_project_name(task["project_name"]):
+        return None
+    try:
+        path = get_project_manager().get_project_path(task["project_name"])
+    except FileNotFoundError:
+        return None
+    resource_type = "reference_videos" if task["task_type"] == "reference_video" else "videos"
+    resource_id = str(task["resource_id"])
+    history = VersionManager(path).get_versions(resource_type, resource_id)
+    for record in reversed(history["versions"]):
+        if record.get("task_id", record.get("execution_task_id")) == task["task_id"]:
+            result = {
+                "version": record["version"],
+                "file_path": record["file"],
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                "video_uri": record.get("video_uri"),
+                "created_at": record["created_at"],
+            }
+            if record["is_current"]:
+                result["file_path"] = resource_relative_path(resource_type, resource_id)
+            else:
+                result["selected_current"] = False
+            if resource_type == "reference_videos" or record.get("warnings"):
+                result["warnings"] = record.get("warnings", [])
+            return result
+    return None
 
 
 class InterruptedCallSettler(Protocol):
@@ -59,6 +97,9 @@ class RestartRecovery:
         self,
         *,
         queue: GenerationQueue,
+        ownership: TaskOwnership,
+        writes: TaskWrites,
+        request_rescan: Callable[[], None],
         capacity: CapacityTable,
         slots: SlotTable,
         stop_event: asyncio.Event,
@@ -75,20 +116,37 @@ class RestartRecovery:
         self._provider_projection = provider_projection
         self._resume = resume
         self._settle_interrupted_calls = settle_interrupted_calls
-        self.orphan_dispatcher_task: asyncio.Task | None = None
-        self._retry_dispatch_tasks: set[asyncio.Task] = set()
+        self._ownership = ownership
+        self._writes = writes
+        self._request_rescan = request_rescan
+        self._dispatchers: set[asyncio.Task] = set()
+
+    def _track(self, dispatcher: asyncio.Task) -> None:
+        self._dispatchers.add(dispatcher)
+        dispatcher.add_done_callback(self._dispatchers.discard)
 
     async def wait_dispatchers(self) -> None:
-        """shutdown：等 dispatcher 派完最后一批 sub-task（否则 sub-task 可能在 dispatcher 退出后
-        才创建）。dispatcher 异常不能断 shutdown 链。"""
-        if self.orphan_dispatcher_task is not None and not self.orphan_dispatcher_task.done():
-            try:
-                await self.orphan_dispatcher_task
-            except Exception:
-                logger.exception("orphan dispatcher 在 shutdown 等待时异常")
+        while self._dispatchers:
+            await asyncio.gather(*self._dispatchers, return_exceptions=True)
 
-        if retry_dispatchers := [t for t in self._retry_dispatch_tasks if not t.done()]:
-            await asyncio.gather(*retry_dispatchers, return_exceptions=True)
+    async def _still_running(self, task_id: str) -> bool:
+        try:
+            row = await self._queue.get_task(task_id)
+        except Exception:
+            logger.warning("续跑前读取任务失败 task_id=%s", task_id, exc_info=True)
+            self._request_rescan()
+            return False
+        return row is not None and row["status"] == "running"
+
+    async def _restore_committed(self, task: dict[str, Any]) -> bool:
+        if task.get("task_type") not in ("video", "reference_video"):
+            return False
+        result = await run_sync_transaction(_committed_video_result, task)
+        if result is None:
+            return False
+        await self._writes.succeeded(task["task_id"], result)
+        await cleanup_video_staging(task)
+        return True
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> None:
         """孤儿任务处理之后收口没有存活任务的 pending 调用行（与孤儿扫描共用一次性开关）。
@@ -134,122 +192,114 @@ class RestartRecovery:
             return
         logger.info("等待 lease 获取后开始扫孤儿（待处理 %d 个）", len(orphans))
 
-        self_active_task_ids = self._slots.active_task_ids()
-
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
-
         for task in orphans:
             task_id = task["task_id"]
-            if task_id in self_active_task_ids:
-                logger.info("孤儿扫到本进程仍 active 的 task %s，跳过避免 self-preemption", task_id)
+            lease = self._ownership.try_acquire(task_id)
+            if lease is None:
                 continue
-            task_type = task.get("task_type")
-            if task.get("media_type"):
-                media_type = task["media_type"]
-            elif task_type in ("video", "reference_video"):
-                media_type = "video"
-            elif task_type == "tts":
-                media_type = "audio"
-            else:
-                media_type = "image"
-
-            if media_type == "image":
-                logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
-                await self._queue.mark_task_failed(
-                    task_id,
-                    encode_failure("restart_lost_image"),
-                )
-                continue
-
-            if media_type == "audio":
-                logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
-                await self._queue.mark_task_failed(
-                    task_id,
-                    encode_failure("restart_lost_audio"),
-                )
-                continue
-
-            if media_type == "text":
-                logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
-                await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_text"))
-                continue
-
-            if media_type == RENDER_MEDIA_TYPE:
-                logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
-                if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
-                    try:
-                        await run_sync_transaction(_cleanup_orphan_render_staging, task["project_name"])
-                    except Exception:
-                        logger.warning("清理孤儿 render 临时文件失败: %s", task_id, exc_info=True)
-                await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_render"))
-                continue
-
-            checkpoint = None
-            if task_type in ("video", "reference_video"):
-                resume_state, checkpoint = classify_video_resume_state(task)
-                if resume_state is not VideoResumeState.READY:
-                    if resume_state is VideoResumeState.NO_CHECKPOINT_NO_JOB:
-                        failure = encode_failure("restart_lost_no_job_id")
-                    elif resume_state is VideoResumeState.CHECKPOINT_WITHOUT_JOB:
-                        failure = encode_failure("restart_lost_checkpoint_no_job_id")
-                    else:
-                        failure = encode_failure(
-                            "execution_identity_unrecoverable",
-                            detail="missing, malformed, or mismatched video submission checkpoint",
-                        )
-                    await self._queue.mark_task_failed(task_id, failure)
-                    await cleanup_video_staging(task)
-                    continue
-
-            provider_id = (
-                checkpoint.provider_id
-                if checkpoint is not None
-                else task.get("provider_id") or await self._provider_projection(task)
-            )
-            if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
-                logger.warning(
-                    "孤儿 video running (provider=%s 不支持 resume) → [resume_unsupported]: %s",
-                    provider_id,
-                    task_id,
-                )
-                await self._queue.mark_task_failed(
-                    task_id,
-                    encode_failure("resume_unsupported_provider", provider_id=provider_id),
-                )
-                await cleanup_video_staging(task)
-                continue
-
-            job_id = task.get("provider_job_id")
-            if not job_id:
-                logger.warning("孤儿 running 无 job_id → [restart_lost]: %s", task_id)
-                await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_no_job_id"))
-                await cleanup_video_staging(task)
-                continue
-
-            task["provider_id"] = provider_id
-            resumable_by_provider.setdefault(provider_id, []).append(task)
+            try:
+                if await self._still_running(task_id) and not await self._restore_committed(task):
+                    provider = await self._classify_orphan(task)
+                    if provider is not None:
+                        task["provider_id"] = provider
+                        resumable_by_provider.setdefault(provider, []).append(task)
+            finally:
+                lease.release()
 
         if resumable_by_provider:
-            total = sum(len(v) for v in resumable_by_provider.values())
-            poll_timeout_seconds = await read_video_poll_timeout_seconds()
+            timeout = await read_video_poll_timeout_seconds()
             for tasks in resumable_by_provider.values():
                 for task in tasks:
-                    task["video_poll_timeout_seconds"] = poll_timeout_seconds
-            logger.info(
-                "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
-                total,
-            )
-            if self.orphan_dispatcher_task is not None and not self.orphan_dispatcher_task.done():
-                logger.warning(
-                    "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"
-                    "旧 sub-task 由占用台账跟踪，shutdown 时经 _slots.all_active_tasks 兜底"
-                )
-            self.orphan_dispatcher_task = asyncio.create_task(
-                self.dispatch_resumable(resumable_by_provider),
-                name="orphan-dispatcher",
-            )
+                    task["video_poll_timeout_seconds"] = timeout
+            self._track(asyncio.create_task(self.dispatch_resumable(resumable_by_provider), name="orphan-dispatcher"))
+
+    async def _classify_orphan(self, task: dict[str, Any]) -> str | None:
+        task_id = task["task_id"]
+        task_type = task.get("task_type")
+        if task.get("media_type"):
+            media_type = task["media_type"]
+        elif task_type in ("video", "reference_video"):
+            media_type = "video"
+        elif task_type == "tts":
+            media_type = "audio"
         else:
-            logger.info("孤儿扫描完成，无可 resume 任务")
+            media_type = "image"
+
+        if media_type == "image":
+            logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
+            await self._writes.failed(
+                task_id,
+                encode_failure("restart_lost_image"),
+            )
+            return None
+
+        if media_type == "audio":
+            logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
+            await self._writes.failed(
+                task_id,
+                encode_failure("restart_lost_audio"),
+            )
+            return None
+
+        if media_type == "text":
+            logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
+            await self._writes.failed(task_id, encode_failure("restart_lost_text"))
+            return None
+
+        if media_type == RENDER_MEDIA_TYPE:
+            logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
+            if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
+                try:
+                    await run_sync_transaction(_cleanup_orphan_render_staging, task["project_name"])
+                except Exception:
+                    logger.warning("清理孤儿 render 临时文件失败: %s", task_id, exc_info=True)
+            await self._writes.failed(task_id, encode_failure("restart_lost_render"))
+            return None
+
+        checkpoint = None
+        if task_type in ("video", "reference_video"):
+            resume_state, checkpoint = classify_video_resume_state(task)
+            if resume_state is not VideoResumeState.READY:
+                if resume_state is VideoResumeState.NO_CHECKPOINT_NO_JOB:
+                    failure = encode_failure("restart_lost_no_job_id")
+                elif resume_state is VideoResumeState.CHECKPOINT_WITHOUT_JOB:
+                    failure = encode_failure("restart_lost_checkpoint_no_job_id")
+                else:
+                    failure = encode_failure(
+                        "execution_identity_unrecoverable",
+                        detail="missing, malformed, or mismatched video submission checkpoint",
+                    )
+                await self._writes.failed(task_id, failure)
+                await cleanup_video_staging(task)
+                return None
+
+        provider_id = (
+            checkpoint.provider_id
+            if checkpoint is not None
+            else task.get("provider_id") or await self._provider_projection(task)
+        )
+        if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
+            logger.warning(
+                "孤儿 video running (provider=%s 不支持 resume) → [resume_unsupported]: %s",
+                provider_id,
+                task_id,
+            )
+            await self._writes.failed(
+                task_id,
+                encode_failure("resume_unsupported_provider", provider_id=provider_id),
+            )
+            await cleanup_video_staging(task)
+            return None
+
+        job_id = task.get("provider_job_id")
+        if not job_id:
+            logger.warning("孤儿 running 无 job_id → [restart_lost]: %s", task_id)
+            await self._writes.failed(task_id, encode_failure("restart_lost_no_job_id"))
+            await cleanup_video_staging(task)
+            return None
+
+        return provider_id
 
     async def dispatch_resumable(
         self,
@@ -276,23 +326,21 @@ class RestartRecovery:
         await asyncio.gather(*sub_tasks, return_exceptions=True)
         logger.info("孤儿后台 dispatcher 完成")
 
-    async def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
-        """按原 provider job 派发一次下载恢复，不重新提交供应商任务。"""
-        provider_id = task.get("provider_id")
-        if not isinstance(provider_id, str) or not provider_id:
-            raise ValueError("retry-download task has no provider_id")
+    def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
         task["video_poll_timeout_seconds"] = poll_timeout_seconds
-        dispatch = asyncio.create_task(
-            self.dispatch_resumable({provider_id: [task]}),
-            name=f"retry-download-{task['task_id']}",
+        self._track(
+            asyncio.create_task(
+                self.dispatch_provider_bucket(task["provider_id"], [task], accepted_retry=True),
+                name=f"retry-download-{task['task_id']}",
+            )
         )
-        self._retry_dispatch_tasks.add(dispatch)
-        dispatch.add_done_callback(self._retry_dispatch_tasks.discard)
 
     async def dispatch_provider_bucket(
         self,
         provider_id: str,
         tasks: list[dict[str, Any]],
+        *,
+        accepted_retry: bool = False,
     ) -> None:
         """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
@@ -312,18 +360,7 @@ class RestartRecovery:
             except Exception:
                 logger.warning("reload_limits 兜底失败", exc_info=True)
             cap = self._capacity.get(provider_id, "video")
-        if cap <= 0:
-            no_capacity = f"resume unsupported: provider {provider_id} has no video capacity"
-            for t in tasks:
-                await self._queue.mark_task_failed(
-                    t["task_id"],
-                    encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id),
-                )
-                await self._resume.settle_unresumable_call(t, failure=no_capacity)
-                await cleanup_video_staging(t)
-            return
-
-        sem = asyncio.Semaphore(cap)
+        sem = asyncio.Semaphore(max(cap, 1))
 
         async def _run_one(t: dict[str, Any]) -> None:
             task_id = t["task_id"]
@@ -331,7 +368,18 @@ class RestartRecovery:
             try:
                 await sem.acquire()
                 acquired = True
-                if self._stop_event.is_set():
+                if (self._stop_event.is_set() and not accepted_retry) or not await self._still_running(task_id):
+                    return
+                if await self._restore_committed(t):
+                    return
+                if cap <= 0:
+                    await self._writes.failed(
+                        task_id, encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id)
+                    )
+                    await self._resume.settle_unresumable_call(
+                        t, failure=f"resume unsupported: provider {provider_id} has no video capacity"
+                    )
+                    await cleanup_video_staging(t)
                     return
                 self._slots.promote(provider_id, "video", task_id)
                 logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
@@ -344,17 +392,31 @@ class RestartRecovery:
                 except Exception:
                     logger.exception("resume dispatch 打断后落终态失败 task_id=%s", task_id)
                 raise
+            except Exception:
+                logger.exception("视频任务收尾失败 task_id=%s", task_id)
+                self._request_rescan()
             finally:
                 if acquired:
                     sem.release()
-                self._slots.release(provider_id, "video", task_id)
+
+        def release(lease: TaskLease, _done: asyncio.Task) -> None:
+            self._slots.release(provider_id, "video", lease.task_id)
+            lease.release()
 
         sub: list[asyncio.Task] = []
         for t in tasks:
-            if self._stop_event.is_set():
+            if self._stop_event.is_set() and not accepted_retry:
                 break
+            lease = (
+                await self._ownership.acquire(t["task_id"])
+                if accepted_retry
+                else self._ownership.try_acquire(t["task_id"])
+            )
+            if lease is None:
+                continue
             sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
+            sub_task.add_done_callback(partial(release, lease))
             sub.append(sub_task)
         if sub:
             await asyncio.gather(*sub, return_exceptions=True)

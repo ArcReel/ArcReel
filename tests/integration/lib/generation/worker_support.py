@@ -216,6 +216,12 @@ class FakeWorkerQueue:
     async def requeue_running_tasks(self):
         return 0
 
+    async def get_task(self, task_id):
+        for status, rows in (("succeeded", self.succeeded), ("failed", self.failed)):
+            if any(tid == task_id for tid, _ in rows):
+                return {"task_id": task_id, "status": status}
+        return {"task_id": task_id, "status": "running"}
+
     async def list_orphan_tasks_on_start(self):
         return self._orphans
 

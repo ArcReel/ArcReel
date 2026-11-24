@@ -84,6 +84,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
         "lib.project.project_manager.get_project_manager",
         "lib.config.resolver.get_project_manager",
         "lib.generation.generation_worker.get_project_manager",
+        "lib.generation.restart_recovery.get_project_manager",
         "lib.generation.video_resume.get_project_manager",
         "server.services.tasks.generation_context.get_project_manager",
         "server.services.tasks.resume_executor.get_project_manager",
@@ -288,9 +289,7 @@ async def _run_orphan_recovery(session_factory) -> None:
         resume_executor=execute_resume_video_task,
     )
     await worker._recovery.handle_orphans()
-    dispatcher = worker._recovery.orphan_dispatcher_task
-    assert dispatcher is not None
-    await asyncio.wait_for(dispatcher, timeout=10)
+    await asyncio.wait_for(worker._recovery.wait_dispatchers(), timeout=10)
 
 
 async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, session_factory):
@@ -327,6 +326,17 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
 
         await _run_orphan_recovery(session_factory)
 
+        initial = await _load_task_row(session_factory, "T-ce-resume")
+        assert initial.status == "succeeded"
+        async with session_factory() as session:
+            running = await session.get(Task, "T-ce-resume")
+            running.status = "running"
+            running.result_json = None
+            await session.commit()
+        await _run_orphan_recovery(session_factory)
+        restored = await _load_task_row(session_factory, "T-ce-resume")
+        assert json.loads(restored.result_json) == json.loads(initial.result_json)
+
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -336,6 +346,10 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
+    from lib.artifacts.version_manager import VersionManager
+
+    history = VersionManager(chain_project).get_versions("videos", "E1S01")
+    assert [version["task_id"] for version in history["versions"]] == ["T-ce-resume"]
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
