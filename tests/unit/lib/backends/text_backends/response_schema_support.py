@@ -20,6 +20,7 @@ def response_schema_models() -> list[type[BaseModel]]:
         AdVisualScript,
         DramaVisualScript,
         NarrationVisualEpisodeScript,
+        ReferenceAuthoringResponse,
         ReferencePromptAuthoringFlatScript,
         build_drama_script_plan_model,
         build_episode_script_model,
@@ -31,6 +32,7 @@ def response_schema_models() -> list[type[BaseModel]]:
     models: list[type[BaseModel]] = [
         NarrationPlanDraft,
         DramaPlanDraft,
+        ReferenceAuthoringResponse,
         ReferencePromptAuthoringFlatScript,
         NarrationVisualEpisodeScript,
         DramaVisualScript,

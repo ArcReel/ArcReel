@@ -239,6 +239,7 @@ class TestGenerate:
 
         from lib.script.script_models import (
             AdReferenceFlatScript,
+            ReferenceAuthoringResponse,
             ReferencePromptAuthoringFlatScript,
             build_drama_script_plan_model,
             build_episode_script_model,
@@ -259,6 +260,7 @@ class TestGenerate:
             build_narration_script_plan_model([8]),
             build_reference_units_script_plan_model([4, 6, 8]),
             build_reference_units_script_plan_model([8]),
+            ReferenceAuthoringResponse,
             ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"

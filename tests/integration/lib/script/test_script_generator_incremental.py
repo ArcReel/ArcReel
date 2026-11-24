@@ -182,7 +182,7 @@ def _reference_visual(*ids: str, mark: str = "镜头1") -> str:
     return json.dumps(
         {
             "title": "第一集",
-            "units": [{"text": f"{mark}：中景，平视。@[主角] 推开 @[酒馆] 的门。"} for _ in ids],
+            "units": [{"unit_id": uid, "text": f"{mark}：中景，平视。@[主角] 推开 @[酒馆] 的门。"} for uid in ids],
         },
         ensure_ascii=False,
     )

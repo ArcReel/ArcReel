@@ -45,14 +45,19 @@ SCRIPT_PLAN_UNITS_JSON = _json.dumps({"units": [SCRIPT_PLAN_UNIT]}, ensure_ascii
 
 
 def _prompt_authoring_response(*texts: str, title: str = "t") -> str:
-    """prompt_authoring 的 LLM 产出：扁平 ``{title, units: [{text}]}``——unit_id 与时长不进输出。"""
-    return _json.dumps({"title": title, "units": [{"text": t} for t in texts]}, ensure_ascii=False)
+
+    return _json.dumps(
+        {"title": title, "units": [{"unit_id": f"E1U{i:02}", "text": t} for i, t in enumerate(texts, 1)]},
+        ensure_ascii=False,
+    )
 
 
-def _fake_prompt_authoring_generator(*texts: str) -> MagicMock:
+def _fake_prompt_authoring_generator(*texts: str, first_id: str = "E1U01") -> MagicMock:
     generator = MagicMock()
     generator.model = "mock"
-    generator.generate = AsyncMock(return_value=MagicMock(text=_prompt_authoring_response(*texts)))
+    data = _json.loads(_prompt_authoring_response(*texts))
+    data["units"][0]["unit_id"] = first_id
+    generator.generate = AsyncMock(return_value=MagicMock(text=_json.dumps(data)))
     return generator
 
 
@@ -207,7 +212,7 @@ async def test_build_prompt_renders_pending_formal_units(reference_project: Path
     prompt = await gen.build_prompt(episode=1)
     assert "@[主角] 推开 @[酒馆] 的门" in prompt
     assert "（时长 4s）" in prompt
-    assert "E1U01" not in prompt
+    assert "E1U01" in prompt
 
 
 @pytest.mark.asyncio
@@ -246,8 +251,6 @@ async def test_reference_prompt_authoring_ends_with_instructions_on_both_paths(r
 
 @pytest.mark.asyncio
 async def test_script_generator_uses_reference_schema_on_generate(reference_project: Path):
-    """prompt_authoring 用扁平 schema 出正文，写回待编写单元并清除标记；unit_id 与时长沿用正式剧本。"""
-    from lib.script.script_models import ReferencePromptAuthoringFlatScript
 
     fake_generator = _fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
 
@@ -266,7 +269,7 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
 
     schema = fake_generator.generate.await_args.args[0].response_schema
-    assert schema is ReferencePromptAuthoringFlatScript
+    assert "unit_id" in str(schema.model_json_schema())
     assert "duration_seconds" not in _json.dumps(schema.model_json_schema())
 
 
@@ -292,7 +295,7 @@ async def test_prompt_authoring_rewrites_only_pending_units(reference_project: P
 
     rewritten: list[str] = []
     new_text = "镜头1：中景。@[主角] 走进 @[酒馆]，环顾四周。"
-    fake_generator = _fake_prompt_authoring_generator(new_text)
+    fake_generator = _fake_prompt_authoring_generator(new_text, first_id="E1U02")
     await ScriptGenerator(reference_project, generator=fake_generator).generate(
         episode=1, rewritten_entry_ids=rewritten
     )
@@ -414,7 +417,7 @@ async def test_no_image_five_second_unit_uses_i2v_facts_through_conversion_and_a
 
     generator = ScriptGenerator(
         project,
-        generator=_fake_prompt_authoring_generator("镜头1：远景，晨光照亮空旷街道。"),
+        generator=_fake_prompt_authoring_generator("镜头1：远景，晨光照亮空旷街道。", first_id="E1U1"),
     )
 
     await _materialize(generator)
@@ -559,7 +562,7 @@ async def test_prompt_authoring_reads_the_r2v_tier_for_a_unit_with_a_usable_refe
     reference_project: Path, set_video_request_facts
 ):
     """带可用参考图的单元按 r2v 桶的事实取档：r2v 收窄到 [4]、i2v 仍是 [4, 8] 时，8 秒在付费调用前不拦
-    （去掉引用就能合法落地），编写输出保留引用后按 r2v 档位判越档，产出落待修复草稿而非按 i2v 档位放行。
+    （去掉引用就能合法落地），编写输出保留引用后按 r2v 档位判越档，保留原正文与时长。
     """
     set_video_request_facts(
         {
@@ -576,23 +579,22 @@ async def test_prompt_authoring_reads_the_r2v_tier_for_a_unit_with_a_usable_refe
     generator = _fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
 
     gen = ScriptGenerator(reference_project, generator=generator)
-    with pytest.raises(DraftViolation, match="不在当前生效档位"):
+    with pytest.raises(ValueError, match="不在当前生效档位"):
         await gen.generate(episode=1)
 
-    generator.generate.assert_awaited_once()
+    assert generator.generate.await_count == 2
     assert _formal_units(reference_project)["E1U01"]["duration_seconds"] == 8
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
+    assert not _prompt_authoring_quarantine(reference_project).exists()
 
 
 @pytest.mark.asyncio
-async def test_script_generator_rejects_prompt_authoring_unit_count_change(reference_project: Path):
-    """prompt_authoring 合并 / 拆分 / 增删 unit：unit 数须与待编写单元一致，改动即响亮失败。"""
+async def test_script_generator_ignores_unknown_authoring_units(reference_project: Path):
+
     gen = ScriptGenerator(
         reference_project, generator=_fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT, "镜头1：多出来的一段")
     )
-    with pytest.raises(ValueError, match="unit 数"):
-        await gen.generate(episode=1)
+    await gen.generate(episode=1)
+    assert list(_formal_units(reference_project)) == ["E1U01"]
 
 
 @pytest.mark.asyncio
@@ -1057,7 +1059,9 @@ async def test_prompt_authoring_missing_title_does_not_fail_the_paid_call(refere
     generator = MagicMock()
     generator.model = "mock"
     generator.generate = AsyncMock(
-        return_value=MagicMock(text=_json.dumps({"units": [{"text": PROMPT_AUTHORING_UNIT_TEXT}]}, ensure_ascii=False))
+        return_value=MagicMock(
+            text=_json.dumps({"units": [{"unit_id": "E1U01", "text": PROMPT_AUTHORING_UNIT_TEXT}]}, ensure_ascii=False)
+        )
     )
 
     out = await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
@@ -1091,205 +1095,21 @@ def _prompt_authoring_quarantine(project: Path):
     return quarantine_path(project, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
 
 
-@pytest.mark.asyncio
-async def test_prompt_authoring_violation_quarantines_instead_of_discarding(reference_project: Path):
-    """prompt_authoring 违约不丢弃这次已付费的展开：产物落待修复草稿、正式剧本不被改写、报告带处置指引。"""
-    formal_before = _script_path(reference_project).read_bytes()
-    baseline = script_review.content_fingerprint(_script_path(reference_project))
-    gen = ScriptGenerator(reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-
-    with pytest.raises(DraftViolation) as excinfo:
-        await gen.generate(episode=1)
-
-    report = str(excinfo.value)
-    assert excinfo.value.params == {"count": 1}
-    assert "unregistered_asset" in report
-    assert "promote_draft" in report
-    assert _script_path(reference_project).read_bytes() == formal_before
-
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert envelope["kind"] == QUARANTINE_KIND_PROMPT_AUTHORING
-    assert envelope["meta"]["base_fingerprint"] == baseline
-    assert envelope["meta"]["unit_ids"] == ["E1U01"]
-    assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
-    assert envelope["content"]["units"][0]["text"] == BAD_PROMPT_AUTHORING_UNIT_TEXT
-
-
-@pytest.mark.asyncio
-async def test_cancelled_prompt_authoring_quarantine_finishes_without_blocking_event_loop(reference_project: Path):
-    generator = ScriptGenerator(
-        reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT)
-    )
-    started = threading.Event()
-    release = threading.Event()
-    caller_thread = threading.get_ident()
-    worker_threads: list[int] = []
-
-    def before_quarantine_commit() -> None:
-        worker_threads.append(threading.get_ident())
-        started.set()
-        release.wait()
-
-    generation = asyncio.create_task(generator.generate(episode=1, before_quarantine_commit=before_quarantine_commit))
-    try:
-        assert await asyncio.to_thread(started.wait, 1)
-        ticked = asyncio.Event()
-        asyncio.get_running_loop().call_soon(ticked.set)
-        await asyncio.wait_for(ticked.wait(), timeout=1)
-        generation.cancel()
-        await asyncio.sleep(0)
-        assert not generation.done()
-    finally:
-        release.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(generation, timeout=1)
-    assert _prompt_authoring_quarantine(reference_project).exists()
-    assert worker_threads
-    assert all(thread != caller_thread for thread in worker_threads)
-
-
-@pytest.mark.asyncio
-async def test_prompt_authoring_generation_preserves_draft_edited_during_model_call(reference_project: Path):
-    started = asyncio.Event()
-    release = asyncio.Event()
-    generator = MagicMock()
-    generator.model = "mock"
-
-    async def generate(_request, **_kwargs):
-        started.set()
-        await release.wait()
-        return MagicMock(text=_prompt_authoring_response(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-
-    generator.generate = AsyncMock(side_effect=generate)
-    generation = asyncio.create_task(ScriptGenerator(reference_project, generator=generator).generate(episode=1))
-    await started.wait()
+def _legacy_prompt_draft(project: Path, uid: str = "E1U01") -> None:
     write_quarantine(
-        reference_project,
+        project,
         1,
         QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "并发草稿", "units": [{"text": "并发编辑内容"}]},
-        violations=[],
+        content={"title": "历史草稿", "units": [{"text": BAD_PROMPT_AUTHORING_UNIT_TEXT}]},
+        violations=[DraftViolation("未登记资产", code="unregistered_asset")],
+        meta={"unit_ids": [uid], "base_fingerprint": script_review.content_fingerprint(_script_path(project))},
     )
-    release.set()
-
-    with pytest.raises(DraftViolation) as excinfo:
-        await asyncio.wait_for(generation, timeout=1)
-    assert excinfo.value.code == "draft_revision_conflict"
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert envelope["content"]["title"] == "并发草稿"
-    assert envelope["content"]["units"][0]["text"] == "并发编辑内容"
-
-
-@pytest.mark.asyncio
-async def test_successful_prompt_authoring_generation_rejects_draft_created_during_model_call(reference_project: Path):
-    formal_before = _script_path(reference_project).read_bytes()
-    started = asyncio.Event()
-    release = asyncio.Event()
-    generator = MagicMock()
-    generator.model = "mock"
-
-    async def generate(_request, **_kwargs):
-        started.set()
-        await release.wait()
-        return MagicMock(text=_prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT))
-
-    generator.generate = AsyncMock(side_effect=generate)
-    generation = asyncio.create_task(ScriptGenerator(reference_project, generator=generator).generate(episode=1))
-    await asyncio.wait_for(started.wait(), timeout=1)
-    write_quarantine(
-        reference_project,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "并发草稿", "units": [{"text": "并发编辑内容"}]},
-        violations=[],
-        meta={"base_fingerprint": None},
-    )
-    release.set()
-
-    with pytest.raises(DraftViolation) as excinfo:
-        await asyncio.wait_for(generation, timeout=1)
-    assert excinfo.value.code == "draft_revision_conflict"
-    assert _script_path(reference_project).read_bytes() == formal_before
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert envelope["content"]["title"] == "并发草稿"
-
-
-@pytest.mark.asyncio
-async def test_prompt_authoring_generation_rejects_existing_draft_before_model_call(reference_project: Path):
-    write_quarantine(
-        reference_project,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "现有草稿", "units": [{"text": PROMPT_AUTHORING_UNIT_TEXT}]},
-        violations=[],
-        meta={"base_fingerprint": None},
-    )
-    generator = _fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
-
-    with pytest.raises(DraftViolation) as excinfo:
-        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
-
-    assert excinfo.value.code == "draft_revision_conflict"
-    generator.generate.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_prompt_authoring_preserves_output_when_formal_script_changes_during_generation(reference_project: Path):
-    formal = _script_path(reference_project)
-    concurrent = _json.loads(formal.read_text(encoding="utf-8"))
-    concurrent["title"] = "并发正式标题"
-    generator = MagicMock()
-    generator.model = "mock"
-
-    async def generate(_request, **_kwargs):
-        await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
-        return MagicMock(text=_prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT, title="本次生成标题"))
-
-    generator.generate = AsyncMock(side_effect=generate)
-
-    with pytest.raises(DraftViolation) as excinfo:
-        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
-
-    assert "formal_revision_conflict" in str(excinfo.value)
-    assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert envelope["content"]["title"] == "本次生成标题"
-    assert envelope["meta"]["base_fingerprint"] is not None
-
-
-@pytest.mark.asyncio
-async def test_prompt_authoring_violation_keeps_generation_start_formal_baseline(reference_project: Path):
-    formal = _script_path(reference_project)
-    baseline = script_review.content_fingerprint(formal)
-    assert baseline is not None
-    concurrent = _json.loads(formal.read_text(encoding="utf-8"))
-    concurrent["title"] = "并发正式标题"
-    generator = MagicMock()
-    generator.model = "mock"
-
-    async def generate(_request, **_kwargs):
-        await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
-        return MagicMock(text=_prompt_authoring_response(BAD_PROMPT_AUTHORING_UNIT_TEXT, title="本次违约输出"))
-
-    generator.generate = AsyncMock(side_effect=generate)
-
-    with pytest.raises(DraftViolation):
-        await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
-
-    assert _json.loads(formal.read_text(encoding="utf-8"))["title"] == "并发正式标题"
-    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
-    assert envelope["content"]["title"] == "本次违约输出"
-    assert envelope["meta"]["base_fingerprint"] == baseline
-    assert envelope["meta"]["base_fingerprint"] != script_review.content_fingerprint(formal)
 
 
 @pytest.mark.asyncio
 async def test_promote_prompt_authoring_draft_after_repair(reference_project: Path, monkeypatch):
     """修好待修复草稿后晋升：正文写回正式剧本、待编写标记清除、草稿清除。"""
-    gen = ScriptGenerator(reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
+    _legacy_prompt_draft(reference_project)
 
     path = _prompt_authoring_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
@@ -1331,12 +1151,7 @@ async def test_promote_prompt_authoring_draft_merges_only_the_recorded_units(ref
     pending = {"unit_id": "E1U02", "text": "@[主角] 走进 @[酒馆]", "duration_seconds": 4}
     _write_formal_units(reference_project, [authored, pending])
     before_first = _json.dumps(_formal_units(reference_project)["E1U01"], sort_keys=True)
-    gen = ScriptGenerator(
-        reference_project, generator=_fake_prompt_authoring_generator("镜头1：@[路人甲] 走进 @[酒馆]")
-    )
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
-
+    _legacy_prompt_draft(reference_project, "E1U02")
     path = _prompt_authoring_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
     assert envelope["meta"]["unit_ids"] == ["E1U02"]
@@ -1442,9 +1257,7 @@ async def test_promote_prompt_authoring_draft_requires_formal_baseline(reference
 async def test_promote_prompt_authoring_draft_reports_again_without_round_limit(reference_project: Path):
     """再违约则刷新报告、草稿留在原地——可反复晋升，无收敛轮次上限。"""
     formal_before = _script_path(reference_project).read_bytes()
-    gen = ScriptGenerator(reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
+    _legacy_prompt_draft(reference_project)
 
     path = _prompt_authoring_quarantine(reference_project)
     for _round in range(3):
@@ -1470,9 +1283,7 @@ async def test_promote_prompt_authoring_draft_rejects_schema_breach_with_report(
     violations 快照不会刷新，Agent 只能从工具文本里看到一段 pydantic 报错。
     """
     formal_before = _script_path(reference_project).read_bytes()
-    gen = ScriptGenerator(reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
+    _legacy_prompt_draft(reference_project)
 
     path = _prompt_authoring_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
@@ -1491,16 +1302,9 @@ async def test_promote_prompt_authoring_draft_rejects_schema_breach_with_report(
 
 
 @pytest.mark.asyncio
-async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
+async def test_prompt_authoring_duration_off_tier_after_merge_preserves_script(
     wide_tier_reference_project: Path, set_video_request_facts
 ):
-    """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
-
-    prompt_authoring 可以给 unit 增删 `@` 引用，生效档位随之换一套：正式剧本里那个 2 秒的无引用 unit 在展开时
-    加进了带可用参考图的引用，档位就从 1–16 秒收窄到 3–16 秒。参考图约束只做收窄，故「展开后才越界」只可能
-    发生在增加可用参考图的方向上。这一判在 `_add_metadata` 里、在保结构 diff 之后，不接住的话产物
-    只存在于内存里，错误却让调用方重新生成。
-    """
     set_video_request_facts(
         {
             "r2v": make_video_request_facts(
@@ -1524,14 +1328,10 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
     with_reference_text = "镜头1：中景，平视。@[主角] 推开门，侧身跨过门槛。"
     gen = ScriptGenerator(project, generator=_fake_prompt_authoring_generator(with_reference_text))
 
-    with pytest.raises(DraftViolation) as excinfo:
+    with pytest.raises(ValueError, match="生效档位"):
         await gen.generate(episode=1)
-
-    assert "生效档位" in str(excinfo.value)
     assert _script_path(project).read_bytes() == formal_before
-    envelope = _json.loads(_prompt_authoring_quarantine(project).read_text(encoding="utf-8"))
-    assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
-    assert envelope["content"]["units"][0]["text"] == with_reference_text
+    assert not _prompt_authoring_quarantine(project).exists()
 
 
 @pytest.mark.asyncio
@@ -1541,9 +1341,7 @@ async def test_promote_prompt_authoring_draft_revalidates_edited_formal_unit(ref
     编辑器对人写正文只出 warning，改出未登记的 @[名称] 能存下去；而保结构 diff 只比对编写正文
     与单元现有正文的台词结构，不复判单元正文自身的合法性。
     """
-    gen = ScriptGenerator(reference_project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
+    _legacy_prompt_draft(reference_project)
 
     path = _prompt_authoring_quarantine(reference_project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
@@ -1568,9 +1366,7 @@ async def test_promote_prompt_authoring_draft_revalidates_edited_formal_unit(ref
 
 async def _quarantine_then_edit_formal_unit(project: Path, **changes: Any) -> tuple[Path, bytes]:
     """先落一份可晋升的提示词编写草稿，再在时间线上改正式剧本的单元：返回草稿路径与改后的正式剧本字节。"""
-    gen = ScriptGenerator(project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
-    with pytest.raises(DraftViolation):
-        await gen.generate(episode=1)
+    _legacy_prompt_draft(project)
     path = _prompt_authoring_quarantine(project)
     envelope = _json.loads(path.read_text(encoding="utf-8"))
     envelope["content"]["units"][0]["text"] = PROMPT_AUTHORING_UNIT_TEXT
@@ -1632,18 +1428,7 @@ async def test_rewrite_completed_unit_draft_can_be_hand_fixed_and_adopted(refere
         reference_project,
         [{"unit_id": "E1U01", "text": original, "duration_seconds": 4, "pending_authoring": False}],
     )
-    formal = _script_path(reference_project)
-    gen = ScriptGenerator(
-        reference_project,
-        generator=_fake_prompt_authoring_generator("镜头1：@[路人甲] 走进 @[酒馆]"),
-    )
-    with pytest.raises(DraftViolation):
-        await gen.generate(
-            episode=1,
-            entry_ids=["E1U01"],
-            rewrite=True,
-            overwrite_revision=script_review.content_fingerprint(formal),
-        )
+    _legacy_prompt_draft(reference_project)
     service = EpisodeDraftService(ProjectManager.for_project_dir(reference_project))
     view = await service.get_draft(reference_project.name, 1, "reference_prompt_authoring")
     assert view["item_ids"] == ["E1U01"]
@@ -1659,3 +1444,62 @@ async def test_rewrite_completed_unit_draft_can_be_hand_fixed_and_adopted(refere
     assert result["adopted"] is True
     assert _formal_units(reference_project)["E1U01"]["text"] == fixed
     assert not _prompt_authoring_quarantine(reference_project).exists()
+
+
+@pytest.mark.parametrize("failure", ["truncated", "network", "provider", "malformed"])
+async def test_reference_nonrepairable_response_leaves_script_untouched(reference_project, failure):
+    from lib.backends.text_backends.base import TextOutputTruncatedError
+
+    before = _script_path(reference_project).read_bytes()
+    generator = _idle_generator()
+    if failure == "malformed":
+        generator.generate.return_value = MagicMock(text='{"units":false}')
+        expected = ValueError
+    else:
+        error = {
+            "truncated": TextOutputTruncatedError(provider="fake", model="m"),
+            "network": ConnectionError("network"),
+            "provider": RuntimeError("provider"),
+        }[failure]
+        generator.generate.side_effect = error
+        expected = type(error)
+    with pytest.raises(expected):
+        await ScriptGenerator(reference_project, generator=generator).generate(1)
+    generator.generate.assert_awaited_once()
+    assert _script_path(reference_project).read_bytes() == before
+    assert not _prompt_authoring_quarantine(reference_project).exists()
+
+
+async def test_reference_repairs_single_bad_row_from_original_baseline(reference_project):
+    generator = _idle_generator()
+    generator.generate.side_effect = [
+        MagicMock(text='{"units":[{"unit_id":"E1U01","text":13}]}'),
+        MagicMock(text=_prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT)),
+    ]
+    await ScriptGenerator(reference_project, generator=generator).generate(1)
+    assert generator.generate.await_count == 2
+    assert _formal_units(reference_project)["E1U01"]["text"] == PROMPT_AUTHORING_UNIT_TEXT
+
+
+@pytest.mark.parametrize(
+    ("invalid", "reason"),
+    [("duplicate_id", "duplicate resource identity"), ("wrong_episode", "unit_id"), ("extra_body", "references")],
+)
+async def test_reference_authoring_rejects_invalid_unselected_structure(reference_project, invalid, reason):
+    path = _script_path(reference_project)
+    script = _json.loads(path.read_text())
+    other = {**SCRIPT_PLAN_UNIT, "unit_id": "E1U02", "pending_authoring": False}
+    if invalid == "duplicate_id":
+        other["unit_id"] = "E1U01"
+    elif invalid == "wrong_episode":
+        other["unit_id"] = "E2U02"
+    else:
+        other["references"] = ["主角"]
+    script["video_units"].append(other)
+    path.write_text(_json.dumps(script))
+    before = path.read_bytes()
+    generator = _idle_generator()
+    with pytest.raises(ValueError, match=reason):
+        await ScriptGenerator(reference_project, generator=generator).generate(1, entry_ids=["E1U01"])
+    assert path.read_bytes() == before
+    generator.generate.assert_not_awaited()

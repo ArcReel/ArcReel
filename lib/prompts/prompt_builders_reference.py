@@ -145,17 +145,12 @@ def build_reference_units_split_prompt(
 
 
 def render_reference_units_for_prompt_authoring(units: list[dict]) -> str:
-    """把 script_plan units 渲染为 prompt_authoring prompt 的输入文本。
-
-    机械渲染、无 LLM 参与：按 script_plan 的落盘顺序逐 unit 输出序号 + 时长 + 正文。
-    prompt_authoring 以此为唯一基底做视觉扩写（见 ADR 0080）；``unit_id`` 不进渲染——它由序号机械
-    派生，prompt_authoring 不写 id 就没有 id 漂移可校验。
-    """
+    """按正式单元 ID 渲染本轮待编写的正文。"""
     blocks: list[str] = []
-    for index, unit in enumerate(units, start=1):
+    for unit in units:
         duration = int(unit.get("duration_seconds") or 0)
         body = str(unit.get("text") or "")
-        blocks.append(f"#### unit {index}（时长 {duration}s）\n{body}")
+        blocks.append(f"#### unit {unit['unit_id']}（时长 {duration}s）\n{body}")
     return "\n\n".join(blocks)
 
 

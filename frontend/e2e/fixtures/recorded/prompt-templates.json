@@ -936,7 +936,7 @@
           "instructions": "附加指令；未提供为空"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:DramaNormalizedScript"
+        "output_schema": "lib.script.script_models:DramaScriptPlanOutput"
       },
       {
         "id": "text/episode_plan",
@@ -1044,7 +1044,7 @@
           "instructions": "附加指令正文；缺值传 null"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:NarrationScriptPlanDraft"
+        "output_schema": "lib.script.script_models:NarrationScriptPlanOutput"
       },
       {
         "id": "text/reference_video_prompt_authoring",
@@ -1075,13 +1075,13 @@
           "character_names": "角色候选引用名列表（含 本体/衍生）",
           "scene_names": "场景候选引用名列表",
           "prop_names": "道具候选引用名列表",
-          "units_content": "已确认视频单元的渲染文本（由代码投影：序号 + 时长 + 正文）",
+          "units_content": "已确认视频单元的渲染文本（由代码投影：unit_id + 时长 + 正文）",
           "episode": "当前集号",
           "max_refs": "单个视频单元的参考图上限；不限时传 null",
           "instructions": "附加指令正文；缺值传 null"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:ReferencePromptAuthoringFlatScript"
+        "output_schema": "lib.script.script_models:ReferenceAuthoringResponse"
       },
       {
         "id": "text/reference_video_script_plan",

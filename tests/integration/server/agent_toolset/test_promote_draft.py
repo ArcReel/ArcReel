@@ -1033,16 +1033,17 @@ def _write_rv_quarantine(fake_ctx: ToolHarness) -> None:
     )
 
 
-async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ctx: ToolHarness) -> None:
-    """编写自身的待修复草稿在场时入口阻塞，且给出「改草稿再晋升」的出路。"""
+@pytest.mark.parametrize("violations", [[], [DraftViolation("坏", code="empty_text")]])
+async def test_reference_authoring_uses_formal_script_with_legacy_draft(fake_ctx: ToolHarness, violations) -> None:
     rv_project(fake_ctx)
-    _write_rv_formal_script(fake_ctx, "@[张三] 起身")
-    _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
-
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
-    assert "待处理的提示词编写草稿" in said(out)
-    assert "promote_draft" in said(out)
+    _write_prompt_authoring_draft(fake_ctx, violations)
+    path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    original = path.read_bytes()
+    prompt = await _dry_run_authoring(
+        fake_ctx, "narration", "video_units", {"unit_id": "E1U01", "text": "正式正文", "duration_seconds": 8}
+    )
+    assert "正式正文" in prompt
+    assert path.read_bytes() == original
 
 
 async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolHarness) -> None:
@@ -1059,22 +1060,7 @@ async def test_generate_episode_script_not_blocked_by_reference_script_plan_draf
     assert rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolHarness) -> None:
-    """可编辑草稿没有违约报告，编写入口应引导校验晋升而不是要求凭空修改。"""
-    rv_project(fake_ctx)
-    _write_rv_formal_script(fake_ctx, "@[张三] 起身")
-    _write_prompt_authoring_draft(fake_ctx, [])
-
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
-    text = said(out)
-    assert "这是可编辑草稿" in text
-    assert "保留已有修改" in text
-    assert "按草稿内 violations" not in text
-
-
-async def test_generate_episode_script_quarantine_precedes_missing_formal_script(fake_ctx: ToolHarness) -> None:
-    """编写草稿在场而正式剧本缺失：先报草稿待处理，不把 Agent 引回重跑脚本规划。"""
+async def test_reference_authoring_requires_formal_script_with_legacy_draft(fake_ctx: ToolHarness) -> None:
     rv_project(fake_ctx)
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
     assert not (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
@@ -1082,8 +1068,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_formal_script
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     text = said(out)
-    assert "待处理的提示词编写草稿" in text
-    assert "尚无正式脚本" not in text
+    assert "尚无正式脚本" in text
 
 
 async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolHarness) -> None:

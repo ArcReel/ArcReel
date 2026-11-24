@@ -925,6 +925,19 @@ class ReferencePromptAuthoringFlatScript(BaseModel):
     )
 
 
+class AuthoredReferenceUnit(BaseModel):
+    model_config = _STRICT_CONFIG
+
+    unit_id: str = Field(min_length=1)
+    text: Annotated[str, BeforeValidator(_normalize_fullwidth_braces)] = Field(min_length=1)
+
+
+class ReferenceAuthoringResponse(BaseModel):
+    """供应商按显式 ID 返回正文，单条坏数据留给业务层逐单元诊断。"""
+
+    units: list[AuthoredReferenceUnit | SkipJsonSchema[Any]]
+
+
 class AdReferenceFlatUnit(BaseModel):
     """广告/短片的参考生视频一次生成产出的自包含书写单元。"""
 
@@ -1115,7 +1128,7 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
     参考图数上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
 
     prompt_authoring 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
-    ``ReferencePromptAuthoringFlatScript``。
+    ``ReferenceAuthoringResponse``。
     """
     return _reference_flat_plan_model(ReferenceScriptPlanFlatUnit, supported_durations)
 

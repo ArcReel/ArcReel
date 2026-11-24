@@ -9,7 +9,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -150,6 +150,13 @@ class TextGenerationResult:
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
     no_pending_authoring: bool = False
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReferenceAuthoringResult(TextGenerationResult):
+    outcome: Literal["complete", "partial"]
+    written_ids: list[str]
+    failed_units: list[dict[str, str]]
 
 
 class TextGenerationError(Exception):
@@ -658,13 +665,17 @@ def prompt_authoring_preflight(
             raise TextGenerationError(translate("operation_admission_unavailable", episode=episode))
         require_admitted("generate_script", OperationAdmission(**operation.model_dump()), episode=episode)
         return
+    reference_authoring = content_mode != "ad" and status.project.generation_mode == "reference_video"
     admission = admit_author_prompts(
         formal_script=formal_present,
         pending_ids=content.pending_authoring_ids if content is not None else [],
-        draft_pending=content is not None
+        draft_pending=not reference_authoring
+        and content is not None
         and any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
         explicit_ids=entry_ids,
     )
+    if reference_authoring and admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
+        return
     detail = ""
     if admission.reason is AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING:
         detail = _prompt_authoring_draft_action(project_path, episode)
@@ -744,6 +755,7 @@ async def generate_episode_script(
         rewritten: list[str] = []
         skipped: list[str] = []
         registered: list[dict[str, str]] = []
+        failed_units: list[dict[str, str]] = []
         result_path = await generator.generate(
             episode=episode,
             instructions=instructions,
@@ -752,6 +764,7 @@ async def generate_episode_script(
             overwrite_revision=request.overwrite_revision,
             rewritten_entry_ids=rewritten,
             skipped_entry_ids=skipped,
+            failed_units=failed_units,
             regenerate=request.regenerate,
             registered_assets=registered,
         )
@@ -788,8 +801,9 @@ async def generate_episode_script(
             no_pending_authoring=True,
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
+    status = "部分完成" if failed_units else "生成完成"
     summary = (
-        f"✅ 剧本生成完成: {result_path.relative_to(project_path).as_posix()}\n"
+        f"✅ 剧本{status}: {result_path.relative_to(project_path).as_posix()}\n"
         f"   本次编写条目: {rewritten_note}{skipped_note}"
     )
     if registered:
@@ -799,6 +813,18 @@ async def generate_episode_script(
         )
     warnings = await asyncio.to_thread(_rewritten_mention_warnings, projects, project_name, result_path, rewritten)
     summary += _unbound_mentions_note(warnings)
+    if rewritten and is_reference_video_project(generator.project_json) and generator.content_mode != "ad":
+        if failed_units:
+            summary += "\n" + "\n".join(
+                f"{unit['unit_id']}: {unit['message']} {unit.get('abort_reason', '')}".rstrip() for unit in failed_units
+            )
+        return ReferenceAuthoringResult(
+            summary,
+            warnings,
+            outcome="partial" if failed_units else "complete",
+            written_ids=rewritten,
+            failed_units=failed_units,
+        )
     return TextGenerationResult(summary, warnings, new_assets=registered)
 
 
