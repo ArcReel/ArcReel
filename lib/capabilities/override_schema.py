@@ -70,6 +70,8 @@ def valid_value(key: str, value: Any) -> bool:
 
 
 def normalized_value(key: str, value: Any) -> Any:
+    if key == "resolutions":
+        return [resolution.strip() for resolution in value]
     if key == "durations":
         return sorted(set(value))
     if key == "duration_constraints":

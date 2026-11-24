@@ -29,9 +29,7 @@ from uuid import uuid4
 import httpx
 
 from arcreel_market_core.video_backend_contract import (
-    ReferenceAudioMode,
     ResumeExpiredError,
-    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -286,22 +284,7 @@ def _targets(raw: object) -> list[Mapping[str, Any]]:
 
 
 def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:
-    """把一份视频端点定义的绑定表装进 backend 层的能力类型。
+    from lib.backends.video_capabilities import channel_projection
+    from lib.custom_provider.comfyui.capabilities import comfyui_description
 
-    推导本身在 ``comfyui`` 子包里（它只认绑定表与 workflow）；装箱落在本模块，因为子包受
-    「不依赖声明式运行时」的 forbidden 契约约束，够不到 ``VideoCapabilities``。端点投影
-    （``endpoints.comfyui_endpoint_spec``）与 backend 自己的声明共用这一份，两处不各写一份——
-    它们各自喂给能力闸门的不同一段，说的却必须是同一件事。
-
-    参考音频段数只从绑定推导；总时长与 ``max_prompt_chars`` 没有依据，保持未声明。
-    """
-    bound = derive_video_capabilities(definition)
-    return VideoCapabilities(
-        text_to_video=bound.text_to_video,
-        first_frame=bound.first_frame,
-        last_frame=bound.last_frame,
-        max_reference_images=bound.max_reference_images,
-        audio_track=VideoAudioMode(bound.audio_track),
-        reference_audio_mode=ReferenceAudioMode.DIRECT if bound.max_reference_audio_count else ReferenceAudioMode.NONE,
-        max_reference_audio_count=bound.max_reference_audio_count,
-    )
+    return channel_projection(comfyui_description(definition, "video"))

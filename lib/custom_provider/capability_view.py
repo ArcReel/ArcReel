@@ -28,7 +28,6 @@ import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 
-from arcreel_catalog_core import DurationConstraints
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
@@ -37,6 +36,7 @@ from arcreel_market_core.video_backend_contract import (
     audio_capability_pair_is_coherent,
 )
 from lib.backends.backend_assembly.specs import (
+    builtin_video_snapshot,
     declared_builtin_video_capabilities,
     two_sided_builtin_video_capabilities,
 )
@@ -47,6 +47,8 @@ from lib.backends.image_capabilities import (
     image_reference_limit,
     image_reference_override,
 )
+from lib.backends.video_capabilities import projected_video_capabilities
+from lib.capabilities.kernel import CapabilitySnapshot
 from lib.catalog.query import CatalogModel
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -54,19 +56,16 @@ from lib.custom_provider.capabilities import (
     CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
-    synthesize_video_capabilities,
-    two_sided_video_capabilities,
+    custom_video_snapshot,
 )
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
     MODEL_FACT_OVERRIDE_KEYS,
-    comfyui_duration_override,
     image_model_facts,
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
     text_model_facts,
-    video_model_facts,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,14 +150,6 @@ def _ordered(keys: frozenset[str] | set[str]) -> tuple[str, ...]:
     return tuple(key for key in OVERRIDE_KEY_ORDER if key in keys)
 
 
-def _constraints_json(constraints: DurationConstraints) -> dict[str, object]:
-    return {
-        "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
-        "with_reference_images": list(constraints.with_reference_images),
-        **({"with_end_frame": list(constraints.with_end_frame)} if constraints.with_end_frame else {}),
-    }
-
-
 def _channel_json(caps: VideoCapabilities) -> dict[str, object]:
     """通道事实维度的原值；音轨视图保留端点的开关声明与确定的无声信号。"""
     raw = asdict(caps)
@@ -193,6 +184,44 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
+def _video_view(snapshot: CapabilitySnapshot, raw: Mapping[str, object]) -> CapabilityView:
+    def values(base: bool) -> dict[str, object]:
+        data = snapshot.base if base else snapshot.effective
+        channel = _channel_json(projected_video_capabilities(snapshot, base=base))
+        durations = list(data.get("durations", ()))
+        if snapshot.endpoint.binding_owned:
+            return {
+                "durations": durations,
+                "audio_track": channel["audio_track"],
+                "reference_route_audio_track": channel["reference_route_audio_track"],
+            }
+        constraints = data.get("duration_constraints", {})
+        return {
+            **channel,
+            "durations": durations,
+            "resolutions": list(data.get("resolutions") or ()) or None,
+            "duration_constraints": {
+                "by_resolution": {k: list(v) for k, v in constraints.get("by_resolution", {}).items()},
+                "with_reference_images": list(constraints.get("with_reference_images", ())),
+                **(
+                    {"with_end_frame": list(constraints["with_end_frame"])} if constraints.get("with_end_frame") else {}
+                ),
+            },
+        }
+
+    editable = snapshot.editable if snapshot.endpoint.binding_owned else overridable_keys("video")
+    overrides = _normalized_overrides(raw)
+    if snapshot.endpoint.binding_owned:
+        overrides = {k: v for k, v in overrides.items() if k in snapshot.overrides}
+    return CapabilityView(
+        "video",
+        editable=() if snapshot.official else _ordered(editable),
+        base=values(True),
+        effective_values=values(False),
+        overrides={} if snapshot.official else overrides,
+    )
+
+
 def custom_capability_view(
     *,
     model_id: str,
@@ -204,6 +233,12 @@ def custom_capability_view(
 ) -> CapabilityView:
     """自定义供应商模型的参数视图。``applied_overrides`` 是按写入侧同一判定过滤后的覆盖（回显用的那一份）。"""
     media_type = spec.media_type
+    if media_type == "video":
+        raw = raw_overrides if isinstance(raw_overrides, Mapping) else {}
+        snapshot = custom_video_snapshot(
+            endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding, overrides=raw
+        )
+        return _video_view(snapshot, raw if spec.kind == COMFYUI_KIND else applied_overrides or {})
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
             return CapabilityView(
@@ -216,23 +251,7 @@ def custom_capability_view(
                     channel_limit=endpoint_reference_image_limit(spec),
                 ),
             )
-        if media_type != "video":
-            return CapabilityView(media_type)
-        endpoint_durations = list(spec.endpoint_durations or [])
-        override = comfyui_duration_override(raw_overrides, model_id=model_id)
-        caps = two_sided_video_capabilities(
-            endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
-        )
-        return CapabilityView(
-            media_type,
-            editable=("durations",) if endpoint_durations else (),
-            base={
-                "durations": endpoint_durations,
-                "audio_track": caps.audio_track_for_route("i2v").value,
-                "reference_route_audio_track": caps.audio_track_for_route("r2v").value,
-            },
-            overrides={"durations": override} if override and endpoint_durations else {},
-        )
+        return CapabilityView(media_type)
 
     base: dict[str, object] = {}
     editable = set(overridable_keys(media_type))
@@ -256,44 +275,13 @@ def custom_capability_view(
                 editable=editable,
                 overrides=applied_overrides or {},
             )
-        case "video":
-            video = video_model_facts(model_id, None, entry_binding=entry_binding)
-            base = {
-                "durations": list(video.durations),
-                "duration_constraints": _constraints_json(video.duration_constraints),
-                "resolutions": list(video.resolutions) if video.resolutions is not None else None,
-            }
-            try:
-                caps = two_sided_video_capabilities(
-                    endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding
-                )
-            except ValueError:
-                logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
-                caps = VideoCapabilities()
-            base |= _channel_json(caps)
         case _:
             editable = set()
     overrides = _normalized_overrides(applied_overrides or {})
-    effective = None
-    if media_type == "video":
-        try:
-            caps = synthesize_video_capabilities(
-                endpoint=endpoint,
-                model_id=model_id,
-                endpoint_spec=spec,
-                overrides=dict(applied_overrides or {}),
-                entry_binding=entry_binding,
-            )
-        except ValueError:
-            effective = None
-        else:
-            effective = {**base, **overrides, **_channel_json(caps)}
-    return CapabilityView(
-        media_type, editable=_ordered(editable), base=base, overrides=overrides, effective_values=effective
-    )
+    return CapabilityView(media_type, editable=_ordered(editable), base=base, overrides=overrides)
 
 
-def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:
+def _catalog_model_facts(model: CatalogModel) -> dict[str, object]:
     """内置供应商模型的目录信息（未叠加覆盖时即运行时采用的值）按维度展开；图片三维要与调用通道两侧求值，
     由 :func:`builtin_capability_view` 给出。"""
     caps = set(model.capabilities)
@@ -304,26 +292,6 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                 "structured_output": "structured_output" in caps,
                 "max_output_tokens": model.max_output_tokens,
             }
-        case "video":
-            facts: dict[str, object] = {
-                "durations": list(model.supported_durations),
-                "duration_constraints": {
-                    "by_resolution": {
-                        res: list(allowed) for res, allowed in model.duration_resolution_constraints.items()
-                    },
-                    "with_reference_images": list(model.reference_image_durations),
-                    **({"with_end_frame": list(model.end_frame_durations)} if model.end_frame_durations else {}),
-                },
-                "resolutions": list(model.resolutions) or None,
-            }
-            try:
-                declared = two_sided_builtin_video_capabilities(
-                    declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
-                )
-            except ValueError:
-                logger.warning("无法读取内置视频能力: provider=%r model_id=%r", provider_id, model_id)
-                declared = VideoCapabilities()
-            return facts | _channel_json(declared)
         case _:
             return {}
 
@@ -405,7 +373,10 @@ def builtin_capability_view(
 ) -> CapabilityView:
     """内置供应商模型的参数视图。官方收录的模型只读；用户添加的可以修改该媒体类型的全部维度。"""
     media_type = base_model.media_type
-    base = _catalog_model_facts(provider_id, model_id, base_model)
+    if media_type == "video":
+        snapshot = builtin_video_snapshot(provider_id, model_id, overrides=overrides, official=official)
+        return _video_view(snapshot, overrides)
+    base = _catalog_model_facts(base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
     if media_type == "image":
         implemented = _image_channel(provider_id, model_id)

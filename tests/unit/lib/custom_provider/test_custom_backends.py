@@ -307,22 +307,22 @@ class TestCustomVideoBackend:
         """稀疏用户覆盖（`with_video_capabilities` 的 `overrides` 参数）叠加到 delegate 的档位
         感知基底上,未覆盖字段跟随基底——覆盖必须能翻转执行层看到的能力,但不能整体替换基底,
         否则档位切换时未覆盖字段会冻结在覆盖注入时刻的值。"""
-        base_caps = VideoCapabilities(first_frame=True, last_frame=False)
+        base_caps = VideoCapabilities(first_frame=True, last_frame=True)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=base_caps)
         backend = CustomVideoBackend(
             provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo"
-        ).with_video_capabilities(base_caps, overrides={"last_frame": True})
+        ).with_video_capabilities(base_caps, overrides={"last_frame": False})
 
         result = backend.video_capabilities_for_tier("pro")
 
         assert result.first_frame is True
-        assert result.last_frame is True
+        assert result.last_frame is False
         assert result.max_reference_images == 0
         delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution=None)
 
-    def test_video_capabilities_for_tier_uses_endpoint_switch_not_tier_narrowed_track(self, tmp_path: Path):
-        """KlingProAudio 在 std/720p 档位下基底为 ALWAYS_OFF，但端点仍声明有开关；覆盖为 controllable 时不能投影成 ALWAYS_ON。"""
+    def test_video_capabilities_for_tier_honors_the_tier_audio_protocol(self, tmp_path: Path):
+        """可灵标准档保持无声，专业档可以切换音轨。"""
         from arcreel_market_core.video_backend_contract import VideoAudioMode
         from lib.backends.video_backends.kling import KlingProAudioVideoBackend
 
@@ -333,7 +333,7 @@ class TestCustomVideoBackend:
 
         std_caps = backend.video_capabilities_for_tier("std", resolution="720p")
         pro_caps = backend.video_capabilities_for_tier("pro", resolution="1080p")
-        assert std_caps.audio_track is VideoAudioMode.CONTROLLABLE
+        assert std_caps.audio_track is VideoAudioMode.ALWAYS_OFF
         assert pro_caps.audio_track is VideoAudioMode.CONTROLLABLE
 
         first_frame = tmp_path / "start.png"

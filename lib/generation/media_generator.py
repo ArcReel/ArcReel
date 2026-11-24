@@ -1010,22 +1010,26 @@ class MediaGenerator:
 
         model_name = self._video_backend.model
 
-        from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
+        from lib.backends.backend_assembly.specs import builtin_request_video_capabilities
         from lib.backends.video_frame_slots import (
             gate_video_request,
             plan_frame_slots,
             resolve_first_frame_aspect_ratio,
             resolve_video_capabilities,
         )
+        from lib.capabilities.kernel import RequestConditions
         from lib.custom_provider import is_custom_provider
 
-        video_caps = resolve_video_capabilities(
-            self._video_backend,
-            service_tier=version_metadata.get("service_tier", "default"),
-            resolution=resolution,
-        )
+        service_tier = version_metadata.get("service_tier", "default")
         if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
-            video_caps = effective_builtin_video_capabilities(video_caps, self._video_provider_id, model_name)
+            conditions = RequestConditions("r2v" if reference_images else "i2v", resolution, service_tier)
+            video_caps = builtin_request_video_capabilities(
+                self._video_backend, self._video_provider_id, model_name, conditions
+            )
+        else:
+            video_caps = resolve_video_capabilities(
+                self._video_backend, service_tier=service_tier, resolution=resolution
+            )
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None

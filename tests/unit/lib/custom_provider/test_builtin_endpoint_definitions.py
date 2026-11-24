@@ -159,11 +159,10 @@ def test_minimax_s2v_endpoint_does_not_suggest_a_retired_model():
 
 def test_spec_kind_is_read_from_the_definition():
     """``kind`` 读定义本体，不由「有没有定义」推断——第二种 kind 的端点同样持有一份定义。"""
-    template = _example_template()
-    template["kind"] = "comfyui"
-    template["media_type"] = "video"
+    from lib.custom_provider.endpoints import comfyui_endpoint_spec
+    from tests.factories import comfyui_endpoint_definition
 
-    assert declarative_endpoint_spec("demo-video", template).kind == "comfyui"
+    assert comfyui_endpoint_spec("ce-1", comfyui_endpoint_definition()).kind == "comfyui"
 
 
 def test_unmigrated_endpoints_stay_python_in_the_catalog():

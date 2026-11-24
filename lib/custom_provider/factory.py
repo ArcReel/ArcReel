@@ -4,21 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from lib.backends.image_capabilities import (
     custom_image_model_capabilities,
     custom_image_quality_options,
     entry_reference_limit,
     image_reference_override,
 )
-from lib.backends.video_capabilities import entry_video_facts
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.capabilities import synthesize_video_capabilities_with_overrides
+from lib.custom_provider.capabilities import custom_video_snapshot
 from lib.custom_provider.endpoints import EndpointSpec, get_endpoint_spec
 from lib.custom_provider.model_facts import model_entry
 from lib.custom_provider.path_overrides import effective_path_overrides
@@ -58,20 +56,15 @@ def create_custom_backend(
     paths = effective_path_overrides(path_overrides, spec.requests)
     backend = spec.build_backend(provider, model_id, paths)
     if isinstance(backend, CustomVideoBackend):
-        merged, applied = synthesize_video_capabilities_with_overrides(
+        snapshot = custom_video_snapshot(
             endpoint=endpoint,
             model_id=model_id,
             overrides=capability_overrides,
             endpoint_spec=spec,
             entry_binding=entry_binding,
         )
-        entry = model_entry(model_id, spec.media_type, entry_binding)
-        entry_facts = None if spec.kind == COMFYUI_KIND else entry_video_facts(entry)
-        return (
-            backend.with_endpoint(endpoint, path_overrides=paths)
-            .with_video_capabilities(merged, overrides=applied, entry_facts=entry_facts)
-            .with_catalog_entry(entry)
-        )
+        entry = None if snapshot.endpoint.binding_owned else model_entry(model_id, spec.media_type, entry_binding)
+        return backend.with_endpoint(endpoint, path_overrides=paths).with_snapshot(snapshot).with_catalog_entry(entry)
     if isinstance(backend, CustomImageBackend):
         return backend.with_model_facts(
             custom_image_model_capabilities(

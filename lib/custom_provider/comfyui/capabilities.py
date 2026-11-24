@@ -31,6 +31,7 @@ from arcreel_market_core.comfyui.bindings import (
 )
 from arcreel_market_core.comfyui.graph import class_type_of, link_of
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
+from lib.capabilities.kernel import AudioProtocol, DurationMode, Endpoint, EndpointDurations, FixedDuration
 
 from .inference_rules import AudioTrackSource, load_inference_rules
 
@@ -267,3 +268,41 @@ def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """
     native = native_duration(definition)
     return [] if native is None or native <= 0 else [native]
+
+
+def comfyui_description(definition: Mapping[str, Any], media: str) -> Endpoint:
+    bindings = definition["bindings"]
+    if media == "image":
+        count = len(targets_of(bindings.get("reference_images")))
+        slots = {"image_to_image", "reference_images"} if count else {"text_to_image"}
+        return Endpoint("image", frozenset(slots), limits={"max_reference_images": count}, binding_owned=True)
+    if media != "video":
+        raise ValueError(media)
+    caps = derive_video_capabilities(definition)
+    slots = {key for key in ("text_to_video", "first_frame", "last_frame") if getattr(caps, key)}
+    if caps.max_reference_images:
+        slots.add("reference_images")
+    if caps.max_reference_audio_count:
+        slots.add("reference_audio")
+    seconds = default_supported_durations(definition)
+    mode: DurationMode
+    if seconds:
+        mode = EndpointDurations(tuple(seconds))
+    elif duration_is_fixed(bindings):
+        mode = FixedDuration("no_frames")
+    elif frame_rate_is_missing(definition):
+        mode = FixedDuration("missing_fps")
+    else:
+        mode = FixedDuration("no_whole_seconds")
+    return Endpoint(
+        "video",
+        frozenset(slots),
+        limits={
+            "max_reference_images": caps.max_reference_images,
+            "max_reference_audio_count": caps.max_reference_audio_count,
+        },
+        defaults={"reference_audio_mode": "direct" if caps.max_reference_audio_count else "none"},
+        audio=AudioProtocol.SILENT if caps.audio_track == "always_off" else AudioProtocol.NO_SWITCH,
+        duration=mode,
+        binding_owned=True,
+    )

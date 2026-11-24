@@ -575,7 +575,7 @@ class TestBuiltinUserAddedOverrides:
                     "first_frame": {"source": "start_image", "encoding": "data_uri"},
                     "last_frame": {"source": "end_image", "encoding": "data_uri"},
                 },
-                capabilities={"first_frame": True, "last_frame": declared_last_frame},
+                capabilities={"first_frame": True, "last_frame": declared_last_frame, "max_prompt_chars": 100},
             )
             definition["submit"]["body"]["last_image"] = "{{ inputs.last_frame }}"
             _RecordingBackend.requests = []
@@ -604,7 +604,7 @@ class TestBuiltinUserAddedOverrides:
     async def test_relaxed_override_passes_and_rides_the_request(
         self, tmp_path: Path, trial_runs: TrialRunManager, builtin_target
     ):
-        target = builtin_target({"last_frame": True, "max_reference_images": 4}, declared_last_frame=False)
+        target = builtin_target({"last_frame": True, "max_prompt_chars": 200}, declared_last_frame=True)
 
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
@@ -614,7 +614,7 @@ class TestBuiltinUserAddedOverrides:
         assert run.status is TrialRunStatus.SUCCEEDED, run.error
         caps = _RecordingBackend.requests[0].video_capabilities
         assert caps.last_frame is True
-        assert caps.max_reference_images == 4
+        assert caps.max_prompt_chars == 200
 
     async def test_narrowed_override_is_rejected_before_billing(
         self, tmp_path: Path, trial_runs: TrialRunManager, db_factory: async_sessionmaker, builtin_target

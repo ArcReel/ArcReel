@@ -23,7 +23,9 @@ from urllib.parse import urlsplit
 
 from arcreel_market_core.endpoint_definition import DefinitionIssue, validate_definition
 from arcreel_market_core.video_backend_contract import VideoCapabilities
+from lib.capabilities.kernel import Endpoint
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
+from lib.custom_provider.definition_capabilities import decode_definition
 
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"
 
@@ -104,6 +106,11 @@ def declarative_request_path(definition: Mapping[str, Any]) -> str:
     if parsed.scheme and parsed.netloc:
         return parsed.path + (f"?{parsed.query}" if parsed.query else "") or "/"
     return stripped
+
+
+@cache
+def builtin_video_description(endpoint: str) -> Endpoint:
+    return decode_definition(builtin_definitions()[endpoint])
 
 
 def declarative_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:

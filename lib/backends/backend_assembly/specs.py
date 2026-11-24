@@ -23,9 +23,21 @@ from typing import TYPE_CHECKING, Any
 from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, builtin_model_endpoint, select_provider_endpoint
 from lib.backends.kling_shared import kling_auth_mode
 from lib.backends.providers import PROVIDER_KLING
+from lib.backends.video_capabilities import (
+    VideoEndpointCapabilities,
+    channel_projection,
+    effective_video_capabilities,
+    entry_video_facts,
+    projected_video_capabilities,
+    resolve_video_model,
+    video_endpoint,
+)
+from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_capabilities
+from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
 
 if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
     from arcreel_market_core.video_backend_contract import (
         VideoCapabilities,
         VideoGenerationRequest,
@@ -661,8 +673,30 @@ def builtin_video_capabilities_for_model(
     覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
     ``endpoint`` 给出时按它求值，使执行侧能力与构造后端时选定的端点一致。
     """
-    return effective_builtin_video_capabilities(
-        declared_builtin_video_capabilities(provider_id, model_id, endpoint=endpoint), provider_id, model_id
+    return projected_video_capabilities(builtin_video_snapshot(provider_id, model_id, endpoint=endpoint))
+
+
+def builtin_video_snapshot(
+    provider_id: str,
+    model_id: str,
+    *,
+    endpoint: str | None = None,
+    overrides: object = None,
+    official: bool | None = None,
+) -> CapabilitySnapshot:
+    view = catalog.provider_model_view(provider_id, model_id)
+    entry = view.entry if view else None
+    description = _builtin_video_description(provider_id, model_id, endpoint, entry)
+    facts = entry_video_facts(entry)
+    if view and entry is None:
+        facts = replace(facts, durations=tuple((view.base_model or view.model).supported_durations))
+    return resolve_video_model(
+        description,
+        facts,
+        view.capability_overrides if view and overrides is None else overrides,
+        provider_id=provider_id,
+        model_id=model_id,
+        official=view.official if official is None and view else bool(official),
     )
 
 
@@ -673,8 +707,6 @@ def two_sided_builtin_video_capabilities(
 
     条目取供应商模型对应的那个：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
     """
-    from lib.backends.video_capabilities import effective_video_capabilities, entry_video_facts
-
     entry = catalog.provider_model_entry(provider_id, model_id, "video")
     return effective_video_capabilities(channel, entry_video_facts(entry))
 
@@ -686,24 +718,11 @@ def effective_builtin_video_capabilities(
 
     基底由调用方给定：规划层传无请求上下文的声明，执行闸门传按档位解析的能力，两边求值口径相同。
     """
-    return apply_user_added_video_overrides(
-        two_sided_builtin_video_capabilities(channel, provider_id, model_id), provider_id, model_id
+    return effective_video_capabilities(
+        channel,
+        entry_video_facts(catalog.provider_model_entry(provider_id, model_id, "video")),
+        catalog.user_added_capability_overrides(provider_id, model_id),
     )
-
-
-def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, model_id: str) -> VideoCapabilities:
-    """在两侧求值的结果上叠加内置供应商下用户添加的模型的能力覆盖，整维替换（docs/adr/0104）。"""
-    overrides = catalog.user_added_capability_overrides(provider_id, model_id)
-    if not overrides:
-        return caps
-    from lib.custom_provider.capabilities import (
-        CHANNEL_FACT_OVERRIDE_KEYS,
-        enforce_audio_capability_invariant,
-        merge_overrides,
-    )
-
-    channel = {key: value for key, value in overrides.items() if key in CHANNEL_FACT_OVERRIDE_KEYS}
-    return enforce_audio_capability_invariant(merge_overrides(caps, channel), endpoint=provider_id, model_id=model_id)
 
 
 def _builtin_video_spec(provider_id: str, model_id: str, endpoint: str | None) -> ProviderSpec:
@@ -720,19 +739,40 @@ def declared_builtin_video_capabilities(
 
     通道取模型挂接的端点（:func:`builtin_model_endpoint`）；``endpoint`` 给出时按它求值，供保存前核对换端点后的能力覆盖。
     """
+    entry = catalog.provider_model_entry(provider_id, model_id, "video")
+    return channel_projection(_builtin_video_description(provider_id, model_id, endpoint, entry))
+
+
+def _builtin_video_description(
+    provider_id: str, model_id: str, endpoint: str | None, entry: CatalogEntry | None
+) -> Endpoint:
+    from lib.backends.video_backends.registry import describe_video_endpoint
+    from lib.custom_provider.builtin_definitions import builtin_video_description
+
     spec = _builtin_video_spec(provider_id, model_id, endpoint)
     if spec.registry_backend == "declarative":
-        from lib.custom_provider.builtin_definitions import declarative_video_capabilities
+        return builtin_video_description(spec.endpoint)
+    return describe_video_endpoint(spec.registry_backend, model_id, entry)
 
-        definition = _declarative_definition(spec)
-        if definition is None:
-            raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
-        return declarative_video_capabilities(definition)
-    from lib.backends.video_backends.registry import video_capabilities_for_model
 
-    return video_capabilities_for_model(
-        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
+def builtin_request_video_capabilities(
+    backend: VideoCapabilityProbe, provider_id: str, model_id: str, conditions: RequestConditions
+) -> VideoCapabilities:
+    entry = catalog.provider_model_entry(provider_id, model_id, "video")
+    if isinstance(backend, VideoEndpointCapabilities):
+        description = backend.describe_video_endpoint(model_id, entry)
+    else:
+        channel = resolve_video_capabilities(
+            backend, service_tier=conditions.service_tier, resolution=conditions.resolution
+        )
+        description = video_endpoint(channel)
+    snapshot = resolve_video_model(
+        description,
+        entry_video_facts(entry),
+        catalog.user_added_capability_overrides(provider_id, model_id),
+        request=conditions,
     )
+    return projected_video_capabilities(snapshot)
 
 
 def builtin_video_metered_usage(

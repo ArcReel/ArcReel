@@ -24,7 +24,6 @@ import httpx
 
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
-    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -53,7 +52,9 @@ from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import VideoEndpointCapabilities
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import AudioProtocol, Endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +68,6 @@ TASKS_PATH = "tasks"
 _JOB_ID_PREFIX = "tasks:"
 
 _DEFAULT_RESOLUTION = "720p"
-
-_CHANNEL_CAPABILITIES = VideoCapabilities(
-    text_to_video=True,
-    first_frame=True,
-    last_frame=True,
-    max_reference_images=0,
-    audio_track=VideoAudioMode.ALWAYS_ON,
-)
 
 
 def _has_image(value: object) -> bool:
@@ -101,7 +94,9 @@ def decode_job_id(job_id: str) -> str:
     return task_id
 
 
-class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdPersistenceMixin):
+class KlingModelPathVideoBackend(
+    VideoEndpointCapabilities, EntryBoundCapabilities, KlingBackendBase, ProviderJobIdPersistenceMixin
+):
     """可灵新版 API 视频后端（Bearer API Key，异步轮询）。"""
 
     _media_label = "视频"
@@ -134,12 +129,10 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         self._base_url = kling_model_path_base_url(base_url)
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """通道事实：文生、首帧、尾帧可发，参考图与参考音频不收，成片固定有声。
-
-        尾帧只有 kling-4.0 接受（kling-4.0-flash 与 kling-3.0-turbo 仅首帧），这是模型事实，由条目收窄。
-        """
-        return _CHANNEL_CAPABILITIES
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video", frozenset({"text_to_video", "first_frame", "last_frame"}), audio=AudioProtocol.NO_SWITCH
+        )
 
     @classmethod
     def effective_generate_audio_for_model(cls, model: str, entry: CatalogEntry | None = None) -> bool:

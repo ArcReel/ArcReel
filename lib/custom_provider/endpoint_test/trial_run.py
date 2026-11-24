@@ -38,7 +38,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
+from lib.backends.backend_assembly.specs import builtin_request_video_capabilities
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
     ImageCapabilityError,
@@ -50,6 +50,7 @@ from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
+from lib.capabilities.kernel import RequestConditions
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -421,9 +422,13 @@ class TrialRunManager:
             poll_timeout = await self._poll_timeout()
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
-            if video_caps is not None and target.builtin_model_row:
-                video_caps = effective_builtin_video_capabilities(video_caps, target.provider, target.model)
+            if is_video and target.builtin_model_row:
+                conditions = RequestConditions(
+                    "r2v" if assets.get("reference_images") else "i2v", parameters.resolution
+                )
+                video_caps = builtin_request_video_capabilities(backend, target.provider, target.model, conditions)
+            else:
+                video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             if target.gate_capabilities:
                 if video_caps is None:
                     refs = assets.get("reference_images")

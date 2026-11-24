@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
@@ -70,8 +70,13 @@ from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities, match_by_names
-from lib.backends.video_capabilities import reference_image_limit
+from lib.backends.video_capabilities import (
+    VideoEndpointCapabilities,
+    audio_protocol,
+    reference_image_limit,
+)
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import Endpoint
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,
@@ -105,16 +110,6 @@ _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 _WAN27_MAX_PROMPT_CHARS = 5000
 
 _WAN3_MAX_PROMPT_CHARS = 20000
-
-
-_CHANNEL_CAPABILITIES = VideoCapabilities(
-    text_to_video=True,
-    first_frame=True,
-    last_frame=True,
-    max_reference_images=None,
-    reference_audio_mode=ReferenceAudioMode.DIRECT,
-    max_reference_audio_count=None,
-)
 
 
 @dataclass(frozen=True)
@@ -172,7 +167,7 @@ def _profile_key_for_model(model: str | None, entry: CatalogEntry | None = None)
     return match_by_names(model or "", _match_profile_key, entry=entry)
 
 
-class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """阿里百炼视频后端（异步 video-synthesis 端点）；本类即通用端点 ``dashscope-video``，不下发音轨开关、固定有声。"""
 
     endpoint: ClassVar[DashScopeVideoEndpoint] = DashScopeVideoEndpoint()
@@ -207,13 +202,15 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         return self._model
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """端点决定请求形态；只有提示词上限按名字查找。"""
-        return replace(
-            _CHANNEL_CAPABILITIES,
-            audio_track=cls.endpoint.audio_track,
-            reference_audio_per_image=cls.endpoint.reference_audio_per_image,
-            max_prompt_chars=_MODEL_PROFILES.get(_profile_key_for_model(model, entry) or ""),
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images", "reference_audio"}),
+            audio=audio_protocol(cls.endpoint.audio_track),
+            defaults={
+                "reference_audio_per_image": cls.endpoint.reference_audio_per_image,
+                "max_prompt_chars": _MODEL_PROFILES.get(_profile_key_for_model(model, entry) or ""),
+            },
         )
 
     @property

@@ -45,7 +45,9 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import VideoEndpointCapabilities, audio_protocol
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import Endpoint
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
@@ -59,7 +61,7 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
 
-class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+class GeminiVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
@@ -164,9 +166,12 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """AI Studio 不带音轨开关；Vertex 调用端点可下发 generate_audio。"""
-        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"}),
+            audio=audio_protocol(cls.audio_track),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
