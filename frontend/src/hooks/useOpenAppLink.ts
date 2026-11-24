@@ -1,7 +1,7 @@
 import { startTransition, useCallback } from "react";
 import { useLocation } from "wouter";
 
-import { useAppStore } from "@/stores/app-store";
+import { openUnitPreview } from "@/actions/open-unit-preview";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { AppLink } from "@/utils/app-link";
 import { normalizeRoute } from "@/utils/generation-mode";
@@ -10,18 +10,14 @@ export function useOpenAppLink(): (link: AppLink) => void {
   const [, navigate] = useLocation();
   return useCallback(
     (link) => {
-      startTransition(() => navigate(`~${link.to}`));
-      if (!link.unit) return;
-      const { currentProjectName, currentProjectData } = useProjectsStore.getState();
-      if (link.unit.project === null || link.unit.project !== currentProjectName) return;
-      const referenceVideo = normalizeRoute(currentProjectData?.generation_mode) === "reference_video";
-      const app = useAppStore.getState();
-      app.triggerScrollTo({ type: referenceVideo ? "reference_unit" : "segment", id: link.unit.id });
-      app.requestPlaybackStart({
-        resource_type: referenceVideo ? "reference_videos" : "videos",
-        resource_id: link.unit.id,
-        seconds: link.unit.seconds,
-      });
+      const { currentProjectName, currentProjectData, projectDetailLoading } = useProjectsStore.getState();
+      const unit = link.unit;
+      if (unit?.project && unit.project === currentProjectName && currentProjectData && !projectDetailLoading) {
+        startTransition(() => navigate(`~${link.to}`));
+        openUnitPreview(normalizeRoute(currentProjectData.generation_mode), unit.id, unit.seconds);
+      } else {
+        startTransition(() => navigate(`~${link.href}`));
+      }
     },
     [navigate],
   );
