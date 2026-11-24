@@ -308,7 +308,7 @@ class TestGenerateRouter:
 
     @pytest.mark.parametrize(
         "previous",
-        ["first-shot", "chapter-break", "previous-idle", "available-no-double-count"],
+        ["first-shot", "chapter-break", "previous-idle", "available-no-double-count", "shared-path-no-double-count"],
     )
     def test_storyboard_admits_four_planned_references(self, tmp_path, monkeypatch, previous):
         project_path = _prepare_files(tmp_path)
@@ -333,6 +333,13 @@ class TestGenerateRouter:
         elif previous == "available-no-double-count":
             target["products_in_shot"] = ["保温杯"]
             target["props"] = []
+            fake_queue.active_by_user["default"] = [
+                {"task_id": "prev-regen", "resource_id": "E1S01", "status": "running"}
+            ]
+        elif previous == "shared-path-no-double-count":
+            target["products_in_shot"] = ["保温杯"]
+            first["generated_assets"] = {}
+            fake_pm.project["products"]["保温杯"]["reference_images"] = ["storyboards/scene_E1S01.png"]
             fake_queue.active_by_user["default"] = [
                 {"task_id": "prev-regen", "resource_id": "E1S01", "status": "running"}
             ]
