@@ -96,6 +96,9 @@ class GenerationBatchMember(BaseModel):
     task_id: str | None = None
     task_type: str | None = None
     status: GenerationBatchMemberStatus
+    outcome: Literal["complete", "partial"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    written_ids: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+    failed_units: list[dict[str, str]] | None = Field(default=None, exclude_if=lambda value: value is None)
     deduped: bool = False
     problem: GenerationProblem | None = None
     admission: dict[str, Any] = Field(default_factory=dict)
@@ -408,6 +411,7 @@ def build_generation_batch_read_model(
                 )
             )
             continue
+        authoring = (task.get("result") or {}) if task["task_type"] == "text_episode_script" else {}
         members.append(
             GenerationBatchMember(
                 unit_id=unit_id,
@@ -415,6 +419,9 @@ def build_generation_batch_read_model(
                 task_type=task["task_type"],
                 status=task["status"],
                 deduped=bool(task["deduped"]),
+                outcome=authoring.get("outcome"),
+                written_ids=authoring.get("written_ids"),
+                failed_units=authoring.get("failed_units"),
                 admission=requested.admission,
             )
         )

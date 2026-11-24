@@ -177,6 +177,7 @@ from lib.script.script_editor import (
     resolve_items,
     split_segment,
 )
+from lib.script.script_generator import ReferenceAuthoringFailed
 from lib.script.script_review import (
     ScriptPlanRebuildCompletionError,
     complete_stale_script_plan_rebuild,
@@ -245,6 +246,7 @@ from server.text_generation import (
     OperationNotAdmittedError,
     PromptAuthoringInputError,
     PromptOverwriteRequiredError,
+    ReferenceAuthoringResult,
     ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
@@ -728,6 +730,15 @@ async def _run_text_generation(
         return ToolOutcome(problem=truncation_problem(exc))
     except VideoRequestFactsUnavailableError as exc:
         return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
+    except ReferenceAuthoringFailed as exc:
+        return ToolOutcome(
+            problem=ToolProblem(
+                GenerationProblemCode.TASK_FAILED.value,
+                str(exc),
+                action=GenerationAction.RETRY,
+                params={"written_ids": [], "failed_units": exc.failed_units},
+            )
+        )
     except PromptAuthoringInputError as exc:
         return ToolOutcome(
             problem=ToolProblem(exc.code, str(exc), action=GenerationAction.FIX_INPUT, params=dict(exc.params))
@@ -868,6 +879,8 @@ async def _submit_text_task(
             return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
         if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
             return ToolOutcome(value=DraftRepairResult.model_validate(result))
+        if task_type == _TEXT_EPISODE_SCRIPT and "outcome" in result:
+            return ToolOutcome(value=ReferenceAuthoringResult(**result))
         return ToolOutcome(value=TextGenerationResult(**result))
     except BaseException as exc:
         await cleanup_fresh_generation_batch(
@@ -3365,6 +3378,8 @@ def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
         payload["warnings"] = list(value.warnings)
     if value.new_assets:
         payload["new_assets"] = list(value.new_assets)
+    if isinstance(value, ReferenceAuthoringResult):
+        payload.update(outcome=value.outcome, written_ids=value.written_ids, failed_units=value.failed_units)
     if value.no_pending_authoring:
         payload["no_pending_authoring"] = True
     return payload

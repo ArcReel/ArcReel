@@ -57,10 +57,8 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
-    render_report,
     write_quarantine,
 )
-from lib.script.draft_violation import DraftViolation
 from server import draft_repair as draft_repair_module
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
@@ -281,8 +279,9 @@ async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
     assert model.requests == []
 
 
+@pytest.mark.parametrize("pending", [False, True])
 @pytest.mark.usefixtures("video_request_facts")
-async def test_prompt_authoring_quarantine_preserves_report_in_task_failure(monkeypatch) -> None:
+async def test_prompt_authoring_zero_writes_persist_terminal_state(monkeypatch, file_db_factory, pending) -> None:
     projects = ProjectManager(DataRootLayout.current().root)
     project_path = projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -297,39 +296,45 @@ async def test_prompt_authoring_quarantine_preserves_report_in_task_failure(monk
             "episode": 1,
             "content_mode": "narration",
             "video_units": [
-                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4, "pending_authoring": True}
+                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4, "pending_authoring": pending}
             ],
         },
         "episode_1.json",
     )
     activate_artifact_target_state(project_path, bump_schema=False)
-    model = FakeTextGenerator('{"title":"第一集","units":[{"text":"@[未登记角色] 起身"}]}')
+    bad = '{"units":[{"unit_id":"E1U01","text":"@[未登记角色] 起身"}]}'
+    model = FakeTextGenerator(bad, bad)
     use_text_generator(monkeypatch, model.create)
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(
-            {
-                "task_id": "bad-prompt",
-                "project_name": "demo",
-                "task_type": "text_episode_script",
-                "payload": {"episode": 1},
-            }
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    services = Services(projects, object(), ConfigResolver(async_session_factory), queue)
+
+    async def execute(task, *, claimed_provider_id=None):
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    try:
+        submission = await generate_episode_script(
+            ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+            services,
         )
-    problem = problem_from_task_failure(str(raised.value))
-    assert (problem.code, problem.action, problem.params) == (
-        "draft_generation_invalid",
-        GenerationAction.FIX_INPUT,
-        {"count": 1},
-    )
-    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
-    assert draft is not None
-    assert "open_draft" in problem.detail
-    assert "patch_draft" in problem.detail
-    assert problem.detail == "generate_episode_script 失败: " + render_report(
-        quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).relative_to(project_path),
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
-        episode=1,
-    )
+        assert submission.problem is None
+        task = await wait_for_task(submission.value.members[0].task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+
+    if pending:
+        assert task["status"] == "failed"
+        detail = problem_from_task_failure(task["error_message"]).detail
+        assert "E1U01" in detail
+        assert "patch_episode_script" in detail
+        assert len(model.requests) == 2
+    else:
+        assert task["status"] == "succeeded"
+        assert task["result"]["no_pending_authoring"] is True
+        assert not model.requests
+    assert read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING) is None
 
 
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
@@ -1420,3 +1425,163 @@ async def test_missing_text_default_during_draft_repair_keeps_original_bytes(
         "configure_default_model",
         {"media_type": "text"},
     )
+
+
+@pytest.mark.parametrize("race", ["before_retry", "after_reply", "complete", "partial", "provider_error"])
+@pytest.mark.usefixtures("video_request_facts")
+async def test_reference_authoring_partial_commit_and_accounting(file_db_factory, monkeypatch, race):
+    from unittest.mock import AsyncMock
+
+    from lib.backends.providers import CallPurpose
+    from lib.billing.ledger import Ledger
+    from lib.db.models.api_call import ApiCall
+    from lib.project.project_change_hints import register_project_change_listener
+    from server.agent_toolset.embedded import embedded_result
+    from server.agent_toolset.generation_batches import GET_GENERATION_BATCH
+    from server.agent_toolset.remote import remote_tool
+    from server.agent_toolset.script_authoring import GENERATE_EPISODE_SCRIPT
+
+    projects = ProjectManager(DataRootLayout.current().root)
+    project = projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda data: data.update(generation_mode="reference_video"))
+    _admit_text_operations(projects, "demo")
+    units = [
+        {"unit_id": f"E1U{i}", "text": f"街道空镜{i}", "duration_seconds": 4, "pending_authoring": True}
+        for i in range(1, 6)
+    ]
+    units[-1].update(duration_seconds=5, pending_authoring=False)
+    if race == "partial":
+        units[1]["pending_authoring"] = False
+    path = projects.save_script("demo", {"title": "Demo", "episode": 1, "video_units": units}, "episode_1.json")
+    activate_artifact_target_state(project, bump_schema=False)
+
+    def external_edit():
+        current = json.loads(path.read_text())
+        current["video_units"][-1]["note"] = "人工修改"
+        path.write_text(json.dumps(current))
+
+    def after_write(name, source, paths):
+        if race == "before_retry" and "scripts/episode_1.json" in paths:
+            external_edit()
+
+    backend = AsyncMock()
+    backend.name = "gemini"
+    backend.model = "gemini-3-flash-preview"
+
+    async def generate(request):
+        if backend.generate.await_count == 1:
+            rows = [
+                {"unit_id": "E1U4", "text": "重复之一"},
+                {"unit_id": "E1U5", "text": "未知目标"},
+                {"unit_id": "E1U2", "text": "@[陌生人] 站在路口"},
+                {"unit_id": "E1U1", "text": "晨光中的街道"},
+                {"unit_id": "E1U4", "text": "重复之二"},
+            ]
+        else:
+            assert "#### unit E1U1" not in request.prompt
+            assert "missing_unit" in request.prompt
+            assert "duplicate_unit" in request.prompt
+            if race == "provider_error":
+                raise ConnectionError("provider offline")
+            rows = [{"unit_id": f"E1U{i}", "text": f"晨光{i}"} for i in (4, 3, 2)]
+            if race == "partial":
+                rows.pop()
+        return BackendTextGenerationResult(
+            text=json.dumps({"units": rows}), provider="gemini", model=backend.model, input_tokens=20, output_tokens=10
+        )
+
+    backend.generate.side_effect = generate
+
+    class EditingGenerator(TextGenerator):
+        async def generate(self, *args, **kwargs):
+            result = await super().generate(*args, **kwargs)
+            if race == "after_reply" and backend.generate.await_count == 2:
+                await run_sync_transaction(external_edit)
+            return result
+
+    generator = EditingGenerator(
+        backend, Ledger(session_factory=file_db_factory), "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION
+    )
+    use_text_generator(monkeypatch, AsyncMock(return_value=generator))
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    services = Services(projects, object(), ConfigResolver(async_session_factory), queue)
+    scope = ProjectScope(project_name="demo", data_root=projects.data_root)
+    unregister = register_project_change_listener(after_write)
+
+    async def execute(task, *, claimed_provider_id=None):
+        return await execute_queued_text_task(task)
+
+    request = GenerateEpisodeScriptRequest(episode_id=1)
+    if race == "partial":
+        from lib.script.script_review import content_fingerprint
+
+        request = GenerateEpisodeScriptRequest(
+            episode_id=1,
+            entry_ids=[u["unit_id"] for u in units[:4]],
+            rewrite=True,
+            overwrite_revision=content_fingerprint(path),
+        )
+    worker = await _start_text_worker(queue, execute)
+    try:
+        outcome = await generate_episode_script(
+            ToolRequest(request),
+            scope,
+            CallerContext(user_id=DEFAULT_USER_ID, source="embedded"),
+            services,
+        )
+    finally:
+        await worker.stop()
+        unregister()
+    assert outcome.problem is None, outcome.problem
+    expected_ids = (
+        ["E1U1", "E1U2", "E1U3", "E1U4"]
+        if race == "complete"
+        else (["E1U1", "E1U3", "E1U4"] if race == "partial" else ["E1U1"])
+    )
+    assert outcome.value.written_ids == expected_ids
+    (listed,) = (await queue.list_tasks(project_name="demo"))["items"]
+    task = await queue.get_task(listed["task_id"])
+    assert task["status"] == "succeeded"
+    embedded = embedded_result(GENERATE_EPISODE_SCRIPT, outcome)
+    receipt = json.loads(embedded.content[-1].text)["text_generation"]
+    remote = await remote_tool(
+        GET_GENERATION_BATCH,
+        projects=projects,
+        services=services,
+        caller=lambda: CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+    ).run({"project": "demo", "batch_id": task["batch_id"]})
+    batch = remote.structuredContent["generation_batch"]
+    (member,) = batch["members"]
+    assert member["status"] == "succeeded"
+    assert batch["counts"]["succeeded"] == 1
+    assert member["written_ids"] == task["result"]["written_ids"] == receipt["written_ids"] == expected_ids
+    assert (
+        member["outcome"]
+        == task["result"]["outcome"]
+        == receipt["outcome"]
+        == ("complete" if race == "complete" else "partial")
+    )
+    assert member["failed_units"] == task["result"]["failed_units"] == receipt["failed_units"]
+    saved = json.loads(path.read_text())["video_units"]
+    assert saved[0]["text"] == "晨光中的街道"
+    assert "pending_authoring" not in saved[0]
+    assert saved[-1]["text"] == units[-1]["text"]
+    if race == "partial":
+        assert saved[1] == units[1]
+        assert "patch_episode_script" in member["failed_units"][0]["message"]
+    if race in {"before_retry", "after_reply"}:
+        assert saved[-1]["note"] == "人工修改"
+        assert saved[1:4] == units[1:4]
+        assert {f["code"] for f in member["failed_units"]} == {"duplicate_unit", "missing_unit", "unregistered_asset"}
+        assert all("formal_revision_conflict" in f["abort_reason"] for f in member["failed_units"])
+    async with file_db_factory() as session:
+        calls = list((await session.scalars(select(ApiCall).where(ApiCall.project_name == "demo"))).all())
+    expected_calls = 1 if race == "before_retry" else 2
+    assert backend.generate.await_count == len(calls) == expected_calls
+    if race == "provider_error":
+        assert sorted(c.status for c in calls) == ["failed", "success"]
+        assert all("provider offline" in f["abort_reason"] for f in member["failed_units"])
+    else:
+        assert all((c.status, c.input_tokens, c.output_tokens) == ("success", 20, 10) for c in calls)
+    assert not list(project.rglob("*.invalid.json"))

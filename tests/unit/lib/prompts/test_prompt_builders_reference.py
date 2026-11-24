@@ -87,7 +87,7 @@ def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
 def test_build_reference_video_prompt_states_structure_preserving_contract():
     """prompt_authoring 的职责是提示词编写：unit 数与台词两项保结构要求必须写进 prompt。"""
     prompt = _prompt_authoring_prompt()
-    assert "等长、同序" in prompt
+    assert "原样返回对应的 `unit_id`" in prompt
     assert "逐字保留" in prompt
 
 
@@ -278,7 +278,7 @@ def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
 
 
 def test_render_reference_units_for_prompt_authoring_mechanical():
-    """渲染是机械变换：序号 + unit 时长 + 正文逐字出现；unit_id 不进渲染。"""
+
     text = render_reference_units_for_prompt_authoring(
         [
             {
@@ -289,10 +289,9 @@ def test_render_reference_units_for_prompt_authoring_mechanical():
             {"unit_id": "E1U02", "text": "@[甲] 回头", "duration_seconds": 8},
         ]
     )
-    assert "#### unit 1（时长 10s）" in text
+    assert "#### unit E1U01（时长 10s）" in text
     assert "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门" in text
-    assert "#### unit 2（时长 8s）" in text
-    assert "E1U01" not in text
+    assert "#### unit E1U02（时长 8s）" in text
 
 
 class TestEpisodeTargetDurationInjection:
