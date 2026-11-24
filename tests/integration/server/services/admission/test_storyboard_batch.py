@@ -43,6 +43,13 @@ def board_projects(tmp_path: Path) -> ProjectManager:
 
 
 @pytest.fixture
+async def zero_reference_model(board_projects, session_factory, configure_storyboard_image_model):
+    model_key, model_id = await configure_storyboard_image_model(session_factory, limit=0)
+    board_projects.update_project(PROJECT, lambda project: project.update(image_provider_i2i=model_key))
+    return model_id
+
+
+@pytest.fixture
 async def board_queue(session_factory, board_projects: ProjectManager) -> GenerationQueue:
     generation_queue = GenerationQueue(session_factory=session_factory, project_manager=board_projects)
     await generation_queue.acquire_or_renew_worker_lease(name="default", owner_id="worker-a", ttl_seconds=60)
@@ -161,12 +168,8 @@ async def test_image_batch_targets_segments_without_a_usable_storyboard(
 
 
 async def test_image_batch_counts_planned_previous_storyboard_and_submits_other_shots(
-    board_projects, board_queue, monkeypatch
+    board_projects, board_queue, zero_reference_model
 ):
-    async def zero_limit(*_args):
-        return (0, "zero")
-
-    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
     _write_episode(board_projects, [_segment("E1S01"), _segment("E1S02"), _segment("E1S03", segment_break=True)])
     _, plan = await load_storyboard_image_batch_plan(
         board_projects, board_queue, project_name=PROJECT, episode_id=1, user_id=DEFAULT_USER_ID
@@ -174,7 +177,13 @@ async def test_image_batch_counts_planned_previous_storyboard_and_submits_other_
     assert plan.new_task_ids == ["E1S01", "E1S03"]
     problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
     assert problem.code == "image_reference_images_exceeded"
-    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
+    assert problem.params == {
+        "model": zero_reference_model,
+        "limit": 0,
+        "count": 1,
+        "names": "E1S01",
+        "previous_storyboard": "E1S01",
+    }
     _, enqueued, _ = await submit_storyboard_image_batch(
         plan, project_name=PROJECT, queue=board_queue, source="webui", user_id=DEFAULT_USER_ID
     )
@@ -213,12 +222,8 @@ async def test_image_batch_reports_a_segment_already_generating_and_submits_the_
 
 
 async def test_image_batch_counts_active_previous_even_when_it_cannot_join_the_batch(
-    board_projects, board_queue, monkeypatch
+    board_projects, board_queue, zero_reference_model
 ):
-    async def zero_limit(*_args):
-        return (0, "zero")
-
-    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
     _write_episode(board_projects, [_segment("E1S01", image_prompt=None), _segment("E1S02")])
     await board_queue.enqueue_task(
         project_name=PROJECT,
@@ -239,17 +244,19 @@ async def test_image_batch_counts_active_previous_even_when_it_cannot_join_the_b
     problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
     assert problem is not None
     assert problem.code == "image_reference_images_exceeded"
-    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
+    assert problem.params == {
+        "model": zero_reference_model,
+        "limit": 0,
+        "count": 1,
+        "names": "E1S01",
+        "previous_storyboard": "E1S01",
+    }
 
 
 @pytest.mark.parametrize("finish_before_query", [True, False], ids=["before-probe", "after-probe"])
 async def test_image_batch_counts_previous_that_finishes_during_queue_probe(
-    board_projects, board_queue, monkeypatch, finish_before_query
+    board_projects, board_queue, monkeypatch, finish_before_query, zero_reference_model
 ):
-    async def zero_limit(*_args):
-        return (0, "zero")
-
-    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
     target = _segment("E1S02")
     _write_episode(board_projects, [_segment("E1S01"), target])
     previous = await board_queue.enqueue_task(
@@ -292,7 +299,13 @@ async def test_image_batch_counts_previous_that_finishes_during_queue_probe(
     problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
     assert problem is not None
     assert problem.code == "image_reference_images_exceeded"
-    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
+    assert problem.params == {
+        "model": zero_reference_model,
+        "limit": 0,
+        "count": 1,
+        "names": "E1S01",
+        "previous_storyboard": "E1S01",
+    }
 
 
 async def test_image_batch_rejects_an_unknown_episode_and_a_reference_project(
