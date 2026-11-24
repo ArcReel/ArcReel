@@ -1,7 +1,7 @@
 import type enErrors from '../en/errors';
 
 export default {
-  "asset_resource_busy": "资产有生成任务正在排队或执行，请在任务结束后重试。",
+  "asset_resource_busy": "资产有生成任务正在排队或执行，当前无法操作，任务结束后再试。",
   "apply_failed_resource_busy": "项目资产有任务正在排队或执行，无法覆盖。任务结束后再试。",
   "text_default_model_not_set": "还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择；还没有配置供应商时，先在「全局设置 → 供应商」配置",
   "audio_default_model_not_set": "还没有设置旁白配音的默认模型：请在「全局设置 → 默认模型」中选择；还没有配置支持语音合成的供应商时，先在「全局设置 → 供应商」配置",

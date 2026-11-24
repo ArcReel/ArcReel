@@ -1310,7 +1310,8 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
 
 
 def use_generation_queue(monkeypatch, queue: Any) -> None:
-    """生成与参考视频路由的 ``get_generation_queue()`` 都返回 *queue*（入队替身）。"""
+    """生成、资产图批量与参考视频路由的 ``get_generation_queue()`` 都返回 *queue*（入队替身）。"""
+    monkeypatch.setattr("server.routers.asset_sheets.get_generation_queue", lambda: queue)
     monkeypatch.setattr("server.routers.generate.get_generation_queue", lambda: queue)
     monkeypatch.setattr("server.routers.reference_videos.get_generation_queue", lambda: queue)
 

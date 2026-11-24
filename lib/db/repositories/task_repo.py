@@ -318,6 +318,26 @@ class TaskRepository(BaseRepository):
         )
         await self.session.commit()
 
+    async def save_batch_snapshot(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        requested: dict[str, Any],
+        user_id: str,
+    ) -> bool:
+        result = await self.session.execute(
+            update(GenerationBatch)
+            .where(
+                GenerationBatch.batch_id == batch_id,
+                GenerationBatch.project_name == project_name,
+                GenerationBatch.user_id == user_id,
+            )
+            .values(requested_json=_json_dumps(requested))
+        )
+        await self.session.commit()
+        return rowcount(result) == 1
+
     async def attach_batch_task(
         self,
         *,

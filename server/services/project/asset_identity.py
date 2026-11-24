@@ -6,7 +6,7 @@ from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.infra.async_thread import run_sync_transaction
 from lib.project.asset_merge import AssetMergeReport
 from lib.project.asset_rename import AssetRenameReport
-from lib.project.asset_types import asset_name_comparison_key, validate_asset_name
+from lib.project.asset_types import asset_name_comparison_key, resolve_asset_type, validate_asset_name
 from lib.project.project_manager import ProjectManager
 
 
@@ -20,7 +20,7 @@ async def rename_project_asset(
     dry_run: bool = False,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AssetRenameReport:
-    asset_type = ProjectManager._resolve_asset_type(table)
+    asset_type = resolve_asset_type(table)
     targets = (
         ()
         if dry_run
@@ -46,7 +46,7 @@ async def merge_project_asset(
     dry_run: bool = False,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> AssetMergeReport:
-    asset_type = ProjectManager._resolve_asset_type(table)
+    asset_type = resolve_asset_type(table)
     targets = (
         ()
         if dry_run
@@ -59,6 +59,6 @@ async def merge_project_asset(
 
 
 async def delete_project_asset(manager: ProjectManager, project_name: str, table: str, name: str) -> None:
-    target = AssetTarget(ProjectManager._resolve_asset_type(table), name, "whole_asset")
+    target = AssetTarget(resolve_asset_type(table), name, "whole_asset")
     async with idle_asset_write(project_name, target):
         await run_sync_transaction(manager.delete_asset, project_name, table, name)

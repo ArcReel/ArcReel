@@ -990,7 +990,7 @@ def record_batch_outcomes(
             task_state = GenerationTaskState.NOT_QUEUED
             dependency = (dependencies or {}).get(unit_id)
             problem = dependency_failure_problem(
-                enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
+                br.enqueue_problem or enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
                 dependency,
                 dependency_not_queued=dependency in not_queued_ids,
             )

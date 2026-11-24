@@ -9,7 +9,19 @@ import portalocker
 import pytest
 
 from lib.generation import generation_admission
+from lib.generation.asset_admission import AssetTarget, asset_admission_locks
+from lib.infra.data_root_layout import DataRootLayout
 from tests.fakes import observe_file_lock_contention
+
+
+async def test_asset_admission_uses_one_lock_for_equivalent_project_names(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    target = AssetTarget("character", "Alice", "image")
+    for project_name in ("demo", " demo "):
+        async with asset_admission_locks(project_name, target):
+            pass
+
+    assert len(list(DataRootLayout.current().generation_admission_locks_dir.glob("*.lock"))) == 1
 
 
 async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp_path, monkeypatch):

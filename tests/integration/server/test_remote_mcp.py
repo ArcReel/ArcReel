@@ -675,6 +675,66 @@ async def test_remote_media_submission_returns_complete_durable_batch_and_dedupe
     assert reread.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
 
 
+async def test_remote_asset_batch_keeps_busy_reason_through_terminal_read(remote_batch_server, remote_projects):
+    server, queue = remote_batch_server
+    project = remote_projects.load_project("demo")
+    project["characters"] = {name: {"description": name} for name in ("Before", "Busy", "After")}
+    remote_projects.save_project("demo", project)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    await queue.enqueue_task(
+        project_name="demo",
+        task_type="image_edit",
+        resource_type="character",
+        resource_id="Busy",
+        media_type="image",
+        provider_id="test",
+    )
+
+    app = _mounted(server)
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        submitted = await session.call_tool(
+            "generate_assets", {"project": "demo", "type": "character", "names": ["Before", "Busy", "After"]}
+        )
+        assert not submitted.isError
+        assert submitted.structuredContent is not None
+        batch = submitted.structuredContent["generation_batch"]
+        members = {member["unit_id"]: member for member in batch["members"]}
+        assert {unit_id for unit_id, member in members.items() if member["task_id"]} == {
+            "character/Before",
+            "character/After",
+        }
+        busy = members["character/Busy"]
+        assert busy["status"] == "failed"
+        assert busy["problem"]["code"] == "asset_resource_busy"
+        assert busy["problem"]["detail"] == "资产有生成任务正在排队或执行，当前无法操作，任务结束后再试。"
+        assert busy["problem"]["action"] == "wait_for_task"
+
+        batch_args = {"project": "demo", "batch_id": batch["batch_id"]}
+        cancelled = await session.call_tool("cancel_generation_batch", batch_args)
+        assert not cancelled.isError
+        reread = await session.call_tool("get_generation_batch", batch_args)
+
+    assert not reread.isError
+    assert reread.structuredContent is not None
+    final_batch = reread.structuredContent["generation_batch"]
+    assert final_batch["done"]
+    final_members = {member["unit_id"]: member for member in final_batch["members"]}
+    final_items = {item["unit_id"]: item for item in final_batch["generation_result"]["items"]}
+    assert final_members["character/Busy"]["problem"] == busy["problem"]
+    assert final_items["character/Busy"]["problem"] == busy["problem"]
+
+
 async def test_remote_batch_submission_reads_migration_verdict_from_fixture_root(
     remote_batch_server,
     remote_projects: ProjectManager,

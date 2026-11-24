@@ -1746,7 +1746,7 @@ class API {
       signal: options.signal,
     }));
 
-    if (response.status === 409) {
+    if (uploadType === "source" && response.status === 409) {
       let detail: { existing?: string; suggested_name?: string; message?: string } | null = null;
       try {
         const body = (await response.json()) as { detail?: { existing?: string; suggested_name?: string; message?: string } };

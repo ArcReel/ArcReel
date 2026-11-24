@@ -18,11 +18,12 @@ from lib.project.asset_types import BUCKET_KEY, normalize_asset_name, resolve_as
 from lib.project.project_manager import ProjectManager, get_project_manager
 
 AssetDimension = Literal["image", "derivative_image", "voice", "whole_asset"]
+ASSET_RESOURCE_BUSY_CODE = "asset_resource_busy"
 
 
 class AssetResourceBusy(ConflictError):
     def __init__(self) -> None:
-        super().__init__("asset_resource_busy")
+        super().__init__(ASSET_RESOURCE_BUSY_CODE)
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ def asset_task_target(task_type: str, resource_type: str | None, resource_id: st
 
 @asynccontextmanager
 async def asset_admission_locks(project_name: str, *targets: AssetTarget) -> AsyncGenerator[None]:
+    project_name = ProjectManager.normalize_project_name(project_name)
     async with AsyncExitStack() as stack:
         for kind, name in sorted({target.owner for target in targets}):
             await stack.enter_async_context(admission_file_lock(project_name, kind, name))
@@ -89,16 +91,24 @@ async def require_asset_idle(
     parent_task_id: str | None = None,
     batch_id: str | None = None,
 ) -> None:
+    project_name = ProjectManager.normalize_project_name(project_name)
     kinds = [target.asset_type, "image_edit"]
     if target.asset_type == "character":
         kinds.extend([DERIVATIVE_TASK_TYPE, "voice_sample"])
     legacy_edit_payload = case(((Task.task_type == "image_edit") & Task.resource_type.is_(None), Task.payload_json))
-    query = select(Task.task_id, Task.task_type, Task.resource_type, Task.resource_id, legacy_edit_payload).where(
-        Task.project_name == project_name, Task.status.in_(ACTIVE_TASK_STATUSES), Task.task_type.in_(kinds)
+    matching_project_names = Task.project_name.contains(project_name, autoescape=True)
+    query = select(
+        Task.project_name, Task.task_id, Task.task_type, Task.resource_type, Task.resource_id, legacy_edit_payload
+    ).where(
+        matching_project_names,
+        Task.status.in_(ACTIVE_TASK_STATUSES),
+        Task.task_type.in_(kinds),
     )
     if new_task_id is not None:
         query = query.where(Task.task_id != new_task_id)
-    for task_id, kind, resource_type, resource_id, legacy_payload in await session.execute(query):
+    for task_project, task_id, kind, resource_type, resource_id, legacy_payload in await session.execute(query):
+        if task_project.strip() != project_name:
+            continue
         if legacy_payload:
             resource_type = json.loads(legacy_payload).get("resource_type")
         active = asset_task_target(kind, resource_type, resource_id)

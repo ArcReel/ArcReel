@@ -47,7 +47,7 @@ def enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[st
     只转述受控问题码的姿态一致。
     """
 
-    problem = enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)
+    problem = failure.enqueue_problem or enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)
     logger.warning("batch enqueue failed for unit %s: %s", failure.resource_id, problem.detail)
     return {
         "unit_id": failure.resource_id,

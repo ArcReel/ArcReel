@@ -524,7 +524,7 @@ class GenerationQueue:
                     batch_id=batch_id,
                     project_name=project_name,
                     operation=operation,
-                    requested=requested.model_dump(mode="json"),
+                    requested=requested.model_dump(mode="json", exclude={"enqueue_problems"}),
                     blocked=[item.model_dump(mode="json") for item in blocked],
                     source=source,
                     user_id=user_id,
@@ -539,6 +539,24 @@ class GenerationQueue:
             )
             raise
         return batch_id
+
+    async def save_generation_batch_snapshot(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        requested: GenerationBatchRequestSnapshot,
+        user_id: str,
+    ) -> None:
+        async with self._task_repo() as repo:
+            saved = await repo.save_batch_snapshot(
+                project_name=project_name,
+                batch_id=batch_id,
+                requested=requested.model_dump(mode="json"),
+                user_id=user_id,
+            )
+        if not saved:
+            raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
 
     async def get_generation_batch(
         self,

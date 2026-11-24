@@ -219,7 +219,8 @@ async def import_provider_asset(
 
     async with asset_admission_locks(project_name, target):
         try:
-            await require_asset_idle(session, project_name, target)
+            async with AsyncSession(bind=session.bind, expire_on_commit=False) as check_session:
+                await require_asset_idle(check_session, project_name, target)
             await run_noninterruptible_async(install(image, _on_commit))
         except BaseException:
             if recorded:

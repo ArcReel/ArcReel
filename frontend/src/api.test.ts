@@ -911,6 +911,18 @@ describe("API", () => {
       await expect(API.uploadFile("demo", "source", file)).rejects.toThrow("上传失败");
     });
 
+    it.each(["character", "character_audio_ref"])("reports asset occupancy for %s uploads", async (uploadType) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          mockResponse({ ok: false, status: 409, jsonData: { code: "asset_resource_busy", detail: "server fallback" } }),
+        ),
+      );
+
+      await expect(API.uploadFile("demo", uploadType, new File(["content"], "asset"), "Alice"))
+        .rejects.toMatchObject({ status: 409, message: i18n.t("errors:asset_resource_busy") });
+    });
+
     it("uploads shot media via multipart form and returns fingerprints", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({

@@ -14,16 +14,48 @@ from lib.asset_library.links import record_imported_link
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.user import User
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
+from lib.db.repositories.task_repo import TaskRepository
 from lib.generation.asset_admission import AssetResourceBusy, AssetTarget, require_asset_idle
 from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_queue_client import batch_enqueue_and_wait
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
-from server.routers import assets, characters, generate
+from server.routers import asset_sheets, assets, characters, generate
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.tool_runtime import CallerContext
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.fakes import observe_file_lock_contention, use_assets_router_sessions, use_project_manager
-from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
+from tests.fakes import (
+    observe_file_lock_contention,
+    use_assets_router_sessions,
+    use_generation_queue,
+    use_project_manager,
+)
+from tests.integration.server.agent_tool_support import ToolHarness, read_generation_result, run_declared_tool
+
+
+@pytest.mark.parametrize(
+    ("stored_project", "requested_project", "busy"),
+    [
+        ("demo", " demo ", True),
+        ("\tdemo\u3000", "demo", True),
+        ("demo-other", "demo", False),
+    ],
+)
+async def test_asset_occupancy_compares_equivalent_project_names(
+    file_db_factory, stored_project, requested_project, busy
+):
+    async with file_db_factory() as session:
+        await TaskRepository(session).enqueue(
+            project_name=stored_project, task_type="character", media_type="image", resource_id="Alice"
+        )
+
+    async with file_db_factory() as session:
+        target = AssetTarget("character", "Alice", "image")
+        if busy:
+            with pytest.raises(AssetResourceBusy):
+                await require_asset_idle(session, requested_project, target)
+        else:
+            await require_asset_idle(session, requested_project, target)
 
 
 @pytest.mark.parametrize(("task_type", "status"), [("character", 409), ("image_edit", 409), ("voice_sample", 200)])
@@ -387,3 +419,139 @@ async def test_apply_conflict_policies_during_voice_sample(
     assert (path / "characters" / "Héro.png").read_bytes() == b"original"
     if policy == "rename":
         assert (path / "characters" / "Héro (2).png").read_bytes() == b"library"
+
+
+async def test_same_batch_derivative_queues_with_parent_while_independent_derivative_returns_409(
+    asset_project, file_db_factory, monkeypatch
+):
+    use_project_manager(monkeypatch, asset_project)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=asset_project)
+    await queue.acquire_or_renew_worker_lease(name="default", owner_id="test", ttl_seconds=60)
+    use_generation_queue(monkeypatch, queue)
+    app = FastAPI()
+    register_error_handlers(app)
+    override_auth(app)
+    app.include_router(asset_sheets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
+        batch_response = await http.post("/api/v1/projects/demo/asset-sheets/batch", json={"asset_type": "character"})
+        assert batch_response.status_code == 200, batch_response.text
+        members = {member["unit_id"]: member for member in batch_response.json()["members"]}
+        parent_task_id = members["character/Héro"]["task_id"]
+        ete_task_id = members["character/Héro/Été"]["task_id"]
+        assert parent_task_id
+        assert ete_task_id
+        ete_task = await queue.get_task(ete_task_id)
+        assert ete_task is not None
+        assert ete_task["dependency_task_id"] == parent_task_id
+
+        await asyncio.to_thread(
+            install_manual_asset_sheet_upload,
+            project_manager=asset_project,
+            project_name="demo",
+            asset_type="character",
+            name="Héro",
+            sheet_path="characters/Héro.png",
+            content=b"existing",
+            original_filename="Héro.png",
+        )
+        asset_project.update_project(
+            "demo",
+            lambda project: project["characters"]["Héro"]["derivatives"].update(Autumn={"description": "autumn"}),
+        )
+        harness = ToolHarness(
+            "demo",
+            asset_project.data_root,
+            asset_project,
+            queue=queue,
+            caller=CallerContext(user_id="default", source="mcp"),
+        )
+        independent = await run_declared_tool(
+            "generate_assets", harness, {"type": "character", "names": ["Héro/Autumn"]}
+        )
+        assert independent.problem is not None
+        assert independent.problem.code == "asset_resource_busy"
+
+
+async def test_web_asset_batch_reports_busy_target_and_enqueues_idle_assets(
+    asset_project, file_db_factory, monkeypatch
+):
+    asset_project.update_project(
+        "demo",
+        lambda project: project.update(
+            characters={name: {"description": name} for name in ("Before", "Héro", "After")}
+        ),
+    )
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=asset_project)
+    await queue.acquire_or_renew_worker_lease(name="default", owner_id="test", ttl_seconds=60)
+    await queue.enqueue_task(
+        project_name="demo",
+        task_type="image_edit",
+        resource_type="character",
+        resource_id="Héro",
+        media_type="image",
+        provider_id="test",
+    )
+    use_project_manager(monkeypatch, asset_project)
+    use_generation_queue(monkeypatch, queue)
+    app = FastAPI()
+    register_error_handlers(app)
+    override_auth(app)
+    app.include_router(asset_sheets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
+        response = await http.post("/api/v1/projects/demo/asset-sheets/batch", json={"asset_type": "character"})
+
+    assert response.status_code == 200, response.text
+    members = {member["unit_id"]: member for member in response.json()["members"]}
+    assert {unit_id for unit_id, member in members.items() if member["task_id"]} == {
+        "character/Before",
+        "character/After",
+    }
+    assert members["character/Héro"]["status"] == "failed"
+    assert members["character/Héro"]["problem_code"] == "asset_resource_busy"
+
+
+async def test_embedded_asset_batch_keeps_busy_reason_when_read_again(asset_project, file_db_factory):
+    asset_project.add_project_character("demo", "Idle", "idle", "")
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=asset_project)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test", ttl_seconds=60)
+    await queue.enqueue_task(
+        project_name="demo",
+        task_type="image_edit",
+        resource_type="character",
+        resource_id="Héro",
+        media_type="image",
+        provider_id="test",
+    )
+    harness = ToolHarness("demo", asset_project.data_root, asset_project, queue=queue)
+
+    async def settle_batch(*, project_name, specs, batch_id, queue, user_id):
+        enqueued = asyncio.Event()
+        async with asyncio.TaskGroup() as group:
+            waiting = group.create_task(
+                batch_enqueue_and_wait(
+                    project_name=project_name,
+                    specs=specs,
+                    batch_id=batch_id,
+                    queue=queue,
+                    user_id=user_id,
+                    on_enqueued=enqueued.set,
+                )
+            )
+            await asyncio.wait_for(enqueued.wait(), timeout=5)
+            await queue.cancel_generation_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
+        return waiting.result()
+
+    submitted = await run_declared_tool(
+        "generate_assets", harness, {"type": "character", "names": ["Héro", "Idle"]}, batch_waiter=settle_batch
+    )
+    result = read_generation_result(submitted)
+    busy = next(item.problem for item in result.items if item.unit_id == "character/Héro")
+    assert busy is not None
+    assert busy.code == "asset_resource_busy"
+
+    reread = await run_declared_tool("get_generation_batch", harness, {"batch_id": submitted.value["batch_id"]})
+    assert reread.value is not None
+    assert reread.value.done
+    assert next(member.problem for member in reread.value.members if member.unit_id == "character/Héro") == busy

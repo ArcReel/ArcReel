@@ -1,5 +1,5 @@
 MESSAGES = {
-    "asset_resource_busy": "资产有生成任务正在排队或执行，请在任务结束后重试。",
+    "asset_resource_busy": "资产有生成任务正在排队或执行，当前无法操作，任务结束后再试。",
     "apply_failed_resource_busy": "项目资产有任务正在排队或执行，无法覆盖。任务结束后再试。",
     "episode_position_name": "第 {position} 集",
     "episode_unlisted_name": "未命名集",

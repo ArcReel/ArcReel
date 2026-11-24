@@ -91,6 +91,8 @@ Clients can use `GET /api/v1/tasks/active` to read queued and running tasks. The
 
 Project asset writes and generation requests share an asset admission lock. If an upload, provider asset import, version restore, or asset identity change conflicts with an active task, the API returns HTTP 409 with the code `asset_resource_busy`. Retry after the task using the target finishes. Character sheets and reference audio have independent checks. Asset merges check both the source and the retained asset. Text edits, unchanged field values, voice notice acknowledgements, appending product reference images, and `dry_run` previews can proceed during generation.
 
+When a generation batch includes both busy and idle asset sheets, busy items return `asset_resource_busy` and idle items can still be queued. The Agent sees the same reason when it reads the batch. When applying assets from the global library to a project, a provider asset link copy failure rolls back the whole batch and preserves the artifact manifest.
+
 Task identity correlates results and costs. A resumed video task looks up the original job using its submitted context, avoiding a second submission and charge. See [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) and the [provider standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md).
 
 ### Provider abstraction {#provider-abstraction}
