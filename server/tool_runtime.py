@@ -31,8 +31,6 @@ from lib.config.resolver import (
     ConfigResolver,
     ImageBucketCapabilityError,
     NoAvailableProviderError,
-    caps_generation_mode,
-    video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -246,10 +244,7 @@ from server.services.project.narration_settings import NarrationSettingsInput, n
 from server.services.project.script_review import ScriptPlanContent, ScriptReviewError, ScriptReviewService
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.episode_activity import episode_has_active_tasks
-from server.services.tasks.video_caps import (
-    annotate_reference_unit_tiers,
-    resolve_project_video_capabilities,
-)
+from server.services.tasks.video_caps import resolve_agent_video_capabilities
 from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
@@ -2231,14 +2226,7 @@ async def get_video_capabilities(
 ) -> ToolOutcome[dict[str, Any]]:
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
-        generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
-        payload = await resolve_project_video_capabilities(
-            project,
-            generation_type=generation_type,
-            config_resolver=services.capabilities,
-        )
-        await annotate_reference_unit_tiers(
-            payload,
+        payload = await resolve_agent_video_capabilities(
             project,
             config_resolver=services.capabilities,
             projects=services.projects,

@@ -220,3 +220,101 @@ async def test_unlisted_custom_model_is_looked_up_only_once(db_factory, monkeypa
     target = await VideoRuntime(ConfigResolver(db_factory)).materialized(ProviderModel(provider, model))
     assert target.snapshot.model_id == model
     assert lookups == [model]
+
+    from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+    direct = DashScopeVideoBackend(api_key="test-key", model="custom-unlisted-wan").with_catalog_entry(None)
+    assert direct.video_capabilities.first_frame is True
+    assert DashScopeVideoBackend.video_capabilities_for_model("custom-unlisted-wan", None).first_frame is True
+    assert lookups == [model]
+
+
+async def test_comfyui_model_named_like_discontinued_entry_is_not_rejected(db_factory, monkeypatch):
+    from datetime import date
+
+    from sqlalchemy import update
+
+    from lib.catalog import query as catalog
+    from lib.db.models.custom_provider import CustomProviderModel
+    from tests.catalog_support import install_catalog, with_entry_changes
+
+    retired = "doubao-seedance-2-0-260128"
+    provider, _ = (await seed_endpoint_fixed_video_model(db_factory)).split("/")
+    async with db_factory.begin() as session:
+        await session.execute(update(CustomProviderModel).values(model_id=retired))
+    install_catalog(
+        monkeypatch, with_entry_changes(catalog.factory_snapshot(), "ark", retired, shutdown_date=date(2000, 1, 1))
+    )
+    runtime = VideoRuntime(ConfigResolver(db_factory))
+    target = await runtime.materialized(ProviderModel(provider, retired))
+    assert target.snapshot.model_id == retired
+    assert target.spec.entry is None
+
+
+async def test_bucket_queries_preserve_reference_unavailable_on_malformed_id_or_invalid_endpoint(
+    db_factory, monkeypatch
+):
+    from lib.catalog import query as catalog
+
+    runtime = VideoRuntime(ConfigResolver(db_factory))
+    with pytest.raises(VideoBucketCapabilityError) as bad_custom:
+        await runtime.read_bucket({"video_provider_i2v": "custom-not-a-number/m"}, "i2v")
+    assert bad_custom.value.code == "video_capability_reference_unavailable"
+
+    model_id = "user-bad-endpoint-video"
+    catalog.install_user_added_models(
+        (catalog.UserAddedModel("kling", model_id, "video", fallback_durations=(5,), endpoint="missing-endpoint"),)
+    )
+    try:
+        with pytest.raises(VideoBucketCapabilityError) as bad_builtin:
+            await runtime.read_bucket({"video_provider_i2v": f"kling/{model_id}"}, "i2v")
+        assert bad_builtin.value.code == "video_capability_reference_unavailable"
+    finally:
+        catalog.install_user_added_models(())
+
+
+async def test_agent_video_capabilities_resolves_r2v_once_in_single_session(db_factory, db_engine, tmp_path):
+    from sqlalchemy import event
+
+    from lib.project.project_manager import ProjectManager
+    from server.services.tasks.video_caps import resolve_agent_video_capabilities
+
+    r2v_pair = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
+    i2v_pair = await seed_endpoint_fixed_video_model(db_factory)
+    projects = ProjectManager(tmp_path)
+    projects.create_project("demo", content_mode="drama")
+    project = {
+        "generation_mode": "reference_video",
+        "content_mode": "drama",
+        "video_provider_r2v": r2v_pair,
+        "video_provider_i2v": i2v_pair,
+        "episodes": [],
+    }
+
+    model_queries: list[tuple] = []
+    settings_queries = 0
+
+    def observe(_conn, _cursor, statement, parameters, _context, _executemany):
+        nonlocal settings_queries
+        sql = str(statement)
+        if "FROM system_setting" in sql:
+            settings_queries += 1
+        if "FROM custom_provider_model" in sql:
+            model_queries.append(tuple(parameters))
+
+    event.listen(db_engine.sync_engine, "before_cursor_execute", observe)
+    try:
+        payload = await resolve_agent_video_capabilities(
+            project,
+            config_resolver=ConfigResolver(db_factory),
+            projects=projects,
+            project_name="demo",
+        )
+    finally:
+        event.remove(db_engine.sync_engine, "before_cursor_execute", observe)
+
+    assert len(model_queries) == 2
+    assert len(set(model_queries)) == 2
+    assert settings_queries == 1
+    assert payload["reference_unit_durations"]["with_references_endpoint_fixed"] is True
+    assert payload["reference_unit_durations"]["without_references_endpoint_fixed"] is True

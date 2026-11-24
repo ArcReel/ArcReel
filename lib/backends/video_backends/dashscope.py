@@ -216,7 +216,7 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._model, self._catalog_entry)
+        return self.video_capabilities_for_model(self._model, self._binding)
 
     @property
     def _request_base_url(self) -> str:

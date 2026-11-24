@@ -76,9 +76,6 @@ class _Planner:
 
 
 class _Capabilities:
-    async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
-        return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
-
     async def resolve_image_backend(self, _project: dict, _payload: object, *, generation_type: str) -> None:
         assert generation_type == "i2i"
         raise ValueError("image capability unavailable")
@@ -361,10 +358,16 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     from unittest.mock import AsyncMock
 
     from server import tool_runtime
+    from server.services.project import script_review as script_review_service
 
     monkeypatch.setattr(
+        script_review_service,
+        "resolve_plan_capabilities",
+        AsyncMock(return_value=[4, 6]),
+    )
+    monkeypatch.setattr(
         tool_runtime,
-        "resolve_project_video_capabilities",
+        "resolve_agent_video_capabilities",
         AsyncMock(
             return_value={
                 "provider_id": "fake",

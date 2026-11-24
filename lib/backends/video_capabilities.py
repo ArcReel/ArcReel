@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import fields
+from types import EllipsisType
 from typing import TYPE_CHECKING
 
 from arcreel_catalog_core import VideoFacts
@@ -140,8 +141,14 @@ class VideoEndpointCapabilities:
         raise NotImplementedError
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        description = cls.describe_video_endpoint(model) if entry is None else cls.describe_video_endpoint(model, entry)
+    def video_capabilities_for_model(
+        cls, model: str, entry: CatalogEntry | EllipsisType | None = ...
+    ) -> VideoCapabilities:
+        description = (
+            cls.describe_video_endpoint(model)
+            if isinstance(entry, EllipsisType)
+            else cls.describe_video_endpoint(model, entry)
+        )
         return channel_projection(description)
 
 

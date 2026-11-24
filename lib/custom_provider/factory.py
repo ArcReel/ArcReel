@@ -17,7 +17,7 @@ from lib.custom_provider.backends import (
     CustomVideoBackend,
 )
 from lib.custom_provider.capabilities import custom_video_snapshot
-from lib.custom_provider.endpoints import EndpointSpec, get_endpoint_spec
+from lib.custom_provider.endpoints import EndpointSpec, ProviderConnectionSnapshot, get_endpoint_spec
 from lib.custom_provider.model_facts import model_entry
 from lib.custom_provider.path_overrides import effective_path_overrides
 
@@ -54,7 +54,13 @@ def create_custom_backend(
     """
     spec = endpoint_spec or get_endpoint_spec(endpoint)
     paths = effective_path_overrides(path_overrides, spec.requests)
-    backend = spec.build_backend(provider, model_id, paths)
+    connection = ProviderConnectionSnapshot(
+        id=getattr(provider, "id", None),
+        provider_id=provider.provider_id,
+        base_url=provider.base_url,
+        api_key=provider.api_key,
+    )
+    backend = spec.build_backend(connection, model_id, paths)
     if isinstance(backend, CustomVideoBackend):
         snapshot = custom_video_snapshot(
             endpoint=endpoint,

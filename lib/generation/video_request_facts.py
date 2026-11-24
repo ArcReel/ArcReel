@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from arcreel_catalog_core import DurationConstraints
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+from lib.backends.providers import is_custom_provider
 from lib.capabilities.kernel import CapabilitySnapshot, FixedDuration, IncompatibleInputsError, RequestConditions
 from lib.config.resolver import (
     DurationExclusionReason,
@@ -404,7 +405,7 @@ def _project_content_mode(project: dict | None) -> str | None:
     return cm if isinstance(cm, str) and cm else None
 
 
-def project_video_capabilities(
+def project_video_capabilities_with_facts(
     snapshot: CapabilitySnapshot,
     project: dict | None,
     *,
@@ -414,7 +415,7 @@ def project_video_capabilities(
     service_tier: str = "default",
     route: VideoRoute | None = None,
     include_planning: bool = False,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], VideoRequestFacts]:
     resolved_route: VideoRoute = route or (
         "reference_video"
         if generation_type == "r2v" or caps_generation_mode(project) == "reference_video"
@@ -453,7 +454,7 @@ def project_video_capabilities(
 
     supported = list(facts.supported_durations)
     fixed = facts.duration_endpoint_fixed
-    return {
+    payload = {
         "provider_id": facts.provider_id,
         "model": facts.model_id,
         "supported_durations": supported,
@@ -466,7 +467,7 @@ def project_video_capabilities(
         "requested_generate_audio": facts.requested_generate_audio,
         "max_reference_audio_count": facts.max_reference_audio_count,
         "reference_audio_per_image": facts.reference_audio_per_image,
-        "source": "custom" if facts.provider_id.startswith("custom-") else "registry",
+        "source": "custom" if is_custom_provider(facts.provider_id) else "registry",
         "duration_endpoint_fixed": fixed,
         "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(fixed),
         "default_duration": _project_default_duration(project),
@@ -477,6 +478,31 @@ def project_video_capabilities(
         "duration_constraints": duration_constraints_payload(facts, include_planning=include_planning),
         "end_frame_unit_durations": end_frame_unit_durations_payload(facts, with_end_frame),
     }
+    return payload, facts
+
+
+def project_video_capabilities(
+    snapshot: CapabilitySnapshot,
+    project: dict | None,
+    *,
+    generation_type: VideoGenerationType,
+    requested_audio: bool,
+    resolution_override: ResolutionOverride | None = None,
+    service_tier: str = "default",
+    route: VideoRoute | None = None,
+    include_planning: bool = False,
+) -> dict[str, Any]:
+    payload, _ = project_video_capabilities_with_facts(
+        snapshot,
+        project,
+        generation_type=generation_type,
+        requested_audio=requested_audio,
+        resolution_override=resolution_override,
+        service_tier=service_tier,
+        route=route,
+        include_planning=include_planning,
+    )
+    return payload
 
 
 def _request_durations(

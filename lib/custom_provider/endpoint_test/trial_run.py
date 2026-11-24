@@ -47,10 +47,14 @@ from lib.backends.image_backends.base import (
 from lib.backends.image_capabilities import gate_image_request
 from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
-from lib.backends.video_capabilities import projected_video_capabilities
-from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
+from lib.backends.video_frame_slots import (
+    resolve_first_frame_aspect_ratio,
+    resolve_video_capabilities,
+    snapshot_request_capabilities,
+    video_request_conditions,
+)
 from lib.billing.ledger import Ledger
-from lib.capabilities.kernel import CapabilitySnapshot, IncompatibleInputsError, RequestConditions
+from lib.capabilities.kernel import CapabilitySnapshot
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
@@ -421,27 +425,14 @@ class TrialRunManager:
             backend = await target.build_backend()
             is_video = target.media_type == "video"
             if target.snapshot is not None:
-                inputs = frozenset(
-                    name
-                    for name, present in (
-                        ("first_frame", _single(assets.get("start_image")) is not None),
-                        ("last_frame", _single(assets.get("end_image")) is not None),
-                        ("reference_images", assets.get("reference_images")),
-                        ("reference_audio", assets.get("reference_audio_files")),
-                    )
-                    if present
+                conditions = video_request_conditions(
+                    resolution=parameters.resolution,
+                    has_first_frame=_single(assets.get("start_image")) is not None,
+                    has_last_frame=_single(assets.get("end_image")) is not None,
+                    has_reference_images=bool(assets.get("reference_images")),
+                    has_reference_audio=bool(assets.get("reference_audio_files")),
                 )
-                conditions = RequestConditions(
-                    "r2v" if assets.get("reference_images") else "i2v",
-                    parameters.resolution,
-                    inputs=inputs,
-                )
-                try:
-                    video_caps = projected_video_capabilities(target.snapshot.for_request(conditions))
-                except IncompatibleInputsError as exc:
-                    raise VideoCapabilityError(
-                        "video_reference_images_with_frames_unsupported", model=target.model
-                    ) from exc
+                video_caps = snapshot_request_capabilities(target.snapshot, conditions, model=target.model)
             else:
                 video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             if target.gate_capabilities:

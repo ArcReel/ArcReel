@@ -12,7 +12,7 @@ fingerprint 或可执行请求快照；worker 开始处理时必须重新投影�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -258,10 +258,15 @@ ReferenceAssetLinkCheck = Callable[
 ]
 
 
-def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
+def configured_reference_request_facts(
+    project: dict,
+    resolver: ConfigResolver,
+    *,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFactsResult] | None = None,
+) -> ReferenceRequestFactsLookup:
     """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
 
-    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = {}
+    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = dict(initial_facts) if initial_facts else {}
 
     async def lookup(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
         result = evaluated.get(generation_type)

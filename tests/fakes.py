@@ -12,7 +12,7 @@ import json
 import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -704,6 +704,11 @@ class FakeConfigResolver:
         self.generate_audio_calls: list[dict[str, Any] | None] = []
         self.generate_audio_project_names: list[str | None] = []
         self.reference_limits_calls: list[str | None] = []
+
+    @asynccontextmanager
+    async def session(self, *, snapshot_settings: bool = False):
+        del snapshot_settings
+        yield self
 
     def caps_for(self, generation_type: str | None = None) -> dict[str, Any]:
         """该桶的能力 dict（与生产返回同形），供用例直接对照期望。"""

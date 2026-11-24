@@ -162,31 +162,26 @@ def set_video_request_facts(
     from server.services.tasks import video_caps
 
     def configure(facts: VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]) -> None:
-        if isinstance(facts, Mapping):
-            by_bucket = dict(facts)
+        by_bucket = dict(facts) if isinstance(facts, Mapping) else None
 
-            async def evaluate(_project, *, generation_type, **_kwargs):
+        def _pick(generation_type: str) -> VideoRequestFactsResult:
+            if by_bucket is not None:
                 return by_bucket[generation_type]
+            assert not isinstance(facts, Mapping)
+            return facts
 
-            async def evaluate_pair(_project, *, generation_type, include_end_frame=False, **_kwargs):
-                result = by_bucket[generation_type]
-                return result, result if include_end_frame else None
+        async def evaluate(_project, *, generation_type="i2v", **_kwargs):
+            return _pick(generation_type)
 
-            def sync_evaluate(_snapshot, _project, *, generation_type, **_kwargs):
-                return by_bucket[generation_type]
+        async def evaluate_pair(_project, *, generation_type="i2v", include_end_frame=False, **_kwargs):
+            result = _pick(generation_type)
+            return result, result if include_end_frame else None
 
-            fake = AsyncMock(side_effect=evaluate)
-            fake_pair = AsyncMock(side_effect=evaluate_pair)
-        else:
-            fake = AsyncMock(return_value=facts)
+        def sync_evaluate(_snapshot, _project, *, generation_type="i2v", **_kwargs):
+            return _pick(generation_type)
 
-            async def evaluate_pair(_project, *, include_end_frame=False, **_kwargs):
-                return facts, facts if include_end_frame else None
-
-            def sync_evaluate(_snapshot, _project, **_kwargs):
-                return facts
-
-            fake_pair = AsyncMock(side_effect=evaluate_pair)
+        fake = AsyncMock(side_effect=evaluate) if by_bucket is not None else AsyncMock(return_value=facts)
+        fake_pair = AsyncMock(side_effect=evaluate_pair)
         for consumer in (video_resolution, script_generator, request_projection, video_caps):
             monkeypatch.setattr(consumer, "read_video_request_facts", fake)
         monkeypatch.setattr(cost_estimation, "read_video_facts_pair", fake_pair)

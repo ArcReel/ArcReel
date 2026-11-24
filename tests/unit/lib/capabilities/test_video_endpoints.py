@@ -293,6 +293,8 @@ def test_grok_1080p_read_side_projection_matches_execution_restrictions():
 
 
 def test_three_state_resolution_override_is_pure_sync_with_model_default_on_snapshot():
+    from dataclasses import replace
+
     from lib.custom_provider.capabilities import custom_video_snapshot
     from lib.generation.video_request_facts import ResolutionOverride, snapshot_video_request_facts
 
@@ -301,7 +303,7 @@ def test_three_state_resolution_override_is_pure_sync_with_model_default_on_snap
         model_id="veo-3.1-generate-001",
         overrides={"durations": [4, 6, 8], "duration_constraints": {"by_resolution": {"1080p": [8]}}},
     )
-    snapshot = type(snapshot)(**{**snapshot.__dict__, "default_resolution": "720p"})
+    snapshot = replace(snapshot, default_resolution="720p")
     project = {"model_settings": {f"{snapshot.provider_id}/{snapshot.model_id}": {"resolution": "1080p"}}}
 
     saved = snapshot_video_request_facts(
@@ -335,12 +337,13 @@ def test_three_state_resolution_override_is_pure_sync_with_model_default_on_snap
 def test_custom_video_backend_tier_capabilities_respect_bucket_and_inputs():
     from unittest.mock import MagicMock
 
+    from arcreel_market_core.video_backend_contract import VideoBackend
     from lib.custom_provider.backends import CustomVideoBackend
     from lib.custom_provider.capabilities import custom_video_snapshot
 
     kling_snapshot = custom_video_snapshot(endpoint="kling-video-audio", model_id="kling-v3-omni")
     kling_backend = CustomVideoBackend(
-        provider_id="custom-1", delegate=MagicMock(), model="kling-v3-omni", snapshot=kling_snapshot
+        provider_id="custom-1", delegate=MagicMock(spec=VideoBackend), model="kling-v3-omni", snapshot=kling_snapshot
     )
     i2v_caps = kling_backend.video_capabilities_for_tier("default", "720p", bucket="i2v")
     r2v_caps = kling_backend.video_capabilities_for_tier("default", "720p", bucket="r2v")
@@ -351,7 +354,10 @@ def test_custom_video_backend_tier_capabilities_respect_bucket_and_inputs():
 
     grok_snapshot = builtin_video_snapshot("grok", "grok-imagine-video", overrides={"last_frame": True}, official=False)
     grok_backend = CustomVideoBackend(
-        provider_id="custom-1", delegate=MagicMock(), model="grok-imagine-video", snapshot=grok_snapshot
+        provider_id="custom-1",
+        delegate=MagicMock(spec=VideoBackend),
+        model="grok-imagine-video",
+        snapshot=grok_snapshot,
     )
     grok_720p = grok_backend.video_capabilities_for_tier(
         "default", "720p", bucket="i2v", inputs=frozenset({"last_frame"})

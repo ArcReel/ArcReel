@@ -21,6 +21,13 @@ PROVIDER_KLING = "kling"
 PROVIDER_AGNES = "agnes"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
+CUSTOM_PROVIDER_PREFIX = "custom-"
+
+
+def is_custom_provider(provider_id: str) -> bool:
+    """判断是否为自定义供应商的 provider_id。"""
+    return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
+
 
 CallType = Literal["image", "video", "text", "audio"]
 CALL_TYPE_IMAGE: CallType = "image"

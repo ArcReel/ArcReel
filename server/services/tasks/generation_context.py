@@ -36,6 +36,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     VideoRoute,
+    route_failure_code,
     snapshot_video_request_facts,
 )
 from lib.project.project_manager import get_project_manager
@@ -447,9 +448,8 @@ async def resolve_generation_context(
                 try:
                     requested_audio = await r.video_generate_audio_for_project(project)
                 except SQLAlchemyError:
-                    prefix = "video" if video.route == "storyboard" else "reference"
                     request_facts = VideoRequestFactsFailure(
-                        f"{prefix}_capability_unavailable",
+                        route_failure_code(video.route, "unavailable"),
                         (
                             ("capability", generation_type),
                             ("provider", snapshot.provider_id),

@@ -625,7 +625,7 @@ class ImageBucketCapabilityError(ValueError):
         )
 
 
-def _video_bucket_capability_missing(
+def video_bucket_capability_missing(
     generation_type: VideoGenerationType, provider_id: str, model_id: str
 ) -> VideoBucketCapabilityError:
     return VideoBucketCapabilityError(
@@ -637,7 +637,7 @@ def _video_bucket_capability_missing(
     )
 
 
-def _video_bucket_reference_unavailable(
+def video_bucket_reference_unavailable(
     generation_type: VideoGenerationType, provider_id: str, model_id: str
 ) -> VideoBucketCapabilityError:
     return VideoBucketCapabilityError(
@@ -1281,7 +1281,7 @@ class ConfigResolver:
         try:
             db_pid = parse_provider_id(provider_id)
         except ValueError as exc:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
+            raise video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
         model = await requested_model(
             session,
             provider_id=provider_id,
@@ -1291,7 +1291,7 @@ class ConfigResolver:
             submitted_job=submitted_job,
         )
         if model is None:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
+            raise video_bucket_reference_unavailable(generation_type, provider_id, model_id)
         return model
 
     async def _ensure_video_bucket_capability(
@@ -1326,12 +1326,12 @@ class ConfigResolver:
                     entry_binding=model.entry_binding,
                 )
             except ValueError as exc:
-                raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
+                raise video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
         else:
             try:
                 caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
-                raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
+                raise video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
         satisfied = video_capability_satisfied(
             generation_type=generation_type,
             first_frame=caps.first_frame,
@@ -1339,7 +1339,7 @@ class ConfigResolver:
             text_to_video=caps.text_to_video,
         )
         if not satisfied:
-            raise _video_bucket_capability_missing(generation_type, provider_id, model_id)
+            raise video_bucket_capability_missing(generation_type, provider_id, model_id)
 
     async def _resolve_effective_video_provider_model(
         self,

@@ -1023,8 +1023,10 @@ class MediaGenerator:
             plan_frame_slots,
             resolve_first_frame_aspect_ratio,
             resolve_video_capabilities,
+            snapshot_request_capabilities,
+            video_request_conditions,
         )
-        from lib.capabilities.kernel import IncompatibleInputsError, RequestConditions
+        from lib.capabilities.kernel import IncompatibleInputsError
         from lib.custom_provider import is_custom_provider
 
         service_tier = version_metadata.get("service_tier", "default")
@@ -1033,38 +1035,34 @@ class MediaGenerator:
             end_image=end_image,
             reference_images=reference_images,
         )
-        inputs = frozenset(
-            name
-            for name, present in (
-                ("first_frame", slot_plan.start_index is not None),
-                ("last_frame", end_image),
-                ("reference_images", reference_images),
-                ("reference_audio", reference_audio_files),
-            )
-            if present
+        conditions = video_request_conditions(
+            resolution=resolution,
+            service_tier=service_tier,
+            has_first_frame=slot_plan.start_index is not None,
+            has_last_frame=bool(end_image),
+            has_reference_images=bool(reference_images),
+            has_reference_audio=bool(reference_audio_files),
         )
-        conditions = RequestConditions("r2v" if reference_images else "i2v", resolution, service_tier, inputs)
-        try:
-            if self._video_snapshot is not None:
-                from lib.backends.video_capabilities import projected_video_capabilities
+        if self._video_snapshot is not None:
+            video_caps = snapshot_request_capabilities(self._video_snapshot, conditions, model=model_name)
+        else:
+            try:
+                if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
+                    video_caps = builtin_request_video_capabilities(
+                        self._video_backend, self._video_provider_id, model_name, conditions
+                    )
+                else:
+                    video_caps = resolve_video_capabilities(
+                        self._video_backend,
+                        service_tier=service_tier,
+                        resolution=resolution,
+                        bucket=conditions.bucket,
+                        inputs=conditions.inputs,
+                    )
+            except IncompatibleInputsError as exc:
+                from arcreel_market_core.video_backend_contract import VideoCapabilityError
 
-                video_caps = projected_video_capabilities(self._video_snapshot.for_request(conditions))
-            elif self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
-                video_caps = builtin_request_video_capabilities(
-                    self._video_backend, self._video_provider_id, model_name, conditions
-                )
-            else:
-                video_caps = resolve_video_capabilities(
-                    self._video_backend,
-                    service_tier=service_tier,
-                    resolution=resolution,
-                    bucket=conditions.bucket,
-                    inputs=conditions.inputs,
-                )
-        except IncompatibleInputsError as exc:
-            from arcreel_market_core.video_backend_contract import VideoCapabilityError
-
-            raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=model_name) from exc
+                raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=model_name) from exc
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None

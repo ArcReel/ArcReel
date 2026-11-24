@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.backends.backend_assembly import assemble_backend
-from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_builtin_config, output_limit_facts
+from lib.backends.backend_assembly.assembler import OutputLimitFacts, load_builtin_config, output_limit_facts
 from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.catalog import query as catalog
@@ -42,7 +42,7 @@ class TestLoadBuiltinConfig:
     async def test_credential_overlay_enters_envelope(self, db_factory):
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret", base_url="https://relay.test/api/v3")
         resolver = ConfigResolver(db_factory)
-        config = await _load_builtin_config(resolver, "ark", rate_limiter=None)
+        config = await load_builtin_config(resolver, "ark", rate_limiter=None)
         assert config.credentials.get("api_key") == "ark-secret"
         assert config.credentials.get("base_url") == "https://relay.test/api/v3"
         assert config.provider_meta is not None
@@ -54,19 +54,19 @@ class TestLoadBuiltinConfig:
 
         await _seed_provider_config(db_factory, "ark", api_key="TEST-config-key")
         resolver = ConfigResolver(db_factory)
-        assert (await _load_builtin_config(resolver, "ark", rate_limiter=None)).credential_id is None
+        assert (await load_builtin_config(resolver, "ark", rate_limiter=None)).credential_id is None
 
         async with db_factory() as session:
             cred = await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
             await session.commit()
-        config = await _load_builtin_config(resolver, "ark", rate_limiter=None)
+        config = await load_builtin_config(resolver, "ark", rate_limiter=None)
         assert config.credentials.get("api_key") == "TEST-ark-key"
         assert config.credential_id == cred.id
 
     async def test_rate_limiter_carried_into_envelope(self, db_factory):
         sentinel = object()
         resolver = ConfigResolver(db_factory)
-        config = await _load_builtin_config(resolver, "grok", rate_limiter=sentinel)
+        config = await load_builtin_config(resolver, "grok", rate_limiter=sentinel)
         assert config.rate_limiter is sentinel
 
 

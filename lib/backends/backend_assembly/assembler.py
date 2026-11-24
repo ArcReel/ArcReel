@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
 
-async def _load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_limiter: Any | None) -> LoadedConfig:
+async def load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_limiter: Any | None) -> LoadedConfig:
     """内置侧 async 装载段：查 DB/config 产出 LoadedConfig 信封。
 
     凭证 overlay 来自 db_config（resolver.provider_config）；registry meta 提供 default_base_url /
@@ -77,7 +77,7 @@ async def assemble_backend(
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
     endpoint = builtin_endpoint or builtin_model_endpoint(provider_id, media_type, model_id)
     spec = PROVIDER_ENDPOINT_SPECS[(provider_id, endpoint)]
-    config = await _load_builtin_config(resolver, provider_id, rate_limiter)
+    config = await load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
     backend = await asyncio.to_thread(spec.build_backend, config, model_id)
