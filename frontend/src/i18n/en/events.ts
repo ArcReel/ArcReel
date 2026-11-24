@@ -24,8 +24,6 @@ export default {
   "label.script_plan": "Script plan for {{episode_name}}",
   "label.draft_normalized_script": "Normalized script for {{episode_name}}",
   "label.draft_segment_splitting": "Segment splitting for {{episode_name}}",
-  "label.draft_script_plan": "Script plan draft for {{episode_name}}",
-  "label.draft_prompt_authoring": "Prompt authoring draft for {{episode_name}}",
 
   "entity.project": "projects",
   "entity.character": "characters",

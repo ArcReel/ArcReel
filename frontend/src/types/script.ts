@@ -3,7 +3,6 @@ import type {
   DraftSoftViolation,
   ReferenceScriptPlanDraft,
   ReferenceUnitCapabilityMap,
-  ScriptReviewQuarantine,
   ScriptReviewViolation,
 } from "./reference-video";
 
@@ -182,7 +181,6 @@ export interface ScriptReviewState {
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
   blocking_issues?: ScriptReviewViolation[];
-  quarantine?: ScriptReviewQuarantine | null;
   soft_violations?: DraftSoftViolation[];
   supported_durations: number[] | null;
   duration_tiers: {
@@ -353,8 +351,6 @@ export interface AdScriptTaskResult {
   message?: string;
   new_assets?: { type: "character" | "scene" | "prop"; name: string }[];
 }
-
-export type DraftRepairResponse = AuthorPromptsResponse;
 
 export interface RenderedPromptPreview {
   unavailable_code?: string;

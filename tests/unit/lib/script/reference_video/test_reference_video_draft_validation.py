@@ -4,7 +4,7 @@ import unicodedata
 
 import pytest
 
-from lib.script.draft_quarantine import violation_entries
+from lib.script.draft_violation import violation_entries
 from lib.script.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,

@@ -34,7 +34,6 @@ export const ENQUEUE_METHODS = [
   "planScript",
   "regenerateGrid",
   "renderFinalCut",
-  "repairEpisodeDraft",
   "startEpisodeReplan",
   "submitAssetSheetBatch",
   "submitStoryboardBatch",

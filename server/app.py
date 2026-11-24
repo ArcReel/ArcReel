@@ -87,7 +87,6 @@ from server.routers import (
     derivative_uploads,
     edit_timelines,
     end_frames,
-    episode_drafts,
     episode_management,
     episode_planning,
     episodes_view,
@@ -699,12 +698,6 @@ app.include_router(
 )
 app.include_router(
     script_review.router,
-    prefix="/api/v1",
-    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
-    tags=["内容确认"],
-)
-app.include_router(
-    episode_drafts.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["内容确认"],

@@ -25,7 +25,7 @@ from lib.edit_timeline import (
 from lib.edit_timeline.model import TIMELINE_NAME_MAX_LENGTH
 from lib.edit_timeline.operations import TimelineOperation
 from lib.edit_timeline.service import REVISION_SUMMARY_MAX_LENGTH
-from server.draft_workflow import PositiveEpisode
+from server.episode_params import PositiveEpisode
 from server.media_tools.context import tool_error, tool_problem
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest
 

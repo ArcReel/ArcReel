@@ -19,13 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id
-from lib.episode.episode_paths import (
-    AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
-    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
-)
+from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_trash import TRASH_DIRNAME
 
@@ -714,7 +708,6 @@ class AgentAccessPolicy:
         return False
 
     _PROTECTED_SCRIPT_PLAN_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
-    _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
     def _is_protected_edit_timeline(cls, target: Path, bases: list[Path]) -> bool:
@@ -869,26 +862,9 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         ),
         sandbox_subpaths=("drafts",),
     ),
-    ProtectedWriteRule(
-        name="revisioned_draft",
-        matches=lambda target, bases: AgentAccessPolicy._matches_episode_draft(
-            target, bases, filenames=AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM
-        ),
-        deny_message="访问被拒绝：历史草稿只能用 mcp__arcreel__patch_draft 提交修改。",
-        sandbox_subpaths=(),
-    ),
 )
 
 AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM = frozenset(
     AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
     for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
-)
-AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM = frozenset(
-    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
-    for name in (
-        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
-    )
 )

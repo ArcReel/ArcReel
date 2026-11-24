@@ -1568,24 +1568,6 @@ class TestLoadNarrationScriptPlan:
         assert segments[0]["duration_seconds"] == 6
         assert segments[0]["segment_break"] is True
 
-    def test_quarantined_script_plan_blocks_prompt_authoring_even_with_a_valid_formal_file(self, tmp_path):
-        """草稿在场时直连调用也拒：正式文件此刻仍是上一版，拿它跑 prompt_authoring 等于把一份待处置的
-        产出静默换成旧内容。工具入口已按同一判据阻塞，这里是脚本 / 测试等直连路径的兜底。"""
-        from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, write_quarantine
-
-        sg = _bare_generator(tmp_path)
-        self._write(sg, 1, {"episode": 1, "segments": [_script_plan_seg("E1S01", "第一段原文。")]})
-        write_quarantine(
-            sg.project_path,
-            1,
-            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-            content={"segments": [_script_plan_seg("E1S01", "改到一半的原文。")]},
-            violations=[],
-        )
-
-        with pytest.raises(ValueError, match="草稿待处置"):
-            sg._load_narration_script_plan(1, [4, 6, 8])
-
     def test_missing_json_without_legacy_md_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         with pytest.raises(FileNotFoundError, match=re.escape("script_plan_segments.json")):

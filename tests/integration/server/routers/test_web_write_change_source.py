@@ -32,7 +32,7 @@ from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionM
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.edit_timeline.operations import SetReason
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
-from lib.project.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project.project_change_hints import emit_project_change_batch
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import (
     MigrationAdjustment,
@@ -41,11 +41,9 @@ from lib.project.project_migration_report import (
     write_migration_report,
 )
 from lib.project.project_trash import list_records
-from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_path, write_quarantine
 from lib.workflow.workflow_state import WorkflowStateService
-from server.draft_workflow import DraftContext, DraftWorkflow
 from server.error_handlers import register_error_handlers
-from server.routers import edit_timelines, episode_drafts, files, project_migration, reference_videos
+from server.routers import edit_timelines, files, project_migration, reference_videos
 from server.routers import project_events as project_events_router
 from server.services.project.project_events import ProjectEventService, read_project_state
 from tests.auth_deps import override_auth
@@ -161,7 +159,7 @@ def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManage
         register_error_handlers(app)
         override_auth(app)
         app.dependency_overrides.update(overrides or {})
-        for module in (files, episode_drafts, reference_videos, edit_timelines, project_migration):
+        for module in (files, reference_videos, edit_timelines, project_migration):
             app.include_router(module.router)
 
         reads_open = threading.Event()
@@ -214,23 +212,6 @@ async def env(tmp_path: Path, open_env) -> AsyncIterator[_Env]:
 
     async with open_env(pm) as opened:
         yield opened
-
-
-def _write_narration_draft(project_path: Path, segment: dict) -> None:
-    write_quarantine(
-        project_path,
-        1,
-        QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-        content={"segments": [segment]},
-        violations=[],
-        meta={"source": None},
-    )
-
-
-async def _draft_revision(env: _Env) -> str:
-    response = await env.client.get(f"/projects/demo/episodes/1/drafts/{_DOC_TYPE}")
-    assert response.status_code == 200
-    return response.json()["revision"]
 
 
 async def test_creating_an_unregistered_source_file_broadcasts_as_webui(env: _Env) -> None:
@@ -299,63 +280,6 @@ async def test_saving_a_reference_plan_broadcasts_as_webui(env: _Env) -> None:
 
     batches = await env.batches_until(_is("draft", "created", "episode_1_script_plan"))
 
-    assert _sources(batches) == {"webui"}
-
-
-async def test_saving_an_episode_draft_that_stays_a_draft_broadcasts_as_webui(env: _Env) -> None:
-    _write_narration_draft(env.project_path, {**_SEGMENT, "characters_in_segment": ["王五"]})
-    await env.batches_until(_is("draft", "created"))
-    revision = await _draft_revision(env)
-
-    with env.reads_held():
-        response = await env.client.put(
-            f"/projects/demo/episodes/1/drafts/{_DOC_TYPE}",
-            json={
-                "content": {"segments": [{**_SEGMENT, "characters_in_segment": ["李四"]}]},
-                "base_revision": revision,
-            },
-        )
-    assert response.status_code == 200
-    assert response.json()["adopted"] is False
-
-    batches = await env.batches_until(_is("draft", "updated", "episode_1_script_plan"))
-
-    assert _sources(batches) == {"webui"}
-
-
-async def test_saving_an_episode_draft_that_is_adopted_broadcasts_as_webui(env: _Env) -> None:
-    _write_narration_draft(env.project_path, {**_SEGMENT, "characters_in_segment": ["王五"]})
-    await env.batches_until(_is("draft", "created"))
-    revision = await _draft_revision(env)
-
-    with env.reads_held():
-        response = await env.client.put(
-            f"/projects/demo/episodes/1/drafts/{_DOC_TYPE}",
-            json={"content": {"segments": [{**_SEGMENT, "duration_seconds": 6}]}, "base_revision": revision},
-        )
-    assert response.status_code == 200
-    assert response.json()["adopted"] is True
-
-    batches = await env.batches_until(_is("draft", "deleted", "episode_1_script_plan"))
-
-    assert not quarantine_path(env.project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN).exists()
-    assert _sources(batches) == {"webui"}
-
-
-async def test_discarding_an_episode_draft_broadcasts_as_webui(env: _Env) -> None:
-    _write_narration_draft(env.project_path, {**_SEGMENT, "characters_in_segment": ["王五"]})
-    await env.batches_until(_is("draft", "created"))
-    revision = await _draft_revision(env)
-
-    with env.reads_held():
-        response = await env.client.delete(
-            f"/projects/demo/episodes/1/drafts/{_DOC_TYPE}", params={"base_revision": revision}
-        )
-    assert response.status_code == 200
-
-    batches = await env.batches_until(_is("draft", "deleted", "episode_1_script_plan"))
-
-    assert ("trash", "updated", "trash") in _changes(batches)
     assert _sources(batches) == {"webui"}
 
 
@@ -546,24 +470,3 @@ async def test_acknowledging_a_migration_report_broadcasts_nothing_as_an_outside
     assert response.json()["acknowledged"] is True
 
     assert await env.batches_after_barrier() == []
-
-
-@pytest.mark.parametrize("source", ["filesystem", "worker"])
-async def test_agent_draft_writes_keep_their_original_source(env: _Env, source) -> None:
-    """Agent 或任务的草稿写入、改写与丢弃保留原来源，前端照常提醒创作者。"""
-    workflow = DraftWorkflow(DraftContext(project_name="demo", data_root=env.pm.data_root, pm=env.pm))
-
-    with project_change_source(source):
-        with env.reads_held():
-            opened = await workflow.open(1, _DOC_TYPE)
-        created = await env.batches_until(_is("draft", "created"))
-        with env.reads_held():
-            await workflow.patch(1, _DOC_TYPE, {"segments": [{**_SEGMENT, "duration_seconds": 6}]}, opened["revision"])
-        updated = await env.batches_until(_is("draft", "updated"))
-        reread = await workflow.open(1, _DOC_TYPE)
-        with env.reads_held():
-            await workflow.discard(1, _DOC_TYPE, reread["revision"])
-        discarded = await env.batches_until(_is("draft", "deleted"))
-
-    assert ("trash", "updated", "trash") in _changes(discarded)
-    assert _sources(created) == _sources(updated) == _sources(discarded) == {source}

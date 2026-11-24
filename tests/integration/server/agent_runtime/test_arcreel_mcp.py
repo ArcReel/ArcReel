@@ -108,6 +108,10 @@ def test_retired_tool_names_are_not_registered() -> None:
         "split_segment",
         "open_script_plan_for_edit",
         "validate_and_promote_draft",
+        "open_draft",
+        "patch_draft",
+        "promote_draft",
+        "discard_draft",
         "get_episode_script_revision",
     }.isdisjoint(ARCREEL_MCP_TOOL_IDS)
 

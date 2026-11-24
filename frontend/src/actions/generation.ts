@@ -7,7 +7,6 @@ import type {
   AssetSheetBatchScope,
   AssetSheetBatchSubmitted,
   AuthorPromptsRequest,
-  DraftDocType,
   PlanningGap,
   PlanScriptRequest,
   GenerateAdScriptRequest,
@@ -539,27 +538,5 @@ export async function enqueueEpisodeReplanContinue(projectName: string, candidat
   const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, null);
-  return { taskIds, deduped };
-}
-
-export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
-  return `episode-${episode}-${docType}`;
-}
-
-export async function enqueueDraftRepair(
-  projectName: string,
-  episode: number,
-  docType: DraftDocType,
-  baseRevision: string,
-  instructions: string | null,
-): Promise<EnqueueResult> {
-  const res = await submit(
-    [markResource(projectName, "text_draft_repair", draftRepairResourceId(episode, docType), "text_draft_repair")],
-    () => API.repairEpisodeDraft(projectName, episode, docType, baseRevision, instructions),
-    (response) => memberTaskIds(response.batch),
-  );
-  const taskIds = memberTaskIds(res.batch);
-  const deduped = res.batch.members.some((member) => member.deduped === true);
-  notifyEnqueued(deduped, i18n.t("dashboard:draft_repair_queued"), "info");
   return { taskIds, deduped };
 }

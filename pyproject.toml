@@ -229,7 +229,6 @@ name = "路线中立层不依赖参考生视频子包"
 type = "forbidden"
 source_modules = [
     "lib.script.draft_violation",
-    "lib.script.draft_quarantine",
     "lib.episode.episode_paths",
     "lib.references.reference_catalog",
 ]

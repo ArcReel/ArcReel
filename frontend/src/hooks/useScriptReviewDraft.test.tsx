@@ -15,7 +15,6 @@ function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSt
     confirmed_at: null,
     blocking_issues: [],
     soft_violations: [],
-    quarantine: null,
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,

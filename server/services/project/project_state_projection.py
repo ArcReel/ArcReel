@@ -25,7 +25,6 @@ from lib.infra.content_digest import canonical_json_digest
 from lib.project.asset_derivatives import DERIVATIVE_ID_SEPARATOR, derivative_artifact_id, derivative_table
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec
 from lib.project.project_change_hints import build_change_label
-from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING, QUARANTINE_KIND_TO_DOC_TYPE
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
@@ -49,20 +48,11 @@ _NON_SETTINGS_KEYS = frozenset(
 
 @dataclass(frozen=True)
 class ProjectState:
-    """项目当前状态：``project.json``、``scripts/`` 下每份可解析剧本（文件名 → 剧本）与在场草稿。
-
-    ``drafts`` 以 ``draft_state_key`` 为键、草稿文件内容摘要为值。
-    """
+    """项目当前状态：``project.json``、``scripts/`` 下每份可解析剧本（文件名 → 剧本）与正式脚本规划。"""
 
     project: Mapping[str, Any]
     scripts: Mapping[str, Mapping[str, Any]]
-    drafts: Mapping[str, str] = dataclass_field(default_factory=dict)
     script_plans: Mapping[str, str] = dataclass_field(default_factory=dict)
-
-
-def draft_state_key(episode: int, kind: str) -> str:
-    """``ProjectState.drafts`` 的键：集号与草稿来源。"""
-    return f"{episode}:{kind}"
 
 
 def script_plan_state_key(episode: int, filename: str) -> str:
@@ -87,7 +77,6 @@ def build_snapshot(state: ProjectState) -> ProjectSnapshot:
         "overview": project.get("overview"),
         "episodes": _episode_entries(project),
         "scripts": {name: _script_projection(script) for name, script in sorted(state.scripts.items())},
-        "drafts": dict(sorted(state.drafts.items())),
         "script_plans": dict(sorted(state.script_plans.items())),
     }
     return ProjectSnapshot(data=data, fingerprint=canonical_json_digest(data))
@@ -125,7 +114,6 @@ def diff_snapshots(previous: ProjectSnapshot, current: ProjectSnapshot) -> list[
             _diff_episodes(before["episodes"], after["episodes"]) + _diff_scripts(before["scripts"], after["scripts"])
         )
     )
-    changes.extend(_diff_drafts(before["drafts"], after["drafts"]))
     changes.extend(_diff_script_plans(before["script_plans"], after["script_plans"]))
     return changes
 
@@ -316,37 +304,6 @@ def _item_change(
         script_file=script_file,
         episode=episode,
     )
-
-
-def _diff_drafts(previous: Mapping[str, str], current: Mapping[str, str]) -> list[dict[str, Any]]:
-    """草稿出现、内容变化、消失；只有出现才算重要（需要创作者处理），其余只驱动面板刷新。"""
-    changes = [_draft_change(key, "created", important=True) for key in sorted(current.keys() - previous.keys())]
-    changes.extend(_draft_change(key, "deleted", important=False) for key in sorted(previous.keys() - current.keys()))
-    changes.extend(
-        _draft_change(key, "updated", important=False)
-        for key in sorted(previous.keys() & current.keys())
-        if previous[key] != current[key]
-    )
-    return changes
-
-
-def _draft_change(key: str, action: str, *, important: bool) -> dict[str, Any]:
-    """草稿事件：脚本规划三种来源共用 ``episode_N_script_plan`` 身份，提示词编写为 ``episode_N_prompt_authoring``。"""
-    raw_episode, _, kind = key.partition(":")
-    episode = int(raw_episode)
-    stage = "prompt_authoring" if kind == QUARANTINE_KIND_PROMPT_AUTHORING else "script_plan"
-    change = _change(
-        "draft",
-        action,
-        f"episode_{episode}_{stage}",
-        f"draft_{stage}",
-        {"episode": episode},
-        focus={"pane": "episode", "episode": episode},
-        important=important,
-        episode=episode,
-    )
-    change["doc_type"] = QUARANTINE_KIND_TO_DOC_TYPE[kind]
-    return change
 
 
 def _diff_script_plans(previous: Mapping[str, str], current: Mapping[str, str]) -> list[dict[str, Any]]:

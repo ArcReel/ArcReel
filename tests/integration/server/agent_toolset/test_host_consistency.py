@@ -74,9 +74,6 @@ from server.agent_toolset.script_authoring import (
     CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
     GENERATE_SCRIPT_PLAN,
-    OPEN_DRAFT,
-    PATCH_DRAFT,
-    PROMOTE_DRAFT,
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT, PATCH_SCRIPT_PLAN
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
@@ -130,15 +127,6 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_episode_script": {"episode_id": 1, "dry_run": True},
     "generate_script_plan": {"episode_id": 1, "dry_run": True},
     "confirm_script_review": {"episode_id": 1},
-    "open_draft": {"episode_id": 1, "doc_type": "drama_script_plan"},
-    "patch_draft": {
-        "episode_id": 1,
-        "doc_type": "drama_script_plan",
-        "content": {"title": "第一集", "scenes": []},
-        "base_revision": _ABSENT_REVISION,
-    },
-    "promote_draft": {"episode_id": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
-    "discard_draft": {"episode_id": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
     "patch_script_plan": {
         "episode_id": 1,
         "base_revision": "0" * 64,
@@ -593,9 +581,6 @@ _PROBLEM_ON_SAMPLE = frozenset(
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
         CONFIRM_SCRIPT_REVIEW.name,
-        OPEN_DRAFT.name,
-        PATCH_DRAFT.name,
-        PROMOTE_DRAFT.name,
         PATCH_EPISODE_SCRIPT.name,
         PATCH_SCRIPT_PLAN.name,
         SPLIT_GRIDS.name,

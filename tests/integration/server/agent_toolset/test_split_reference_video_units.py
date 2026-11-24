@@ -15,7 +15,6 @@ from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
     ToolHarness,
-    derived_reference_names,
     run_declared_tool,
     run_rv_split,
     rv_generator_returning,
@@ -24,6 +23,15 @@ from tests.integration.server.agent_tool_support import (
     rv_unit,
     said,
 )
+
+
+def derived_reference_names(fake_ctx: ToolHarness, text: str) -> list[str]:
+    """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
+    from lib.script.reference_video.text_parser import derive_references_from_text
+
+    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    references, _missing = derive_references_from_text(text, project)
+    return [reference.name for reference in references]
 
 
 def rv_character_sheet(fake_ctx: ToolHarness, name: str, *, claimed: bool) -> None:

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type ScriptPlanReplacement = "formal_script" | "confirmed_plan" | "pending_plan" | "draft";
+export type ScriptPlanReplacement = "formal_script" | "confirmed_plan" | "pending_plan";
 
 export interface ScriptPlanOpenRequest {
   projectName: string;

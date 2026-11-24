@@ -158,12 +158,19 @@ def test_storage_roles_protect_case_aliases(trash_client, trash_project_dir, sto
 
 
 def test_workflow_draft_cannot_be_deleted_from_file_view(trash_client, trash_project_dir):
-    from lib.episode.episode_paths import episode_drafts_dir
-    from lib.script.draft_quarantine import QUARANTINE_FILENAMES
+    from lib.episode.episode_paths import (
+        REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+        SCRIPT_PLAN_FILENAMES,
+        episode_drafts_dir,
+    )
 
     directory = episode_drafts_dir(trash_project_dir, 1)
     directory.mkdir(parents=True)
-    for filename in QUARANTINE_FILENAMES:
+    for filename in (
+        SCRIPT_PLAN_FILENAMES["drama"],
+        SCRIPT_PLAN_FILENAMES["narration"],
+        REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    ):
         draft = directory / filename
         draft.write_text("{}", encoding="utf-8")
         response = trash_client.delete(FILES, params={"path": draft.relative_to(trash_project_dir).as_posix()})

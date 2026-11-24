@@ -1367,8 +1367,6 @@ async def start_episode_blank_script(name: str, episode: int):
     except BlankScriptError as exc:
         if exc.code == "episode_not_found":
             raise NotFoundError("episode_not_found", episode=episode) from exc
-        if exc.code == "draft_agent_owned":
-            raise ConflictError("draft_agent_owned") from exc
         raise ConflictError("blank_script_formal_exists").with_diagnostic(str(exc)) from exc
     return {"success": True, "script_file": script_file}
 

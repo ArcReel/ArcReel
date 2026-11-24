@@ -25,6 +25,11 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
+from lib.episode.episode_paths import (
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
+    episode_drafts_dir,
+)
 from lib.episode.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
@@ -39,7 +44,6 @@ from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationSelectionMode,
-    decode_generation_problem,
     problem_from_task_failure,
 )
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
@@ -50,16 +54,6 @@ from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError, record_migration_failure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.script.draft_quarantine import (
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    draft_revision,
-    quarantine_path,
-    read_quarantine,
-    write_quarantine,
-)
-from server import draft_repair as draft_repair_module
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
@@ -67,14 +61,12 @@ from server.tool_runtime import (
     GenerateScriptPlanRequest,
     PlanEpisodesRequest,
     ProjectScope,
-    RepairDraftRequest,
     Services,
     ToolRequest,
     execute_queued_text_task,
     generate_episode_script,
     generate_script_plan,
     plan_episodes,
-    repair_draft,
 )
 from tests.factories import register_project_sources
 from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_backend_sessions, use_text_generator
@@ -336,295 +328,7 @@ async def test_prompt_authoring_zero_writes_persist_terminal_state(monkeypatch, 
         assert task["status"] == "succeeded"
         assert task["result"]["no_pending_authoring"] is True
         assert not model.requests
-    assert read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING) is None
     assert script_path.read_bytes() == before
-
-
-def _narration_segment(**overrides: Any) -> dict[str, Any]:
-    segment: dict[str, Any] = {
-        "segment_id": "E1S01",
-        "novel_text": "张三走向村口。",
-        "duration_seconds": 4,
-        "segment_break": False,
-        "characters_in_segment": ["张三"],
-        "scenes": [],
-        "props": [],
-    }
-    segment.update(overrides)
-    return segment
-
-
-def _narration_project_with_draft(segments: list[dict[str, Any]]) -> tuple[ProjectManager, str]:
-    """当前数据根下的旁白/解说项目，第 1 集留着一份待修复的脚本规划草稿；返回项目管理器与草稿 revision。
-
-    worker 执行未登记服务的任务时按当前配置解析数据根，项目须建在那里。
-    """
-    projects = ProjectManager(DataRootLayout.current().root)
-    projects.create_project("demo")
-    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
-    projects.add_character("demo", "张三", "村民")
-    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
-    project_path = projects.get_project_path("demo")
-    (project_path / "source").mkdir(exist_ok=True)
-    (project_path / "source" / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
-    write_quarantine(
-        project_path,
-        1,
-        QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-        content={"segments": segments},
-        violations=[],
-        meta={"source": None},
-    )
-    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    return projects, draft_revision(draft)
-
-
-@pytest.mark.usefixtures("video_request_facts")
-@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
-async def test_web_draft_repair_queues_a_text_task_that_adopts_the_repaired_draft(
-    file_db_factory, monkeypatch: pytest.MonkeyPatch, spelling: str
-) -> None:
-    """AI 修复以排队文本任务提交，占用本份草稿的槽；worker 修完照常重判，违约清零即采用。"""
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    if spelling == "bare":
-        revision = revision.removeprefix("sha256-v1:")
-    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
-    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
-    services = Services(
-        projects=projects,
-        workflow_planner=object(),
-        capabilities=ConfigResolver(async_session_factory),
-        queue=queue,
-    )
-    scope = ProjectScope(project_name="demo", data_root=projects.data_root)
-    caller = CallerContext(user_id=DEFAULT_USER_ID, source="webui")
-
-    stale = await repair_draft(
-        ToolRequest(RepairDraftRequest(episode_id=1, doc_type="narration_script_plan", base_revision="stale")),
-        scope,
-        caller,
-        services,
-    )
-    assert stale.problem is not None
-    assert stale.problem.code == "revision_conflict"
-
-    outcome = await repair_draft(
-        ToolRequest(
-            RepairDraftRequest(
-                episode_id=1, doc_type="narration_script_plan", base_revision=revision, instructions="只改出场角色"
-            )
-        ),
-        scope,
-        caller,
-        services,
-    )
-    assert outcome.problem is None
-    batch = outcome.value
-    assert batch is not None
-    assert batch.done is False
-    (member,) = batch.members
-    assert (member.task_type, member.unit_id) == ("text_draft_repair", "episode-1-narration_script_plan")
-    assert member.task_id is not None
-    task = await queue.get_task(member.task_id)
-    assert task is not None
-    assert task["payload"]["instructions"] == "只改出场角色"
-
-    repaired = _narration_segment()
-    model = FakeTextGenerator(json.dumps({"segments": [repaired]}, ensure_ascii=False))
-    use_text_generator(monkeypatch, model.create)
-    result = await execute_queued_text_task(task)
-
-    assert (result["adopted"], result["violation_count"]) == (True, 0)
-    assert "只改出场角色" in model.requests[0].prompt
-    project_path = projects.get_project_path("demo")
-    assert read_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN) is None
-    formal = json.loads((project_path / "drafts" / "episode_1" / "script_plan_segments.json").read_text("utf-8"))
-    assert formal["segments"] == [repaired]
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_failed_queued_draft_repair_fails_the_task_with_a_localizable_reason(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    use_text_generator(monkeypatch, FakeTextGenerator("not json").create)
-    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = decode_generation_problem(str(raised.value))
-    assert problem is not None
-    assert problem.code == "draft_repair_failed"
-    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    assert draft_revision(draft) == revision
-
-    stale_task = {**task, "payload": {**payload, "base_revision": "stale"}}
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(stale_task)
-    problem = decode_generation_problem(str(raised.value))
-    assert problem is not None
-    assert problem.code == "draft_revision_conflict"
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_draft_repair_failing_before_the_write_back_does_not_claim_the_draft_was_saved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-
-    def unreadable_source(*_args, **_kwargs):
-        raise PermissionError("source/novel.txt")
-
-    monkeypatch.setattr(draft_repair_module, "load_novel_source", unreadable_source)
-    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = decode_generation_problem(str(raised.value))
-    assert problem is not None
-    assert problem.code == "draft_repair_failed"
-    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    assert draft_revision(draft) == revision
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AI 修复的回复被截断：任务以分集规划同一个问题码失败，带出路参数，草稿不变。"""
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    model = FakeTextGenerator(
-        TextOutputTruncatedError(
-            provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
-        )
-    )
-    use_text_generator(monkeypatch, model.create)
-    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = problem_from_task_failure(str(raised.value))
-    assert (problem.code, problem.action, problem.params) == (
-        "text_output_truncated",
-        GenerationAction.CONFIGURE_PROVIDER,
-        {"provider_id": "custom-3", "model": "my-llm", "custom_model": True},
-    )
-    assert model.require_complete == [True]
-    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    assert draft_revision(draft) == revision
-
-
-@pytest.mark.usefixtures("video_request_facts")
-@pytest.mark.parametrize("stage", ["revalidate", "generator"])
-async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_problem(
-    monkeypatch: pytest.MonkeyPatch, stage: str
-) -> None:
-    """AI 修复时引用的模型已不在供应商清单：任务以稳定码失败并带「去配置供应商」，不归为 draft_repair_failed，草稿不变。"""
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    retired = ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-model", media_type="text")
-
-    async def raise_retired(*_args, **_kwargs):
-        raise retired
-
-    if stage == "revalidate":
-        monkeypatch.setattr(draft_repair_module, "revalidate_script_plan_draft", raise_retired)
-    else:
-        monkeypatch.setattr(TextGenerator, "create", raise_retired)
-    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = problem_from_task_failure(str(raised.value))
-    assert (problem.code, problem.action, problem.params) == (
-        "model_not_in_provider_catalog",
-        GenerationAction.CONFIGURE_PROVIDER,
-        {"provider": "gemini-aistudio", "model": "retired-model"},
-    )
-    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    assert draft_revision(draft) == revision
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_position(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """提示词编写草稿修完晋升，被正式剧本单元挡下：任务失败按「视频单元 N」本地化、归为修改输入，草稿不变。"""
-    projects = ProjectManager(DataRootLayout.current().root)
-    projects.create_project("demo")
-    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
-    projects.update_project("demo", lambda p: p.__setitem__("generation_mode", "reference_video"))
-    projects.add_character("demo", "张三", "村民")
-    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
-    project_path = projects.get_project_path("demo")
-    (project_path / "source").mkdir(exist_ok=True)
-    (project_path / "source" / "episode_1.txt").write_text("张三起身。", encoding="utf-8")
-    unit = {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 5}
-    projects.save_script(
-        "demo", {"title": "第一集", "episode": 1, "content_mode": "narration", "video_units": [unit]}, "episode_1.json"
-    )
-    activate_artifact_target_state(project_path, bump_schema=False)
-    write_quarantine(
-        project_path,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "第一集", "units": [{"text": "@[张三] 坐下"}]},
-        violations=[],
-        meta={"unit_ids": ["E1U01"]},
-    )
-    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
-    assert draft is not None
-    revision = draft_revision(draft)
-    use_text_generator(monkeypatch, FakeTextGenerator("").create)
-    payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = problem_from_task_failure(str(raised.value))
-    assert (problem.code, problem.action, problem.params) == (
-        "draft_formal_unit_duration_off_tier",
-        GenerationAction.FIX_INPUT,
-        {"position": 1, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
-    )
-    assert "E1U01" not in problem.detail
-    assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
-
-
-async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:
-    """AI 修复重判被视频模型配置挡下：任务失败带真实问题码与「去配置供应商」，草稿不变。"""
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    set_video_request_facts(
-        VideoRequestFactsFailure("video_capability_missing_i2v", (("provider", "custom-2"), ("model", "I2V_H3")))
-    )
-    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
-    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
-
-    with pytest.raises(RuntimeError) as raised:
-        await execute_queued_text_task(task)
-
-    problem = problem_from_task_failure(str(raised.value))
-    assert (problem.code, problem.action, problem.params) == (
-        "video_capability_missing_i2v",
-        GenerationAction.CONFIGURE_PROVIDER,
-        {"provider": "custom-2", "model": "I2V_H3"},
-    )
-    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    assert draft is not None
-    assert draft_revision(draft) == revision
 
 
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
@@ -1212,18 +916,18 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
 
 
 @pytest.mark.parametrize(
-    ("project_name", "generation_mode", "quarantine_kind", "generated_text"),
+    ("project_name", "generation_mode", "plan_filename", "generated_text"),
     [
         (
             "reference",
             "reference_video",
-            QUARANTINE_KIND_SCRIPT_PLAN,
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
             '{"units":[{"duration_seconds":4,"source_text":"张三走向村口。","text":"@[未登记角色] 出场"}]}',
         ),
         (
             "narration",
             "storyboard",
-            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+            SCRIPT_PLAN_FILENAMES["narration"],
             '{"episode":1,"segments":[{"segment_id":"E1S01","novel_text":"张三走向村口。",'
             '"duration_seconds":4,"segment_break":false,"characters_in_segment":["未登记角色"],'
             '"scenes":[],"props":[]}]}',
@@ -1237,7 +941,7 @@ async def test_cancel_during_first_blocked_plan_write_finishes_registration(
     video_request_facts,
     project_name: str,
     generation_mode: str,
-    quarantine_kind: str,
+    plan_filename: str,
     generated_text: str,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
@@ -1255,8 +959,7 @@ async def test_cancel_during_first_blocked_plan_write_finishes_registration(
         return Generator()
 
     use_text_generator(monkeypatch, create_generator)
-    draft_path = quarantine_path(project_path, 1, quarantine_kind)
-    formal_path = draft_path.with_name(draft_path.name.replace(".invalid.json", ".json"))
+    formal_path = episode_drafts_dir(project_path, 1) / plan_filename
     started = threading.Event()
     release = threading.Event()
     original_replace = os.replace
@@ -1308,7 +1011,6 @@ async def test_cancel_during_first_blocked_plan_write_finishes_registration(
     entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.artifact_path == formal_path.relative_to(project_path).as_posix()
-    assert not draft_path.exists()
     batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
     assert batch.done is True
     assert batch.members[0].status == "succeeded"
@@ -1380,47 +1082,6 @@ async def test_missing_text_default_survives_submission_execution_and_persistenc
         await worker.stop()
     assert task["task_type"] == expected_task_type
     assert task["status"] == "failed"
-    problem = problem_from_task_failure(task["error_message"])
-    assert (problem.code, problem.action.value, problem.params) == (
-        "text_default_model_not_set",
-        "configure_default_model",
-        {"media_type": "text"},
-    )
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_missing_text_default_during_draft_repair_keeps_original_bytes(
-    file_db_factory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
-    path = quarantine_path(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-    before = path.read_bytes()
-    use_text_backend_sessions(monkeypatch, file_db_factory)
-    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
-    services = Services(
-        projects=projects, workflow_planner=object(), capabilities=ConfigResolver(file_db_factory), queue=queue
-    )
-
-    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
-        del claimed_provider_id
-        return await execute_queued_text_task(task)
-
-    worker = await _start_text_worker(queue, execute)
-    try:
-        submitted = await repair_draft(
-            ToolRequest(RepairDraftRequest(episode_id=1, doc_type="narration_script_plan", base_revision=revision)),
-            ProjectScope(project_name="demo", data_root=projects.data_root),
-            CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
-            services,
-        )
-        assert submitted.value is not None, submitted.problem
-        task_id = submitted.value.members[0].task_id
-        assert task_id is not None
-        task = await wait_for_task(task_id, 0.01, queue=queue)
-    finally:
-        await worker.stop()
-    assert path.read_bytes() == before
     problem = problem_from_task_failure(task["error_message"])
     assert (problem.code, problem.action.value, problem.params) == (
         "text_default_model_not_set",

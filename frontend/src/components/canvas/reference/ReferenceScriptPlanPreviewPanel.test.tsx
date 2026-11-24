@@ -76,7 +76,6 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     confirmed_at: null,
     blocking_issues: [],
     soft_violations: [],
-    quarantine: null,
     supported_durations: [4, 8],
     duration_tiers: { with_references: [4, 8], units: { E1U01: mkCapability("E1U01") } },
     episode_target_duration: null,
@@ -546,13 +545,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
-  it("anchors line-level, source-anchor, aggregate and episode-level blocking issues plus soft violations, refreshes on intermediate save, unlocks confirm when cleared, and never calls /drafts", async () => {
-    const listDrafts = vi.spyOn(API, "listEpisodeDrafts");
-    const getDraft = vi.spyOn(API, "getEpisodeDraft");
-    const saveDraft = vi.spyOn(API, "saveEpisodeDraft");
-    const repairDraft = vi.spyOn(API, "repairEpisodeDraft");
-    const discardDraft = vi.spyOn(API, "discardEpisodeDraft");
-
+  it("anchors line-level, source-anchor, aggregate and episode-level blocking issues plus soft violations, refreshes on intermediate save, unlocks confirm when cleared", async () => {
     const initial = blockedUnitsState({
       content: {
         units: [
@@ -572,15 +565,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       soft_violations: [
         { code: "ref_warn_speaker_without_audio", params: {}, item_index: 0, item_id: "E1U01", message: "阿离未设置参考音频" },
       ],
-      quarantine: {
-        doc_type: "reference_script_plan",
-        revision: "legacy-rev",
-        editable_by: "agent",
-        content: null,
-        violations: [],
-        soft_violations: [],
-        formal_exists: true,
-      },
     });
     const afterIntermediateSave = blockedUnitsState({
       fingerprint: "fp2",
@@ -687,11 +671,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     expect(await screen.findByRole("button", { name: "已确认" })).toBeDisabled();
 
-    expect(listDrafts).not.toHaveBeenCalled();
-    expect(getDraft).not.toHaveBeenCalled();
-    expect(saveDraft).not.toHaveBeenCalled();
-    expect(repairDraft).not.toHaveBeenCalled();
-    expect(discardDraft).not.toHaveBeenCalled();
   });
 
   it("shows server soft violations as degradation notices without blocking confirmation", async () => {
@@ -737,7 +716,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     content: null,
     blocking_issues: [],
     soft_violations: [],
-    quarantine: null,
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,

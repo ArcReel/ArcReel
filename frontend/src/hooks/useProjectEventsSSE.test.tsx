@@ -307,21 +307,19 @@ describe("useProjectEventsSSE", () => {
     useTasksStore.getState().setRefreshScope(null);
   });
 
-  it("invalidates episode draft views when a reconnect snapshot shows missed changes", () => {
+  it("invalidates episode script plan views when a reconnect snapshot shows missed changes", () => {
     useProjectsStore.setState({
       currentProjectData: { ...makeGetProjectResult("Demo").project, episodes: [{ episode: 4, title: "雨夜" }] },
     } as never);
     const stream = mockProjectEventStream();
     renderHarness("/");
-    const revision = () => useAppStore.getState().getEntityRevision("draft:episode_4_script_plan");
+    const revision = () => useAppStore.getState().getEntityRevision("script_plan:episode_4");
 
     act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
     const before = revision();
     act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-b" } as never));
 
     expect(revision()).toBeGreaterThan(before);
-    expect(useAppStore.getState().getEntityRevision("script_plan:episode_4")).toBeGreaterThan(0);
-    expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBe(0);
   });
 
   it("invalidates episode script_plan revisions when script_plan or dependency assets change", async () => {
@@ -957,62 +955,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/props");
     expect(useAppStore.getState().scrollTarget).toBeNull();
-    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
-  });
-
-  function emitDraftCreated(stream: ReturnType<typeof mockProjectEventStream>, source: "webui" | "worker") {
-    act(() => {
-      stream.options?.onChanges?.({
-        project_name: "demo",
-        batch_id: `batch-draft-${source}`,
-        fingerprint: `fp-draft-${source}`,
-        generated_at: "2026-03-01T00:00:00Z",
-        source,
-        changes: [
-          {
-            entity_type: "draft",
-            action: "created",
-            entity_id: "episode_1_script_plan",
-            label: "第 1 集的剧本",
-            label_key: "draft_normalized_script",
-            label_params: { episode: 1 },
-            episode: 1,
-            focus: { pane: "episode", episode: 1 },
-            important: true,
-          },
-        ],
-      });
-    });
-  }
-
-  it("navigates to the episode when another writer creates a draft", async () => {
-    const stream = mockProjectEventStream();
-    renderHarness("/characters");
-
-    emitDraftCreated(stream, "worker");
-
-    await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
-    });
-    await waitFor(() => {
-      expect(useAppStore.getState().toast).not.toBeNull();
-    });
-  });
-
-  it("stays put without notifications when the user's own draft save creates a draft", async () => {
-    const stream = mockProjectEventStream();
-    renderHarness("/characters");
-
-    emitDraftCreated(stream, "webui");
-
-    await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(screen.getByTestId("location")).toHaveTextContent("/characters");
-    expect(useAppStore.getState().toast).toBeNull();
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 

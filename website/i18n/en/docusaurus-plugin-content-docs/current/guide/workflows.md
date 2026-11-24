@@ -363,7 +363,7 @@ When a generation or image edit task for a base sheet is queued or running, its 
 
 When the same person, place, or object is registered as two assets (for example, "Old Wang" and "Wang Jianguo"), open the menu on one of the asset cards, choose **Merge into…**, and pick the asset of the same type to keep. Only characters, scenes, and props can be merged.
 
-After the merge, references in every episode's script plan, final script, drafts, and prompt text point to the kept asset, and the merged asset's name and aliases become aliases of the kept asset. Derivatives of a merged character move to the kept character; a derivative with the same name as one the kept character already has (ignoring case) merges into the existing one, and its references point to the existing derivative. The kept asset's description, sheet, and other settings do not change.
+After the merge, references in every episode's script plan, final script, and prompt text point to the kept asset, and the merged asset's name and aliases become aliases of the kept asset. Derivatives of a merged character move to the kept character; a derivative with the same name as one the kept character already has (ignoring case) merges into the existing one, and its references point to the existing derivative. The kept asset's description, sheet, and other settings do not change.
 
 For characters, you can also choose **Derivative**: the merged character becomes a derivative of the kept character, keeping its description, and the derivative sheet needs generating. If the kept character already has a derivative with the same name (ignoring case), no new one is created: the merge goes into the existing derivative, whose description and sheet do not change. Visual references point to that derivative, dialogue speakers change to the kept character, and the merged character's name is not recorded as an alias.
 
@@ -371,7 +371,7 @@ The merged asset's description, sheet and version history, voice settings, refer
 
 #### Delete assets {#delete-assets}
 
-Open the menu on an asset card and choose **Delete**. Before you confirm, the dialog checks references in every episode's script plan, final script, drafts, and prompt text:
+Open the menu on an asset card and choose **Delete**. Before you confirm, the dialog checks references in every episode's script plan, final script, and prompt text:
 
 - If the asset is referenced, the dialog says which episodes reference it and how many times. Deleting doesn't rewrite those references, so shots that reference the asset will be blocked at generation. To keep the references, choose **Merge instead…** to [merge it into another asset of the same type](#merge-assets). Products can't be merged, so they don't have this button.
 - If nothing references the asset, the dialog only says the asset moves to the project trash.

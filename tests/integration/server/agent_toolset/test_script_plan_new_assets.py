@@ -3,31 +3,56 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
+    _DRAMA_NOVEL,
     ToolHarness,
-    drama_project,
-    drama_quarantine_path,
     drama_scene,
-    drama_script_plan_path,
     nr_generator_returning,
-    nr_quarantine_path,
-    nr_script_plan_path,
     nr_segment,
     nr_source,
     run_declared_tool,
     run_rv_split,
-    rv_quarantine_path,
     rv_script_plan_path,
     rv_source,
     rv_unit,
     said,
     use_fake_caps,
 )
+
+
+def drama_project(fake_ctx: ToolHarness) -> None:
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "drama",
+                "generation_mode": "storyboard",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
+
+
+def drama_script_plan_path(fake_ctx: ToolHarness) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+
+
+def nr_script_plan_path(fake_ctx: ToolHarness) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
 
 
 def _new(name: str, decision: str, **fields: Any) -> dict[str, Any]:
@@ -111,7 +136,6 @@ async def test_narration_plan_reports_an_unlisted_unregistered_reference(
 
     assert out.problem is None
     assert nr_script_plan_path(fake_ctx).exists()
-    assert not nr_quarantine_path(fake_ctx).exists()
     codes = [v["code"] for v in out.value.blocking_issues]
     assert codes == ["unregistered_asset"]
 
@@ -129,7 +153,6 @@ async def test_narration_plan_reports_an_unresolvable_decision(
 
     assert out.problem is None
     assert nr_script_plan_path(fake_ctx).exists()
-    assert not nr_quarantine_path(fake_ctx).exists()
     codes = [v["code"] for v in out.value.blocking_issues]
     assert codes == ["new_asset_target_unresolved"]
 
@@ -144,7 +167,6 @@ async def test_reference_plan_accepts_a_skipped_speaker_and_new_mentions(
     out = await run_rv_split(fake_ctx, monkeypatch, [unit], new_assets=new_assets)
 
     assert out.problem is None, out
-    assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert [item["name"] for item in saved["new_assets"]] == ["货郎", "路人"]
 
@@ -158,7 +180,6 @@ async def test_reference_plan_reports_an_unlisted_speaker(
 
     assert out.problem is None
     assert rv_script_plan_path(fake_ctx).exists()
-    assert not rv_quarantine_path(fake_ctx).exists()
     assert [v["code"] for v in out.value.blocking_issues] == ["unregistered_speaker"]
 
 
@@ -184,7 +205,6 @@ async def test_drama_plan_references_must_be_registered_or_listed(
 
     assert out.problem is None
     assert drama_script_plan_path(fake_ctx).exists()
-    assert not drama_quarantine_path(fake_ctx).exists()
     assert [v["code"] for v in out.value.blocking_issues] == ([] if valid else ["unregistered_asset"])
 
 

@@ -74,7 +74,7 @@ A derivative that was deleted on its own needs its character to still exist. If 
 
 ### Restoring after an asset merge {#after-merge}
 
-During a merge, references to the merged asset in every episode's script plan, final script, drafts, and prompt text are already rewritten to point to the kept asset. The merged asset's description, sheet and version history, voice settings, reference image, and reference audio move to the project trash as one deletion record.
+During a merge, references to the merged asset in every episode's script plan, final script, and prompt text are already rewritten to point to the kept asset. The merged asset's description, sheet and version history, voice settings, reference image, and reference audio move to the project trash as one deletion record.
 
 When you restore the merged asset, the system only adds:
 
@@ -104,7 +104,7 @@ If the episode, storyboard, or character they belong to no longer exists, these 
 ### Source files and planning drafts {#sources-and-drafts}
 
 - Source files: when you delete a source file in the **Episodes** view, or upload a file with the same name to replace an old one, the source text and its original upload become one deletion record. A restored source file always comes back as a source file that is not part of the whole source. You decide in the **Episodes** view whether to add it to the whole source, use it as an episode's source, or delete it, so a restore never changes how episode sources are cut. If the original path is taken, the source file and its original upload are renamed together to `name (n)`.
-- Planning drafts: when you discard a draft that awaits fixes or can be edited, discard an unconfirmed script plan, or choose **Start from blank**, the discarded draft becomes a deletion record. A restore needs the episode it belongs to to still exist. If the original path is free, the draft returns there and the script plan's artifact registration is restored with it. If the path already holds a file, the draft is restored as `name (n)`, as an unreferenced file without registration.
+- Planning drafts: when you discard an unconfirmed script plan or choose **Start from blank**, the discarded script plan becomes a deletion record. A restore needs the episode it belongs to to still exist. If the original path is free, the script plan returns there and its artifact registration is restored with it. If the path already holds a file, it is restored as `name (n)`, as an unreferenced file without registration.
 
 ### Edit timelines {#edit-timelines}
 
@@ -154,6 +154,6 @@ In **Deleted projects** in the project list header you can restore a project as 
 
 - The Agent cannot directly delete or overwrite media files or the version history. It cannot change these directories with write, edit, or shell commands, so it can only delete through the project trash.
 - When you explicitly ask it to delete an unreferenced file or a past version that is not current, the Agent can move it to the project trash. A referenced file is refused, and the Agent asks you to handle it in the screen that owns it.
-- The Agent's own structural operations also go to the project trash: removing storyboards or video units, overwriting the final script, merging assets, replacing source files, and discarding drafts. The origin of these records is shown as the Agent.
+- The Agent's own structural operations also go to the project trash: removing storyboards or video units, overwriting the final script, merging assets, and replacing source files. The origin of these records is shown as the Agent.
 - In a conversation you can ask the Agent to list deletion records, confirm with you which one to restore, and restore it. The result states whether the object came back under a new name or number, whether the restore fell back to files only, and which files can only be downloaded.
 - Only you can permanently delete or empty the project trash, in the interface. The Agent has neither capability.

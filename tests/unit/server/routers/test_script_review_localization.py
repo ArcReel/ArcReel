@@ -9,8 +9,7 @@ from pydantic import ValidationError
 
 from lib.i18n import _ as i18n_message
 from lib.i18n.display_names import DisplayNames
-from lib.script.draft_quarantine import violation_entries
-from lib.script.draft_violation import DraftViolation, schema_violations
+from lib.script.draft_violation import DraftViolation, schema_violations, violation_entries
 from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import validate_source_text_anchor
 from lib.script.script_models import (

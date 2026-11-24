@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -31,17 +31,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script import script_review
-from lib.script.draft_quarantine import (
-    DRAFT_OWNER_AGENT,
-    DRAFT_OWNER_USER,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_TO_DOC_TYPE,
-    draft_owner,
-    draft_revision,
-    quarantine_path,
-    read_quarantine,
-    violation_entries,
-)
+from lib.script.draft_violation import violation_entries
 from lib.script.item_ids import episode_item_id_high_water, raise_item_id_high_water, stored_item_id_high_water
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
 from lib.script.script_batch_edit import ScriptBatchEditProblem
@@ -278,12 +268,7 @@ class ScriptReviewService:
     def _locked_plan_project(
         self, project_name: str, project: dict[str, Any], episode: int, path: Path
     ) -> Generator[dict[str, Any]]:
-        prompt_lock = (
-            self.pm.file_lock(quarantine_path(path.parents[2], episode, QUARANTINE_KIND_PROMPT_AUTHORING))
-            if script_review.script_plan_kind(project) == "reference_video"
-            else nullcontext()
-        )
-        with prompt_lock, self.pm.file_lock(path):
+        with self.pm.file_lock(path):
             current = self.pm.load_project(project_name)
             if plan_capability_inputs(current) != plan_capability_inputs(project):
                 raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
@@ -344,7 +329,6 @@ class ScriptReviewService:
         if path is None or kind is None:
             raise ScriptReviewError("script_plan_not_applicable", "当前项目不使用脚本规划")
         _assert_no_plan_symlinks(path)
-        dependent = QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None
         with self._locked_plan_project(project_name, project, episode, path) as current:
             self._require_episode(project_name, current, episode)
             previous, current = self._read_script_plan_migrated(
@@ -354,8 +338,6 @@ class ScriptReviewService:
             try:
                 if script_review.formal_script_plan_confirmed(project_path, current, episode):
                     raise ScriptReviewError("script_plan_confirmed", "脚本规划已确认，请编辑正式脚本")
-                if script_review.formal_script_plan_agent_owned(project_path, current, episode):
-                    raise ScriptReviewError("draft_agent_owned", "本集已有历史编辑草稿，请先处理该草稿")
                 if revision is None:
                     raise ScriptReviewError("file_not_found", "请先使用 generate_script_plan 生成脚本规划")
                 if request.base_revision != revision:
@@ -382,7 +364,6 @@ class ScriptReviewService:
                     path,
                     validated,
                     expected_fingerprint=script_review.fingerprint_of_revision(revision),
-                    dependent_quarantine=dependent,
                     project_update=record_ids if edit.issuer.last > high_water else None,
                 )
             except ScriptPlanPatchError as exc:
@@ -392,7 +373,6 @@ class ScriptReviewService:
                     "script_plan_confirmed": "patch_episode_script",
                     "revision_conflict": "get_script_plan_content",
                     "file_not_found": "generate_script_plan",
-                    "draft_agent_owned": "resolve_existing_draft",
                 }.get(exc.code, "get_script_plan_content")
                 problem = ScriptBatchEditProblem(
                     code=exc.code,
@@ -522,87 +502,6 @@ class ScriptReviewService:
             "script_overwrite": _overwrite_dict(project_path, project, episode) if path is not None else None,
         }
 
-    async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """本集 script_plan 草稿的呈现视图（供内容确认页展示与手修），不适用 / 无草稿时 None。
-
-        视图字段：``doc_type``、``revision``（手修保存与丢弃的并发令牌；信封损坏时为 None）、
-        ``editable_by``（``user`` 为待修复草稿，``agent`` 为 Agent 的可编辑草稿）、``content``（草稿正文
-        原样，供创作者就地修改；Agent 的可编辑草稿不展示内容，为 None）、``violations``、
-        ``soft_violations``（逐条目定位的降级提示）与 ``formal_exists``（丢弃后是否有正式脚本规划可回）。
-
-        违约读时按产出时那套校验器全量重算（``revalidate_script_plan_draft`` 按 kind 分派到该变体的
-        重判器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
-        模型配置可能已变，报告要对现值负责。meta 被改坏以致无从重算时，把「无法重算」本身作为一条
-        违约返回，而不是退回草稿里那份上一轮快照。可编辑草稿归 Agent 处置，不重算。
-
-        本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内合并两者的返回。项目 /
-        草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程，避免源文较大时占用事件循环。
-        """
-        project = await asyncio.to_thread(self.pm.load_project, project_name)
-        quarantine_kind = script_review.script_plan_quarantine_kind(project)
-        if quarantine_kind is None:
-            return None
-
-        def _locate() -> tuple[Path, Path | None, bool]:
-            project_path = self.pm.get_project_path(project_name)
-            quarantine_path = script_review.script_plan_quarantine_path(project_path, project, episode)
-            if quarantine_path is None or not quarantine_path.exists():
-                return project_path, None, False
-            formal_path = script_review.script_plan_path(project_path, project, episode)
-            return project_path, quarantine_path, formal_path is not None and formal_path.exists()
-
-        project_path, quarantine_path, formal_exists = await asyncio.to_thread(_locate)
-        if quarantine_path is None:
-            return None
-        view: dict[str, Any] = {
-            "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[quarantine_kind],
-            "revision": None,
-            "editable_by": DRAFT_OWNER_USER,
-            "content": None,
-            "violations": [],
-            "soft_violations": [],
-            "formal_exists": formal_exists,
-        }
-        draft = await asyncio.to_thread(read_quarantine, project_path, episode, quarantine_kind)
-        if draft is None:
-            if not await asyncio.to_thread(quarantine_path.exists):
-                return None
-            view["violations"] = [_unreadable_violation("草稿文件已损坏或格式不符，无法解析")]
-            return view
-        view["revision"] = draft_revision(draft)
-        view["editable_by"] = draft_owner(draft)
-        if view["editable_by"] == DRAFT_OWNER_AGENT:
-            return view
-        view["content"] = draft.content
-        from server.draft_workflow import revalidate_script_plan_draft
-
-        try:
-            revalidation = await revalidate_script_plan_draft(
-                project_path,
-                project,
-                episode,
-                draft,
-                config_resolver=self.config_resolver,
-            )
-        except VideoRequestFactsError as exc:
-            view["violations"] = [
-                {
-                    "code": exc.code,
-                    "label": "",
-                    "message": "",
-                    "line": None,
-                    "params": exc.params,
-                }
-            ]
-            return view
-        except ValueError as exc:
-            logger.warning("草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
-            view["violations"] = [_unreadable_violation("草稿的产出上下文缺失或损坏，无法重新校验")]
-            return view
-        view["violations"] = violation_entries(revalidation.violations)
-        view["soft_violations"] = soft_violation_entries(list(revalidation.soft_violations))
-        return view
-
     async def get_reference_duration_tiers(
         self, project_name: str, episode: int, units: Sequence[dict[str, Any]] = ()
     ) -> dict | None:
@@ -683,7 +582,6 @@ class ScriptReviewService:
                 episode,
                 path,
                 validated,
-                dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None,
                 project_check=check_episode,
             )
         except script_review.ScriptPlanWriteConflict as exc:
@@ -705,10 +603,8 @@ class ScriptReviewService:
         return validated
 
     def _reject_readonly_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
-        """持正式规划锁按最新确认记录与 Agent 草稿归属拒绝只读规划的保存。"""
+        """持正式规划锁按最新确认记录拒绝只读规划的保存。"""
         project = self.pm.load_project(project_name)
-        if script_review.formal_script_plan_agent_owned(project_path, project, episode):
-            raise ScriptReviewError("draft_agent_owned")
         if script_review.formal_script_plan_confirmed(project_path, project, episode):
             raise ScriptReviewError("script_plan_confirmed")
 
@@ -768,9 +664,6 @@ class ScriptReviewService:
         def validate_locked(project: dict[str, Any], path: Path) -> None:
             if plan_capability_inputs(project) != capability_inputs:
                 raise ScriptReviewError("conversion_conflict", "视频模型配置已变化")
-            quarantine = script_review.script_plan_quarantine_path(project_path, project, episode)
-            if quarantine is not None and quarantine.exists():
-                raise ScriptReviewError("quarantined")
             diagnostics = self._diagnostics(project_path, project, episode, _read_json(path), capabilities)
             if issues := diagnostics["blocking_issues"]:
                 raise ScriptReviewError("conversion_refused", "\n".join(issue["message"] for issue in issues))
@@ -819,16 +712,8 @@ class ScriptReviewService:
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        quarantine = script_review.script_plan_quarantine_path(project_path, project, episode)
-        if quarantine is not None and quarantine.exists():
-            raise ScriptReviewError("quarantined", f"script_plan 草稿待处置: {quarantine}")
         kind, model = self._resolve_script_plan_model(project, episode)
-        prompt_authoring_lock = (
-            self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
-            if kind == "reference_video"
-            else nullcontext()
-        )
-        with prompt_authoring_lock, self.pm.file_lock(path):
+        with self.pm.file_lock(path):
             content, project = self._read_script_plan_migrated(
                 project_name, project, episode, path, project_path, supported_durations
             )
@@ -867,11 +752,6 @@ class ScriptReviewService:
 def _overwrite_dict(project_path: Path, project: Mapping[str, Any], episode: int) -> dict[str, Any] | None:
     overwrite = script_review.formal_script_overwrite(project_path, project, episode)
     return overwrite.to_dict() if overwrite is not None else None
-
-
-def _unreadable_violation(message: str) -> dict[str, Any]:
-    """草稿无从重算时的那条整集层面违约；router 按 ``quarantine_unreadable`` 的文案 key 本地化。"""
-    return {"code": "quarantine_unreadable", "label": "", "message": message, "line": None}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

@@ -130,7 +130,7 @@ dispatch prompt 通用参数：项目名称、项目路径、目标集的集 ID�
 
 **script_plan→prompt_authoring 内容确认（阻塞）**：`prepare_script_plan` 产出的脚本规划须经**显式确认**才放行提示词编写（三种结构化 script_plan 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `script_plan_reference_units.json` 同样须确认，不要跳过。ad 无 script_plan，不要求内容确认）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`（全自主模式下按用户总体授权确认）。该集尚无正式脚本时，未确认的计划停在 `confirm_script_plan`、不会路由到提示词编写（已有正式脚本时不挡下游，见上方「整集重做」）；尚无正式脚本时 `generate_episode_script` 直接报「尚无正式脚本」。确认即把脚本规划整集转为正式脚本、全部条目待编写；该集已有正式脚本时确认会覆盖它，须按上方「整集重做」先取得用户同意。
 
-确认时 `new_assets` 随正式脚本一并登记：按处理决定新建资产、给已有资产记别名或登记衍生，引用随之改写；与已登记同类资产同名的新增项自动归入该资产。在对话中确认前，把新增资产与各自的处理逐项告诉用户；用户要改处理时，请其在 Web 端内容确认页的「本集新增资产」区修改，或取回脚本规划草稿改 `new_assets` 后晋升。处理解析不出（归入的资产或衍生的本体不存在）时确认返回 `invalid_new_assets`，按回执修正后重新确认。
+确认时 `new_assets` 随正式脚本一并登记：按处理决定新建资产、给已有资产记别名或登记衍生，引用随之改写；与已登记同类资产同名的新增项自动归入该资产。在对话中确认前，把新增资产与各自的处理逐项告诉用户；用户要改处理时，请其在 Web 端内容确认页的「本集新增资产」区修改，或通过 `mcp__arcreel__patch_script_plan` 的 `set_new_assets` 修改。处理解析不出（归入的资产或衍生的本体不存在）时确认返回 `invalid_new_assets`，按回执修正后重新确认。
 
 **dispatch `create-episode-script` 子智能体**：传入项目名称、项目路径、目标集的集 ID（`target.episode`）及其标题与播出位置；可选附加指令（用户对本次生成的要求等任何需带给子智能体的临时上下文，原文透传）。
 

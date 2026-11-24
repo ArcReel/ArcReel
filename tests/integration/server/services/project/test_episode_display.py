@@ -10,7 +10,7 @@ from lib.project.project_manager import ProjectManager
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 from server.error_handlers import register_error_handlers
-from server.routers import episode_drafts, grids
+from server.routers import grids
 from server.services.project import episode_display
 from server.services.project.episode_display import present_episode_diagnostics
 from server.services.project.episode_item_refs import with_episode_item_refs
@@ -31,17 +31,10 @@ def test_missing_draft_and_task_failure_use_ledger_title_without_changing_ids(tm
     stored_grids = GridManager(projects.get_project_path("demo"))
     stored_grids.save(grid)
     app = FastAPI()
-    app.include_router(episode_drafts.router)
     app.include_router(grids.router)
     register_error_handlers(app)
     with TestClient(app) as client:
         for locale in ("zh", "en", "vi"):
-            response = client.get(
-                "/projects/demo/episodes/9/drafts/narration_script_plan", headers={"Accept-Language": locale}
-            )
-            assert response.status_code == 404
-            assert "雨夜" in response.json()["detail"]
-            assert "id=9" not in response.json()["detail"]
             for path in ("grids", f"grids/{grid.id}"):
                 response = client.get(f"/projects/demo/{path}", headers={"Accept-Language": locale})
                 assert response.status_code == 200
