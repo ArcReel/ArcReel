@@ -537,7 +537,6 @@ export default {
   'presentation_captions': 'Механические субтитры',
   'presentation_selection_current': 'Текущая версия',
   'presentation_selection_history': 'Историческая версия',
-  'presentation_provenance_unavailable': 'Источник недоступен',
   'presentation_currency_current': 'Соответствует текущему контенту',
   'presentation_currency_stale': 'Старше текущего контента',
   'presentation_mechanical_timing': 'Механический тайминг',

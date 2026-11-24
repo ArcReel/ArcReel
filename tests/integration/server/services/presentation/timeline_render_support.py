@@ -16,10 +16,14 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.artifacts.visual_artifact_provenance import (
+    build_storyboard_video_artifact_visual_basis,
+    build_uploaded_video_basis,
+)
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.edit_timeline.model import ClipTrim, EditTimelineContent, TimelineRevision
 from lib.edit_timeline.store import EditTimelineStore
+from lib.infra.content_digest import sha256_file
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
@@ -34,6 +38,19 @@ _SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+
+
+def mark_uploaded_video(project_path: Path, unit_id: str) -> None:
+    relative_path = f"videos/scene_{unit_id}.mp4"
+    digest = sha256_file(project_path / relative_path)
+    VersionManager(project_path).update_version_metadata(
+        "videos", unit_id, 1, source="manual_upload", execution_generate_audio=False
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, unit_id),
+        artifact_path=relative_path,
+        basis=build_uploaded_video_basis(content_digest=digest),
+    )
 
 
 def narration_segment(segment_id: str, text: str) -> dict[str, Any]:

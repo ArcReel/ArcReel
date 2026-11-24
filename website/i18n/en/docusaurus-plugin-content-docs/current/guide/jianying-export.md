@@ -97,7 +97,7 @@ The Jianying draft is generated from a revision of the edit timeline and follows
 
 Narration starts at its carrier clip and plays for the actual length of its audio. A narration longer than its clip keeps its full length; it is not shortened, and later narrations are not shifted. Only the part that runs past the end of the edit timeline is cut off. When narrations or subtitles overlap in time, the draft adds tracks such as "旁白 2" (narration 2) and "字幕 2" (subtitles 2) as needed so every overlapping part is kept; each extra subtitle track is raised by a fixed distance to stay clear of the subtitles on the first track.
 
-A manually uploaded video has no generation provenance, so it is exported unchanged and is explicitly marked as having unavailable provenance. ArcReel does not generate TTS or subtitles for it. The uploaded video is finished content itself: editing prompts does not make it stale.
+Uploaded videos retain their original audio. Adjust its volume on the timeline. When you include TTS narration, subtitles follow the narration duration. With post-production narration, subtitles follow the video duration. Editing prompts does not make the uploaded video stale.
 
 Any part of the BGM past the end of the edit timeline is cut off with a 1-second fade-out at the cut. When a BGM clip refers to BGM that is no longer in the project, the issue list reports it, and the draft cannot be exported until it is fixed.
 

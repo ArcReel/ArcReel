@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import threading
 import zipfile
@@ -23,7 +24,10 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.artifacts.visual_artifact_provenance import (
+    build_storyboard_video_artifact_visual_basis,
+    build_uploaded_video_basis,
+)
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -313,16 +317,7 @@ async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path
     video_probe.assert_awaited_once()
     audio_probe.assert_awaited_once()
 
-    manual_versions_path = project_path / "versions" / "versions.json"
-    manual_versions = json.loads(manual_versions_path.read_text(encoding="utf-8"))
-    manual_record = manual_versions["videos"]["E1S01"]["versions"][0]
-    manual_versions["videos"]["E1S01"]["versions"][0] = {
-        key: value
-        for key, value in manual_record.items()
-        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
-    } | {"source": "manual_upload"}
-    _write_json(manual_versions_path, manual_versions)
-    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+    _mark_e1s01_manual_upload(project_path)
     video_probe.reset_mock()
     audio_probe.reset_mock()
 
@@ -406,8 +401,11 @@ async def test_stale_current_tts_remains_materializable_without_touching_paid_me
         assert json.loads(archive.read("presentation.json"))["currency"] == "stale"
 
 
-async def test_history_read_does_not_replace_current_presentation_or_manifest(tmp_path: Path) -> None:
+@pytest.mark.parametrize("uploaded", [False, True])
+async def test_history_read_does_not_replace_current_presentation_or_manifest(tmp_path: Path, uploaded: bool) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
+    if uploaded:
+        _mark_e1s01_manual_upload(project_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
@@ -762,19 +760,9 @@ async def test_tts_longer_than_its_video_is_presented_whole_for_preview_and_bund
     assert packaged["narration_audio"]["duration_microseconds"] == 7_000_000
 
 
-async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywhere(tmp_path: Path) -> None:
+async def test_manual_upload_includes_narration_and_subtitles_in_presentation_and_bundle(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
-    versions_path = project_path / "versions" / "versions.json"
-    versions_value = json.loads(versions_path.read_text(encoding="utf-8"))
-    record = versions_value["videos"]["E1S01"]["versions"][0]
-    versions_value["videos"]["E1S01"]["versions"][0] = {
-        key: value
-        for key, value in record.items()
-        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
-    } | {"source": "manual_upload"}
-    _write_json(versions_path, versions_value)
-    adapter = ProjectArtifactManifestAdapter(project_path)
-    adapter.delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+    _mark_e1s01_manual_upload(project_path)
 
     async def probe(_path: Path) -> float | None:
         return 6.25
@@ -791,14 +779,12 @@ async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywher
         variant="use_tts",
     )
 
-    assert result.persisted is False
-    assert result.presentation.provenance == "unavailable"
-    assert result.presentation.variant == "post_production"
-    assert result.presentation.currency is None
-    assert result.presentation.narration_audio is None
-    assert result.presentation.subtitles == ()
-    assert result.to_dict()["presentation_basis"] is None
-    assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "post_production")) is None
+    assert result.presentation.narration_audio is not None
+    assert result.presentation.variant == "use_tts"
+    assert result.persisted
+    assert result.presentation.subtitles
+    assert result.presentation.video.audio_enabled
+    assert result.presentation.video.gain == 1
 
     bundle = await PresentationBundleService(pm, presentation_reader=read_model).export_unit(
         project_name="demo",
@@ -807,9 +793,15 @@ async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywher
         variant="use_tts",
     )
     with zipfile.ZipFile(bundle) as archive:
-        assert set(archive.namelist()) == {"media/video.mp4", "presentation.json"}
+        assert set(archive.namelist()) == {
+            "media/video.mp4",
+            "media/narration.wav",
+            "presentation.json",
+            "subtitles.json",
+            "subtitles.vtt",
+        }
         assert archive.read("media/video.mp4") == b"provider-video-v1"
-        assert json.loads(archive.read("presentation.json"))["provenance"] == "unavailable"
+        assert json.loads(archive.read("presentation.json"))["provenance"] == "verified"
 
 
 def _mark_e1s01_manual_upload(project_path: Path) -> None:
@@ -822,7 +814,12 @@ def _mark_e1s01_manual_upload(project_path: Path) -> None:
         if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
     } | {"source": "manual_upload"}
     _write_json(versions_path, versions_value)
-    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+    path = "videos/scene_E1S01.mp4"
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path=path,
+        basis=build_uploaded_video_basis(content_digest=hashlib.sha256((project_path / path).read_bytes()).hexdigest()),
+    )
 
 
 def _add_planned_episode_without_script(project_path: Path, *, first: bool) -> None:
@@ -855,7 +852,7 @@ async def test_manual_upload_skips_planned_episode_without_script(tmp_path: Path
     )
 
     assert result.episode == 1
-    assert result.presentation.provenance == "unavailable"
+    assert result.presentation.provenance == "verified"
 
 
 async def test_manual_upload_unit_missing_from_existing_scripts_stays_unavailable(tmp_path: Path) -> None:
@@ -875,6 +872,37 @@ async def test_manual_upload_unit_missing_from_existing_scripts_stays_unavailabl
             resource_id="E1S01",
             variant="use_tts",
         )
+
+
+async def test_uploaded_video_with_conflicting_record_digest_is_rejected(tmp_path: Path) -> None:
+    pm, project_path, _ = _setup_narrator_project(tmp_path)
+    _mark_e1s01_manual_upload(project_path)
+    versions_file = VersionManager(project_path).versions_file
+    versions = json.loads(versions_file.read_text())
+    versions["videos"]["E1S01"]["versions"][0]["content_digest"] = "0" * 64
+    _write_json(versions_file, versions)
+    with pytest.raises(PresentationUnavailableError, match="digest"):
+        await PresentationReadModelService(pm).materialize_unit(
+            project_name="demo",
+            resource_type="videos",
+            resource_id="E1S01",
+            variant="post_production",
+        )
+
+
+async def test_duplicate_uploaded_unit_is_rejected_for_single_and_episode_requests(tmp_path: Path) -> None:
+    pm, project_path, _ = _setup_narrator_project(tmp_path)
+    _mark_e1s01_manual_upload(project_path)
+    _add_planned_episode_without_script(project_path, first=False)
+    script = pm.load_script("demo", "episode_1.json")
+    _write_json(project_path / "scripts" / "episode_2.json", dict(script, episode=2))
+    reader = PresentationReadModelService(pm)
+    with pytest.raises(PresentationUnavailableError, match="one owning episode"):
+        await reader.materialize_unit(
+            project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+        )
+    with pytest.raises(PresentationUnavailableError, match="one owning episode"):
+        await reader.materialize_episode(project_name="demo", episode=1, variant="use_tts")
 
 
 async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: Path) -> None:
@@ -1060,3 +1088,43 @@ async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
         .status
         is ArtifactStatus.CURRENT
     )
+
+
+@pytest.mark.parametrize("variant", ["use_tts", "post_production"])
+async def test_manual_reference_video_uses_admitted_speech_and_rejects_replan(tmp_path: Path, variant) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    project = pm.load_project("demo")
+    _write_json(project_path / "project.json", dict(project, generation_mode="reference_video"))
+    script = {
+        "episode": 1,
+        "content_mode": "narration",
+        "video_units": [{"unit_id": "E1S01", "duration_seconds": 8, "text": "{一}\n{二二}"}],
+    }
+    script_path = project_path / "scripts/episode_1.json"
+    _write_json(script_path, script)
+    relative = "reference_videos/E1S01.mp4"
+    video = project_path / relative
+    video.parent.mkdir()
+    video.write_bytes(b"uploaded reference")
+    VersionManager(project_path).add_version("reference_videos", "E1S01", "", source_file=video, source="manual_upload")
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path=relative,
+        basis=build_uploaded_video_basis(content_digest=hashlib.sha256(video.read_bytes()).hexdigest()),
+    )
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _name, _path: _SettingsResolver(settings),
+        video_duration_probe=AsyncMock(return_value=6.0),
+        audio_duration_probe=AsyncMock(return_value=4.5),
+    )
+    result = await service.materialize_unit(
+        project_name="demo", resource_type="reference_videos", resource_id="E1S01", variant=variant
+    )
+    assert result.presentation.subtitles[-1].end_microseconds == (4_500_000 if variant == "use_tts" else 6_000_000)
+    script["video_units"][0]["needs_replan"] = True
+    _write_json(script_path, script)
+    with pytest.raises(PresentationUnavailableError, match="not presentable"):
+        await service.materialize_unit(
+            project_name="demo", resource_type="reference_videos", resource_id="E1S01", variant=variant
+        )

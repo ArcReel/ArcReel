@@ -152,7 +152,7 @@ def current_video(
 
 def provider_audio_recorded(record: Mapping[str, Any]) -> bool:
     """版本记录的供应商原声开关：只有明确记录为未生成原声才为 False，没有记录按带原声处理。"""
-    return record.get("execution_generate_audio") is not False
+    return record.get("source") == "manual_upload" or record.get("execution_generate_audio") is not False
 
 
 def current_provider_audio(versions: VersionManager, resource_type: str, unit_id: str) -> bool:

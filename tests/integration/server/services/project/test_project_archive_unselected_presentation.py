@@ -17,6 +17,7 @@ from lib.project.project_manager import ProjectManager, reset_project_manager_fo
 from lib.speech.speech_presentation import presentation_artifact_paths
 from server.services.currency import upload_finalize
 from server.services.currency.typed_media_restore import restore_typed_media_resource
+from server.services.presentation.presentation_read_model import PresentationReadModelService
 from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.factories import make_test_video
@@ -281,3 +282,24 @@ async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archiv
     archive, _ = ProjectArchiveService(pm).export_project("demo", scope="full")
 
     assert {_SUBTITLE.encode(), _PRESENTATION.encode()} <= _archived_claims(archive)
+
+
+@pytest.mark.parametrize("scope", ["current", "full"])
+@pytest.mark.parametrize("switch_to_generated", [False, True])
+async def test_uploaded_presentation_claims_round_trip_with_their_selected_snapshots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope: str, switch_to_generated: bool
+) -> None:
+    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+    await _upload_e1s01_video(pm, project_path, monkeypatch)
+    await PresentationReadModelService(pm).materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    if switch_to_generated:
+        await _restore_e1s01_video(pm, project_path, 1)
+    service = ProjectArchiveService(pm)
+    archive, _ = service.export_project("demo", scope=scope)
+    shutil.rmtree(project_path)
+    service.import_project_archive(archive, uploaded_filename="demo.zip")
+    entries = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
+    for key in (_SUBTITLE, _PRESENTATION):
+        assert (key in entries) == (scope == "full" or not switch_to_generated)
