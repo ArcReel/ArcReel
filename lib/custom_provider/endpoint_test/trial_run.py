@@ -38,7 +38,6 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from lib.backends.backend_assembly.specs import builtin_request_video_capabilities
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
     ImageCapabilityError,
@@ -48,11 +47,10 @@ from lib.backends.image_backends.base import (
 from lib.backends.image_capabilities import gate_image_request
 from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
+from lib.backends.video_capabilities import projected_video_capabilities
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
-from lib.capabilities.kernel import RequestConditions
-from lib.config.resolver import ConfigResolver
-from lib.custom_provider import is_custom_provider
+from lib.capabilities.kernel import CapabilitySnapshot, RequestConditions
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
@@ -108,7 +106,7 @@ class TrialRunTarget:
     definition: Mapping[str, Any] | None = None
     media_type: str = "video"
     gate_capabilities: bool = True
-    builtin_model_row: bool = False
+    snapshot: CapabilitySnapshot | None = None
 
 
 def _as_float(value: object) -> float | None:
@@ -422,11 +420,11 @@ class TrialRunManager:
             poll_timeout = await self._poll_timeout()
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            if is_video and target.builtin_model_row:
+            if target.snapshot is not None:
                 conditions = RequestConditions(
                     "r2v" if assets.get("reference_images") else "i2v", parameters.resolution
                 )
-                video_caps = builtin_request_video_capabilities(backend, target.provider, target.model, conditions)
+                video_caps = projected_video_capabilities(target.snapshot.for_request(conditions))
             else:
                 video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             if target.gate_capabilities:
@@ -716,39 +714,6 @@ def declarative_target(
         build_backend=build,
         definition=definition,
         media_type=media_type,
-    )
-
-
-def model_ref_target(
-    provider_id: str,
-    model_id: str,
-    *,
-    resolver: ConfigResolver,
-    definition: Mapping[str, Any] | None = None,
-    media_type: str = "video",
-) -> TrialRunTarget:
-    """模型行的目标：经生产那道构造缝装配 backend，内置与自定义供应商同一入口。
-
-    ``definition`` 在模型行解析出声明式定义（自定义调用端点或内置声明式端点）时由调用方带上，
-    用来在结果体里给出渲染后的请求与逐阶段提取；Python 实现的端点两段留空。
-
-    ``media_type`` 决定装配走哪一侧的注册表：模型行自己说它是图像行还是视频行，装配层照它取。
-    """
-
-    async def build() -> Any:
-        from lib.backends.backend_assembly import assemble_backend
-
-        return await assemble_backend(
-            provider_id=provider_id, media_type=media_type, model_id=model_id, resolver=resolver
-        )
-
-    return TrialRunTarget(
-        provider=provider_id,
-        model=model_id,
-        build_backend=build,
-        definition=definition,
-        media_type=media_type,
-        builtin_model_row=not is_custom_provider(provider_id),
     )
 
 

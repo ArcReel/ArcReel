@@ -78,6 +78,8 @@ def resolve_video_model(
     *,
     model_id: str = "",
     provider_id: str = "",
+    always_bill_audio: bool = False,
+    default_resolution: str | None = None,
     official: bool = False,
     request: RequestConditions | None = None,
 ) -> CapabilitySnapshot:
@@ -101,7 +103,8 @@ def resolve_video_model(
         provider_id=provider_id,
         request=request,
         official=official,
-        always_bill_audio=provider_id == "gemini-aistudio",
+        always_bill_audio=always_bill_audio,
+        default_resolution=default_resolution,
         legacy_primary_always_on=legacy_primary_always_on,
     )
 
@@ -138,7 +141,8 @@ class VideoEndpointCapabilities:
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        return channel_projection(cls.describe_video_endpoint(model, entry))
+        description = cls.describe_video_endpoint(model) if entry is None else cls.describe_video_endpoint(model, entry)
+        return channel_projection(description)
 
 
 def channel_projection(endpoint: Endpoint, request: RequestConditions | None = None) -> VideoCapabilities:

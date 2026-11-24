@@ -1,0 +1,119 @@
+"""从已装载的凭证和调用端点构造内置视频通道。"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
+
+from lib.backends.kling_shared import kling_auth_mode
+from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
+from lib.backends.provider_assets import InferenceCredentialRef
+from lib.custom_provider.builtin_definitions import builtin_definitions
+
+if TYPE_CHECKING:
+    from arcreel_market_core.video_backend_contract import VideoBackend, VideoGenerationRequest, VideoGenerationResult
+    from lib.backends.backend_assembly.loaded_config import LoadedConfig
+    from lib.backends.backend_assembly.specs import ProviderSpec
+    from lib.billing.metering import Usage
+
+
+def build_legacy_video(
+    config: LoadedConfig, model: str | None, *, provider_id: str, registry: str, endpoint: str
+) -> VideoBackend:
+    definition = builtin_definitions()[endpoint] if registry == "declarative" else None
+    return build_builtin_video(config, model, provider_id, registry, definition)
+
+
+def build_builtin_video(
+    config: LoadedConfig, model: str | None, provider_id: str, registry: str, definition: Mapping[str, Any] | None
+) -> VideoBackend:
+    from lib.backends.video_backends import registry as video_backends
+    from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
+
+    credentials = config.credentials
+    api_key = credentials.get("api_key")
+    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
+    base_url = credentials.get("base_url") or default_base_url
+    if definition is not None:
+        return DeclarativeVideoBackend(
+            api_key=resolve_minimax_api_key(api_key),
+            base_url=base_url or MINIMAX_BASE_URL,
+            model=model or "MiniMax-H3",
+            definition=definition,
+            provider=provider_id,
+        )
+    if provider_id in {"gemini-aistudio", "gemini-vertex"}:
+        vertex = provider_id == "gemini-vertex"
+        return video_backends.create_backend(
+            registry,
+            backend_type="vertex" if vertex else "aistudio",
+            api_key=api_key,
+            base_url=credentials.get("base_url"),
+            rate_limiter=config.rate_limiter,
+            video_model=model,
+            **({"credentials_path": credentials.get("credentials_path")} if vertex else {}),
+        )
+    kwargs: dict[str, Any] = {"model": model}
+    if base_url:
+        kwargs["base_url"] = base_url
+    if api_key:
+        kwargs["api_key"] = api_key
+    if provider_id == "kling":
+        kwargs["auth_mode"] = kling_auth_mode(credentials)
+        if kwargs["auth_mode"] != "bearer":
+            kwargs.pop("api_key", None)
+            kwargs.update(access_key=credentials.get("access_key"), secret_key=credentials.get("secret_key"))
+    if provider_id in {"ark", "ark-agent-plan"} and config.credential_id is not None and api_key:
+        kwargs["inference_credential"] = InferenceCredentialRef(
+            credential_type="builtin",
+            credential_id=config.credential_id,
+            api_key=api_key,
+            base_url=credentials.get("base_url"),
+            default_base_url=default_base_url,
+        )
+    if provider_id == "dashscope" and credentials.get("wan3_base_url"):
+        kwargs["wan3_base_url"] = credentials["wan3_base_url"]
+    return video_backends.create_backend(registry, **kwargs)
+
+
+def _declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
+    """经随版声明式定义调用的端点的定义；Python backend 实现的端点为 ``None``。"""
+    if spec.registry_backend != "declarative":
+        return None
+    return builtin_definitions()[spec.endpoint]
+
+
+def builtin_video_metered_usage(
+    provider_id: str,
+    model_id: str,
+    request: VideoGenerationRequest,
+    result: VideoGenerationResult | None = None,
+) -> Usage:
+    """内置供应商的视频调用通道对一个请求上报的计量，不构造实例；声明式供应商从随版定义读。
+
+    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。请求没带能力时补上
+    叠加用户覆盖后的能力，与执行时请求携带的那份同源，放宽的维度按实际发出的请求计量。
+    """
+    from lib.backends.backend_assembly.specs import builtin_model_spec, builtin_video_capabilities_for_model
+
+    spec = builtin_model_spec(provider_id, "video", model_id)
+    if spec.registry_backend == "declarative":
+        from lib.custom_provider.declarative_backend import declarative_video_usage
+
+        definition = _declarative_definition(spec)
+        if definition is None:
+            raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
+        return declarative_video_usage(definition, request, result)
+    from lib.backends.video_backends.registry import metered_usage_for_model
+    from lib.catalog import query as catalog
+
+    if request.video_capabilities is None:
+        request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
+    return metered_usage_for_model(
+        spec.registry_backend,
+        model_id,
+        request,
+        result,
+        entry=catalog.provider_model_entry(provider_id, model_id, "video"),
+    )

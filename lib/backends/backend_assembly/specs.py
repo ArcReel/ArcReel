@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, builtin_model_endpoint, select_provider_endpoint
 from lib.backends.kling_shared import kling_auth_mode
-from lib.backends.providers import PROVIDER_KLING
+from lib.backends.providers import PROVIDER_KLING, video_audio_always_billed
 from lib.backends.video_capabilities import (
     VideoEndpointCapabilities,
     channel_projection,
@@ -35,16 +35,15 @@ from lib.backends.video_capabilities import (
 from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_capabilities
 from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
+from lib.video_runtime.builtin import build_legacy_video
+from lib.video_runtime.builtin import builtin_video_metered_usage as builtin_video_metered_usage
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
     from arcreel_market_core.video_backend_contract import (
         VideoCapabilities,
-        VideoGenerationRequest,
-        VideoGenerationResult,
     )
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
-    from lib.billing.metering import Usage
 
 
 @dataclass(frozen=True)
@@ -66,8 +65,6 @@ def _media_create_backend(media_type: str) -> Callable[..., Any]:
     """
     if media_type == "image":
         from lib.backends.image_backends.registry import create_backend
-    elif media_type == "video":
-        from lib.backends.video_backends.registry import create_backend
     elif media_type == "audio":
         from lib.backends.audio_backends.registry import create_backend
     elif media_type == "text":
@@ -116,27 +113,6 @@ def _build_simple(
             kwargs[key] = value
     kwargs.update(extra_kwargs or {})
     return _media_create_backend(media_type)(registry_backend, **kwargs)
-
-
-def _build_ark_video(config: LoadedConfig, model_id: str | None, *, endpoint: str) -> Any:
-    """方舟视频：简单族构造之外报出实际使用的推理凭证，供素材库按绑定选用供应商素材。
-
-    凭证引用只在 api_key 来自一条凭证记录时给出：素材库只能绑定凭证记录，按供应商配置直填的密钥没有可绑定的对象。
-    参考图槽位是否接受素材引用由端点声明（``SeedanceEndpoint.reference_image_asset``），与自定义供应商同一份。
-    """
-    from lib.backends.provider_assets import InferenceCredentialRef
-
-    api_key = config.credentials.get("api_key")
-    extra: dict[str, Any] = {}
-    if config.credential_id is not None and api_key:
-        extra["inference_credential"] = InferenceCredentialRef(
-            credential_type="builtin",
-            credential_id=config.credential_id,
-            api_key=api_key,
-            base_url=config.credentials.get("base_url"),
-            default_base_url=config.provider_meta.default_base_url if config.provider_meta else None,
-        )
-    return _build_simple(config, model_id, media_type="video", registry_backend=endpoint, extra_kwargs=extra)
 
 
 def _build_ark_agent_plan_tts(config: LoadedConfig, model_id: str | None) -> Any:
@@ -194,52 +170,6 @@ _KLING_ENDPOINTS = (
 )
 
 
-def builtin_declarative_video_diagnostics(
-    provider_id: str, model_id: str, config: Mapping[str, str]
-) -> tuple[Mapping[str, Any], str, str] | None:
-    """内置模型行走声明式装配时，测试连接诊断用的 ``(definition, base_url, api_key)``。
-
-    该 (provider, model) 由 Python backend 实现时返回 None。端点判定（:func:`builtin_model_spec`）与凭证回落与
-    :func:`_build_minimax_declarative_video` 同一份——诊断里渲出的请求必须与真发的一致。
-    调用方须先按各自的凭证闸确认 ``api_key`` 非空（空值在此处会 fail-loud）。
-    """
-    if provider_id != "minimax":
-        return None
-    from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
-
-    definition = _declarative_definition(builtin_model_spec(provider_id, "video", model_id))
-    if definition is None:
-        return None
-    return definition, config.get("base_url") or MINIMAX_BASE_URL, resolve_minimax_api_key(config.get("api_key"))
-
-
-def _declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
-    """经随版声明式定义调用的端点的定义；Python backend 实现的端点为 ``None``。"""
-    if spec.registry_backend != "declarative":
-        return None
-    from lib.custom_provider.builtin_definitions import builtin_definitions
-
-    return builtin_definitions().get(spec.endpoint)
-
-
-def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None, *, endpoint: str) -> Any:
-    from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
-    from lib.custom_provider.builtin_definitions import builtin_definitions
-    from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
-
-    model = model_id or "MiniMax-H3"
-    definition = builtin_definitions().get(endpoint)
-    if definition is None:
-        raise ValueError(f"builtin endpoint {endpoint!r} is not declarative")
-    return DeclarativeVideoBackend(
-        api_key=resolve_minimax_api_key(config.credentials.get("api_key")),
-        base_url=_resolve_base_url(config) or MINIMAX_BASE_URL,
-        model=model,
-        definition=definition,
-        provider="minimax",
-    )
-
-
 _GEMINI_REGISTRY_BACKEND = "gemini"
 
 
@@ -251,18 +181,6 @@ def _build_gemini_image(config: LoadedConfig, model_id: str | None, *, backend_t
         base_url=config.credentials.get("base_url"),
         rate_limiter=config.rate_limiter,
         image_model=model_id,
-        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
-    )
-
-
-def _build_gemini_video(config: LoadedConfig, model_id: str | None, *, backend_type: str, registry_backend: str) -> Any:
-    return _media_create_backend("video")(
-        registry_backend,
-        backend_type=backend_type,
-        api_key=config.credentials.get("api_key"),
-        base_url=config.credentials.get("base_url"),
-        rate_limiter=config.rate_limiter,
-        video_model=model_id,
         **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
     )
 
@@ -301,14 +219,14 @@ def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> Pro
     )
 
 
-def _gemini_video_spec(provider_id: str, endpoint: str, *, backend_type: str) -> ProviderSpec:
-    registry_backend = _GEMINI_REGISTRY_BACKEND if endpoint == "gemini-video" else endpoint
+def _video_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
+    registry = registry_backend or endpoint
     return ProviderSpec(
-        provider_id=provider_id,
-        media_type="video",
-        registry_backend=registry_backend,
-        build_backend=partial(_build_gemini_video, backend_type=backend_type, registry_backend=registry_backend),
-        endpoint=endpoint,
+        provider_id,
+        "video",
+        registry,
+        partial(build_legacy_video, provider_id=provider_id, registry=registry, endpoint=endpoint),
+        endpoint,
     )
 
 
@@ -475,7 +393,6 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("openai", "image"): "openai-images",
     ("vidu", "image"): "vidu-image",
     ("minimax", "image"): "minimax-image",
-    ("openai", "video"): "openai-video",
     ("minimax", "audio"): "minimax-tts",
     ("grok", "audio"): "grok-tts",
 }
@@ -521,10 +438,12 @@ _specs += [
     for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
     for media_type in ("image", "audio")
 ]
+_specs.append(_video_spec("openai", "openai-video", "openai"))
 _specs += [
-    _gemini_video_spec(provider_id, by_backend_type[backend_type], backend_type=backend_type)
+    _video_spec(provider_id, endpoint, "gemini" if endpoint == "gemini-video" else endpoint)
     for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
+    for endpoint in (by_backend_type[backend_type],)
 ]
 _specs += [_kling_spec("image"), _kling_spec("image", endpoint="kling-image-single")]
 _specs.append(
@@ -537,17 +456,7 @@ _specs.append(
     )
 )
 _specs += [
-    ProviderSpec(
-        provider_id=provider,
-        media_type="video",
-        registry_backend=endpoint,
-        build_backend=(
-            partial(_build_kling, media_type="video", endpoint=endpoint)
-            if provider == "kling"
-            else partial(_build_simple, media_type="video", registry_backend=endpoint)
-        ),
-        endpoint=endpoint,
-    )
+    _video_spec(provider, endpoint)
     for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))
     for endpoint in endpoints
 ]
@@ -561,13 +470,7 @@ _specs.append(
     )
 )
 _specs += [
-    ProviderSpec(
-        provider_id=ark_provider,
-        media_type="video",
-        registry_backend=endpoint,
-        build_backend=partial(_build_ark_video, endpoint=endpoint),
-        endpoint=endpoint,
-    )
+    _video_spec(ark_provider, endpoint)
     for ark_provider in ("ark", "ark-agent-plan")
     for endpoint in _SEEDANCE_ENDPOINTS
 ]
@@ -585,30 +488,8 @@ for _provider, _endpoints in (
     ("agnes", ("agnes-video-2", "agnes-video-2-5")),
 ):
     for _endpoint in _endpoints:
-        _specs.append(
-            ProviderSpec(
-                provider_id=_provider,
-                media_type="video",
-                registry_backend=_endpoint,
-                endpoint=_endpoint,
-                build_backend=partial(
-                    _build_simple,
-                    media_type="video",
-                    registry_backend=_endpoint,
-                    extra_keys=("wan3_base_url",) if _provider == "dashscope" else (),
-                ),
-            )
-        )
-_specs += [
-    ProviderSpec(
-        provider_id="minimax",
-        media_type="video",
-        registry_backend="declarative",
-        build_backend=partial(_build_minimax_declarative_video, endpoint=endpoint),
-        endpoint=endpoint,
-    )
-    for endpoint in _MINIMAX_VIDEO_ENDPOINTS
-]
+        _specs.append(_video_spec(_provider, _endpoint))
+_specs += [_video_spec("minimax", endpoint, "declarative") for endpoint in _MINIMAX_VIDEO_ENDPOINTS]
 _specs += [
     _text_simple_spec("ark", "ark-chat"),
     _text_simple_spec("ark-agent-plan", "ark-chat"),
@@ -685,11 +566,35 @@ def builtin_video_snapshot(
     official: bool | None = None,
     base_model: catalog.CatalogModel | None = None,
 ) -> CapabilitySnapshot:
+    view = catalog.provider_model_view(provider_id, model_id, media_type="video")
+    return builtin_video_snapshot_from_view(
+        provider_id,
+        model_id,
+        view,
+        endpoint=endpoint,
+        overrides=overrides,
+        official=official,
+        base_model=base_model,
+        always_bill_audio=video_audio_always_billed(provider_id),
+    )
+
+
+def builtin_video_snapshot_from_view(
+    provider_id: str,
+    model_id: str,
+    view: catalog.ProviderModelView | None,
+    *,
+    endpoint: str | None,
+    always_bill_audio: bool,
+    description: Endpoint | None = None,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
     from arcreel_catalog_core import DurationConstraints, VideoFacts
 
-    view = catalog.provider_model_view(provider_id, model_id, media_type="video")
     entry = view.entry if view else None
-    description = _builtin_video_description(provider_id, model_id, endpoint, entry)
+    description = description or _builtin_video_description(provider_id, model_id, endpoint, entry)
     facts = entry_video_facts(entry)
     if view and entry is None:
         facts = replace(facts, durations=tuple((view.base_model or view.model).supported_durations))
@@ -710,6 +615,7 @@ def builtin_video_snapshot(
         view.capability_overrides if view and overrides is None else overrides,
         provider_id=provider_id,
         model_id=model_id,
+        always_bill_audio=always_bill_audio,
         official=view.official if official is None and view else bool(official),
     )
 
@@ -788,38 +694,6 @@ def builtin_request_video_capabilities(
         request=conditions,
     )
     return projected_video_capabilities(snapshot)
-
-
-def builtin_video_metered_usage(
-    provider_id: str,
-    model_id: str,
-    request: VideoGenerationRequest,
-    result: VideoGenerationResult | None = None,
-) -> Usage:
-    """内置供应商的视频调用通道对一个请求上报的计量，不构造实例；声明式供应商从随版定义读。
-
-    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。请求没带能力时补上
-    叠加用户覆盖后的能力，与执行时请求携带的那份同源，放宽的维度按实际发出的请求计量。
-    """
-    spec = builtin_model_spec(provider_id, "video", model_id)
-    if spec.registry_backend == "declarative":
-        from lib.custom_provider.declarative_backend import declarative_video_usage
-
-        definition = _declarative_definition(spec)
-        if definition is None:
-            raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
-        return declarative_video_usage(definition, request, result)
-    from lib.backends.video_backends.registry import metered_usage_for_model
-
-    if request.video_capabilities is None:
-        request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
-    return metered_usage_for_model(
-        spec.registry_backend,
-        model_id,
-        request,
-        result,
-        entry=catalog.provider_model_entry(provider_id, model_id, "video"),
-    )
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str, *, endpoint: str | None = None) -> bool:

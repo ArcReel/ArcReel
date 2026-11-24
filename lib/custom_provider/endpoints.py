@@ -121,10 +121,18 @@ from lib.custom_provider.path_overrides import (
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
-    from lib.db.models.custom_provider import CustomProvider
 
 
 CUSTOM_ENDPOINT_FAMILY = "custom"
+
+
+class ProviderConnection(Protocol):
+    @property
+    def provider_id(self) -> str: ...
+    @property
+    def base_url(self) -> str: ...
+    @property
+    def api_key(self) -> str: ...
 
 
 class BackendBuilder(Protocol):
@@ -135,7 +143,7 @@ class BackendBuilder(Protocol):
     """
 
     def __call__(
-        self, provider: CustomProvider, model_id: str, path_overrides: PathOverrides = ..., /
+        self, provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = ..., /
     ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend: ...
 
 
@@ -1253,7 +1261,7 @@ def declarative_requires_api_key(definition: Mapping[str, Any]) -> bool:
     return bool(definition.get("auth"))
 
 
-def _require_declarative_base_url(definition: Mapping[str, Any], provider: CustomProvider) -> None:
+def _require_declarative_base_url(definition: Mapping[str, Any], provider: ProviderConnection) -> None:
     if declarative_requires_base_url(definition) and not provider.base_url:
         raise ValueError("声明式调用端点需要 base_url")
 
@@ -1264,7 +1272,7 @@ def _build_declarative_video(
     """声明式视频端点的 backend 构造闭包。"""
 
     def build(
-        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomVideoBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
@@ -1286,7 +1294,7 @@ def _build_declarative_image(
     """声明式图片端点的 backend 构造闭包。"""
 
     def build(
-        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomImageBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeImageBackend(
@@ -1401,7 +1409,7 @@ def _build_comfyui_runtime(
     """
 
     def build(
-        provider: CustomProvider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomImageBackend | CustomVideoBackend:
         media_type = str(definition.get("media_type"))
         if media_type not in ("image", "video"):
