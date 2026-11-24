@@ -22,6 +22,7 @@ from typing import Any
 from lib.db.repositories.project_records import parse_deleted_project_name
 from lib.infra.api_errors import NotFoundError
 from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout
+from lib.project.project_manager import project_names_lock
 from lib.project.project_migrations.runner import RecordedEpisodeIds, migrate_project_with_verdict
 from lib.project.project_migrations.staged_swap import tree_size
 from lib.project.project_trash import RETENTION
@@ -111,15 +112,20 @@ def list_entries(layout: DataRootLayout) -> list[DeletedProject]:
 def move_out(layout: DataRootLayout, entry_id: str) -> Path:
     """把已删除项目整体移回项目目录，返回恢复后的项目目录：原名空闲则沿用，被占用则加 ``-2``、``-3`` 后缀。"""
     source, name = _require(layout, entry_id)
-    candidate, suffix = name, 2
-    while (layout.projects_dir / candidate).exists():
-        candidate, suffix = f"{name}-{suffix}", suffix + 1
-    target = layout.projects_dir / candidate
-    try:
-        source.rename(target)
-    except FileNotFoundError as exc:
-        raise NotFoundError("deleted_project_not_found", id=entry_id) from exc
-    return target
+    suffix = 1
+    while True:
+        candidate = name if suffix == 1 else f"{name}-{suffix}"
+        suffix += 1
+        target = layout.projects_dir / candidate
+        if target.exists() or target.is_symlink():
+            continue
+        with project_names_lock(layout):
+            if target.exists() or target.is_symlink():
+                continue
+            try:
+                return source.rename(target)
+            except FileNotFoundError as exc:
+                raise NotFoundError("deleted_project_not_found", id=entry_id) from exc
 
 
 def migrate_restored(project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None) -> None:

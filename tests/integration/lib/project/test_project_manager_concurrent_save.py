@@ -17,6 +17,7 @@ from typing import Any
 import portalocker
 import pytest
 
+from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.content_digest import canonical_json_digest
 from lib.project import project_manager as project_manager_module
@@ -103,36 +104,23 @@ class TestSaveScriptConcurrency:
         assert not current.exists()
         assert not versions.has_versions("videos", "E1S0")
 
-    def test_same_name_project_creation_claims_directory_atomically(self, tmp_path: Path, monkeypatch) -> None:
+    def test_same_name_project_creation_claims_directory_atomically(self, tmp_path: Path) -> None:
         pm = ProjectManager(tmp_path)
         project_dir = pm.projects_dir / "demo"
         barrier = threading.Barrier(2)
-        synchronized_threads: set[int] = set()
-        synchronization_lock = threading.Lock()
-        original_mkdir = Path.mkdir
 
-        def synchronized_mkdir(path: Path, *args, **kwargs) -> None:
-            thread_id = threading.get_ident()
-            with synchronization_lock:
-                should_wait = path == project_dir and thread_id not in synchronized_threads
-                if should_wait:
-                    synchronized_threads.add(thread_id)
-            if should_wait:
-                _ = barrier.wait()
-            original_mkdir(path, *args, **kwargs)
+        def create(mode: ContentMode) -> Path:
+            barrier.wait(timeout=5)
+            return pm.create_project("demo", mode)
 
-        monkeypatch.setattr(Path, "mkdir", synchronized_mkdir)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(pm.create_project, "demo", mode) for mode in ("drama", "narration")]
+            futures = [pool.submit(create, mode) for mode in ("drama", "narration")]
             outcomes = []
-            try:
-                for future in futures:
-                    try:
-                        outcomes.append(future.result(timeout=5))
-                    except FileExistsError as exc:
-                        outcomes.append(exc)
-            finally:
-                barrier.abort()
+            for future in futures:
+                try:
+                    outcomes.append(future.result(timeout=10))
+                except FileExistsError as exc:
+                    outcomes.append(exc)
 
         assert sum(isinstance(outcome, Path) for outcome in outcomes) == 1
         assert sum(isinstance(outcome, FileExistsError) for outcome in outcomes) == 1

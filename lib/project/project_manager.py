@@ -326,6 +326,15 @@ class _AssetReferenceScan:
         return self.episode_references.total()
 
 
+@contextmanager
+def project_names_lock(layout: DataRootLayout) -> Generator[None]:
+    """串行化同一数据根中新建与恢复的目录占名操作。"""
+    path = layout.project_names_lock_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with portalocker.Lock(path, flags=portalocker.LOCK_EX):
+        yield
+
+
 class ProjectManager:
     """视频项目管理器"""
 
@@ -444,10 +453,11 @@ class ProjectManager:
         name = self.normalize_project_name(name)
         project_dir = self.projects_dir / name
 
-        try:
-            project_dir.mkdir()
-        except FileExistsError as exc:
-            raise FileExistsError(f"项目 '{name}' 已存在") from exc
+        with project_names_lock(self.layout):
+            try:
+                project_dir.mkdir()
+            except FileExistsError as exc:
+                raise FileExistsError(f"项目 '{name}' 已存在") from exc
 
         try:
             for subdir in self.SUBDIRS:
