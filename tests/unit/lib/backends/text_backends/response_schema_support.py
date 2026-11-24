@@ -19,11 +19,11 @@ def response_schema_models() -> list[type[BaseModel]]:
         AdReferenceFlatScript,
         AdVisualScript,
         DramaVisualScript,
-        NarrationScriptPlanDraft,
         NarrationVisualEpisodeScript,
         ReferencePromptAuthoringFlatScript,
-        build_drama_normalized_script_model,
+        build_drama_script_plan_model,
         build_episode_script_model,
+        build_narration_script_plan_model,
         build_reference_units_script_plan_model,
         with_new_assets_field,
     )
@@ -31,7 +31,6 @@ def response_schema_models() -> list[type[BaseModel]]:
     models: list[type[BaseModel]] = [
         NarrationPlanDraft,
         DramaPlanDraft,
-        NarrationScriptPlanDraft,
         ReferencePromptAuthoringFlatScript,
         NarrationVisualEpisodeScript,
         DramaVisualScript,
@@ -41,7 +40,8 @@ def response_schema_models() -> list[type[BaseModel]]:
     ]
     for durations in ([4, 6, 8], [8]):
         models += [
-            build_drama_normalized_script_model(durations),
+            build_drama_script_plan_model(durations),
+            build_narration_script_plan_model(durations),
             build_reference_units_script_plan_model(durations),
             with_new_assets_field(build_episode_script_model("ad", durations)),
         ]

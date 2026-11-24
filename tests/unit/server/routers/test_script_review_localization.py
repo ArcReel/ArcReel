@@ -20,8 +20,8 @@ from lib.script.script_models import (
     Utterance,
     build_drama_normalized_script_model,
 )
+from lib.script.script_plan_validation import collect_drama_violations, collect_narration_violations
 from server.routers import script_review as router_mod
-from server.text_generation import collect_drama_violations, collect_narration_violations
 
 
 def test_registered_draft_violation_is_localized_without_changing_agent_message():

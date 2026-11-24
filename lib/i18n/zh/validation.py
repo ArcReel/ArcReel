@@ -320,6 +320,8 @@ MESSAGES = {
     "val_market_cli_generate_written": "已写入 {path}（{count} 个条目）",
     "val_market_cli_generate_failed": "无法生成索引，共 {count} 个问题",
     "draft_violation_source_text_empty": "{label} 的原文为空。复制该视频单元所依据的原文片段",
+    "draft_violation_empty_script_plan": "脚本规划没有条目。添加至少一条后再确认。",
+    "draft_violation_episode_source_unavailable": "无法读取本集原文 {path}，或文件内容为空。恢复本集原文后再确认。",
     "draft_violation_source_text_not_verbatim": "{label} 的原文不是小说原文的逐字片段：{excerpt}。原样复制原文，不要转述",
     "draft_violation_fullwidth_braces": "{label} 使用了全角花括号：{excerpt}。台词与画外音须使用半角花括号",
     "draft_violation_malformed_mention": "{label} 的资产引用格式有误：{excerpt}。使用 `@[资产名]`，名称不能为空，方括号须闭合",

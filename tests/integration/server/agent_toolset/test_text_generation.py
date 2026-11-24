@@ -1018,7 +1018,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(
 
 
 async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
+    """规划提示词保留集号，条目 ID 由服务端生成。"""
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -1030,9 +1030,8 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     )
     assert out.problem is None, out
     prompt_text = said(out)
-    assert "E2S01" in prompt_text
-    assert "第 2 集" in prompt_text or "E2S{两位序号}" in prompt_text
-    assert "E1S01" not in prompt_text
+    assert "第 2 集" in prompt_text
+    assert "**scene_id**" not in prompt_text
 
 
 async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolHarness, video_request_facts) -> None:
@@ -1078,6 +1077,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
 
         async def generate(self, _request, project_name=None):
             captured["generate_project_name"] = project_name
+            captured["response_schema"] = _request.response_schema
 
             class _R:
                 text = json.dumps(
@@ -1085,7 +1085,6 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
                         "title": "第一集",
                         "scenes": [
                             {
-                                "scene_id": "E1S01",
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": [],
@@ -1125,6 +1124,12 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
     )
     assert "drafts/episode_1/script_plan_normalized_script.json" in said(out)
     assert str(project_path) not in said(out)
+    schema = captured["response_schema"].model_json_schema()
+    array = schema["properties"]["scenes"]
+    assert array["minItems"] == 1
+    assert "scene_id" not in schema["$defs"][array["items"]["$ref"].split("/")[-1]]["properties"]
+    saved = json.loads((project_path / "drafts/episode_1/script_plan_normalized_script.json").read_text())
+    assert saved["scenes"][0]["scene_id"] == "E1S02"
 
 
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(

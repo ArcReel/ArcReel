@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from lib.speech.speech_composition import SpeechProblem
 
 DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
 
@@ -75,6 +78,28 @@ class DraftViolation(ValueError):
         self.item_index = item_index
         self.item_id = item_id
         self.params = params
+
+
+def speech_problem_violation(problem: SpeechProblem, *, label: str) -> DraftViolation:
+    locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
+        for location in problem.locations
+    )
+    display_locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
+        for location in problem.locations
+    )
+    line = problem.locations[0].line if len(problem.locations) == 1 else None
+    return DraftViolation(
+        f"{label} 发声准入未通过（{problem.reason.value}，定位：{locations}）；下一步：{problem.action.value}",
+        code=problem.code.value,
+        label=label,
+        line=line,
+        locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
+        reason=problem.reason.value,
+        action=problem.action.value,
+        params={"label": label, "location": display_locations},
+    )
 
 
 def schema_violations(

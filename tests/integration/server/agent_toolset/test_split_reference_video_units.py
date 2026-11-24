@@ -316,6 +316,20 @@ async def test_split_reference_video_units_happy_derives_structure(
     assert captured["generate_project_name"] == "demo"
 
 
+async def test_reference_plan_normalizes_model_braces_before_validating_and_saving(
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+) -> None:
+    rv_source(fake_ctx)
+    text = "@[张三] 走向 @[村口]。\n@[张三]｛到了。｝"
+
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit(text)])
+
+    assert out.problem is None, out
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["text"] == "@[张三] 走向 @[村口]。\n@[张三]{到了。}"
+    assert "fullwidth_braces" not in said(out)
+
+
 async def test_split_reference_video_units_issues_unit_ids_after_the_highest_used_number(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:

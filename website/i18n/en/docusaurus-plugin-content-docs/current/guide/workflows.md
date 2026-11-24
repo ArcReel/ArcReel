@@ -294,6 +294,8 @@ Instead of using an ordinary storyboard as the sole input, the workflow directly
 
 Use these stages to plan review and production. In Narration or Drama, confirm the script plan before generating visuals. An Ad / Short Video project generates the formal script directly. Review that script and its product references before generation.
 
+When generating a script plan for Narration or Drama, the model uses the duration tiers supported by the current video model, and ArcReel assigns the storyboard IDs. For reference-to-video plans, ArcReel converts full-width braces in the model output to ASCII braces so it can recognize dialogue and voice-over markers.
+
 ### Stage 1: Project Goals {#stage-project-goal}
 
 Define:

@@ -29,11 +29,11 @@ from lib.script.draft_quarantine import (
     quarantine_exists,
     read_quarantine,
 )
+from lib.script.script_plan_validation import reference_soft_violations
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from server.services.project.script_review import ScriptReviewService
 from server.text_generation import (
     fetch_reference_split_caps,
-    reference_soft_violations,
     soft_violation_entries,
     uses_reference_video_units,
 )

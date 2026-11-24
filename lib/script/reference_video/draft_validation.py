@@ -30,6 +30,7 @@ from lib.script.draft_violation import (
     DraftViolations,
     collect_violations,
     render_violation_report,
+    speech_problem_violation,
     violation_items,
 )
 from lib.script.reference_video.text_parser import (
@@ -44,7 +45,7 @@ from lib.script.reference_video.text_parser import (
     strip_speech_marks,
 )
 from lib.script.script_models import ReferenceResource
-from lib.speech.speech_composition import SpeechProblem, admit_script_unit
+from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import estimate_spoken_seconds
 
 SPEECH_OVERFLOW_TOLERANCE = 0.20
@@ -295,31 +296,10 @@ def validate_unit_text(
     canonical_unit_id = unit_id if unit_id is not None else label.removeprefix("unit ").strip()
     admission = admit_script_unit("video_units", {"unit_id": canonical_unit_id, "text": text})
     if not admission.allowed:
-        raise DraftViolations([_speech_problem_violation(problem) for problem in admission.problems])
+        raise DraftViolations(
+            [speech_problem_violation(problem, label=f"unit {problem.unit_id}") for problem in admission.problems]
+        )
     return refs
-
-
-def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
-    locations = ", ".join(
-        ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
-        for location in problem.locations
-    )
-    display_locations = ", ".join(
-        ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
-        for location in problem.locations
-    )
-    line = problem.locations[0].line if len(problem.locations) == 1 else None
-    return DraftViolation(
-        f"unit {problem.unit_id} 发声准入未通过（{problem.reason.value}，定位：{locations}）；"
-        f"下一步：{problem.action.value}",
-        code=problem.code.value,
-        label=f"unit {problem.unit_id}",
-        line=line,
-        locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
-        reason=problem.reason.value,
-        action=problem.action.value,
-        params={"label": f"unit {problem.unit_id}", "location": display_locations},
-    )
 
 
 def dialogue_spoken_seconds(text: str, language: object, speech_rate_override: float | None = None) -> float:
