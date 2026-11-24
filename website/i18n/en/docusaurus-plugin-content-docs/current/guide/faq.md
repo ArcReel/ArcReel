@@ -244,6 +244,8 @@ Deleting a whole project moves it to **Deleted projects** on the project list pa
 
 A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory. Available provider asset links of the images go along with the project ZIP; see [Project ZIPs and Provider Asset Links](./asset-storage.md#asset-library-in-project-zip) for how they are used after import.
 
+A current-version-only ZIP keeps the selected upload record and snapshot for a manually uploaded storyboard image. After import, changes to the storyboard prompt or project style leave the uploaded image current. For an AI-generated storyboard image, the ZIP includes only the current image file.
+
 The project trash is not included in a project ZIP, while a full data-root backup keeps its deletion records. For how to use the project trash, see [File View and Project Trash](./files-and-trash.md).
 
 A deleted project goes to **Deleted projects** on the project list page, together with its project trash, and is kept for 30 days. You can restore it as a whole or delete it permanently; see [Deleted projects](./files-and-trash.md#deleted-projects).

@@ -202,12 +202,12 @@ class CurrentExportVersionRetention(Enum):
     """每个资源保留选中的记录与快照：导入激活凭它独立核验 typed media 的依据，手动上传的视频也凭它认领。"""
 
     MANUAL_UPLOAD = "manual_upload"
-    """只保留选中记录是手动上传的资源：规划器凭这条记录与快照按上传本身判定时效。"""
+    """保留选中的手动上传记录及快照。分镜图与资产图的规划器凭这两项证据按上传字节判定时效。"""
 
 
 CURRENT_EXPORT_VERSION_RETENTION: Mapping[str, CurrentExportVersionRetention] = MappingProxyType(
     {
-        "storyboards": CurrentExportVersionRetention.NONE,
+        "storyboards": CurrentExportVersionRetention.MANUAL_UPLOAD,
         END_FRAME_RESOURCE_TYPE: CurrentExportVersionRetention.NONE,
         "grids": CurrentExportVersionRetention.NONE,
         CHARACTER_DERIVATIVE_RESOURCE_TYPE: CurrentExportVersionRetention.MANUAL_UPLOAD,
@@ -2130,7 +2130,7 @@ class ProjectArchiveService:
     def _untracked_current_images(self, project_dir: Path) -> list[tuple[str, str, Path]]:
         """暂存目录里没有版本记录的当前正式图片：``(资源类型, 资源 ID, 文件)``。
 
-        仅当前版本的包按 ``CURRENT_EXPORT_VERSION_RETENTION`` 裁掉生成图片的版本记录，只带当前正式文件。
+        生成图片的当前正式文件可随仅当前版本的包导入，版本记录按 ``CURRENT_EXPORT_VERSION_RETENTION`` 裁剪。
         资产图以 project.json 的资产图字段为准，其余图片取规范路径。尾帧不经存储选择，不在其列。
         """
         payload = self._load_json_file(project_dir / "versions" / "versions.json")
