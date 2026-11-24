@@ -118,6 +118,9 @@ const REVIEW_BASE = {
   episode: 1,
   content_mode: "narration",
   confirmed_at: null,
+  blocking_issues: [],
+  soft_violations: [],
+  quarantine: null,
   supported_durations: null,
   duration_tiers: null,
   episode_target_duration: null,
@@ -134,34 +137,48 @@ const planSegments = Array.from({ length: 12 }, (_, i) => ({
   props: [],
 }));
 
-const INVALID_DRAFT: ApiOverrides = {
+const BLOCKING_ISSUES: ApiOverrides = {
   ...SCRIPTED,
   [SCRIPT_REVIEW]: {
     status: 200,
     body: {
       ...REVIEW_BASE,
       status: "pending_review",
-      fingerprint: null,
-      content: null,
-      quarantine: {
-        doc_type: "narration_script_plan",
-        revision: "rev-1",
-        editable_by: "user",
-        content: { segments: planSegments },
-        violations: [
-          { code: "episode_too_long", label: "", message: `本集总时长超出目标时长的两倍。${LONG_TEXT}`, line: null },
-          { code: "missing_hook", label: "", message: "本集缺少结尾钩子。", line: null },
-          ...[0, 2, 3, 5, 7, 8, 10, 11].map((index) => ({
-            code: "duration_out_of_range",
-            label: shotId(index + 1),
-            message: `${shotId(index + 1)} 的时长不在视频模型支持的档位内。`,
-            line: null,
-            item_index: index,
-          })),
-        ],
-        soft_violations: [{ code: "long_text", params: {}, item_id: "E1S02", message: `E1S02 的原文偏长，可能难以在一个分镜里讲完。`, item_index: 1 }],
-        formal_exists: true,
-      },
+      fingerprint: "fp-blocking",
+      revision: "sha256-v1:fp-blocking",
+      content: { segments: planSegments },
+      blocking_issues: [
+        { code: "episode_too_long", label: "", message: `本集总时长超出目标时长的两倍。${LONG_TEXT}`, line: null },
+        { code: "missing_hook", label: "", message: "本集缺少结尾钩子。", line: null },
+        ...[0, 2, 3, 5, 7, 8, 10, 11].map((index) => ({
+          code: "duration_off_tier",
+          label: shotId(index + 1),
+          message: `${shotId(index + 1)} 的时长不在视频模型支持的档位内。`,
+          line: null,
+          item_index: index,
+        })),
+      ],
+      soft_violations: [
+        { code: "long_text", params: {}, item_id: "E1S02", message: "E1S02 的原文偏长，可能难以在一个分镜里讲完。", item_index: 1 },
+      ],
+    },
+  },
+};
+
+const EMPTY_PLAN_BLOCKING: ApiOverrides = {
+  ...SCRIPTED,
+  [SCRIPT_REVIEW]: {
+    status: 200,
+    body: {
+      ...REVIEW_BASE,
+      status: "pending_review",
+      fingerprint: "fp-empty",
+      revision: "sha256-v1:fp-empty",
+      content: { segments: [] },
+      blocking_issues: [
+        { code: "empty_script_plan", label: "", message: "脚本规划没有条目。添加至少一条后再确认。", line: null },
+      ],
+      soft_violations: [],
     },
   },
 };
@@ -213,64 +230,51 @@ const AD_PROJECT: ApiOverrides = {
   },
 };
 
-const draftBar = (page: Page) => page.locator("header").filter({ hasText: "待修复草稿" });
-const repairDialog = (page: Page) => page.getByRole("dialog", { name: "AI 修复草稿" });
-const discardDialog = (page: Page) => page.getByRole("alertdialog", { name: "丢弃这份草稿？" });
+const reviewBar = (page: Page) => page.locator("header").filter({ hasText: "确认阻断项" });
 const newAssets = (page: Page) => page.getByRole("region", { name: "本集新增资产" });
 const authoringDialog = (page: Page) => page.getByRole("dialog", { name: "编写提示词" });
 const adScriptDialog = (page: Page) => page.getByRole("dialog", { name: "重新生成脚本" });
 const viewer = (page: Page) => page.getByRole("dialog", { name: "分镜 1 分镜图" });
 const failureNote = (page: Page) => page.getByRole("alert").filter({ hasText: "上一次 AI 规划脚本失败" });
 
-async function draftReady(page: Page) {
-  await draftBar(page).waitFor();
+async function reviewBlockingReady(page: Page) {
+  await reviewBar(page).waitFor();
 }
 
-defineRegionScenarios("共享组件：待修复草稿与新增资产", [
+defineRegionScenarios("共享组件：确认阻断项与新增资产", [
   {
-    name: "待修复草稿：状态条列出逐条跳转，整集违约置顶，长草稿只在视图内滚动",
+    name: "确认阻断项：状态条列出逐条跳转并禁用确认，整集阻断置顶，长规划只在视图内滚动",
     path: PLAN_PATH,
-    api: INVALID_DRAFT,
-    ready: draftReady,
+    api: BLOCKING_ISSUES,
+    ready: reviewBlockingReady,
     act: async (page) => {
       await clearAgentOverlay(page);
-      const bar = draftBar(page);
-      await expect(bar.getByText("10 处违约")).toBeVisible();
+      const bar = reviewBar(page);
+      await expect(bar.getByText("10 项确认阻断项")).toBeVisible();
       await expect(bar.getByRole("button", { name: "整集 · 2" })).toBeVisible();
-      await expect(bar.getByRole("button", { name: "交给 Agent" })).toBeEnabled();
+      await expect(bar.getByRole("button", { name: "交给 Agent 处理" })).toBeEnabled();
+      await expect(bar.getByRole("button", { name: "确认并继续" })).toBeDisabled();
       await expect(page.getByText("本集缺少结尾钩子。")).toBeVisible();
+      await expect(page.getByText("降级提示")).toBeVisible();
     },
-    screenshot: { name: "shared-invalid-draft-bar", target: draftBar },
+    screenshot: { name: "shared-review-blocking-bar", target: reviewBar },
   },
   {
-    name: "待修复草稿：「AI 修复」对话框说明修复范围并接受附加指令",
+    name: "确认阻断项：空规划无条目时仍置顶展示整集阻断并支持交给 Agent 增量修复",
     path: PLAN_PATH,
-    api: INVALID_DRAFT,
-    ready: draftReady,
+    api: EMPTY_PLAN_BLOCKING,
+    ready: reviewBlockingReady,
     act: async (page) => {
       await clearAgentOverlay(page);
-      await draftBar(page).getByRole("button", { name: "AI 修复" }).click();
-      const dialog = repairDialog(page);
-      await waitForEntrance(dialog);
-      await dialog.getByRole("textbox").fill(LONG_TEXT.repeat(4));
-      await expect(dialog.getByRole("button", { name: "取消" })).toBeVisible();
+      const bar = reviewBar(page);
+      await expect(bar.getByText("1 项确认阻断项")).toBeVisible();
+      await expect(bar.getByRole("button", { name: "整集 · 1" })).toBeVisible();
+      await expect(bar.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+      await expect(page.getByText("脚本规划没有条目。添加至少一条后再确认。")).toBeVisible();
+      await bar.getByRole("button", { name: "交给 Agent 处理" }).click();
+      const composer = page.getByRole("combobox", { name: "Agent 输入" });
+      await expect(composer).toHaveValue(/patch_script_plan/);
     },
-    screenshot: { name: "shared-draft-repair-dialog", target: repairDialog },
-  },
-  {
-    name: "待修复草稿：丢弃前确认，写明丢弃后回到哪份内容",
-    path: PLAN_PATH,
-    api: INVALID_DRAFT,
-    ready: draftReady,
-    act: async (page) => {
-      await clearAgentOverlay(page);
-      await draftBar(page).getByRole("button", { name: "丢弃草稿" }).click();
-      const dialog = discardDialog(page);
-      await waitForEntrance(dialog);
-      await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
-      await expect(dialog.getByRole("button", { name: "丢弃草稿" })).toBeVisible();
-    },
-    screenshot: { name: "shared-draft-discard", target: discardDialog },
   },
   {
     name: "本集新增资产：十二项长依据，展开出场位置并打开处理方式下拉",

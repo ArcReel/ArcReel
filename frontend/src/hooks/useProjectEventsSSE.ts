@@ -41,6 +41,14 @@ const REFERENCE_ASSET_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = 
   "product",
 ]);
 
+const SCRIPT_PLAN_DEPENDENCY_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = new Set([
+  "character",
+  "scene",
+  "prop",
+  "product",
+  "project",
+]);
+
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
   "drama_scene:updated": 0,
@@ -259,9 +267,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidateEntities(
-            episodes.flatMap(({ episode }) =>
-              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
-            ),
+            episodes.flatMap(({ episode }) => [
+              buildEntityRevisionKey("script_plan", `episode_${episode}`),
+              ...DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
+            ]),
           );
           void refreshProject();
         }
@@ -298,10 +307,24 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const invalidationKeys = entityChanges.map((change) =>
           buildEntityRevisionKey(change.entity_type, change.entity_id),
         );
+        if (entityChanges.some((c) => SCRIPT_PLAN_DEPENDENCY_ENTITY_TYPES.has(c.entity_type))) {
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidationKeys.push(
+            ...episodes.map(({ episode }) => buildEntityRevisionKey("script_plan", `episode_${episode}`)),
+          );
+        }
+        for (const change of entityChanges) {
+          if (change.entity_type === "episode" && typeof change.episode === "number") {
+            invalidationKeys.push(buildEntityRevisionKey("script_plan", `episode_${change.episode}`));
+          }
+        }
         if (taskChanges.some((c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""))) {
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidationKeys.push(
-            ...episodes.map(({ episode }) => buildEntityRevisionKey("draft", `episode_${episode}_script_plan`)),
+            ...episodes.flatMap(({ episode }) => [
+              buildEntityRevisionKey("script_plan", `episode_${episode}`),
+              buildEntityRevisionKey("draft", `episode_${episode}_script_plan`),
+            ]),
           );
         }
         if (
