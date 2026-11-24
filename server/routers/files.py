@@ -12,7 +12,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import AsyncIterator, Callable
-from contextlib import ExitStack
+from contextlib import AsyncExitStack, ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -52,6 +52,7 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
@@ -487,6 +488,8 @@ async def upload_file(
                     ),
                 )
 
+        stem = name or Path(original_filename).stem
+
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
@@ -497,7 +500,6 @@ async def upload_file(
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
             target_dir = project_dir.joinpath(*spec.subdir)
-            stem = name or Path(original_filename).stem
             filename = f"{stem}.png" if spec.naming == "stable_png" else f"{stem}{ext}"
 
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -570,10 +572,18 @@ async def upload_file(
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
 
-        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
-            async with formal_commit(project_name):
-                return await run_sync_transaction(_sync)
-        return await run_sync_transaction(_sync)
+        targets = []
+        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES:
+            targets.append(AssetTarget(upload_type, stem, "image"))
+        elif upload_type == "character_ref":
+            targets.append(AssetTarget("character", stem, "image"))
+        elif spec.tracks_stale_audio and name:
+            targets.append(AssetTarget("character", name, "voice"))
+
+        async with AsyncExitStack() as storage_settlement, idle_asset_write(project_name, *targets):
+            if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+                await storage_settlement.enter_async_context(formal_commit(project_name))
+            return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -646,11 +656,12 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
 
             return {"success": True}
 
-        return await run_sync_transaction(_sync)
+        async with idle_asset_write(project_name, AssetTarget("character", name, "voice")):
+            return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception as exc:
         logger.exception("请求处理失败")
