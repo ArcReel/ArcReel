@@ -23,7 +23,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName, type EpisodeLedger } from "@/utils/episode-display";
-import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 
 interface MergeAssetDialogProps {
   open: boolean;
@@ -84,12 +84,13 @@ export function MergeAssetDialog({
     }
   }
 
-  const occupiedNames = useAssetBusyNames(assetType, projectName);
+  const sourceOccupied = useAssetBusy("whole_asset", assetType, projectName, name);
+  const targetOccupied = useAssetBusy("whole_asset", assetType, projectName, target);
   const targetBusyReason = !target
     ? null
     : writingNames?.has(target)
       ? t("assets:merge_target_writing_hint", { name: target })
-      : occupiedNames.has(target)
+      : targetOccupied
         ? t("assets:merge_target_generating_hint", { name: target })
         : null;
 
@@ -106,7 +107,7 @@ export function MergeAssetDialog({
       useAppStore.getState().pushToast(t("assets:merge_target_writing_hint", { name: writing }), "info");
       return true;
     }
-    return names.some((asset) => rejectIfAssetBusy(assetType, projectName, asset, t, "assets:merge_busy_hint"));
+    return names.some((asset) => rejectIfAssetBusy("whole_asset", assetType, projectName, asset, t, "assets:merge_busy_hint"));
   };
 
   const loadPreview = (nextTarget: string, nextAsDerivative: boolean) => {
@@ -313,7 +314,7 @@ export function MergeAssetDialog({
           <AlertDialogCancel disabled={merging}>{t("common:cancel")}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={merging || busy || targetBusyReason !== null || preview.phase !== "ready"}
+            disabled={merging || busy || sourceOccupied || targetBusyReason !== null || preview.phase !== "ready"}
             onClick={() => void executeMerge()}
           >
             {merging && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}

@@ -227,11 +227,12 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(page.getByRole("option")).toHaveText(["Cherry · 芊悦"]);
       await voice.fill("");
       await expect(page.getByRole("option")).toHaveText(["Cherry · 芊悦", "Ethan · 晨煦"]);
-      await voice.fill("my-cloned-voice");
-      await expect(voice).toHaveValue("my-cloned-voice");
-      await expect(page.getByRole("option")).toHaveCount(0);
       await voice.press("Escape");
       await expect(page.getByRole("listbox")).toBeHidden();
+      await voice.fill("my-cloned-voice");
+      await expect(page.getByRole("option")).toHaveCount(0);
+      await voice.press("Tab");
+      await expect(voice).toHaveValue("my-cloned-voice");
       await expect(dialog.getByRole("button", { name: "生成", exact: true })).toBeEnabled();
     },
   },

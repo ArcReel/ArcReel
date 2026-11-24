@@ -13,7 +13,6 @@ import { errMsg } from "@/utils/async";
 import type { CharacterDerivative } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { AssetImageDialog } from "./AssetImageDialog";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativeRow } from "./CharacterDerivativeRow";
 import { useTrackWrite } from "./useAssetWrites";
 import { useCharacterDerivativeSheets } from "./useCharacterDerivativeSheets";
@@ -158,7 +157,6 @@ function AddDerivative({
       setError(t("assets:derivative_busy_hint"));
       return;
     }
-    if (rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint")) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -182,7 +180,7 @@ function AddDerivative({
       open={open}
       onOpenChange={(next) => {
         if (!next && submitting) return;
-        if (next && rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint")) return;
+        if (next && busy) return;
         setOpen(next);
         if (!next) reset();
       }}

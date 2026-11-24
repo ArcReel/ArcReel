@@ -10,7 +10,6 @@ import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
-import { useAssetBusyNames } from "./assetBusyGuard";
 import { AssetBrowseCard } from "./AssetBrowseCard";
 import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
 import { AssetImageViewer } from "./AssetImageViewer";
@@ -52,7 +51,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
   libraryPreview,
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
-  const occupiedNames = useAssetBusyNames(assetType, projectName);
   const demo = useDemoWorkbench();
   const rows = useAssetSheetStatus(projectName, !demo);
   const statusByName = useSheetStatusByName(rows, assetType);
@@ -103,7 +101,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
     .map(({ asset }) => asset)
     .filter((asset) => asset.sheetPath !== null && statusByName.get(asset.name)?.status !== "missing");
   if (viewName !== null && !viewable.some((asset) => asset.name === viewName)) setViewName(null);
-  const viewerBusy = new Set([...writingNames, ...occupiedNames]);
+  const viewerBusy = new Set(writingNames);
   generatingNames?.forEach((name) => viewerBusy.add(name));
   const editFromViewer = (name: string) => {
     setViewName(null);
@@ -164,7 +162,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
                     sheetStatus={row}
                     marker={markerOf(asset, row, generating)}
                     generating={generating}
-                    busy={occupiedNames.has(asset.name)}
                     readOnly={readOnly}
                     libraryPreview={previews?.get(asset.name)}
                     onOpen={openAsset}

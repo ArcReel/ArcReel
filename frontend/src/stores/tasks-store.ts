@@ -12,6 +12,7 @@ const LOOKUP_TIMEOUT_MS = 10_000;
 export type ResourceKind =
   | "character"
   | "character_derivative"
+  | "voice_sample"
   | "scene"
   | "prop"
   | "product"
@@ -381,10 +382,8 @@ export const SCRIPT_PLAN_TASK_TYPES: ReadonlySet<string> = new Set([
 
 export function taskResourceKind(task: TaskItem): ResourceKind | "" {
   if (task.task_type === "image_edit") {
-    return (task.resource_type as ResourceKind | null) ?? "";
-  }
-  if (task.task_type === "voice_sample") {
-    return "character";
+    const kind = task.resource_type ?? task.payload.resource_type;
+    return typeof kind === "string" ? kind as ResourceKind : "";
   }
   if (SCRIPT_PLAN_TASK_TYPES.has(task.task_type)) {
     return "text_script_plan";

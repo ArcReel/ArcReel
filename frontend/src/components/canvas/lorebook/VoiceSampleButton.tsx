@@ -20,7 +20,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { isTerminalStatus } from "@/types";
-import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { isAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
 
@@ -46,7 +46,7 @@ export function VoiceSampleButton({
 }: VoiceSampleButtonProps) {
   const { t } = useTranslation("dashboard");
   const track = useTrackWrite();
-  const occupied = useAssetBusyNames("character", projectName).has(characterName);
+  const occupied = useAssetBusy("voice", "character", projectName, characterName);
   const [open, setOpen] = useState(false);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesConfigured, setVoicesConfigured] = useState(true);
@@ -103,7 +103,7 @@ export function VoiceSampleButton({
 
   const openModal = () => {
     if (disabled) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
@@ -141,7 +141,7 @@ export function VoiceSampleButton({
     const trimmed = text.trim();
     const voice = selectedVoice.trim();
     if (!trimmed || !voice || generating || confirming) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
@@ -160,7 +160,7 @@ export function VoiceSampleButton({
 
   const handleConfirm = async () => {
     if (!taskId || !succeeded || confirming) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }

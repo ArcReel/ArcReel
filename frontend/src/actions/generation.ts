@@ -192,7 +192,7 @@ export async function enqueueCharacterVoiceSample(
   voice: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
-    [markResource(projectName, "character", name, "voice_sample")],
+    [markResource(projectName, "voice_sample", name, "voice_sample")],
     () => API.generateCharacterVoiceSample(projectName, name, text, voice),
     oneTaskId,
   );

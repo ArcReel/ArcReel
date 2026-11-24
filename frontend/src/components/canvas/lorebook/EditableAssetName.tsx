@@ -19,7 +19,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { useTrackWrite } from "./useAssetWrites";
-import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 
 interface EditableAssetNameProps {
   projectName: string;
@@ -48,7 +48,7 @@ export function EditableAssetName({
   const [renaming, setRenaming] = useState(false);
   const track = useTrackWrite();
   const inputRef = useRef<HTMLInputElement>(null);
-  const queueBusy = useAssetBusyNames(assetType, projectName).has(name);
+  const queueBusy = useAssetBusy("whole_asset", assetType, projectName, name);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -67,7 +67,7 @@ export function EditableAssetName({
       useAppStore.getState().pushToast(t("assets:rename_busy_hint"), "info");
       return true;
     }
-    return rejectIfAssetBusy(assetType, projectName, name, t, "assets:rename_busy_hint");
+    return rejectIfAssetBusy("whole_asset", assetType, projectName, name, t, "assets:rename_busy_hint");
   };
 
   const enterEdit = () => {
@@ -133,7 +133,7 @@ export function EditableAssetName({
           variant="ghost"
           size="icon-sm"
           onClick={enterEdit}
-          disabled={busy || renaming}
+          disabled={busy || queueBusy || renaming}
           aria-label={t("assets:rename_asset")}
         >
           <Pencil aria-hidden />

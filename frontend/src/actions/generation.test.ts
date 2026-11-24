@@ -13,6 +13,7 @@ import {
 import {
   enqueueAssetSheetBatch,
   enqueueCharacter,
+  enqueueCharacterVoiceSample,
   enqueueEpisodeNarration,
   enqueueGrid,
   enqueueGridRegenerate,
@@ -158,6 +159,13 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
       run: () => enqueueCharacter("demo", "Hero"),
       method: "generateCharacter" as const,
       kind: "character" as const,
+      resourceId: "Hero",
+    },
+    {
+      label: "voice sample",
+      run: () => enqueueCharacterVoiceSample("demo", "Hero", "试听", "Cherry"),
+      method: "generateCharacterVoiceSample" as const,
+      kind: "voice_sample" as const,
       resourceId: "Hero",
     },
     {
