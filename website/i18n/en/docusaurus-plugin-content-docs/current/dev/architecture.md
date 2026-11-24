@@ -89,6 +89,8 @@ Clients can use `GET /api/v1/tasks/active` to read queued and running tasks. The
 
 `POST /api/v1/tasks/lookup` takes a `task_ids` string array and an optional `project_name`. Each ID is processed once, and requests with more than 200 distinct IDs return HTTP 400. The `items` field follows the visibility and localization rules of the single-task endpoint. `missing_ids` contains IDs that do not exist or are outside the lookup scope. Task rows report `updated_at` in UTC ISO 8601 with microsecond precision. Retrying a download moves the task back to running with a strictly later timestamp than the failed row. See [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md).
 
+Project asset writes and generation requests share an asset admission lock. If an upload, provider asset import, version restore, or asset identity change conflicts with an active task, the API returns HTTP 409 with the code `asset_resource_busy`. Retry after the task using the target finishes. Character sheets and reference audio have independent checks. Asset merges check both the source and the retained asset. Text edits, unchanged field values, voice notice acknowledgements, appending product reference images, and `dry_run` previews can proceed during generation.
+
 Task identity correlates results and costs. A resumed video task looks up the original job using its submitted context, avoiding a second submission and charge. See [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) and the [provider standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md).
 
 ### Provider abstraction {#provider-abstraction}

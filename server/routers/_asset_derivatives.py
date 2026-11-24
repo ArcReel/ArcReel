@@ -21,7 +21,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
+from lib.infra.api_errors import ApiError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project import asset_trash
 from lib.project.asset_derivatives import ensure_derivative_table, find_derivative_name
@@ -110,6 +111,8 @@ def register_derivative_routes(
         write: Callable[[ProjectManager, Callable[[Path], None]], dict[str, Any]],
         _t: Translator,
         on_commit: Callable[[ProjectManager, str], None] | None = None,
+        *,
+        guarded_derivative: str | None = None,
     ) -> dict[str, Any]:
         """跑一次衍生写入，把领域异常映射为面向用户的响应。
 
@@ -130,7 +133,13 @@ def register_derivative_routes(
 
                     return write(manager, _commit)
 
-            return await run_sync_transaction(_sync)
+            targets = (
+                ()
+                if guarded_derivative is None
+                else (AssetTarget(asset_type, entry_name, "derivative_image", guarded_derivative),)
+            )
+            async with idle_asset_write(project_name, *targets):
+                return await run_sync_transaction(_sync)
         except _DerivativeExists as exc:
             raise UnprocessableError("asset_derivative_already_exists", name=exc.name) from exc
         except _DerivativeMissing as exc:
@@ -147,7 +156,7 @@ def register_derivative_routes(
             raise HTTPException(status_code=404, detail=_t(not_found_key, name=entry_name)) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        except HTTPException:
+        except (HTTPException, ApiError):
             raise
         except Exception as exc:
             logger.exception("请求处理失败")
@@ -226,7 +235,7 @@ def register_derivative_routes(
             except AssetRenameConflictError as exc:
                 raise _DerivativeExists(exc.conflict_name) from exc
 
-        result = await _run(project_name, entry_name, _write, _t)
+        result = await _run(project_name, entry_name, _write, _t, guarded_derivative=derivative_name)
         return {"success": True, asset_type: result}
 
     @router.delete(f"{base}/{{derivative_name}}")
@@ -263,5 +272,5 @@ def register_derivative_routes(
         def _trash(manager: ProjectManager, owner_key: str) -> None:
             asset_trash.trash_asset_derivative(manager.get_project_path(project_name), owner_key, deleted[0], before)
 
-        await _run(project_name, entry_name, _write, _t, _trash)
+        await _run(project_name, entry_name, _write, _t, _trash, guarded_derivative=derivative_name)
         return {"success": True, "message": _t("asset_derivative_deleted", name=derivative_name)}

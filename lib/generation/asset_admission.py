@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy import case, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.task import BatchTask, Task
 from lib.db.repositories.task_repo import ACTIVE_TASK_STATUSES
@@ -111,3 +111,26 @@ async def require_asset_idle(
             if member is not None:
                 continue
         raise AssetResourceBusy()
+
+
+async def check_asset_write(
+    project_name: str, *targets: AssetTarget, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> None:
+    """Check occupancy while the caller holds the admission locks for all targets."""
+    from lib.db import async_session_factory
+
+    async with (session_factory or async_session_factory)() as session:
+        for target in targets:
+            await require_asset_idle(session, project_name, target)
+
+
+@asynccontextmanager
+async def idle_asset_write(
+    project_name: str, *targets: AssetTarget, session_factory: async_sessionmaker[AsyncSession] | None = None
+) -> AsyncGenerator[None]:
+    if not targets:
+        yield
+        return
+    async with asset_admission_locks(project_name, *targets):
+        await check_asset_write(project_name, *targets, session_factory=session_factory)
+        yield

@@ -97,6 +97,7 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
+from lib.generation.asset_admission import AssetResourceBusy
 from lib.generation.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
@@ -224,6 +225,7 @@ from server.draft_workflow import (
 from server.services.admission.image_references import project_image_lane
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.admission.video_batch_admission import generation_action_for
+from server.services.project.asset_identity import merge_project_asset, rename_project_asset
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -3808,19 +3810,20 @@ async def merge_asset(
 ) -> ToolOutcome[MergeAssetResult]:
     value = request.value
 
-    def _merge() -> tuple[AssetMergeReport, dict[str, Any]]:
-        report = services.projects.merge_asset(
+    try:
+        report = await merge_project_asset(
+            services.projects,
             scope.project_name,
             value.table,
             value.source,
             value.target,
             as_derivative=value.as_derivative,
             dry_run=value.dry_run,
+            session_factory=services.sessions,
         )
-        return report, services.projects.load_project(scope.project_name)
-
-    try:
-        report, project = await _run_sync_transaction(_merge)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
+    except AssetResourceBusy as exc:
+        return ToolOutcome(problem=ToolProblem(exc.key, i18n_message(exc.key)))
     except AssetMergeNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", f"{value.table} 中不存在名为 {exc.name!r} 的资产"))
     except AssetMergeRejectedError as exc:
@@ -3865,13 +3868,16 @@ async def rename_asset(
 ) -> ToolOutcome[RenameAssetResult]:
     value = request.value
     try:
-        report = await _run_sync_transaction(
-            services.projects.rename_asset,
+        report = await rename_project_asset(
+            services.projects,
             scope.project_name,
             value.table,
             value.old_name,
             value.new_name,
+            session_factory=services.sessions,
         )
+    except AssetResourceBusy as exc:
+        return ToolOutcome(problem=ToolProblem(exc.key, i18n_message(exc.key)))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("rename_asset", exc))
     message = (

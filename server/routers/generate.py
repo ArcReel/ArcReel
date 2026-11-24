@@ -25,6 +25,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.video_request_facts import (
@@ -671,7 +672,8 @@ async def confirm_character_voice_sample(
 
         return {"path": ref_audio_rel}
 
-    saved = await run_sync_transaction(_sync)
+    async with idle_asset_write(project_name, AssetTarget("character", char_name, "voice")):
+        saved = await run_sync_transaction(_sync)
     return {
         "success": True,
         "path": saved["path"],
