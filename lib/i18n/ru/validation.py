@@ -453,6 +453,8 @@ MESSAGES = {
     "draft_violation_duration_off_tier": "{label}: длительность {duration} с не входит в допустимые значения {tiers}. Выберите допустимую длительность; если подтверждённое значение больше не поддерживается, измените ссылки или заново разделите план сценария.",
     "draft_violation_invalid_segment_id": "{label}: segment_id должен иметь формат E{episode}S## и соответствовать номеру эпизода.",
     "draft_violation_duplicate_segment_id": "Повторяющиеся segment_id: {ids}. ID каждого кадра должен быть уникален в эпизоде.",
+    "draft_violation_duplicate_scene_id": "Повторяющиеся scene_id: {ids}. ID каждого кадра должен быть уникален в эпизоде.",
+    "draft_violation_duplicate_unit_id": "Повторяющиеся unit_id: {ids}. ID каждой видеоединицы должен быть уникален в эпизоде.",
     "draft_violation_blank_novel_text": "{label}: novel_text пуст. Каждый кадр должен содержать закадровый текст, дословно взятый из оригинала.",
     "draft_violation_novel_text_coverage": "novel_text кадров не покрывает оригинал полностью, дословно и по порядку. Источник: {source}. Скопируйте и соедините фрагменты по порядку; если диапазон источника черновика указан неверно, сначала исправьте его.",
     "draft_violation_schema_invalid": "{path} черновика не соответствует структуре результата: {detail}. Проверьте обязательные поля, типы и значения.",

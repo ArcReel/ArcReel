@@ -15,12 +15,37 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from pydantic import ValidationError
 
-if TYPE_CHECKING:
-    from lib.speech.speech_composition import SpeechProblem
+
+class _EnumValue(Protocol):
+    @property
+    def value(self) -> str: ...
+
+
+class _SpeechProblemLocation(Protocol):
+    @property
+    def path(self) -> Sequence[str | int]: ...
+
+    @property
+    def line(self) -> int | None: ...
+
+
+class _SpeechProblemLike(Protocol):
+    @property
+    def code(self) -> _EnumValue: ...
+
+    @property
+    def reason(self) -> _EnumValue: ...
+
+    @property
+    def action(self) -> _EnumValue: ...
+
+    @property
+    def locations(self) -> Sequence[_SpeechProblemLocation]: ...
+
 
 DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
 
@@ -80,7 +105,7 @@ class DraftViolation(ValueError):
         self.params = params
 
 
-def speech_problem_violation(problem: SpeechProblem, *, label: str) -> DraftViolation:
+def speech_problem_violation(problem: _SpeechProblemLike, *, label: str) -> DraftViolation:
     locations = ", ".join(
         ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
         for location in problem.locations

@@ -659,6 +659,32 @@ async def test_prompt_authoring_refuses_a_speaker_the_formal_unit_did_not_have(r
         await gen.generate(episode=1)
 
 
+@pytest.mark.parametrize("i2v_limit", [1, 2])
+async def test_prompt_authoring_only_retries_a_speaker_limit_when_another_bucket_can_fit(
+    reference_project: Path, set_video_request_facts, i2v_limit: int
+) -> None:
+    set_video_request_facts(
+        {
+            bucket: make_video_request_facts(
+                route="reference_video",
+                generation_type=bucket,
+                voice_consistency="native",
+                max_reference_audio_count=limit,
+            )
+            for bucket, limit in (("r2v", 1), ("i2v", i2v_limit))
+        }
+    )
+    _claim_character_sheet(reference_project, "主角")
+    text = "@[主角] 推门\n@[主角]{来了。}\n@[路人]{好。}"
+    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": text}])
+    generator = _fake_prompt_authoring_generator(text)
+    gen = ScriptGenerator(reference_project, generator=generator)
+    with pytest.raises(ValueError, match="说话人"):
+        await gen.generate(episode=1)
+    assert generator.generate.await_count == i2v_limit
+    assert _formal_units(reference_project)["E1U01"]["text"] == text
+
+
 @pytest.mark.asyncio
 async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path):
     """drama 项目下转换出的参考生视频剧本 content_mode 必须为 drama。

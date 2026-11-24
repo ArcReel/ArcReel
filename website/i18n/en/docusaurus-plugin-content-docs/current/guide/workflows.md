@@ -296,7 +296,7 @@ Use these stages to plan review and production. In Narration or Drama, confirm t
 
 When generating a script plan for Narration or Drama, the model uses the duration tiers supported by the current video model, and ArcReel assigns the storyboard IDs. For reference-to-video plans, ArcReel converts full-width braces in the model output to ASCII braces so it can recognize dialogue and voice-over markers.
 
-ArcReel saves a structurally valid first script plan and lists any issues that block confirmation in the generation result. You can save edits in Content Review and confirm once every blocking issue is resolved. If a plan already exists, a regenerated plan must pass validation before it can replace it. You can continue editing the existing plan after a failed regeneration.
+ArcReel saves a structurally valid first script plan and lists any issues that block confirmation in the generation result. You can save edits in Content Review and confirm once every blocking issue is resolved. If a plan already exists, a regenerated plan must pass validation before it can replace it. After a failed regeneration, you can still edit an unconfirmed plan in Content Review. A confirmed plan stays read-only. Edit the formal script to make further changes.
 
 You can ask an agent to make targeted edits to an unconfirmed script plan. Both the built-in agent and external agents connected over MCP can read the current revision with `get_script_plan_content` and submit edits with `patch_script_plan`. The result includes the current issues that block confirmation. After content review, agents use `patch_episode_script` to edit the formal script.
 

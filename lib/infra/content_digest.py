@@ -22,6 +22,7 @@ from pathlib import Path
 HASH_ALGORITHM = "sha256-v1"
 CONTENT_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 PREFIXED_DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
+OPTIONAL_PREFIXED_DIGEST_PATTERN = rf"^(?:{HASH_ALGORITHM}:)?[0-9a-f]{{64}}$"
 
 CHUNK_BYTES = 1024 * 1024
 

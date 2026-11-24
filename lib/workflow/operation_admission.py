@@ -135,6 +135,10 @@ def admit_script_plan(content_mode: object, *, episode_source: bool) -> Operatio
     return ADMITTED if episode_source else _refused(AdmissionReason.EPISODE_SOURCE_MISSING)
 
 
+def uses_reference_unit_authoring(content_mode: object, generation_mode: object) -> bool:
+    return content_mode != "ad" and generation_mode == "reference_video"
+
+
 def admit_author_prompts(
     *,
     formal_script: bool,

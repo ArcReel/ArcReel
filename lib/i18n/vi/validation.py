@@ -466,6 +466,8 @@ MESSAGES = {
     "draft_violation_duration_off_tier": "{label}: thời lượng {duration} giây không thuộc các mức hỗ trợ {tiers}. Chọn mức được hỗ trợ; nếu thời lượng đã xác nhận không còn phù hợp, chỉnh tham chiếu hoặc chia lại kế hoạch kịch bản.",
     "draft_violation_invalid_segment_id": "{label}: segment_id phải có định dạng E{episode}S## và khớp số tập.",
     "draft_violation_duplicate_segment_id": "segment_id trùng lặp: {ids}. ID mỗi cảnh phải là duy nhất trong tập.",
+    "draft_violation_duplicate_scene_id": "scene_id trùng lặp: {ids}. ID mỗi cảnh phải là duy nhất trong tập.",
+    "draft_violation_duplicate_unit_id": "unit_id trùng lặp: {ids}. ID mỗi đơn vị video phải là duy nhất trong tập.",
     "draft_violation_blank_novel_text": "{label}: novel_text trống. Mỗi cảnh phải có lời dẫn sao chép nguyên văn từ bản gốc.",
     "draft_violation_novel_text_coverage": "novel_text các cảnh không bao phủ nguyên văn đầy đủ và đúng thứ tự. Nguồn: {source}. Sao chép và nối theo thứ tự; nếu phạm vi nguồn của bản nháp sai, hãy cập nhật trước.",
     "draft_violation_schema_invalid": "{path} của bản nháp không đúng cấu trúc đầu ra: {detail}. Kiểm tra trường bắt buộc, kiểu và giá trị.",

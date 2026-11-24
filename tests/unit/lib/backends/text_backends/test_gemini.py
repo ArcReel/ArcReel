@@ -237,31 +237,12 @@ class TestGenerate:
         """
         from google.genai import types as gtypes
 
-        from lib.script.script_models import (
-            AdReferenceFlatScript,
-            ReferenceAuthoringResponse,
-            ReferencePromptAuthoringFlatScript,
-            build_drama_script_plan_model,
-            build_episode_script_model,
-            build_narration_script_plan_model,
-            build_reference_units_script_plan_model,
-        )
+        from lib.script.script_models import build_episode_script_model
 
-        schemas = [
+        schemas = response_schema_models() + [
             build_episode_script_model(mode, durations)
             for mode in ("narration", "drama", "ad")
             for durations in ([4, 6, 8], [8])
-        ]
-        schemas += [
-            AdReferenceFlatScript,
-            build_drama_script_plan_model([4, 6, 8]),
-            build_drama_script_plan_model([8]),
-            build_narration_script_plan_model([4, 6, 8]),
-            build_narration_script_plan_model([8]),
-            build_reference_units_script_plan_model([4, 6, 8]),
-            build_reference_units_script_plan_model([8]),
-            ReferenceAuthoringResponse,
-            ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -34,6 +35,25 @@ from lib.config.resolver import (
 )
 
 VideoRoute = Literal["storyboard", "reference_video"]
+
+
+def plan_capability_inputs(project: Mapping[str, object]) -> tuple[object, ...]:
+    return tuple(
+        project.get(key)
+        for key in (
+            "content_mode",
+            "generation_mode",
+            "video_backend",
+            "video_provider_i2v",
+            "video_provider_r2v",
+            "model_settings",
+            "video_model_settings",
+            "video_generate_audio",
+            "default_duration",
+            "character_voice_binding",
+        )
+    )
+
 
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
 

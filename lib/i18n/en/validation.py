@@ -458,6 +458,8 @@ MESSAGES = {
     "draft_violation_duration_off_tier": "{label}: duration {duration}s is outside supported tiers {tiers}. Choose a supported duration; if a confirmed duration is no longer supported, adjust references or split the script plan again.",
     "draft_violation_invalid_segment_id": "{label}: segment_id must use E{episode}S## and match the episode number.",
     "draft_violation_duplicate_segment_id": "Duplicate segment_id values: {ids}. Each shot ID must be unique within the episode.",
+    "draft_violation_duplicate_scene_id": "Duplicate scene_id values: {ids}. Each shot ID must be unique within the episode.",
+    "draft_violation_duplicate_unit_id": "Duplicate unit_id values: {ids}. Each video unit ID must be unique within the episode.",
     "draft_violation_blank_novel_text": "{label}: novel_text is blank. Each shot must contain narration copied verbatim from the original.",
     "draft_violation_novel_text_coverage": "Shot novel_text does not cover the original verbatim, completely, and in order. Source: {source}. Copy and join passages in order; if the draft source range is wrong, update it first.",
     "draft_violation_schema_invalid": "Draft {path} does not match the output structure: {detail}. Check required fields, types, and values.",

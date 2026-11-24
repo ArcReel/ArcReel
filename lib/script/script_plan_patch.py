@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from lib.infra.content_digest import prefixed, unprefixed
+from lib.infra.content_digest import OPTIONAL_PREFIXED_DIGEST_PATTERN, prefixed, unprefixed
 from lib.script.item_ids import ItemIdIssuer, max_item_number
 from lib.script.patch_operations import (
     PatchInsertOperation,
@@ -79,7 +79,7 @@ class PatchScriptPlanRequest(BaseModel):
 
     episode_id: int = Field(ge=1, strict=True, description="分集账本中的集 ID")
     base_revision: str = Field(
-        pattern=r"^(?:sha256-v1:)?[0-9a-f]{64}$",
+        pattern=OPTIONAL_PREFIXED_DIGEST_PATTERN,
         description="get_script_plan_content 返回的 revision，带前缀与裸 hex 等价",
     )
     operations: list[ScriptPlanOperation] = Field(min_length=1, description="按顺序执行，整批原子提交")

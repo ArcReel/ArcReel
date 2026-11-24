@@ -2587,7 +2587,8 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
     assert status.next_action.args["episode_id"] == 1
 
 
-def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy_draft", [False, True])
+def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path, legacy_draft: bool) -> None:
     """参考生视频确认后单元全部待编写：下一步补写单元，而不是直接进入生成。"""
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source(pm, project_path)
@@ -2618,9 +2619,15 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
         },
     )
 
+    if legacy_draft:
+        from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING, write_quarantine
+
+        write_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={}, violations=[])
     status = WorkflowStateService(pm).get_status("demo")
+    assert status.operations["author_prompts"].state == "admitted"
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1U01"]
+    assert bool(status.content.drafts) is legacy_draft
 
 
 def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:

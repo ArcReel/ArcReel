@@ -37,7 +37,9 @@ from lib.script.reference_video.script_preview import (
 )
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.script.script_models import NARRATION_PLAN_SEGMENT_ID_PATTERN
 from lib.script.script_plan_entries import ScriptPlanKind, entry_id_field, plan_variant
+from lib.script.script_skeleton import rewrite_episode_prefix
 from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import project_speech_rate_override
 
@@ -175,6 +177,17 @@ def _reference_unit_id(episode: int, index: int, unit_ids: Sequence[str] | None 
     return f"E{episode}U{index:02d}"
 
 
+def _duplicate_plan_ids(entries: Sequence[Any], *, id_field: str, episode: int) -> list[str]:
+    ids = [entry[id_field] for entry in entries if isinstance(entry, dict) and isinstance(entry.get(id_field), str)]
+    raw_dupes = {item_id for item_id, count in Counter(ids).items() if count > 1}
+    rewritten_dupes = {
+        item_id
+        for item_id, count in Counter(str(rewrite_episode_prefix(raw_id, episode)) for raw_id in ids).items()
+        if count > 1
+    }
+    return sorted(raw_dupes | rewritten_dupes)
+
+
 def collect_reference_flat_violations(
     flat_units: list[dict[str, Any]],
     project: dict[str, Any],
@@ -204,6 +217,14 @@ def collect_reference_flat_violations(
     planning = planning_project(project, new_assets)
     hydrations = hydrate_reference_units(planning, project_path, flat_units)
     violations: list[DraftViolation] = []
+    if dupes := _duplicate_plan_ids(flat_units, id_field="unit_id", episode=episode):
+        violations.append(
+            DraftViolation(
+                f"unit_id 重复: {dupes}；每个视频单元的 ID 须全集唯一",
+                code="duplicate_unit_id",
+                params={"ids": dupes},
+            )
+        )
     for index, (flat, hydration) in enumerate(zip(flat_units, hydrations, strict=True), start=1):
         unit_id = flat.get("unit_id") or _reference_unit_id(episode, index)
         label = f"unit {unit_id}"
@@ -424,10 +445,14 @@ def collect_narration_violations(
     """
     violations: list[DraftViolation] = []
 
-    expected_id = re.compile(rf"E{episode}S\d{{2,}}")
+    prefix = f"E{episode}S"
     for index, segment in enumerate(segments):
         segment_id = segment.get("segment_id")
-        if not isinstance(segment_id, str) or expected_id.fullmatch(segment_id) is None:
+        if (
+            not isinstance(segment_id, str)
+            or not segment_id.startswith(prefix)
+            or re.fullmatch(NARRATION_PLAN_SEGMENT_ID_PATTERN, segment_id) is None
+        ):
             label = _narration_segment_label(segment, index)
             violations.append(
                 DraftViolation(
@@ -544,9 +569,17 @@ class ScriptPlanValidation:
 
 
 def _drama_content_violations(
-    scenes: list[dict[str, Any]], durations: Sequence[int] | None, source_text: str | None
+    scenes: list[dict[str, Any]], durations: Sequence[int] | None, source_text: str | None, *, episode: int
 ) -> list[DraftViolation]:
     issues: list[DraftViolation] = []
+    if dupes := _duplicate_plan_ids(scenes, id_field="scene_id", episode=episode):
+        issues.append(
+            DraftViolation(
+                f"scene_id 重复: {dupes}；每个分镜的 ID 须全集唯一",
+                code="duplicate_scene_id",
+                params={"ids": dupes},
+            )
+        )
     for index, scene in enumerate(scenes):
         scene_id = scene["scene_id"]
         label = f"scene {scene_id}"
@@ -655,6 +688,8 @@ def validate_script_plan(
     else:
         issues.extend(collect_drama_violations(entries, project=project, new_assets=assets))
         issues.extend(
-            _drama_content_violations(entries, capabilities if isinstance(capabilities, list) else None, source.text)
+            _drama_content_violations(
+                entries, capabilities if isinstance(capabilities, list) else None, source.text, episode=episode
+            )
         )
     return ScriptPlanValidation(issues, soft)

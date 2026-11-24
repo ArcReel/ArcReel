@@ -335,8 +335,11 @@ class _NarrationPlanSegmentFields(BaseModel):
     props: list[str] = Field(description="出场道具名称列表；无则显式写 []")
 
 
+NARRATION_PLAN_SEGMENT_ID_PATTERN = r"^E[1-9]\d*S\d{2,}$"
+
+
 class NarrationScriptPlanSegment(_NarrationPlanSegmentFields):
-    segment_id: str = Field(pattern=r"^E[1-9]\d*S\d{2,}$", description="分镜 ID，格式 E{集}S##")
+    segment_id: str = Field(pattern=NARRATION_PLAN_SEGMENT_ID_PATTERN, description="分镜 ID，格式 E{集}S##")
 
 
 class _NarrationModelOutputSegment(_NarrationPlanSegmentFields):

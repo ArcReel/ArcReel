@@ -332,7 +332,9 @@ def quarantine_exists(project_path: Path, episode: int, kind: str) -> bool:
     return quarantine_path(project_path, episode, kind).exists()
 
 
-def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_activity: bool = True) -> bool:
+def clear_quarantine(
+    project_path: Path, episode: int, kind: str, *, record_activity: bool = True, announce: bool = True
+) -> bool:
     """晋升成功后清除草稿，返回是否真的删掉了文件；删掉时推进项目活动。丢弃草稿走 :func:`lib.script.planning_draft_trash.discard_quarantine`。
 
     缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。在外层写事务内清除时传
@@ -344,7 +346,8 @@ def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_acti
         path.unlink()
     except FileNotFoundError:
         return False
-    announce_draft_change(project_path, path)
+    if announce:
+        announce_draft_change(project_path, path)
     if record_activity:
         record_project_activity(project_path)
     return True

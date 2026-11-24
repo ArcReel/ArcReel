@@ -302,6 +302,8 @@ async def test_prompt_authoring_zero_writes_persist_terminal_state(monkeypatch, 
         "episode_1.json",
     )
     activate_artifact_target_state(project_path, bump_schema=False)
+    script_path = project_path / "scripts/episode_1.json"
+    before = script_path.read_bytes()
     bad = '{"units":[{"unit_id":"E1U01","text":"@[未登记角色] 起身"}]}'
     model = FakeTextGenerator(bad, bad)
     use_text_generator(monkeypatch, model.create)
@@ -335,6 +337,7 @@ async def test_prompt_authoring_zero_writes_persist_terminal_state(monkeypatch, 
         assert task["result"]["no_pending_authoring"] is True
         assert not model.requests
     assert read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING) is None
+    assert script_path.read_bytes() == before
 
 
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
@@ -1279,22 +1282,22 @@ async def test_cancel_during_first_blocked_plan_write_finishes_registration(
         queue=queue,
     )
     try:
-        submitted = await generate_script_plan(
-            ToolRequest(GenerateScriptPlanRequest(episode_id=1)),
-            ProjectScope(project_name=project_name, data_root=projects.data_root),
-            CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
-            services,
-        )
-        assert submitted.value is not None
-        batch_id = submitted.value.batch_id
-        task_id = submitted.value.members[0].task_id
-        assert task_id is not None
-        assert await asyncio.to_thread(started.wait, 1)
-        cancelled = await queue.cancel_generation_batch(project_name=project_name, batch_id=batch_id)
-        assert cancelled.model_dump() == {"cancelled": [], "skipped_running": [task_id], "skipped_terminal": []}
-    finally:
-        release.set()
-    try:
+        try:
+            submitted = await generate_script_plan(
+                ToolRequest(GenerateScriptPlanRequest(episode_id=1)),
+                ProjectScope(project_name=project_name, data_root=projects.data_root),
+                CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
+                services,
+            )
+            assert submitted.value is not None
+            batch_id = submitted.value.batch_id
+            task_id = submitted.value.members[0].task_id
+            assert task_id is not None
+            assert await asyncio.to_thread(started.wait, 1)
+            cancelled = await queue.cancel_generation_batch(project_name=project_name, batch_id=batch_id)
+            assert cancelled.model_dump() == {"cancelled": [], "skipped_running": [task_id], "skipped_terminal": []}
+        finally:
+            release.set()
         task = await wait_for_task(task_id, 0.01, queue=queue)
     finally:
         await worker.stop()
@@ -1302,6 +1305,9 @@ async def test_cancel_during_first_blocked_plan_write_finishes_registration(
     assert task["status"] == "succeeded"
     assert [issue["code"] for issue in task["result"]["blocking_issues"]] == ["unregistered_asset"]
     assert formal_path.is_file()
+    entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_script_plan(1))
+    assert entry is not None
+    assert entry.artifact_path == formal_path.relative_to(project_path).as_posix()
     assert not draft_path.exists()
     batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
     assert batch.done is True
@@ -1423,7 +1429,9 @@ async def test_missing_text_default_during_draft_repair_keeps_original_bytes(
     )
 
 
-@pytest.mark.parametrize("race", ["before_retry", "after_reply", "complete", "partial", "provider_error"])
+@pytest.mark.parametrize(
+    "race", ["before_retry", "after_reply", "after_reply_caps", "complete", "partial", "provider_error"]
+)
 @pytest.mark.usefixtures("video_request_facts")
 async def test_reference_authoring_partial_commit_and_accounting(file_db_factory, monkeypatch, race):
     from unittest.mock import AsyncMock
@@ -1494,6 +1502,10 @@ async def test_reference_authoring_partial_commit_and_accounting(file_db_factory
             result = await super().generate(*args, **kwargs)
             if race == "after_reply" and backend.generate.await_count == 2:
                 await run_sync_transaction(external_edit)
+            if race == "after_reply_caps" and backend.generate.await_count == 2:
+                await run_sync_transaction(
+                    projects.update_project, "demo", lambda data: data.update(default_duration=6)
+                )
             return result
 
     generator = EditingGenerator(
@@ -1503,7 +1515,6 @@ async def test_reference_authoring_partial_commit_and_accounting(file_db_factory
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     services = Services(projects, object(), ConfigResolver(async_session_factory), queue)
     scope = ProjectScope(project_name="demo", data_root=projects.data_root)
-    unregister = register_project_change_listener(after_write)
 
     async def execute(task, *, claimed_provider_id=None):
         return await execute_queued_text_task(task)
@@ -1518,16 +1529,19 @@ async def test_reference_authoring_partial_commit_and_accounting(file_db_factory
             rewrite=True,
             overwrite_revision=content_fingerprint(path),
         )
-    worker = await _start_text_worker(queue, execute)
+    unregister = register_project_change_listener(after_write)
     try:
-        outcome = await generate_episode_script(
-            ToolRequest(request),
-            scope,
-            CallerContext(user_id=DEFAULT_USER_ID, source="embedded"),
-            services,
-        )
+        worker = await _start_text_worker(queue, execute)
+        try:
+            outcome = await generate_episode_script(
+                ToolRequest(request),
+                scope,
+                CallerContext(user_id=DEFAULT_USER_ID, source="embedded"),
+                services,
+            )
+        finally:
+            await worker.stop()
     finally:
-        await worker.stop()
         unregister()
     assert outcome.problem is None, outcome.problem
     expected_ids = (
@@ -1562,6 +1576,11 @@ async def test_reference_authoring_partial_commit_and_accounting(file_db_factory
     saved = json.loads(path.read_text())["video_units"]
     assert saved[0]["text"] == "晨光中的街道"
     assert "pending_authoring" not in saved[0]
+    saved_by_id = {unit["unit_id"]: unit for unit in saved}
+    for unit_id in expected_ids[1:]:
+        unit = saved_by_id[unit_id]
+        assert unit["text"] == f"晨光{unit_id.removeprefix('E1U')}"
+        assert "pending_authoring" not in unit
     assert saved[-1]["text"] == units[-1]["text"]
     if race == "partial":
         assert saved[1] == units[1]
@@ -1569,8 +1588,15 @@ async def test_reference_authoring_partial_commit_and_accounting(file_db_factory
     if race in {"before_retry", "after_reply"}:
         assert saved[-1]["note"] == "人工修改"
         assert saved[1:4] == units[1:4]
-        assert {f["code"] for f in member["failed_units"]} == {"duplicate_unit", "missing_unit", "unregistered_asset"}
+        assert {f["unit_id"]: f["code"] for f in member["failed_units"]} == {
+            "E1U2": "unregistered_asset",
+            "E1U3": "missing_unit",
+            "E1U4": "duplicate_unit",
+        }
         assert all("formal_revision_conflict" in f["abort_reason"] for f in member["failed_units"])
+    if race == "after_reply_caps":
+        assert saved[1:4] == units[1:4]
+        assert all("视频模型配置已变化" in f["abort_reason"] for f in member["failed_units"])
     async with file_db_factory() as session:
         calls = list((await session.scalars(select(ApiCall).where(ApiCall.project_name == "demo"))).all())
     expected_calls = 1 if race == "before_retry" else 2

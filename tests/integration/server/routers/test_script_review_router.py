@@ -927,8 +927,20 @@ async def test_blocked_first_generation_and_regeneration_transaction(tmp_path, m
     def snapshot():
         return path.read_bytes(), manifest.get_entry(key), script_review.stored_review(pm.load_project("demo"), 1)
 
+    def fail_registration(*args, **kwargs):
+        raise OSError("injected registration failure")
+
     bad = "@[未登记] 出场"
     good = "天光微亮"
+    before_first = (project_path / "project.json").read_bytes()
+    with monkeypatch.context() as fault:
+        fault.setattr("lib.artifacts.artifact_activation.register_current_artifact", fail_registration)
+        with pytest.raises(TextGenerationError, match="injected registration failure"):
+            await generate(bad)
+    assert not path.exists()
+    assert manifest.get_entry(key) is None
+    assert (project_path / "project.json").read_bytes() == before_first
+
     first = await generate(bad)
     assert first.blocking_issues[0]["code"] == "unregistered_asset"
     assert manifest.get_entry(key) is not None
@@ -940,29 +952,30 @@ async def test_blocked_first_generation_and_regeneration_transaction(tmp_path, m
     assert [i["code"] for i in state["blocking_issues"]] == [i["code"] for i in agent.value.blocking_issues]
     assert client.post(f"{url}/confirm").status_code == 422
     pending = snapshot()
+    pending_high_water = pm.load_project("demo")["episodes"][0].get("item_id_high_water")
     with pytest.raises(TextGenerationError, match="原规划"):
         await generate(bad)
     assert snapshot() == pending
+    assert pm.load_project("demo")["episodes"][0].get("item_id_high_water") == pending_high_water
 
     await generate(good)
     assert client.post(f"{url}/confirm").json()["status"] == "confirmed"
     confirmed = snapshot()
+    confirmed_high_water = pm.load_project("demo")["episodes"][0].get("item_id_high_water")
     with pytest.raises(TextGenerationError, match="原规划"):
         await generate(bad)
     assert snapshot() == confirmed
+    assert pm.load_project("demo")["episodes"][0].get("item_id_high_water") == confirmed_high_water
     pm.update_project(
         "demo", lambda project: script_review.mark_ledger_stale(project_path, project, project["episodes"][0], 1)
     )
     with monkeypatch.context() as fault:
-
-        def fail_registration(*args, **kwargs):
-            raise OSError("injected registration failure")
-
         fault.setattr("lib.artifacts.artifact_activation.register_current_artifact", fail_registration)
         with pytest.raises(TextGenerationError, match="injected registration failure"):
             await generate("雨停了")
     assert snapshot() == confirmed
     assert script_review.STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD not in pm.load_project("demo")["episodes"][0]
+    assert pm.load_project("demo")["episodes"][0].get("item_id_high_water") == confirmed_high_water
     await generate(good)
     assert path.read_bytes() == confirmed[0]
     assert client.get(url).json()["status"] == "confirmed"
@@ -970,3 +983,11 @@ async def test_blocked_first_generation_and_regeneration_transaction(tmp_path, m
         pm.load_project("demo")["episodes"][0][script_review.STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD]
         == confirmed[2]["fingerprint"]
     )
+
+
+def test_plan_capability_inputs_tracks_character_voice_binding() -> None:
+    from server.text_generation import plan_capability_inputs
+
+    base = {"generation_mode": "reference_video", "character_voice_binding": "prompt"}
+    changed = {**base, "character_voice_binding": "reference_audio"}
+    assert plan_capability_inputs(base) != plan_capability_inputs(changed)
