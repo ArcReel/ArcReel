@@ -20,6 +20,12 @@ import {
 
 export const API_BASE = "/api/v1";
 
+function requestErrorMessage(error: ErrorResponse, fallback: string): string {
+  return error.code === "asset_resource_busy"
+    ? i18n.t("errors:asset_resource_busy")
+    : messageFromDetail(error.detail, fallback);
+}
+
 export async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
   if (!response.ok) {
     handleUnauthorized(response);
@@ -33,7 +39,7 @@ export async function throwIfNotOk(response: Response, fallbackMsg: string): Pro
     if (isSpeechAdmission(detail)) {
       throw new SpeechAdmissionError(detail);
     }
-    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic, response.status);
+    throw new ApiRequestError(requestErrorMessage(error, fallbackMsg), error.diagnostic, response.status);
   }
 }
 
@@ -154,7 +160,7 @@ export async function requestJson<T = unknown>(
       throw new SpeechAdmissionError(error.detail);
     }
     throw new ApiRequestError(
-      messageFromDetail(error.detail, i18n.t("errors:request_failed")),
+      requestErrorMessage(error, i18n.t("errors:request_failed")),
       error.diagnostic,
       response.status,
       error.detail,

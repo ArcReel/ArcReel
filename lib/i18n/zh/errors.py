@@ -1,4 +1,5 @@
 MESSAGES = {
+    "asset_resource_busy": "资产有生成任务正在排队或执行，请在任务结束后重试。",
     "episode_position_name": "第 {position} 集",
     "episode_unlisted_name": "未命名集",
     "episode_script_name": "「{name}」的剧本",

@@ -6,7 +6,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from datetime import timedelta
 from typing import Any
 
@@ -199,6 +199,7 @@ class TaskRepository(BaseRepository):
         batch_id: str | None = None,
         batch_unit_id: str | None = None,
         batch_unit_ids: tuple[str, ...] = (),
+        new_task_guard: Callable[[AsyncSession, str], Awaitable[None]] | None = None,
         dedupe_guard: Callable[[dict[str, Any], str], None] | None = None,
     ) -> dict[str, Any]:
         unit_ids = tuple(dict.fromkeys((*(batch_unit_ids or ()), *((batch_unit_id,) if batch_unit_id else ()))))
@@ -272,6 +273,8 @@ class TaskRepository(BaseRepository):
             else:
                 raise
         else:
+            if new_task_guard is not None:
+                await new_task_guard(self.session, task_id)
             status = "queued"
 
         if batch_id is not None:

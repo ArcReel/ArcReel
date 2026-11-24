@@ -32,6 +32,7 @@ from lib.db import async_session_factory
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_repo import AssetRepository
+from lib.generation.asset_admission import AssetTarget, asset_admission_locks, require_asset_idle
 from lib.infra.api_errors import NotFoundError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.material.formal_objects import formal_commit
@@ -421,6 +422,14 @@ async def from_project(
     if req.resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
 
+    target = AssetTarget(req.resource_type, req.resource_id, "image")
+    async with asset_admission_locks(req.project_name, target):
+        async with async_session_factory() as session:
+            await require_asset_idle(session, req.project_name, target)
+        return await _export_locked(req, _t)
+
+
+async def _export_locked(req: FromProjectRequest, _t: Translator):
     try:
         project = await asyncio.to_thread(get_project_manager().load_project, req.project_name)
     except FileNotFoundError as exc:

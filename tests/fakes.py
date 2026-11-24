@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import portalocker
 from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
@@ -1122,6 +1123,21 @@ def use_private_tempdir(monkeypatch, root: Path) -> Path:
     return root
 
 
+def observe_file_lock_contention(monkeypatch) -> asyncio.Event:
+    contended = asyncio.Event()
+    lock = portalocker.lock
+
+    def observe_lock_attempt(handle, flags):
+        try:
+            lock(handle, flags)
+        except portalocker.AlreadyLocked:
+            contended.set()
+            raise
+
+    monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
+    return contended
+
+
 def use_project_manager(monkeypatch, pm: Any) -> None:
     """让读 ``get_project_manager()`` 的项目入口、路由与任务执行模块都拿到 *pm*。
 
@@ -1131,6 +1147,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
     monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
+    monkeypatch.setattr("lib.generation.asset_admission.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)

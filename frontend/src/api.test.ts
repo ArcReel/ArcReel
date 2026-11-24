@@ -1438,6 +1438,17 @@ describe("API", () => {
   });
 
   describe("addAssetFromProject", () => {
+    it("shows an asset occupancy conflict in the interface language", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse({
+        ok: false,
+        status: 409,
+        jsonData: { code: "asset_resource_busy", detail: "server fallback" },
+      })));
+      await expect(API.addAssetFromProject({
+        project_name: "demo", resource_type: "character", resource_id: "王",
+      })).rejects.toMatchObject({ status: 409, message: i18n.t("errors:asset_resource_busy") });
+    });
+
     it("POSTs /api/v1/assets/from-project", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({ jsonData: { asset: { id: "x", type: "character", name: "王", description: "", voice_style: "", image_path: null, source_project: "demo", updated_at: null } } }),

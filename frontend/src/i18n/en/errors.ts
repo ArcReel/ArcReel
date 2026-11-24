@@ -1,5 +1,6 @@
 
 export default {
+  "asset_resource_busy": "This asset has a queued or running task. Try again when it finishes.",
   "text_default_model_not_set": "No default text model is set: choose one in Settings → Default models; if no provider is configured yet, add one in Settings → Providers first",
   "audio_default_model_not_set": "No default narration voice-over model is set: choose one in Settings → Default models; if no text-to-speech capable provider is configured yet, add one in Settings → Providers first",
   "image_default_model_not_set": "No default image model is set: choose one in Settings → Default models",

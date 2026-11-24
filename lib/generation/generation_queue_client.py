@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.asset_admission import AssetResourceBusy
 from lib.generation.generation_batch import (
     GenerationBatchBlockedItem,
     GenerationBatchReadModel,
@@ -597,6 +598,8 @@ async def _enqueue_sequentially(
                 queue=queue,
             )
         except Exception as exc:
+            if isinstance(exc, AssetResourceBusy) and not enqueued:
+                raise
             failures.append(
                 BatchTaskResult(
                     resource_id=spec.unit_id or spec.resource_id,

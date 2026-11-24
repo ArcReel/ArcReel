@@ -1,4 +1,5 @@
 MESSAGES = {
+    "asset_resource_busy": "Для этого ресурса есть задача в очереди или в работе. Повторите попытку после её завершения.",
     "episode_position_name": "Серия {position}",
     "episode_unlisted_name": "Серия без названия",
     "episode_script_name": "Сценарий для «{name}»",

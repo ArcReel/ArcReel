@@ -306,11 +306,12 @@ class Services:
 
     @classmethod
     def defaults(cls, projects: ProjectManager) -> Services:
-        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器、全局生成队列与会话工厂。"""
+        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器、绑定该项目目录的生成队列与会话工厂。"""
         return cls(
             projects=projects,
             workflow_planner=WorkflowPlanner(projects),
             capabilities=ConfigResolver(async_session_factory),
+            queue=GenerationQueue(project_manager=projects),
         )
 
 
