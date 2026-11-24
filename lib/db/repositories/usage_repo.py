@@ -25,7 +25,7 @@ from lib.billing.metering import Priced, UnpricedReason, Usage
 from lib.billing.multipliers import get_provider_multiplier
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.custom_provider import is_custom_provider
-from lib.db.base import DEFAULT_USER_ID, utc_now
+from lib.db.base import DEFAULT_USER_ID, as_utc, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.session import AgentSession
 from lib.db.models.task import Task
@@ -998,11 +998,6 @@ def _view_clauses(agent: bool | None) -> list[ColumnElement[bool]]:
     if agent:
         return [ApiCall.purpose == CallPurpose.ASSISTANT_SESSION]
     return [or_(ApiCall.purpose.is_(None), ApiCall.purpose != CallPurpose.ASSISTANT_SESSION)]
-
-
-def as_utc(value: datetime) -> datetime:
-    """无时区的时刻按 UTC 理解，带时区的换算到 UTC。"""
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def usage_filter_clauses(filters: UsageFilters) -> list[ColumnElement[bool]]:

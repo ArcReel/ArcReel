@@ -73,6 +73,7 @@ MESSAGES = {
     "invalid_encoding": "Lỗi mã hóa tệp, vui lòng dùng tệp văn bản mã hóa UTF-8",
     "unauthorized": "Tên đăng nhập hoặc mật khẩu không đúng",
     "task_not_found": "Tác vụ '{id}' không tồn tại",
+    "task_lookup_too_many_ids": "Mỗi yêu cầu chỉ được tra cứu tối đa {limit} ID tác vụ",
     "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",

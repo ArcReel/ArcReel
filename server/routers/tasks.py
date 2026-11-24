@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel
 
 from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.edit_timeline.errors import edit_timeline_message
@@ -23,6 +24,13 @@ from server.i18n import DisplayNamesCatalog, Translator
 from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
+
+TASK_LOOKUP_LIMIT = 200
+
+
+class TaskLookupRequest(BaseModel):
+    task_ids: list[str]
+    project_name: str | None = None
 
 
 def get_task_queue():
@@ -190,6 +198,34 @@ async def list_project_tasks(
         [_localize_task(task, _t, names) for task in result.get("items", [])], _t
     )
     return result
+
+
+@router.get("/tasks/active")
+async def get_active_tasks(_t: Translator, names: DisplayNamesCatalog, project_name: str | None = None):
+    queue = get_task_queue()
+    items, truncated = await queue.get_active_snapshot(project_name=project_name)
+    return {
+        "items": await _with_resource_refs([_localize_task(item, _t, names) for item in items], _t),
+        "truncated": truncated,
+    }
+
+
+@router.get("/projects/{project_name}/tasks/active")
+async def get_project_active_tasks(project_name: str, _t: Translator, names: DisplayNamesCatalog):
+    return await get_active_tasks(_t, names, project_name)
+
+
+@router.post("/tasks/lookup")
+async def lookup_tasks(body: TaskLookupRequest, _t: Translator, names: DisplayNamesCatalog):
+    task_ids = list(dict.fromkeys(body.task_ids))
+    if len(task_ids) > TASK_LOOKUP_LIMIT:
+        raise BadRequestError("task_lookup_too_many_ids", limit=TASK_LOOKUP_LIMIT)
+    tasks_by_id = await get_task_queue().get_tasks_by_id(task_ids, project_name=body.project_name)
+    items = [_localize_task(tasks_by_id[task_id], _t, names) for task_id in task_ids if task_id in tasks_by_id]
+    return {
+        "items": await _with_resource_refs(items, _t),
+        "missing_ids": [task_id for task_id in task_ids if task_id not in tasks_by_id],
+    }
 
 
 @router.get("/tasks/{task_id}/cancel-preview")

@@ -73,6 +73,7 @@ MESSAGES = {
     "invalid_encoding": "Ошибка кодировки файла. Используйте текстовый файл в кодировке UTF-8",
     "unauthorized": "Неверное имя пользователя или пароль",
     "task_not_found": "Задача «{id}» не существует",
+    "task_lookup_too_many_ids": "За один запрос можно проверить не более {limit} идентификаторов задач",
     "task_running_not_cancellable": "Задача «{id}» уже запущена, её нельзя отменить; она выполнится до конца, а результат сохранится",
     "task_retry_download_unavailable": "Для задачи «{id}» повторное скачивание сейчас недоступно",
     "task_fail_provider_unsupported_media": "Провайдер {provider_id} не поддерживает генерацию {media_type}",

@@ -7,16 +7,17 @@ import logging
 import time
 import uuid
 from collections.abc import Callable, Collection
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select, text, update
+from sqlalchemy import ColumnElement, String, case, cast, func, literal, select, text, update
 from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.providers import CallStatus
-from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
+from lib.db.base import DEFAULT_USER_ID, as_utc, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
@@ -27,6 +28,7 @@ from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
+ACTIVE_TASK_SNAPSHOT_LIMIT = 5000
 
 
 def _active_dedupe_clauses(
@@ -111,7 +113,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
-        "updated_at": dt_to_iso(row.updated_at),
+        "updated_at": as_utc(row.updated_at).isoformat(timespec="microseconds"),
         "user_id": row.user_id,
     }
 
@@ -581,12 +583,17 @@ class TaskRepository(BaseRepository):
         派发所需的 ``provider_id`` 一并作为资格条件：状态一旦翻成 running，本方法就已提交，
         派发侧再拒绝就没有回滚点，任务会永久停在 running 上无人接手。
         """
-        result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
-        task = result.scalar_one_or_none()
-        parsed = parse_failure(task.error_message or "") if task is not None else None
+        stored_version = cast(Task.updated_at, String)
+        result = await self.session.execute(
+            self._scope_query(select(Task, stored_version.label("stored_version")).where(Task.task_id == task_id), Task)
+        )
+        row = result.one_or_none()
+        if row is None:
+            raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
+        task, version = row
+        parsed = parse_failure(task.error_message or "")
         if (
-            task is None
-            or task.status != "failed"
+            task.status != "failed"
             or parsed is None
             or parsed[0] != "artifact_download_failed"
             or not task.provider_job_id
@@ -620,10 +627,11 @@ class TaskRepository(BaseRepository):
             await self.session.rollback()
             raise ValueError(f"api call is not eligible for artifact download retry: {call_id}")
         now = utc_now()
+        updated_at = max(now, as_utc(task.updated_at) + timedelta(microseconds=1))
         task_update = await self.session.execute(
             update(Task)
-            .where(Task.task_id == task_id, Task.status == "failed")
-            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
+            .where(Task.task_id == task_id, Task.status == "failed", stored_version == version)
+            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=updated_at)
         )
         if rowcount(task_update) != 1:
             await self.session.rollback()
@@ -1030,6 +1038,35 @@ class TaskRepository(BaseRepository):
         result = await self.session.execute(stmt)
         task = result.scalar_one_or_none()
         return _task_to_dict(task) if task else None
+
+    async def get_active_snapshot(self, *, project_name: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        latest_model = (
+            select(ApiCall.model)
+            .where(ApiCall.task_id == Task.task_id)
+            .order_by(ApiCall.started_at.desc(), ApiCall.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        stmt = select(Task, case((Task.status == "running", latest_model)))
+        if project_name is None:
+            stmt = stmt.where(Task.status.in_(ACTIVE_TASK_STATUSES)).order_by(Task.status, Task.queued_at, Task.task_id)
+        else:
+            active_statuses = [literal(status, literal_execute=True) for status in ACTIVE_TASK_STATUSES]
+            stmt = stmt.where(Task.project_name == project_name, Task.status.in_(active_statuses)).order_by(
+                Task.project_name, Task.user_id, Task.task_type, Task.resource_id, Task.task_id
+            )
+        rows = (await self.session.execute(self._scope_query(stmt.limit(ACTIVE_TASK_SNAPSHOT_LIMIT + 1), Task))).all()
+        items = [{**_task_to_dict(task), "model": model} for task, model in rows[:ACTIVE_TASK_SNAPSHOT_LIMIT]]
+        return items, len(rows) > ACTIVE_TASK_SNAPSHOT_LIMIT
+
+    async def get_many(self, task_ids: list[str], *, project_name: str | None = None) -> dict[str, dict[str, Any]]:
+        if not task_ids:
+            return {}
+        stmt = select(Task).where(Task.task_id.in_(task_ids))
+        if project_name is not None:
+            stmt = stmt.where(Task.project_name == project_name)
+        rows = await self.session.execute(self._scope_query(stmt, Task))
+        return {task.task_id: _task_to_dict(task) for task in rows.scalars()}
 
     async def list_tasks(
         self,
