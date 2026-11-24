@@ -1,10 +1,26 @@
 import type * as React from "react"
+import { useRef } from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { cn } from "cn"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
 
-function InfoTip({ ...props }: PopoverPrimitive.Root.Props) {
-  return <Popover data-slot="info-tip" {...props} />
+function InfoTip({ onOpenChange, ...props }: PopoverPrimitive.Root.Props) {
+  const awaitingFirstPress = useRef(false)
+
+  function handleOpenChange(open: boolean, details: PopoverPrimitive.Root.ChangeEventDetails) {
+    if (!open && details.reason === "trigger-press" && awaitingFirstPress.current) {
+      awaitingFirstPress.current = false
+      details.cancel()
+      return
+    }
+
+    onOpenChange?.(open, details)
+    if (!details.isCanceled) {
+      awaitingFirstPress.current = open && details.reason === "trigger-hover"
+    }
+  }
+
+  return <Popover data-slot="info-tip" onOpenChange={handleOpenChange} {...props} />
 }
 
 function InfoTipTrigger({

@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InfoTip, InfoTipContent, InfoTipTrigger } from "./info-tip";
 
 const HINT = "不含缓存命中与缓存写入的部分";
@@ -35,13 +35,36 @@ describe("InfoTip", () => {
     expect(await screen.findByRole("dialog")).toHaveTextContent(HINT);
   });
 
-  it("opens on click, for touch users", async () => {
+  it.each([0, 1_000])("keeps a hover-opened hint visible on the first click after %d ms", async (elapsed) => {
+    vi.useFakeTimers();
+    try {
+      render(<InputHint />);
+      const button = trigger();
+
+      fireEvent.pointerOver(button, { pointerType: "mouse" });
+      fireEvent.mouseEnter(button);
+      expect(screen.getByRole("dialog")).toHaveTextContent(HINT);
+      fireEvent.pointerDown(button, { pointerType: "mouse" });
+      await act(() => vi.advanceTimersByTimeAsync(elapsed));
+      fireEvent.click(button, { detail: 1 });
+
+      expect(button).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(button, { detail: 1 });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens and closes on touch taps", async () => {
     const user = userEvent.setup();
     render(<InputHint />);
 
-    await user.click(trigger());
+    await user.pointer({ keys: "[TouchA]", target: trigger() });
 
     expect(await screen.findByRole("dialog")).toHaveTextContent(HINT);
+    await user.pointer({ keys: "[TouchA]", target: trigger() });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it.each(["{Enter}", " "])("opens from the keyboard with %s", async (key) => {
@@ -59,7 +82,8 @@ describe("InfoTip", () => {
     const user = userEvent.setup();
     render(<InputHint />);
 
-    await user.click(trigger());
+    await user.tab();
+    await user.keyboard("{Enter}");
     await screen.findByRole("dialog");
     await user.keyboard("{Escape}");
 
