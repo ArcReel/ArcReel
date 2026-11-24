@@ -59,12 +59,14 @@ import { VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { computeVoiceLegacyNotice } from "./voice-legacy-notice";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
-import { PromptAuthoringDraftPanel, usePromptAuthoringDraft } from "./PromptAuthoringDraftPanel";
+import { PromptAuthoringPartialNotice } from "./PromptAuthoringPartialNotice";
+import { parseReferenceAuthoringPartial } from "./prompt-authoring-partial";
 import { API } from "@/api";
 import {
   enqueueNarration,
   enqueueReferenceVideoBatch,
   enqueueReferenceVideoUnit,
+  promptAuthoringResourceId,
 } from "@/actions/generation";
 import {
   useReferenceVideoStore,
@@ -291,7 +293,7 @@ export function ReferenceVideoCanvas({
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
-  const { view: promptDraft, refresh: refreshPromptDraft } = usePromptAuthoringDraft(projectName, episode);
+  const [dismissedPartialTaskId, setDismissedPartialTaskId] = useState<string | null>(null);
 
   const voiceLegacyNotice = useMemo(
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}, project?.character_voice_binding),
@@ -316,6 +318,15 @@ export function ReferenceVideoCanvas({
   }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
+  const latestAuthoringTask = useLatestTasksByResource(projectName, "text_episode_script").get(
+    promptAuthoringResourceId(episode),
+  );
+  const partialAuthoring = useMemo(
+    () => (hasScript && showPreprocess ? parseReferenceAuthoringPartial(latestAuthoringTask) : null),
+    [hasScript, showPreprocess, latestAuthoringTask],
+  );
+  const visiblePartialAuthoring =
+    partialAuthoring && partialAuthoring.taskId !== dismissedPartialTaskId ? partialAuthoring : null;
 
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
 
@@ -844,7 +855,7 @@ export function ReferenceVideoCanvas({
   const notices =
     view === "board" &&
     (voiceLegacyNotice.count > 0 ||
-      promptDraft?.editable_by === "agent" ||
+      visiblePartialAuthoring !== null ||
       (hasScript && !showPreprocess) ||
       Boolean(error));
 
@@ -1110,16 +1121,16 @@ export function ReferenceVideoCanvas({
             />
           )}
 
-          {promptDraft?.editable_by === "agent" && (
-            <div className="px-5 py-2">
-              <PromptAuthoringDraftPanel
-                key={`${projectName}:${episode}`}
-                projectName={projectName}
-                episode={episode}
-                view={promptDraft}
-                onSettled={refreshPromptDraft}
-              />
-            </div>
+          {visiblePartialAuthoring && (
+            <PromptAuthoringPartialNotice
+              key={`${projectName}:${episode}:${visiblePartialAuthoring.taskId}`}
+              projectName={projectName}
+              episode={episode}
+              partial={visiblePartialAuthoring}
+              units={units}
+              onEditUnit={editUnitReferences}
+              onDismiss={() => setDismissedPartialTaskId(visiblePartialAuthoring.taskId)}
+            />
           )}
 
           {hasScript && !showPreprocess && (
@@ -1134,7 +1145,7 @@ export function ReferenceVideoCanvas({
         </section>
       )}
 
-      <RetainedEditUnit identity={promptDraft?.editable_by === "user" ? "draft" : "workbench"} message={t("reference_prompt_draft_replaced")} value={view === "plan" ? (
+      {view === "plan" ? (
         <div className="relative min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <ReferenceScriptPlanPreviewPanel
@@ -1145,18 +1156,6 @@ export function ReferenceVideoCanvas({
               videoModelUnresolved={videoModelUnresolved}
               planningDurations={planDurationOptions}
               onOpenTimeline={() => onViewChange("board")}
-            />
-          </div>
-        </div>
-      ) : promptDraft?.editable_by === "user" ? (
-        <div className="relative min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-6 py-5">
-            <PromptAuthoringDraftPanel
-              key={`${projectName}:${episode}`}
-              projectName={projectName}
-              episode={episode}
-              view={promptDraft}
-              onSettled={refreshPromptDraft}
             />
           </div>
         </div>
@@ -1221,9 +1220,7 @@ export function ReferenceVideoCanvas({
             {(detail) => detail}
           </RetainedEditUnit>
         </div>
-      )}>
-        {(content) => content}
-      </RetainedEditUnit>
+      )}
 
       <Sheet open={listSheetOpen} onOpenChange={setListSheetOpen}>
         <SheetContent

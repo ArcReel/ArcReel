@@ -101,7 +101,7 @@ const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => stri
     typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
 };
 
-const DRAFT_DOC_KINDS = ["script_plan", "prompt_authoring"] as const;
+const DRAFT_DOC_KINDS = ["script_plan"] as const;
 
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
@@ -336,6 +336,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             if (
               change.entity_type === "draft" &&
               change.action === "created" &&
+              !change.entity_id.endsWith("_prompt_authoring") &&
               typeof change.episode === "number" &&
               !isWorkspaceEditing(hasUnsavedChanges)
             ) {
@@ -373,7 +374,9 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             (c) => c.entity_type === "reference_unit" || REFERENCE_ASSET_ENTITY_TYPES.has(c.entity_type),
           ) ||
           taskChanges.some(
-            (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
+            (c) =>
+              c.action === "task_succeeded" &&
+              (c.task_type === "reference_video" || c.task_type === "text_episode_script"),
           )
         ) {
           useAppStore.getState().invalidateReferenceVideoUnits();

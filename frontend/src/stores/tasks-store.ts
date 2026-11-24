@@ -171,8 +171,13 @@ function mergeRow(s: TaskRows, row: TaskItem) {
 }
 
 function hasNewReferenceOutput(row: TaskItem, previous: TaskItem | undefined): boolean {
-  return (row.task_type === "reference_video" || row.task_type === "tts") &&
-    row.status === "succeeded" && previous?.status !== "succeeded";
+  return (
+    (row.task_type === "reference_video" ||
+      row.task_type === "tts" ||
+      row.task_type === "text_episode_script") &&
+    row.status === "succeeded" &&
+    previous?.status !== "succeeded"
+  );
 }
 
 export function mergeTaskSnapshot(

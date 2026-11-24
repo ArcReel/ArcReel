@@ -150,7 +150,6 @@ function EpisodePageContent({
   );
 
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => changeView("plan"));
-  useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => changeView("board"));
 
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
   useEffect(() => {

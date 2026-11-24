@@ -320,7 +320,7 @@ describe("useProjectEventsSSE", () => {
     act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-b" } as never));
 
     expect(revision()).toBeGreaterThan(before);
-    expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBeGreaterThan(0);
+    expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBe(0);
   });
 
   it("forwards an assistant session resuming on its own to the assistant store", () => {
@@ -1272,6 +1272,17 @@ describe("useProjectEventsSSE", () => {
         );
       });
     }
+
+    it("收到提示词编写完成事件即刷新参考生视频单元列表", () => {
+      const stream = mockProjectEventStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      renderHarness();
+      const before = useAppStore.getState().referenceVideoUnitsRevision;
+
+      emit(stream, [taskChange({ action: "task_succeeded", task_type: "text_episode_script" })]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBeGreaterThan(before);
+    });
 
     it("收到任务终态即刷新任务列表，不等兜底轮询", async () => {
       const stream = mockProjectEventStream();
