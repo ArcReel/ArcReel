@@ -1,5 +1,11 @@
 
-import type { DraftSoftViolation, ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
+import type {
+  DraftSoftViolation,
+  ReferenceScriptPlanDraft,
+  ReferenceUnitCapabilityMap,
+  ScriptReviewQuarantine,
+  ScriptReviewViolation,
+} from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -172,9 +178,11 @@ export interface ScriptReviewState {
   content_mode: string | null;
   status: ScriptReviewStatus;
   fingerprint: string | null;
+  revision?: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
-  quarantine: ScriptReviewQuarantine | null;
+  blocking_issues?: ScriptReviewViolation[];
+  quarantine?: ScriptReviewQuarantine | null;
   soft_violations?: DraftSoftViolation[];
   supported_durations: number[] | null;
   duration_tiers: {
@@ -347,11 +355,6 @@ export interface AdScriptTaskResult {
 }
 
 export type DraftRepairResponse = AuthorPromptsResponse;
-
-export interface DraftRepairTaskResult {
-  adopted: boolean;
-  violation_count: number;
-}
 
 export interface RenderedPromptPreview {
   unavailable_code?: string;

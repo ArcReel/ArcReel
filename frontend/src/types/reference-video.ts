@@ -159,12 +159,6 @@ export interface ReferenceScriptPlanDraft {
   new_assets?: PlanNewAsset[];
 }
 
-export interface ReferenceScriptPlanFlatUnit {
-  duration_seconds: number;
-  source_text: string;
-  text: string;
-}
-
 export interface ScriptReviewViolation {
   code: string;
   label: string;

@@ -320,7 +320,68 @@ describe("useProjectEventsSSE", () => {
     act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-b" } as never));
 
     expect(revision()).toBeGreaterThan(before);
+    expect(useAppStore.getState().getEntityRevision("script_plan:episode_4")).toBeGreaterThan(0);
     expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBe(0);
+  });
+
+  it("invalidates episode script_plan revisions when script_plan or dependency assets change", async () => {
+    useProjectsStore.setState({
+      currentProjectData: { ...makeGetProjectResult("Demo").project, episodes: [{ episode: 1, title: "第一集" }] },
+    } as never);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+    const rev = () => useAppStore.getState().getEntityRevision("script_plan:episode_1");
+    const initial = rev();
+
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-sp",
+        fingerprint: "fp-sp",
+        generated_at: "2026-03-01T00:00:00Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "script_plan",
+            action: "updated",
+            entity_id: "episode_1",
+            label: "第一集的脚本规划",
+            label_key: "script_plan",
+            label_params: { episode: 1 },
+            episode: 1,
+            focus: null,
+            important: false,
+          },
+        ],
+      });
+    });
+
+    const afterPatch = rev();
+    expect(afterPatch).toBeGreaterThan(initial);
+
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-char",
+        fingerprint: "fp-char",
+        generated_at: "2026-03-01T00:00:01Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "character",
+            action: "created",
+            entity_id: "新角色",
+            label: "角色「新角色」",
+            label_key: "named_entity_character",
+            label_params: { id: "新角色" },
+            focus: null,
+            important: true,
+          },
+        ],
+      });
+    });
+
+    expect(rev()).toBeGreaterThan(afterPatch);
   });
 
   it("forwards an assistant session resuming on its own to the assistant store", () => {

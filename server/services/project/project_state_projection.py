@@ -57,11 +57,17 @@ class ProjectState:
     project: Mapping[str, Any]
     scripts: Mapping[str, Mapping[str, Any]]
     drafts: Mapping[str, str] = dataclass_field(default_factory=dict)
+    script_plans: Mapping[str, str] = dataclass_field(default_factory=dict)
 
 
 def draft_state_key(episode: int, kind: str) -> str:
     """``ProjectState.drafts`` 的键：集号与草稿来源。"""
     return f"{episode}:{kind}"
+
+
+def script_plan_state_key(episode: int, filename: str) -> str:
+    """``ProjectState.script_plans`` 的键：集号与正式脚本规划文件名。"""
+    return f"{episode}:{filename}"
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,7 @@ def build_snapshot(state: ProjectState) -> ProjectSnapshot:
         "episodes": _episode_entries(project),
         "scripts": {name: _script_projection(script) for name, script in sorted(state.scripts.items())},
         "drafts": dict(sorted(state.drafts.items())),
+        "script_plans": dict(sorted(state.script_plans.items())),
     }
     return ProjectSnapshot(data=data, fingerprint=canonical_json_digest(data))
 
@@ -119,6 +126,7 @@ def diff_snapshots(previous: ProjectSnapshot, current: ProjectSnapshot) -> list[
         )
     )
     changes.extend(_diff_drafts(before["drafts"], after["drafts"]))
+    changes.extend(_diff_script_plans(before["script_plans"], after["script_plans"]))
     return changes
 
 
@@ -339,6 +347,33 @@ def _draft_change(key: str, action: str, *, important: bool) -> dict[str, Any]:
     )
     change["doc_type"] = QUARANTINE_KIND_TO_DOC_TYPE[kind]
     return change
+
+
+def _diff_script_plans(previous: Mapping[str, str], current: Mapping[str, str]) -> list[dict[str, Any]]:
+    """正式脚本规划出现、内容变化或移除时广播轻量刷新事件，驱动内容确认页实时更新。"""
+    raw = [(key, "created") for key in sorted(current.keys() - previous.keys())]
+    raw.extend((key, "deleted") for key in sorted(previous.keys() - current.keys()))
+    raw.extend((key, "updated") for key in sorted(previous.keys() & current.keys()) if previous[key] != current[key])
+    seen: set[tuple[int, str]] = set()
+    changes: list[dict[str, Any]] = []
+    for key, action in raw:
+        episode = int(key.partition(":")[0])
+        if (episode, action) in seen:
+            continue
+        seen.add((episode, action))
+        changes.append(
+            _change(
+                "script_plan",
+                action,
+                f"episode_{episode}",
+                "script_plan",
+                {"episode": episode},
+                focus=None,
+                important=False,
+                episode=episode,
+            )
+        )
+    return changes
 
 
 def _change(

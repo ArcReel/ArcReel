@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES
 from lib.project.project_manager import ProjectManager
 from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_filename
 from server.services.project.project_events import project_input_stamp, read_project_state
@@ -44,3 +45,21 @@ def test_zero_padded_episode_dir_draft_change_alters_stamp(tmp_path):
     os.utime(draft, ns=(1, 1))
 
     assert project_input_stamp(pm, "demo") != before
+
+
+def test_formal_script_plan_edit_alters_stamp_and_state_digest(tmp_path):
+    pm = _make_pm(tmp_path)
+    plan = pm.get_project_path("demo") / "drafts" / "episode_1" / SCRIPT_PLAN_FILENAMES["narration"]
+    plan.parent.mkdir(parents=True)
+    plan.write_text('{"segments": []}', encoding="utf-8")
+
+    before_stamp = project_input_stamp(pm, "demo")
+    before_state = read_project_state(pm, "demo")
+    assert any(label.startswith("script_plans:") for label, _identity in before_stamp)
+    assert len(before_state.script_plans) == 1
+
+    plan.write_text('{"segments": [{"segment_id": "E1S01"}]}', encoding="utf-8")
+    os.utime(plan, ns=(2, 2))
+
+    assert project_input_stamp(pm, "demo") != before_stamp
+    assert read_project_state(pm, "demo").script_plans != before_state.script_plans

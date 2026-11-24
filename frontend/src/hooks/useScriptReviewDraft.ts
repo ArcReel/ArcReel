@@ -18,14 +18,30 @@ function overwriteFromError(err: unknown): ScriptOverwrite | null {
   return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
 }
 
-function isScriptPlanConfirmedError(err: unknown): boolean {
-  if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
+function diagnosticCode(err: unknown): string | null {
+  if (!(err instanceof ApiRequestError)) return null;
   const diagnostic = err.diagnostic;
-  return diagnostic != null && typeof diagnostic === "object" && (diagnostic as { code?: unknown }).code === "script_plan_confirmed";
+  if (diagnostic == null || typeof diagnostic !== "object") return null;
+  const code = (diagnostic as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function isScriptPlanConfirmedError(err: unknown): boolean {
+  return err instanceof ApiRequestError && err.status === 409 && diagnosticCode(err) === "script_plan_confirmed";
+}
+
+function isRevisionConflictError(err: unknown): boolean {
+  if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
+  const code = diagnosticCode(err);
+  if (code === "revision_conflict" || code === "conflict") return true;
+  if (code != null) return false;
+  if (overwriteFromError(err) != null) return false;
+  if (err.detail != null && typeof err.detail === "object") return false;
+  return true;
 }
 
 function isReadOnly(state: ScriptReviewState): boolean {
-  return state.status === "confirmed" && state.quarantine == null;
+  return state.status === "confirmed";
 }
 
 function isDirty(draft: unknown, serverContent: unknown): boolean {
@@ -49,6 +65,7 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   draft: TDraft | null;
   setDraft: React.Dispatch<React.SetStateAction<TDraft | null>>;
   dirty: boolean;
+  outdated: boolean;
   loading: boolean;
   loadError: { message: string } | null;
   saving: boolean;
@@ -56,6 +73,7 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   busy: boolean;
   retry: () => void;
   refresh: () => void;
+  reloadLatest: () => void;
   save: () => Promise<void>;
   confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
@@ -68,11 +86,13 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 }: ScriptReviewDraftOptions<TDraft>): ScriptReviewDraftHandle<TDraft> {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
+  const scriptPlanRevision = useAppStore((s) => s.getEntityRevision(`script_plan:episode_${episode}`));
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_script_plan`));
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<TDraft | null>(null);
   const [baseFingerprint, setBaseFingerprint] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ message: string } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -81,6 +101,9 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 
   const serverContent = state ? selectContent(state) : null;
   const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
+  const outdated =
+    conflict ||
+    (state != null && !isReadOnly(state) && baseFingerprint != null && state.fingerprint !== baseFingerprint);
   const busy = saving || confirming;
 
   const dirtyRef = useRef(false);
@@ -96,6 +119,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       const abandonedLoad = loadInFlightRef.current;
       loadControllerRef.current?.abort();
       loadInFlightRef.current = false;
+      setConflict(false);
       setState(next);
       setDraft(clone(selectContent(next)));
       setBaseFingerprint(next.fingerprint);
@@ -114,6 +138,16 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     setReloadNonce((n) => n + 1);
   }, []);
 
+  const reloadLatest = useCallback(() => {
+    setConflict(false);
+    dirtyRef.current = false;
+    if (state != null) {
+      setDraft(clone(selectContent(state)));
+      setBaseFingerprint(state.fingerprint);
+    }
+    setReloadNonce((n) => n + 1);
+  }, [selectContent, state]);
+
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -129,6 +163,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
         setLoadError(null);
         setState(next);
         if (!dirtyRef.current || isReadOnly(next)) {
+          setConflict(false);
           setDraft(clone(selectContent(next)));
           setBaseFingerprint(next.fingerprint);
         }
@@ -147,27 +182,63 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
-  }, [projectName, episode, draftRevision, reloadNonce, selectContent]);
+  }, [projectName, episode, scriptPlanRevision, draftRevision, reloadNonce, selectContent]);
+
+  const handleSaveError = useCallback(
+    (err: unknown) => {
+      if (isScriptPlanConfirmedError(err)) {
+        setConflict(false);
+        setReloadNonce((n) => n + 1);
+        pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
+        return;
+      }
+      if (isRevisionConflictError(err)) {
+        setConflict(true);
+        setReloadNonce((n) => n + 1);
+        pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_conflict_toast"), "warning");
+        return;
+      }
+      pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
+    },
+    [pushToast, t],
+  );
 
   const save = useCallback(async () => {
     if (!draft) return;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
-      pushToast(t("dashboard:review_saved"), "success");
+      const next = await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint);
+      adopt(next);
+      const remaining = next.blocking_issues?.length ?? 0;
+      if (remaining > 0) {
+        pushToast(t("dashboard:review_saved_with_blocking_issues", { count: remaining }), "warning");
+      } else {
+        pushToast(t("dashboard:review_saved"), "success");
+      }
     } catch (err) {
-      if (isScriptPlanConfirmedError(err)) setReloadNonce((n) => n + 1);
-      pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
+      handleSaveError(err);
     } finally {
       setSaving(false);
     }
-  }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
+  }, [draft, baseFingerprint, projectName, episode, adopt, handleSaveError, pushToast, t]);
 
   const confirm = useCallback(async (options: { overwriteRevision?: string } = {}): Promise<boolean> => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
+        let saved: ScriptReviewState;
+        try {
+          saved = await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint);
+        } catch (err) {
+          handleSaveError(err);
+          return false;
+        }
+        adopt(saved);
+        const remaining = saved.blocking_issues?.length ?? 0;
+        if (remaining > 0) {
+          pushToast(t("dashboard:review_saved_with_blocking_issues", { count: remaining }), "warning");
+          return false;
+        }
       }
       adopt(await API.confirmScriptReview(projectName, episode, options));
       onConfirmed();
@@ -176,19 +247,22 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       const overwrite = overwriteFromError(err);
       if (overwrite) {
         setState((prev) => (prev ? { ...prev, script_overwrite: overwrite } : prev));
+      } else if (err instanceof ApiRequestError && (err.status === 422 || err.status === 409)) {
+        setReloadNonce((n) => n + 1);
       }
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");
       return false;
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, baseFingerprint, projectName, episode, adopt, onConfirmed, pushToast, t]);
+  }, [dirty, draft, baseFingerprint, projectName, episode, adopt, handleSaveError, onConfirmed, pushToast, t]);
 
   return {
     state,
     draft,
     setDraft,
     dirty,
+    outdated,
     loading,
     loadError,
     saving,
@@ -196,6 +270,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     busy,
     retry,
     refresh,
+    reloadLatest,
     save,
     confirm,
   };

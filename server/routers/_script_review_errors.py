@@ -49,6 +49,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise UnprocessableError(exc.problem.code, **exc.problem.parameters())
     if exc.code == "foreign_formal_script":
         raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")
+    if exc.code == "conflict":
+        raise ConflictError("script_review_conflict").with_diagnostic({"code": "revision_conflict"})
     if exc.code == "script_plan_confirmed":
         raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
     if exc.code == "draft_agent_owned":

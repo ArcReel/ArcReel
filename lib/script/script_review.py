@@ -44,6 +44,7 @@ from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
 from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
+from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.script.draft_quarantine import (
     DRAFT_OWNER_AGENT,
@@ -486,6 +487,8 @@ def write_formal_script_plan_locked(
         raise
     if draft_cleared and draft_path is not None:
         announce_draft_change(project_path, draft_path)
+    if changed:
+        emit_project_change_hint(project_path.name, changed_paths=[path.relative_to(project_path).as_posix()])
     return changed
 
 
