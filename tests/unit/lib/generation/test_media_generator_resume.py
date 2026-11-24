@@ -163,6 +163,7 @@ def _build_generator(tmp_path: Path, *, initial_version: int = 0) -> MediaGenera
     gen._rate_limiter = None
     gen._image_backend = None
     gen._video_backend = _FakeVideoBackend()
+    gen._video_provider_id = "custom-1"
     gen._user_id = "default"
     gen._config = FakeConfigResolver()
     gen.versions = _FakeVersions(initial_version=initial_version)

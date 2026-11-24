@@ -40,7 +40,7 @@ from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
 from .audio_inputs import apply_reference_audio
-from .capabilities import keeps_its_own_frame_count, size_is_fixed
+from .capabilities import native_duration, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 
@@ -124,7 +124,7 @@ def build_workflow(
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
-    driven = None if keeps_its_own_frame_count(definition) else duration_seconds
+    driven = duration_seconds if duration_seconds is not None and native_duration(definition) is not None else None
     frames = _write_frames(workflow, bindings, duration_seconds=driven)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
 

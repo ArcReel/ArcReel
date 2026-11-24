@@ -946,34 +946,6 @@ class ConfigResolver:
                 generation_type=generation_type,
             )
 
-    async def video_pricing_generate_audio(
-        self,
-        provider_id: str,
-        model_id: str,
-        project: dict | None = None,
-    ) -> bool:
-        """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
-
-        能力解析会对目录里已下线的 model id 抛错，估算不应因此中断（价目查询对它记为未定价）。降级口径分两层：
-        恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
-        只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
-        会被按静音档低估。
-        """
-        try:
-            caps = await self.video_capabilities_for_model(provider_id, model_id, project)
-        except Exception as exc:
-            logger.info(
-                "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则与请求值：%s",
-                provider_id,
-                model_id,
-                exc,
-            )
-            if video_audio_always_billed(provider_id):
-                return True
-            async with self._open_session() as (_session, svc):
-                return await self._resolve_video_generate_audio_from_project(svc, project)
-        return bool(caps["generate_audio"])
-
     async def default_image_backend_t2i(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)，T2I 默认。"""
         async with self._open_session() as (session, svc):

@@ -47,6 +47,8 @@ from lib.backends.image_backends.base import (
 from lib.backends.image_capabilities import gate_image_request
 from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
+from lib.backends.video_backends.registry import backend_metered_usage
+from lib.backends.video_capabilities import billed_audio_for_request
 from lib.backends.video_frame_slots import (
     resolve_first_frame_aspect_ratio,
     resolve_video_capabilities,
@@ -449,6 +451,16 @@ class TrialRunManager:
                 aspect_ratio=parameters.aspect_ratio,
                 has_first_frame=_single(assets.get("start_image")) is not None,
             )
+            billed_audio = (
+                billed_audio_for_request(
+                    target.provider,
+                    video_caps,
+                    "r2v" if assets.get("reference_images") else "i2v",
+                    parameters.generate_audio,
+                )
+                if is_video
+                else None
+            )
             async with self._ledger.record(
                 project_name="",
                 call_type=CALL_TYPE_VIDEO if is_video else CALL_TYPE_IMAGE,
@@ -458,7 +470,7 @@ class TrialRunManager:
                 resolution=parameters.resolution,
                 duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
-                generate_audio=parameters.generate_audio if is_video else False,
+                generate_audio=billed_audio if is_video else False,
                 purpose=CallPurpose.ENDPOINT_TRIAL,
             ) as call:
                 run.api_call_id = call.call_id
@@ -471,6 +483,7 @@ class TrialRunManager:
                         poll_timeout,
                         aspect_ratio=request_aspect_ratio,
                         video_capabilities=video_caps,
+                        billed_audio=billed_audio,
                         on_provider_response=on_response,
                     )
                     if is_video
@@ -480,7 +493,12 @@ class TrialRunManager:
                 )
                 result = await backend.generate(request)
                 self._settling.add(run.id)
-                call.success(result)
+                usage = (
+                    backend_metered_usage(backend, request, result)
+                    if isinstance(request, VideoGenerationRequest)
+                    else None
+                )
+                call.success(result, usage=usage)
                 run.provider_job_id = getattr(result, "task_id", None)
                 run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
@@ -521,6 +539,7 @@ class TrialRunManager:
         *,
         aspect_ratio: str,
         video_capabilities: VideoCapabilities | None,
+        billed_audio: bool | None,
         on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
     ) -> VideoGenerationRequest:
         reference_images = assets.get("reference_images")
@@ -539,6 +558,7 @@ class TrialRunManager:
             poll_timeout_seconds=poll_timeout,
             on_provider_response=on_provider_response,
             video_capabilities=video_capabilities,
+            billed_audio=billed_audio,
         )
 
     def _image_request(

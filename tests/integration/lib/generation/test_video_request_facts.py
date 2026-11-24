@@ -715,7 +715,8 @@ async def test_custom_model_end_frame_override_replaces_entry_constraints(resolv
         {
             "model_id": "vendor/Veo-3.1-Generate-001",
             "is_default": True,
-            "capability_overrides": {"duration_constraints": {"with_end_frame": [4, 6]}},
+            "endpoint": "gemini-video",
+            "capability_overrides": {"last_frame": True, "duration_constraints": {"with_end_frame": [4, 6]}},
         },
     )
     result = await read_video_request_facts(
@@ -728,3 +729,173 @@ async def test_custom_model_end_frame_override_replaces_entry_constraints(resolv
     assert isinstance(result, VideoRequestFacts)
     assert result.allowed_durations == (4, 6)
     assert result.excluded_durations == ((8, "end_frame"),)
+
+
+@pytest.mark.parametrize("requested", [True, False])
+@pytest.mark.parametrize("has_audio", [True, False])
+async def test_aistudio_bills_audio_in_estimate_and_ledger(resolver, db_factory, requested, has_audio):
+    from pathlib import Path
+
+    from arcreel_market_core.video_backend_contract import VideoGenerationResult
+    from lib.backends.video_backends.gemini import GeminiVideoBackend
+    from lib.billing.ledger import Ledger
+    from lib.db.models.api_call import ApiCall
+    from lib.generation.video_request_facts import VideoRequestCostFacts
+    from server.services.admission.cost_estimation import quote_video_request
+
+    model = "relay-veo"
+    catalog.install_user_added_models(
+        [
+            catalog.UserAddedModel(
+                VEO_PROVIDER,
+                model,
+                "video",
+                endpoint="gemini-video",
+                entry_binding="google/veo-3.1-generate-preview",
+                capability_overrides={"has_audio_track": has_audio, "durations": [8]},
+            )
+        ]
+    )
+    try:
+        project = {"video_provider_i2v": f"{VEO_PROVIDER}/{model}", "video_generate_audio": requested}
+        facts = await _read(resolver, project)
+        assert isinstance(facts, VideoRequestFacts)
+        assert facts.has_audio_track is has_audio
+        cost = VideoRequestCostFacts(facts, 8, "16:9", has_first_frame=True)
+        request = cost.provider_request()
+        quote = await quote_video_request(cost, db_factory)
+        assert quote is not None
+        assert quote.amount == pytest.approx(3.2)
+        result = VideoGenerationResult(Path("out.mp4"), VEO_PROVIDER, model, 8, generate_audio=False)
+        assert request.generate_audio is requested
+        ledger = Ledger(session_factory=db_factory)
+        async with ledger.record(project_name="demo", model=model, provider=VEO_PROVIDER, call_type="video") as call:
+            call.success(result, usage=GeminiVideoBackend.metered_usage(model, request, result))
+        async with db_factory() as session:
+            row = await session.get(ApiCall, call.call_id)
+            assert row is not None
+            assert row.generate_audio is True
+            assert row.cost_amount == pytest.approx(quote.amount)
+    finally:
+        catalog.install_user_added_models(())
+
+
+async def test_vidu_tail_frame_quote_preserves_submission_inputs(resolver, db_factory, tmp_path):
+    from dataclasses import replace
+
+    from lib.backends.video_backends.vidu import Vidu2VideoBackend
+    from lib.generation.video_request_facts import VideoRequestCostFacts
+    from server.services.admission.cost_estimation import quote_video_request
+    from tests.factories import image_bytes
+
+    facts = await read_video_request_facts(
+        {"video_provider_i2v": VIDU2}, route="storyboard", generation_type="i2v", resolver=resolver, uses_end_frame=True
+    )
+    assert isinstance(facts, VideoRequestFacts)
+    cost = VideoRequestCostFacts(facts, 7, "16:9", has_first_frame=True)
+    quote = await quote_video_request(cost, db_factory)
+    assert quote is not None
+    assert quote.request_duration_seconds == 8
+    request = cost.provider_request()
+    frame = tmp_path / "frame.png"
+    frame.write_bytes(image_bytes())
+    endpoint, payload = Vidu2VideoBackend(api_key="test", model="vidu2.0")._build_request(
+        replace(
+            request, start_image=frame if request.start_image else None, end_image=frame if request.end_image else None
+        )
+    )
+    assert endpoint == "/start-end2video"
+    assert payload["duration"] == quote.request_duration_seconds
+    assert len(payload["images"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("resolution", "tier", "mode", "supports_tail"),
+    [
+        ("1080p", "std", "pro", True),
+        ("720p", "pro", "pro", True),
+        ("4k", "pro", "4k", False),
+        ("720p", "std", "std", False),
+    ],
+)
+async def test_kling_request_tier_matches_quote_and_payload(resolver, resolution, tier, mode, supports_tail, tmp_path):
+    from dataclasses import replace
+
+    from lib.backends.video_backends.kling import KLING_BACKENDS
+    from lib.generation.video_request_facts import VideoRequestCostFacts
+    from lib.video_runtime.builtin import builtin_video_metered_usage
+    from tests.factories import image_bytes
+
+    model = "relay-kling"
+    catalog.install_user_added_models(
+        [
+            catalog.UserAddedModel(
+                "kling",
+                model,
+                "video",
+                endpoint="kling-video-pro-audio",
+                capability_overrides={"last_frame": True, "durations": [5]},
+            )
+        ]
+    )
+    try:
+        project = _with_resolution({"video_provider_i2v": f"kling/{model}"}, f"kling/{model}", resolution)
+
+        async def evaluate(has_tail):
+            return await read_video_request_facts(
+                project,
+                route="storyboard",
+                generation_type="i2v",
+                resolver=resolver,
+                uses_end_frame=has_tail,
+                service_tier=tier,
+            )
+
+        with_tail = await evaluate(True)
+        if not supports_tail:
+            assert isinstance(with_tail, VideoRequestFactsFailure)
+            assert with_tail.code == "video_last_frame_unsupported"
+        facts = with_tail if supports_tail else await evaluate(False)
+        assert isinstance(facts, VideoRequestFacts)
+        request = VideoRequestCostFacts(facts, 5, "16:9", has_first_frame=True).provider_request()
+        backend = KLING_BACKENDS["kling-video-pro-audio"](auth_mode="bearer", api_key="test", model=model)
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(image_bytes())
+        _, payload = backend._build_payload(
+            replace(request, start_image=frame, end_image=frame if request.end_image else None)
+        )
+        assert payload["mode"] == mode
+        assert ("image_tail" in payload) is supports_tail
+        assert (payload.get("sound") == "on") is supports_tail
+        assert builtin_video_metered_usage("kling", model, request).dimensions["audio"] is supports_tail
+    finally:
+        catalog.install_user_added_models(())
+
+
+@pytest.mark.parametrize("tail", [False, True])
+async def test_kling_rejects_reference_images_with_frames_before_quoting(resolver, tail, tmp_path):
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
+    from lib.backends.video_backends.kling import KLING_BACKENDS
+
+    model = "kling-v3-omni"
+    facts = await read_video_request_facts(
+        {"video_provider_r2v": f"kling/{model}"},
+        route="reference_video" if tail else "storyboard",
+        generation_type="r2v",
+        uses_end_frame=tail,
+        resolver=resolver,
+    )
+    assert isinstance(facts, VideoRequestFactsFailure)
+    assert facts.code == "video_reference_images_with_frames_unsupported"
+    frame = tmp_path / "frame.png"
+    request = VideoGenerationRequest(
+        prompt="p",
+        output_path=tmp_path / "clip.mp4",
+        reference_images=[frame],
+        start_image=None if tail else frame,
+        end_image=frame if tail else None,
+    )
+    backend = KLING_BACKENDS["kling-video-audio"](auth_mode="bearer", api_key="test", model=model)
+    with pytest.raises(VideoCapabilityError) as exc:
+        backend._build_payload(request)
+    assert exc.value.code == facts.code

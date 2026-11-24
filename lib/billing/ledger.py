@@ -115,9 +115,10 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
             usage=(Usage(quantities=quantities, text=result.text if billed_characters is None else None),),
         )
     if call_type == "video":
+        billed_audio = usage.dimensions.get("audio") if usage is not None else None
         return SettlementInput(
             usage_tokens=result.usage_tokens,
-            generate_audio=result.generate_audio,
+            generate_audio=billed_audio if isinstance(billed_audio, bool) else result.generate_audio,
             billed_duration_seconds=result.duration_seconds,
             usage=(usage,) if usage is not None else (),
         )

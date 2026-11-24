@@ -757,7 +757,9 @@ class TestVideoChannel:
             _expected_video_row(provider="gemini-aistudio", cost_amount=pytest.approx(3.2), usage_tokens=0),
         )
 
-    async def test_backend_reported_audio_flag_overrides_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
+    async def test_aistudio_bills_audio_even_when_result_reports_silence(
+        self, tmp_path: Path, acct: _AccountingDb
+    ) -> None:
         gen = _media_generator(tmp_path, acct, video_backend=_veo_backend(usage_tokens=0, generate_audio=False))
 
         await _generate_video(gen)
@@ -765,7 +767,7 @@ class TestVideoChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
-                provider="gemini-aistudio", generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0
+                provider="gemini-aistudio", generate_audio=True, cost_amount=pytest.approx(3.2), usage_tokens=0
             ),
         )
 
@@ -1452,8 +1454,8 @@ class TestResumeChannel:
             await acct.fetch_only_row(),
             _expected_resume_row(
                 duration_seconds=6,
-                generate_audio=False,
-                cost_amount=pytest.approx(1.2),
+                generate_audio=True,
+                cost_amount=pytest.approx(2.4),
                 usage_tokens=0,
             ),
         )

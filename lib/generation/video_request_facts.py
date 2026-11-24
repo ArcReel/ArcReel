@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 from arcreel_catalog_core import DurationConstraints
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.providers import is_custom_provider
+from lib.backends.video_capabilities import projected_video_capabilities
 from lib.capabilities.kernel import CapabilitySnapshot, FixedDuration, IncompatibleInputsError, RequestConditions
 from lib.config.resolver import (
     DurationExclusionReason,
@@ -124,6 +125,9 @@ class VideoRequestFacts:
     voice_consistency: VoiceConsistency
     max_reference_audio_count: int | None
     reference_audio_per_image: bool
+    uses_end_frame: bool = False
+    service_tier: str = "default"
+    request_snapshot: CapabilitySnapshot | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +150,6 @@ class VideoRequestCostFacts:
 
         分镜图生视频的首帧是按项目宽高比生成的分镜图；要求首帧时宽高比交给上游自适应的通道
         （``first_frame_ratio_adaptive_only``），成片宽高比即分镜图的宽高比，这里因此直接写项目宽高比。
-        成片有音轨而开关不可控时，上游恒出有声成片，音频开关按开着写。
         """
         facts = self.request_facts
         return VideoGenerationRequest(
@@ -155,10 +158,15 @@ class VideoRequestCostFacts:
             aspect_ratio=self.aspect_ratio,
             duration_seconds=self.duration_seconds,
             resolution=self.request_facts.resolution,
+            end_image=Path("last-frame.png") if facts.uses_end_frame else None,
+            billed_audio=facts.generate_audio,
+            service_tier=facts.service_tier,
+            video_capabilities=projected_video_capabilities(facts.request_snapshot)
+            if facts.request_snapshot is not None
+            else None,
             start_image=Path("first-frame.png") if self.has_first_frame else None,
             reference_images=[Path(f"reference-{index}.png") for index in range(self.reference_image_count)] or None,
-            generate_audio=facts.requested_generate_audio
-            or (facts.has_audio_track and not facts.audio_switch_controllable),
+            generate_audio=facts.requested_generate_audio,
         )
 
     @property
@@ -299,15 +307,8 @@ def snapshot_video_request_facts(
             RequestConditions(generation_type, resolution, service_tier, frozenset(inputs))
         )
     except IncompatibleInputsError:
-        if uses_end_frame:
-            return VideoRequestFactsFailure(
-                "video_end_frame_durations_incompatible",
-                identity_params,
-                action="fix_input",
-            )
         return VideoRequestFactsFailure(
-            _ROUTE_FAILURE_CODES[route]["unavailable"],
-            (("capability", generation_type), *identity_params),
+            "video_reference_images_with_frames_unsupported", (("model", model),), action="fix_input"
         )
     values = req_snapshot.effective
     raw_durations = values.get("durations") or ()
@@ -330,6 +331,8 @@ def snapshot_video_request_facts(
     )
     if isinstance(durations, VideoRequestFactsFailure):
         return durations
+    if uses_end_frame and not values["last_frame"]:
+        return VideoRequestFactsFailure("video_last_frame_unsupported", identity_params, action="fix_input")
     audio = req_snapshot.audio(generation_type, requested=requested_audio)
     model_has_audio = req_snapshot.audio(generation_type, requested=True).output
     voice = derive_voice_consistency(
@@ -344,6 +347,9 @@ def snapshot_video_request_facts(
         provider_id=provider,
         model_id=model,
         resolution=resolution,
+        uses_end_frame=uses_end_frame,
+        service_tier=service_tier,
+        request_snapshot=req_snapshot,
         supported_durations=supported,
         allowed_durations=durations[0],
         excluded_durations=durations[1],

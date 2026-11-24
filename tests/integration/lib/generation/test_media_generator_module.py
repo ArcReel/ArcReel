@@ -2268,8 +2268,9 @@ class TestEntryBoundVideoRequests:
     @pytest.mark.parametrize("audio_track", [None, "always_on"])
     async def test_builtin_kling_720p_preserves_saved_audio_override(self, tmp_path, audio_track):
         from arcreel_market_core.video_backend_contract import VideoGenerationRequest
-        from lib.backends.backend_assembly.specs import builtin_video_metered_usage, builtin_video_snapshot
+        from lib.backends.backend_assembly.specs import builtin_video_snapshot
         from lib.catalog import query as catalog
+        from lib.video_runtime.builtin import builtin_video_metered_usage
 
         catalog.install_user_added_models(
             [

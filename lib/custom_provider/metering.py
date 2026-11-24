@@ -131,6 +131,8 @@ def custom_video_usage(
 
 def _with_video_audio(usage: Usage, request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
     """模型确定无声时按无声，其余保留通道档位与实际回报；未携带能力时保留通道口径。"""
+    if request.billed_audio is not None:
+        return replace(usage, dimensions={**usage.dimensions, "audio": request.billed_audio})
     caps = request.video_capabilities
     if caps is None:
         return usage

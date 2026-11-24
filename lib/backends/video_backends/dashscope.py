@@ -261,8 +261,7 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨按端点是否下发开关计量，
-        不带开关时与能力声明一致，按有声计量。参考图张数按执行闸门的生效上限计量。
+        分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨取请求的计费档。参考图张数按执行闸门的生效上限计量。
         """
         caps = request.video_capabilities or cls.video_capabilities_for_model(model, entry)
         image_limit = reference_image_limit(caps)

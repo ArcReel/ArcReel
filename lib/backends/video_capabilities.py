@@ -6,9 +6,9 @@ from types import EllipsisType
 from typing import TYPE_CHECKING
 
 from arcreel_catalog_core import VideoFacts
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
+from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities, VideoRoute
 from lib.backends.input_limits import InputLimit
-from lib.backends.providers import PROVIDER_KLING
+from lib.backends.providers import PROVIDER_KLING, video_audio_always_billed
 from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, Endpoint, RequestConditions, resolve
 
 if TYPE_CHECKING:
@@ -34,6 +34,14 @@ def reference_audio_count_limit(caps: VideoCapabilities) -> InputLimit[int]:
     if caps.reference_audio_mode == ReferenceAudioMode.NONE:
         return InputLimit.unsupported()
     return InputLimit.from_json(caps.max_reference_audio_count)
+
+
+def billed_audio_for_request(
+    provider: str | None, caps: VideoCapabilities | None, bucket: VideoRoute, requested: bool
+) -> bool | None:
+    if video_audio_always_billed(provider):
+        return True
+    return caps.audio_track_for_route(bucket).output_audio(requested) if caps is not None else None
 
 
 def audio_protocol(mode: VideoAudioMode) -> AudioProtocol:
