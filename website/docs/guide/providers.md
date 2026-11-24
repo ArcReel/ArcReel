@@ -230,6 +230,8 @@ ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、Mi
 
 阿里百炼语音分为两个调用端点：「阿里百炼（语音合成）」调用 Qwen TTS（`qwen3-tts` 等），「阿里百炼（qwen-audio 语音合成）」调用 qwen-audio TTS（`qwen-audio-3.0-tts`、`qwen-audio-3.1-tts` 系列）。两个端点的音色不通用，qwen-audio 的各个模型也只能使用各自的音色，完整列表见百炼[音色列表](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)。qwen-audio 端点支持配音语速，范围 0.5～2.0，超出范围时按最近的边界值提交。添加模型时，名称含 `qwen-audio` 的模型预填 qwen-audio 端点，其余百炼语音模型预填 Qwen TTS 端点，在[模型设置](#model-settings)里可以修改。
 
+ArcReel 保存百炼配音前会修正 WAV 头中的流式长度占位值。无法安全修复的 WAV 会导致配音任务失败，且不会因此再次提交合成请求。
+
 Grok TTS 的配音语速范围是 0.7～1.5。超出范围时合成任务在提交前失败，不产生费用，也不会自动改成边界值，需要在设置里调整或清空配音语速。
 
 火山方舟 Agent Plan 的语音合成使用已配置的 Agent Plan 专属 API Key，不需要另外填写 AK/SK，调用的是套餐内的专属语音接口。套餐未开通语音合成、并发已用尽、音色未授权，或套餐额度已用尽且没有开启超额后付费时，合成任务失败并显示上游错误码。ArcReel 不会改用按量付费的语音接口；如果在方舟控制台开启了[超额后付费](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh)，月额度用尽后的调用会照常完成，超出部分由方舟按后付费出账，以方舟账单为准。音色列表只列出「豆包语音合成模型 2.0」的常用中文音色，其他 2.0 音色按官方[音色列表](https://docs.volcengine.com/docs/6561/1257544)填写音色 ID，1.0 音色不能使用。配音语速范围是 0.5～2.0，超出范围时合成任务在提交前失败，不产生费用。使用记录里的字符数取接口回报的计费字符数，接口未回报时按提交文本的字符数统计。
