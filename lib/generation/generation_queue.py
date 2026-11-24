@@ -734,6 +734,16 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.retry_artifact_download(task_id)
 
+    async def get_active_snapshot(self, *, project_name: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        async with self._task_repo() as repo:
+            return await repo.get_active_snapshot(project_name=project_name)
+
+    async def get_tasks_by_id(
+        self, task_ids: list[str], *, project_name: str | None = None
+    ) -> dict[str, dict[str, Any]]:
+        async with self._task_repo() as repo:
+            return await repo.get_many(task_ids, project_name=project_name)
+
     async def list_tasks(
         self,
         *,

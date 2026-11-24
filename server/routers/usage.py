@@ -19,6 +19,7 @@ from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideErro
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
+from lib.db.base import as_utc
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import (
     UsageCursor,
@@ -26,7 +27,6 @@ from lib.db.repositories.usage_repo import (
     UsageFilters,
     UsageRepository,
     UsageSessionCursor,
-    as_utc,
 )
 from lib.i18n import _, translate_or
 from lib.infra.api_errors import NotFoundError, UnprocessableError

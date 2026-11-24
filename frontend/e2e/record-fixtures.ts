@@ -50,6 +50,10 @@ const RECORDINGS: Recording[] = [
   // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
   { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
   { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
+  { file: "tasks-active", method: "GET", path: "/api/v1/tasks/active" },
+  { file: "project-demo-tasks-active", method: "GET", path: `/api/v1/tasks/active?project_name=${DEMO_PROJECT}` },
+  { file: "project-demo-tasks-active-route", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/tasks/active` },
+  { file: "tasks-lookup", method: "POST", path: "/api/v1/tasks/lookup", json: { task_ids: [] } },
   { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
   { file: "project-demo-tasks-stats", method: "GET", path: `/api/v1/tasks/stats?project_name=${DEMO_PROJECT}` },
   { file: "project-demo-usage-summary", method: "GET", path: `/api/v1/usage/summary?project_name=${DEMO_PROJECT}` },

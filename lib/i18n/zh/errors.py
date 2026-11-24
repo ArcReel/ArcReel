@@ -73,6 +73,7 @@ MESSAGES = {
     "invalid_encoding": "文件编码错误，请使用 UTF-8 编码的文本文件",
     "unauthorized": "用户名或密码错误",
     "task_not_found": "任务 '{id}' 不存在",
+    "task_lookup_too_many_ids": "每次最多查询 {limit} 个任务 ID",
     "task_running_not_cancellable": "任务 '{id}' 已开始执行，不可取消；它会照常跑完并保留结果",
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
     "task_retry_download_server_stopping": "服务正在停机，请在服务重启后重试下载",

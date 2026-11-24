@@ -16,6 +16,10 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def dt_to_iso(val: datetime | None) -> str | None:
     """Convert datetime to ISO string for JSON serialization."""
     return val.isoformat() if val else None

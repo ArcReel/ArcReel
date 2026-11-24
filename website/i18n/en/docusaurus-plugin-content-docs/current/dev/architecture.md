@@ -85,6 +85,10 @@ Projects reference material identities. Material storage holds the bytes, and ea
 
 `lib/generation/` persists and schedules tasks. The generation worker allocates concurrency by provider and media type, and local rendering has a dedicated lane. Project state updates when a task reaches a terminal state.
 
+Clients can use `GET /api/v1/tasks/active` to read queued and running tasks. The optional `project_name` query parameter limits the snapshot to one project. `GET /api/v1/projects/{project_name}/tasks/active` provides the same project snapshot. The response contains `items` and `truncated`. When more than 5,000 visible tasks are active, the snapshot returns 5,000 rows and sets `truncated` to `true`. The recent task list remains paginated by update time.
+
+`POST /api/v1/tasks/lookup` takes a `task_ids` string array and an optional `project_name`. Each ID is processed once, and requests with more than 200 distinct IDs return HTTP 400. The `items` field follows the visibility and localization rules of the single-task endpoint. `missing_ids` contains IDs that do not exist or are outside the lookup scope. Task rows report `updated_at` in UTC ISO 8601 with microsecond precision. Retrying a download moves the task back to running with a strictly later timestamp than the failed row. See [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md).
+
 Task identity correlates results and costs. A resumed video task looks up the original job using its submitted context, avoiding a second submission and charge. See [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) and the [provider standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md).
 
 ### Provider abstraction {#provider-abstraction}

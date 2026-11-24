@@ -85,6 +85,10 @@ flowchart TB
 
 `lib/generation/` 负责持久化生成任务并调度执行。生成 Worker 按供应商与媒体类型分配并发容量，本地渲染则独占一条执行车道。任务进入终态后会驱动项目状态同步更新。
 
+客户端可通过 `GET /api/v1/tasks/active` 获取正在排队或执行的任务。传入可选查询参数 `project_name` 可限定项目，也可使用 `GET /api/v1/projects/{project_name}/tasks/active`。响应包含 `items` 和 `truncated`。可见的活跃任务超过 5000 条时，返回 5000 条且将 `truncated` 设为 `true`。最近任务列表继续按更新时间分页。
+
+`POST /api/v1/tasks/lookup` 接收 `task_ids` 字符串数组和可选的 `project_name`。同一 ID 只处理一次，超过 200 个不同 ID 时返回 HTTP 400。响应中的 `items` 使用单条任务详情的可见范围及本地化规则，`missing_ids` 包含不存在或超出查询范围的 ID。任务行的 `updated_at` 使用带微秒的 UTC ISO 8601 时间，重试下载回到执行中时，时间严格晚于失败行。参见 [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md)。
+
 任务标识用于串联执行结果与费用记录。续跑视频任务时，会依据提交时锁定的调用上下文查询原任务，避免重复提交和二次扣费。参见 [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) 与[供应商规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md)。
 
 ### 供应商抽象 {#provider-abstraction}

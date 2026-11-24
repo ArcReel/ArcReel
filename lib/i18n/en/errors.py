@@ -73,6 +73,7 @@ MESSAGES = {
     "invalid_encoding": "File encoding error, please use UTF-8 encoded text file",
     "unauthorized": "Invalid username or password",
     "task_not_found": "Task '{id}' does not exist",
+    "task_lookup_too_many_ids": "Look up at most {limit} task IDs per request",
     "task_running_not_cancellable": "Task '{id}' has already started and cannot be cancelled; it will run to completion and its result will be kept",
     "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
     "task_retry_download_server_stopping": "The server is shutting down. Retry the download after it restarts.",
