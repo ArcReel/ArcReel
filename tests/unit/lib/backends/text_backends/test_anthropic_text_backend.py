@@ -71,7 +71,8 @@ def _sse(text: str, *, usage: dict, output_tokens: int, stop_reason: str = "end_
     return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body.encode())
 
 
-async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path):
+@pytest.mark.parametrize(("requested", "sent"), [(None, 16384), (4000, 4000)])
+async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path, requested, sent):
     image = tmp_path / "ref.png"
     image.write_bytes(PNG_BYTES)
     backend = create_custom_backend(provider=_provider(), model_id="claude-x", endpoint="anthropic-messages")
@@ -95,7 +96,7 @@ async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path):
                 response_schema=_Verdict,
                 images=[ImageInput(path=image)],
                 system_prompt="你是审片员",
-                max_output_tokens=64000,
+                max_output_tokens=requested,
             )
         )
 
@@ -103,7 +104,7 @@ async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path):
     assert request.headers["x-api-key"] == "sk-relay"
     body = request_json(request)
     assert body["model"] == "claude-x"
-    assert body["max_tokens"] == 64000
+    assert body["max_tokens"] == sent
     assert body["system"] == "你是审片员"
     assert body["messages"] == [
         {

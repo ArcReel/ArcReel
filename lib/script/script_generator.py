@@ -31,7 +31,7 @@ from lib.artifacts.artifact_provenance import (
     project_ad_episode_script_inputs,
 )
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
+from lib.backends.text_backends.base import TextGenerationRequest, TextTaskType
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
@@ -575,7 +575,6 @@ class ScriptGenerator:
             TextGenerationRequest(
                 prompt=await self._build_visual_prompt(episode, targets, instructions),
                 response_schema=_VISUAL_RESPONSE_SCHEMA[targets.kind],
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
         )
         authored = self._merge_visual_layer(targets, self._parse_visual_layer(result.text, targets), episode)
@@ -899,7 +898,6 @@ class ScriptGenerator:
             TextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
         )
         response_text = result.text
@@ -1624,7 +1622,6 @@ class ScriptGenerator:
                     TextGenerationRequest(
                         prompt=prompt,
                         response_schema=ReferenceAuthoringResponse,
-                        max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
                     ),
                     require_complete=True,
                 )
@@ -1839,7 +1836,6 @@ class ScriptGenerator:
             TextGenerationRequest(
                 prompt=self._build_ad_reference_prompt_authoring_prompt(episode, targets, instructions),
                 response_schema=ReferencePromptAuthoringFlatScript,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
         )
         flat = self._parse_unit_texts(result.text, episode)

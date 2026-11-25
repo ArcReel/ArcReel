@@ -34,6 +34,7 @@ from lib.episode.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.episode.episode_sources import discover_sources as _real_discover_sources
 from lib.episode.episode_sources import planning_start, source_snapshot_path
 from lib.infra.text_metrics import count_reading_units
+from tests.fakes import FakeTextGenerator
 
 SOURCE = (
     "第一章 山村少年。李恒在山村长大，自幼习得吐纳之法。"
@@ -116,11 +117,11 @@ def _end_of(anchor: str, text: str = SOURCE) -> int:
 class _FakeTextGenerator:
     """按顺序回放预置响应的 TextGenerator 替身，并记录每次请求。"""
 
-    def __init__(self, responses: list[str], *, max_output_tokens: int = 64000):
+    def __init__(self, responses: list[str], *, planning_output_budget: int = 64000):
         self._responses = list(responses)
         self.requests = []
         self.model = "fake-model"
-        self.max_output_tokens = max_output_tokens
+        self.planning_output_budget = planning_output_budget
 
     async def generate(self, request, project_name=None):
         self.requests.append(request)
@@ -198,10 +199,10 @@ class TestFindAllOverlapping:
 
 
 class TestParseDraft:
-    """解析层的拒绝行为：两类失败都要变成可回传给模型的 _DraftRejected，且日志留下原始输出。"""
+    """解析层的拒绝行为：两类失败都要变成可回传给模型的 _DraftRejected，且诊断日志仅含摘要。"""
 
     def test_rejects_malformed_json_with_unescaped_quote(self, caplog):
-        """字符串里带未转义引号 → 非法 JSON，拒绝并记录原始输出。"""
+        """字符串里带未转义引号 → 非法 JSON，拒绝并记录响应长度。"""
         raw = '{"episodes": [{"title": "他说"你好"", "hook": "h", "end_anchor": "锚点"}]}'
 
         with (
@@ -211,11 +212,12 @@ class TestParseDraft:
             EpisodePlanner._parse_draft(raw, NarrationPlanDraft)
 
         assert "不是合法 JSON" in exc_info.value.reasons[0]
-        assert any(raw[:20] in record.getMessage() for record in caplog.records)
+        assert "你好" not in caplog.text
+        assert f"response_chars={len(raw)}" in caplog.text
 
     def test_rejects_bare_episode_dict_at_top_level(self, caplog):
         """顶层是裸 episode 对象（缺 episodes wrapper）→ 结构错误，拒绝而不机械补 wrapper。"""
-        raw = json.dumps({"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}, ensure_ascii=False)
+        raw = json.dumps({"合成字段标记": ANCHOR_EP1}, ensure_ascii=False)
 
         with (
             caplog.at_level("WARNING", logger="lib.episode.episode_planner"),
@@ -225,7 +227,10 @@ class TestParseDraft:
 
         assert "不符合 schema" in exc_info.value.reasons[0]
         assert "episodes" in exc_info.value.reasons[0]
-        assert any(ANCHOR_EP1 in record.getMessage() for record in caplog.records)
+        assert ANCHOR_EP1 not in caplog.text
+        assert "合成字段标记" not in caplog.text
+        assert "episodes" in caplog.text
+        assert f"response_chars={len(raw)}" in caplog.text
 
     def test_accepts_wrapped_episodes(self):
         raw = _plan_response([{"title": "山村少年", "hook": "h", "end_anchor": ANCHOR_EP1}])
@@ -920,37 +925,54 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_write[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
-    async def test_plan_truncation_short_circuits_retry_and_reports_the_model(self, tmp_path: Path):
-        """结构化输出被截断时不重试，带出供应商、模型与是否自定义模型（见 docs/adr/0044）。"""
+    @pytest.mark.parametrize(("budget", "attempts", "calls"), [(400, 3, 1), (8192, 3, 2), (8192, 1, 1)])
+    async def test_unrecoverable_truncation_reports_the_model(self, tmp_path: Path, budget, attempts, calls):
+        """单窗折半或尝试预算耗尽后带出供应商、模型与是否自定义模型（见 docs/adr/0044）。"""
         from lib.backends.text_backends.base import TextOutputTruncatedError
-
-        class _TruncatingGenerator:
-            model = "my-llm"
-            max_output_tokens = 8192
-
-            def __init__(self):
-                self.call_count = 0
-
-            async def generate(self, request, project_name=None):
-                self.call_count += 1
-                raise TextOutputTruncatedError(
-                    provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
-                )
 
         project_dir = _write_project(tmp_path)
         before = (project_dir / "project.json").read_text(encoding="utf-8")
-        fake = _TruncatingGenerator()
+        error = TextOutputTruncatedError(
+            provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+        )
+        fake = FakeTextGenerator(error, error)
+        fake.planning_output_budget = budget
 
         with pytest.raises(PlanningOutputTruncatedError) as exc_info:
-            await EpisodePlanner(project_dir, generator=fake).plan()
+            await EpisodePlanner(project_dir, generator=fake, max_attempts=attempts).plan()
 
-        assert fake.call_count == 1
+        assert len(fake.requests) == calls
+        assert exc_info.value.output_tokens == 8192
         assert (exc_info.value.provider_id, exc_info.value.model, exc_info.value.custom_model) == (
             "custom-3",
             "my-llm",
             True,
         )
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
+    async def test_truncation_halves_prompt_and_commit_limit_within_one_window(self, tmp_path, caplog):
+        from unittest.mock import AsyncMock
+
+        from lib.backends.text_backends.base import TextOutputTruncatedError
+
+        marker = "合成无效锚点"
+        invalid = _plan_response([{"title": "甲", "hook": "甲", "end_anchor": marker}])
+        fake = FakeTextGenerator(
+            invalid, TextOutputTruncatedError(provider="fake", model="fake-model"), _plan_response(_THREE_EPISODE_DRAFT)
+        )
+        fake.planning_output_budget = 800
+        enqueue = AsyncMock()
+        result = await EpisodePlanner(_write_project(tmp_path), generator=fake).plan(on_more_to_plan=enqueue)
+        prompts = [request.prompt for request in fake.requests]
+        assert len(prompts) == 3
+        assert "本批最多规划 2 集" in prompts[1]
+        assert marker in prompts[1]
+        assert "本批最多规划 1 集" in prompts[2]
+        assert marker not in prompts[2]
+        assert [episode.title for episode in result.episodes] == ["甲"]
+        assert result.cursor["offset"] == _end_of(ANCHOR_EP1)
+        enqueue.assert_awaited_once()
+        assert marker not in caplog.text
 
     async def test_plan_without_a_complete_arc_reports_the_window_start(self, tmp_path: Path):
         """窗口里找不到剧情弧完整的切分点：这一批报错并给出未切分原文的起点，不重试、账本不动。"""
@@ -1171,7 +1193,7 @@ class TestPlan:
                     ]
                 )
             ],
-            max_output_tokens=400,
+            planning_output_budget=400,
         )
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()

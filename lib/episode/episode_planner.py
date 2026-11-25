@@ -30,12 +30,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import (
-    DEFAULT_MAX_OUTPUT_TOKENS,
     StructuredOutputExhaustedError,
     TextGenerationRequest,
     TextOutputTruncatedError,
     TextTaskType,
-    truncate_for_log,
+    summarize_validation_error,
 )
 from lib.backends.text_generator import TextGenerator
 from lib.episode.episode_excerpts import edge_sentences
@@ -134,7 +133,7 @@ class PlanningOutputTruncatedError(EpisodePlanningError, TextOutputTruncatedErro
 
 
 def episodes_per_batch(max_output_tokens: int, content_mode: str) -> int:
-    """每批最多规划的集数 = 实际生效的输出上限 × 安全系数 ÷ 每集输出估算，至少 1 集。"""
+    """每批最多规划的集数 = 规划预算 × 安全系数 ÷ 每集输出估算，至少 1 集。"""
     estimate = _EPISODE_OUTPUT_TOKENS["drama" if content_mode == "drama" else "narration"]
     return max(1, int(max_output_tokens * _OUTPUT_SAFETY_FACTOR) // estimate)
 
@@ -828,7 +827,7 @@ class EpisodePlanner:
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
         content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
-        max_episodes = episodes_per_batch(self.generator.max_output_tokens, content_mode)
+        max_episodes = episodes_per_batch(self.generator.planning_output_budget, content_mode)
         window_end = window.end(self.window_chars)
         window_text = window.text[window.start : window_end]
         window_is_final = window_end >= window.limit
@@ -849,7 +848,7 @@ class EpisodePlanner:
 
         source_kind = whole_source_file_kind(project, window.source_rel) or DEFAULT_SOURCE_KIND
 
-        def _prompt(failure: list[str] | None) -> str:
+        def _prompt(max_episodes: int, failure: list[str] | None) -> str:
             return _build_planning_prompt(
                 project=project,
                 source_kind=source_kind,
@@ -880,17 +879,15 @@ class EpisodePlanner:
     async def _request_validated_drafts(
         self,
         draft_model: type[NarrationPlanDraft | DramaPlanDraft],
-        prompt_builder: Callable[[list[str] | None], str],
+        prompt_builder: Callable[[int, list[str] | None], str],
         window: str,
         *,
         snap_whitespace_tail: bool,
-        max_episodes: int | None,
+        max_episodes: int,
     ) -> tuple[list[NarrationEpisodeDraft], list[int]]:
         """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。模型返回空列表时原样返回。
 
-        结构化输出被输出上限截断时 :class:`TextOutputTruncatedError` 直接短路本循环——
-        重发同一份必然再截断的请求没有意义；转为 :class:`PlanningOutputTruncatedError` 冒泡，
-        带出出路所需的模型信息（见 docs/adr/0044）。
+        同一窗口首次截断时可将目标集数折半一次，仍受本窗口尝试次数限制。
 
         后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
         转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
@@ -899,18 +896,23 @@ class EpisodePlanner:
         if self.generator is None:
             raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
         failure: list[str] | None = None
+        halved = False
         for attempt in range(1, self.max_attempts + 1):
             try:
                 result = await self.generator.generate(
                     TextGenerationRequest(
-                        prompt=prompt_builder(failure),
+                        prompt=prompt_builder(max_episodes, failure),
                         response_schema=draft_model,
-                        max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
                     ),
                     project_name=self.project_name,
                 )
             except TextOutputTruncatedError as exc:
-                raise PlanningOutputTruncatedError(exc) from exc
+                if halved or max_episodes == 1 or attempt == self.max_attempts:
+                    raise PlanningOutputTruncatedError(exc) from exc
+                max_episodes //= 2
+                halved = True
+                failure = None
+                continue
             except StructuredOutputExhaustedError as exc:
                 raise EpisodePlanningError(str(exc)) from exc
             try:
@@ -918,7 +920,7 @@ class EpisodePlanner:
                 drafts: list[NarrationEpisodeDraft] = list(draft.episodes)
                 if not drafts:
                     return [], []
-                if max_episodes is not None and len(drafts) > max_episodes:
+                if len(drafts) > max_episodes:
                     logger.warning(
                         "规划输出 %d 集超过每批上限 %d，截断保留前 %d 集（其余留给下一批）",
                         len(drafts),
@@ -930,7 +932,7 @@ class EpisodePlanner:
                 return drafts, ends
             except _DraftRejected as exc:
                 failure = exc.reasons
-                logger.warning("分集规划第 %d/%d 次尝试未通过校验：%s", attempt, self.max_attempts, exc)
+                logger.warning("分集规划第 %d/%d 次尝试未通过校验", attempt, self.max_attempts)
         raise EpisodePlanningError(
             f"分集规划连续 {self.max_attempts} 次未通过校验，最后一轮原因：{'; '.join(failure or [])}"
         )
@@ -943,13 +945,13 @@ class EpisodePlanner:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            logger.warning("分集规划输出不是合法 JSON（%s）；模型原始输出：%s", exc, truncate_for_log(response_text))
+            logger.warning("分集规划 JSON 无效 field=<root> response_chars=%d", len(response_text))
             raise _DraftRejected([f"输出不是合法 JSON：{exc}"]) from exc
         try:
             return draft_model.model_validate(data)
         except ValidationError as exc:
-            issues = "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:5])
-            logger.warning("分集规划输出不符合 schema（%s）；模型原始输出：%s", issues, truncate_for_log(response_text))
+            issues = summarize_validation_error(exc, model=draft_model)
+            logger.warning("分集规划 schema 校验失败 fields=%s response_chars=%d", issues, len(response_text))
             raise _DraftRejected([f"输出不符合 schema：{issues}"]) from exc
 
     @staticmethod

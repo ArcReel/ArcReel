@@ -29,10 +29,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def effective_max_output_tokens(registered: int | None) -> int:
-    """文本请求实际生效的输出上限：取 min(模型登记的最大输出长度, 64000)，未登记按 64000。"""
+def effective_max_output_tokens(registered: int | None) -> int | None:
+    """文本请求实际生效的输出上限：取 min(模型登记的最大输出长度, 64000)，未登记时交由协议处理。"""
     if registered is None or registered <= 0:
-        return DEFAULT_MAX_OUTPUT_TOKENS
+        return None
     return min(registered, DEFAULT_MAX_OUTPUT_TOKENS)
 
 
@@ -69,9 +69,13 @@ class TextGenerator:
         return self.backend.model
 
     @property
-    def max_output_tokens(self) -> int:
-        """本生成器每次请求实际生效的输出上限（单位 token）。"""
+    def max_output_tokens(self) -> int | None:
+        """按模型登记值解析的请求上限（单位 token）。"""
         return self._max_output_tokens
+
+    @property
+    def planning_output_budget(self) -> int:
+        return self._max_output_tokens or 8192
 
     @classmethod
     async def create(
@@ -112,10 +116,9 @@ class TextGenerator:
         （如回复须整段解析为 JSON）：截断时同样抛出该异常，不返回残缺的结果。
         """
         ceiling = self._max_output_tokens
-        request = replace(
-            request,
-            max_output_tokens=min(request.max_output_tokens, ceiling) if request.max_output_tokens else ceiling,
-        )
+        if request.max_output_tokens:
+            ceiling = min(request.max_output_tokens, ceiling or DEFAULT_MAX_OUTPUT_TOKENS)
+        request = replace(request, max_output_tokens=ceiling)
         async with self.ledger.record(
             project_name=project_name or "",
             call_type="text",

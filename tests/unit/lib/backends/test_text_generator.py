@@ -107,15 +107,15 @@ class TestTextGenerator:
 
 
 class TestOutputTokenCeiling:
-    """文本请求的输出上限取 min(登记值, 64000)，未登记按 64000。"""
+    """文本请求的输出上限取 min(登记值, 64000)，未登记时省略请求上限。"""
 
     @pytest.mark.parametrize(
         ("registered", "requested", "sent"),
         [
             (8192, 64000, 8192),
             (8192, None, 8192),
-            (None, None, 64000),
-            (None, 64000, 64000),
+            (None, None, None),
+            (None, 4000, 4000),
             (128000, 64000, 64000),
             (128000, None, 64000),
             (8192, 4000, 4000),
@@ -134,6 +134,7 @@ class TestOutputTokenCeiling:
         await gen.generate(TextGenerationRequest(prompt="测试", max_output_tokens=requested))
 
         assert backend.generate.await_args.args[0].max_output_tokens == sent
+        assert gen.planning_output_budget == (min(registered, 64000) if registered else 8192)
 
     async def test_truncation_reports_the_resolved_provider(self, wired):
         backend = _make_backend()

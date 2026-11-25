@@ -109,7 +109,7 @@ class _Generator:
     """窗口里出现的每个锚点各回一集。"""
 
     model = "fake-model"
-    max_output_tokens = 64000
+    planning_output_budget = 64000
 
     def __init__(self, anchors: list[str]) -> None:
         self.anchors = anchors
