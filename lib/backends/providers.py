@@ -29,6 +29,15 @@ def is_custom_provider(provider_id: str) -> bool:
     return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
 
 
+def parse_provider_id(provider_id: str) -> int:
+    """从 'custom-3' 格式的 provider_id 提取数据库 ID。
+
+    Raises:
+        ValueError: 如果格式不正确
+    """
+    return int(provider_id.removeprefix(CUSTOM_PROVIDER_PREFIX))
+
+
 CallType = Literal["image", "video", "text", "audio"]
 CALL_TYPE_IMAGE: CallType = "image"
 CALL_TYPE_VIDEO: CallType = "video"

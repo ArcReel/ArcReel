@@ -32,7 +32,7 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.audio_backends.profiles import endpoint_profile
+from lib.backends.audio_profiles import endpoint_profile
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.backends.providers import PROVIDER_ARK_AGENT_PLAN

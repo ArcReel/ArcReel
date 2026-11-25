@@ -346,7 +346,7 @@ ArcReel upgrades project data automatically at startup. [Back up the data root a
 
 When a parent directory of the project or temporary archive extraction directory is accessed through a symbolic link, migration still assigns legacy scripts to the correct episodes and preserves their existing media content. Migration reassigns duplicate reference-video unit IDs in legacy ad projects. In-place migration preserves the readability of existing media references, so paths that were unreadable before migration remain unreadable afterward.
 
-When importing an older project ZIP with an artifact manifest, ArcReel verifies script, subtitle, and presentation files before migration. If a file matches its archived digest exactly and retains the same manifest key and path, ArcReel updates the content digest to match the migrated file.
+When importing an older project ZIP with an artifact manifest, ArcReel verifies script, subtitle draft, and presentation files before migration. If a file matches its archived digest exactly and retains the same manifest key and path, ArcReel updates the content digest to match the migrated file.
 
 **Review migration results**
 

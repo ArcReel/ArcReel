@@ -4,13 +4,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backends.audio_backends.profiles import AudioProfile, endpoint_profile
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.audio_profiles import AudioProfile, endpoint_profile
+from lib.backends.builtin_endpoints import select_provider_endpoint
+from lib.backends.providers import is_custom_provider, parse_provider_id
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.repository import SystemSettingRepository
 from lib.config.service import ConfigService
 from lib.config.url_utils import is_official_openai_base_url
-from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import UnprocessableError
 from lib.speech.narration_config import parse_tts_backend
@@ -20,7 +21,7 @@ TTS_KEYS = ("default_audio_backend", "narration_voice", "narration_speed")
 
 def builtin_audio_profile(provider: str, model: str) -> AudioProfile:
     _, endpoint = catalog.callable_model_view(provider, model, "audio", submitted=False)
-    return endpoint_profile(get_provider_spec(provider, "audio", endpoint).endpoint, model)
+    return endpoint_profile(select_provider_endpoint(provider, "audio", endpoint), model)
 
 
 async def model_profile(session: AsyncSession, provider: str, model: str) -> AudioProfile:
@@ -60,7 +61,12 @@ async def patch_global_tts(svc: ConfigService, session: AsyncSession, patch: dic
         pair = parse_tts_backend(backend)
         if pair is None:
             raise UnprocessableError("narration_tts_model_invalid")
-        profile = await model_profile(session, *pair)
+        try:
+            profile = await model_profile(session, *pair)
+        except ModelNotInCatalogError:
+            raise
+        except ValueError as exc:
+            raise UnprocessableError("narration_tts_model_invalid") from exc
         same = backend == previous
         default_voice = saved.get("narration_voice", "") if same else profile.first_voice
         voice = (patch.get("narration_voice", default_voice) or "").strip()

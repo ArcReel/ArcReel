@@ -260,9 +260,14 @@ def verified_legacy_json_claims(
     project_dir: Path, preserved: ArtifactManifestArchiveSnapshot
 ) -> frozenset[ArtifactKey]:
     """在归档修复与版本迁移改写 JSON 前，用信封指纹核对原始文件。"""
-    project = json.loads((project_dir / "project.json").read_bytes())
+    try:
+        project = json.loads((project_dir / "project.json").read_bytes().decode("utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return frozenset()
     if not isinstance(project, Mapping) or project_schema_is_current(project):
         return frozenset()
+    if set(preserved.entries) != set(preserved.content_digests):
+        raise ValueError("archive Artifact Manifest content evidence does not cover every formal claim")
     adapter = ProjectArtifactManifestAdapter(project_dir)
     verified = set()
     for key, entry in preserved.entries.items():

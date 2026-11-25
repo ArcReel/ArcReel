@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES
-from lib.backends.audio_backends.profiles import AudioProfile
+from lib.backends.audio_profiles import AudioProfile
 from lib.catalog import builtin_models
 from lib.config import pre_upgrade_recommendations
 from lib.config.registry import PROVIDER_REGISTRY

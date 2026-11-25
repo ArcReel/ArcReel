@@ -100,6 +100,7 @@ async def new_project_narration_fields(
     voice = value.narration_voice if TTS_VOICE_FIELD in value.provided else None
     speed = value.narration_speed if TTS_SPEED_FIELD in value.provided else None
 
+    default_backend_pair: str | None = None
     if value.delivery == USE_TTS:
         omitted = {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD} - value.provided
         if omitted:
@@ -107,8 +108,10 @@ async def new_project_narration_fields(
                 default_backend, default_voice, default_speed = await resolve_default_narration_tts(resolver)
             except ValueError:
                 default_backend, default_voice, default_speed = None, None, None
-            if TTS_BACKEND_FIELD in omitted and default_backend is not None:
-                backend = f"{default_backend.provider_id}/{default_backend.model_id}"
+            if default_backend is not None:
+                default_backend_pair = f"{default_backend.provider_id}/{default_backend.model_id}"
+            if TTS_BACKEND_FIELD in omitted and default_backend_pair is not None:
+                backend = default_backend_pair
             if TTS_VOICE_FIELD in omitted:
                 voice = default_voice
             if TTS_SPEED_FIELD in omitted:
@@ -120,7 +123,8 @@ async def new_project_narration_fields(
         backend = fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
         if TTS_VOICE_FIELD not in value.provided and voice is not None:
             provider_id, model_id = backend.split("/", 1)
-            voice = _voice_for_backend(provider_id, model_id, voice)
+            switched = TTS_BACKEND_FIELD in value.provided and backend != default_backend_pair
+            voice = _voice_for_backend(provider_id, model_id, "" if switched else voice)
     if voice is not None and voice.strip():
         fields[TTS_VOICE_FIELD] = voice.strip()
     if speed is not None:

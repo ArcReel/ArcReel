@@ -1,10 +1,18 @@
 """语音合成端点的静态音色与参数契约。"""
 
-import math
 from dataclasses import dataclass
 
-from lib.backends.audio_backends.base import VoiceOption
 from lib.infra.api_errors import UnprocessableError
+from lib.speech.narration_config import parse_tts_speed
+
+
+@dataclass(frozen=True)
+class VoiceOption:
+    """音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值，``label`` 是给人看的展示名。"""
+
+    id: str
+    label: str
+
 
 _QWEN3_TTS_FLASH = "qwen3-tts-flash"
 DASHSCOPE_VOICES: tuple[VoiceOption, ...] = (
@@ -244,14 +252,16 @@ class AudioProfile:
             raise UnprocessableError("narration_tts_voice_required")
         if not self.accepts_voice(voice):
             raise UnprocessableError("narration_tts_voice_invalid")
-        if self.bounds and speed is not None:
-            minimum, maximum = self.bounds
-            if not minimum <= speed <= maximum:
-                raise UnprocessableError(
-                    "narration_tts_speed_out_of_range", speed=speed, minimum=minimum, maximum=maximum
-                )
-        if speed is not None and (not math.isfinite(speed) or speed <= 0):
-            raise UnprocessableError("narration_tts_speed_invalid")
+        if speed is not None:
+            parsed = parse_tts_speed(speed)
+            if parsed is None:
+                raise UnprocessableError("narration_tts_speed_invalid")
+            if self.bounds:
+                minimum, maximum = self.bounds
+                if not minimum <= parsed <= maximum:
+                    raise UnprocessableError(
+                        "narration_tts_speed_out_of_range", speed=parsed, minimum=minimum, maximum=maximum
+                    )
 
 
 def endpoint_profile(

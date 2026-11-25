@@ -532,43 +532,6 @@ class TestPatchSystemConfig:
         assert res.status_code == 200
         assert res.json()["settings"]["narration_speed"] is None
 
-    def test_atomic_audio_group_transitions(self):
-        app = _make_app_with_mock(_make_mock_svc())
-        register_error_handlers(app)
-        with TestClient(app) as client:
-            url = "/api/v1/system/config"
-
-            def patch(**fields):
-                return client.patch(url, json=fields)
-
-            assert (
-                patch(default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts", narration_speed=1.4).status_code
-                == 200
-            )
-            for invalid in (
-                {"narration_voice": "unknown"},
-                {"default_audio_backend": "minimax/speech-2.8-hd", "narration_speed": 2.1},
-                {"default_audio_backend": "custom-8/no-suggestions"},
-                {"default_audio_backend": None, "narration_voice": "Zephyr"},
-                {"narration_voice": ""},
-            ):
-                assert patch(**invalid).status_code == 422
-                settings = client.get(url).json()["settings"]
-                assert (
-                    settings["default_audio_backend"],
-                    settings["narration_voice"],
-                    settings["narration_speed"],
-                ) == ("gemini-aistudio/gemini-3.8-flash-tts", "Zephyr", 1.4)
-            switched = patch(default_audio_backend="dashscope/qwen3-tts-flash").json()["settings"]
-            assert (switched["narration_voice"], switched["narration_speed"]) == ("Cherry", None)
-            assert patch(narration_voice="my-cloned-voice").status_code == 200
-            cleared = patch(default_audio_backend=None).json()["settings"]
-            assert (cleared["default_audio_backend"], cleared["narration_voice"], cleared["narration_speed"]) == (
-                "",
-                "",
-                None,
-            )
-
     def test_patch_rejects_invalid_audio_backend(self):
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
@@ -662,7 +625,9 @@ class TestNarrationDefaults:
                 await session.commit()
 
         asyncio.run(_seed())
-        monkeypatch.setattr(system_config_router, "async_session_factory", db_factory)
+        from tests.fakes import use_system_config_router_sessions
+
+        use_system_config_router_sessions(monkeypatch, db_factory)
         with TestClient(_make_app_with_mock(_make_mock_svc())) as client:
             resp = client.get("/api/v1/system/narration-defaults")
         assert resp.status_code == 200

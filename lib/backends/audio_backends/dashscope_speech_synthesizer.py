@@ -26,8 +26,8 @@ from typing import Any
 
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, VoiceOption
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
-from lib.backends.audio_backends.profiles import endpoint_profile
-from lib.backends.audio_backends.profiles import voices_for_model as voices_for_model
+from lib.backends.audio_profiles import endpoint_profile
+from lib.backends.audio_profiles import voices_for_model as voices_for_model
 from lib.backends.transport_layer import TransportLayer
 
 logger = logging.getLogger(__name__)

@@ -21,8 +21,9 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.audio_backends.profiles import endpoint_profile
+from lib.backends.audio_profiles import AudioProfile, endpoint_profile
 from lib.backends.gemini_shared import VERTEX_SCOPES, gemini_http_options, resolve_gemini_api_key, with_retry_async
+from lib.backends.providers import is_custom_provider
 from lib.backends.transport_layer import TransportLayer
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
@@ -118,13 +119,14 @@ class GeminiAudioBackend:
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH}
 
+    def _profile(self) -> AudioProfile:
+        return endpoint_profile("gemini-tts", self._model, custom_provider=is_custom_provider(self.name))
+
     def list_voices(self) -> list[VoiceOption]:
-        return list(endpoint_profile("gemini-tts", self._model).voices)
+        return list(self._profile().voices)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        endpoint_profile("gemini-tts", self._model, custom_provider=self.name.startswith("custom-")).validate(
-            request.voice, None
-        )
+        self._profile().validate(request.voice, None)
         if request.speed is not None:
             logger.debug("Gemini TTS 不支持语速参数 speed=%s，已忽略", request.speed)
         data, mime_type, usage = await self._request_speech(request)

@@ -18,7 +18,7 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.audio_backends.profiles import endpoint_profile
+from lib.backends.audio_profiles import AudioProfile, endpoint_profile
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
@@ -69,13 +69,14 @@ class OpenAIAudioBackend:
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
+    def _profile(self) -> AudioProfile:
+        return endpoint_profile("openai-tts", self._model, official_host=self._official_host)
+
     def list_voices(self) -> list[VoiceOption]:
-        return list(endpoint_profile("openai-tts", self._model, official_host=self._official_host).voices)
+        return list(self._profile().voices)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        endpoint_profile("openai-tts", self._model, official_host=self._official_host).validate(
-            request.voice, request.speed
-        )
+        self._profile().validate(request.voice, request.speed)
         audio_bytes = await self._request_speech(request)
         await run_noninterruptible_sync(request.output_path.write_bytes, audio_bytes)
 
