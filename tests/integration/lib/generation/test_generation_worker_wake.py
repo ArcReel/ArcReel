@@ -42,11 +42,8 @@ async def test_wake_claims_task_without_waiting_for_poll_interval(monkeypatch, f
     bind_safe_session_factory(monkeypatch, file_db_factory)
     queue = _WakeQueue()
 
-    async def text_provider(_task: dict[str, Any]) -> str:
-        return "text"
-
-    async def execute(_task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, bool]:
-        assert claimed_provider_id == "text"
+    async def execute(_task: dict[str, Any], *, claimed_provider_id: str | None) -> dict[str, bool]:
+        assert claimed_provider_id is None
         return {"ok": True}
 
     async def no_settle(*, taskless_started_before: datetime | None) -> int:
@@ -54,8 +51,7 @@ async def test_wake_claims_task_without_waiting_for_poll_interval(monkeypatch, f
 
     worker = GenerationWorker(
         queue=queue,
-        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
-        provider_projection=text_provider,
+        capacity=CapacityTable.from_env(),
         executor=execute,
         lanes=("text",),
         settle_interrupted_calls=no_settle,

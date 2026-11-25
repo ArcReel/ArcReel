@@ -19,7 +19,7 @@ from lib.episode.episode_deletion import EpisodeDeletionConfirmationRequired, de
 from lib.episode.episode_planner import EpisodePlanner
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_result import GenerationAction, problem_from_task_failure
-from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.generation.generation_worker import GenerationWorker
 from lib.infra.app_data_dir import reset_for_tests
 from lib.project.project_manager import ProjectManager
 from server.tool_runtime import (
@@ -131,13 +131,8 @@ async def planning(tmp_path: Path, file_db_factory, monkeypatch: pytest.MonkeyPa
         del claimed_provider_id
         return await execute_queued_text_task(task, services=services)
 
-    async def text_provider(_task: dict[str, Any]) -> str:
-        return "text"
-
     worker = GenerationWorker(
         queue=queue,
-        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
-        provider_projection=text_provider,
         executor=execute,
         lanes=("text",),
         resume_executor=refuse_resume_execution,

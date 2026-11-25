@@ -306,7 +306,8 @@ async def _derive_execution_model_for_enqueue(
         from lib.config.resolver import ProviderModel
 
         return ProviderModel(RENDER_PROVIDER_ID, ""), None
-    is_text = media_type == "text"
+    if media_type == "text":
+        return None
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
     video_generation_type: VideoGenerationType | None = None
@@ -322,9 +323,7 @@ async def _derive_execution_model_for_enqueue(
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
         resolver = ConfigResolver(async_session_factory)
-        if is_text:
-            resolved = ProviderModel("text", "")
-        elif is_video:
+        if is_video:
             resolved, video_generation_type = await resolve_video_execution_for_queued_task(
                 resolver=resolver,
                 project=project,
@@ -735,7 +734,7 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             affected = await repo.mark_failed(task_id, error_message)
         if affected > 0:
-            logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
+            logger.warning("任务失败 task_id=%s", task_id)
         else:
             logger.info("mark_failed 0 rows task_id=%s (任务已不在 running)", task_id)
         return affected

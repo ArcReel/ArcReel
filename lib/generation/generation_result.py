@@ -277,6 +277,12 @@ def encode_generation_problem(problem: GenerationProblem) -> str:
     return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
 
 
+class QueuedGenerationError(RuntimeError):
+    def __init__(self, problem: GenerationProblem):
+        super().__init__(encode_generation_problem(problem))
+        self.code = problem.code
+
+
 def decode_generation_problem(error_message: str | None) -> GenerationProblem | None:
     """Read a persisted generation problem; raw or malformed failures return None."""
     if not error_message or not error_message.startswith(_PERSISTED_GENERATION_PROBLEM_PREFIX):
@@ -1137,6 +1143,7 @@ __all__ = [
     "GenerationTaskState",
     "GenerationWarning",
     "ProviderCheckpoint",
+    "QueuedGenerationError",
     "artifact_is_reusable",
     "artifact_state_problem",
     "decode_generation_problem",

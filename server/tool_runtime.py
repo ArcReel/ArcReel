@@ -122,7 +122,7 @@ from lib.generation.generation_result import (
     GenerationProblemCode,
     GenerationSelectionMode,
     GenerationTargetState,
-    encode_generation_problem,
+    QueuedGenerationError,
     enqueue_problem,
     migration_problem,
     problem_from_task_failure,
@@ -3183,7 +3183,7 @@ async def execute_queued_text_task(
             raise ValueError(f"unsupported text task_type: {task_type}") from exc
         outcome = await _execute_text_handler(operation, handler, request, scope, services)
     if outcome.problem is not None:
-        raise RuntimeError(encode_generation_problem(_queued_generation_problem(outcome.problem)))
+        raise QueuedGenerationError(_queued_generation_problem(outcome.problem))
     value = outcome.value
     if isinstance(value, TextGenerationResult):
         return _text_result_payload(value)

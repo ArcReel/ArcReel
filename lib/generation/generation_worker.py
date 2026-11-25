@@ -52,16 +52,19 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     resolve_video_execution_for_queued_task,
 )
+from lib.generation.generation_result import QueuedGenerationError
 from lib.generation.render_lane import RENDER_LANE_CONCURRENCY, RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID
 from lib.generation.restart_recovery import InterruptedCallSettler, RestartRecovery
-from lib.generation.task_failure import encode_failure
+from lib.generation.task_failure import encode_failure, parse_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.generation.task_ownership import TaskLease, TaskOwnership
 from lib.generation.task_writes import TaskWrites
+from lib.generation.text_task_lifecycle import TextTaskLifecycle
 from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner, fail_task_of_deleted_project
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.project.project_manager import get_project_manager
 from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
+from lib.video_runtime.text import observe_text_provider
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -78,12 +81,14 @@ class TaskExecutor(Protocol):
     不一致时在调用供应商之前抛 ``DispatchProviderChanged``。
     """
 
-    def __call__(self, task: dict[str, Any], *, claimed_provider_id: str) -> Awaitable[dict[str, Any]]: ...
+    def __call__(self, task: dict[str, Any], *, claimed_provider_id: str | None) -> Awaitable[dict[str, Any]]: ...
 
 
 logger = logging.getLogger(__name__)
 
 _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
+_TEXT_INFLIGHT_LIMIT = 16
+_TEXT_CLAIM_LIMIT = 4
 
 DEFAULT_PROVIDER = "gemini-aistudio"
 
@@ -207,7 +212,6 @@ class CapacityTable:
                 "image": image_max,
                 "video": video_max,
                 "audio": audio_max,
-                "text": 1,
                 RENDER_MEDIA_TYPE: RENDER_LANE_CONCURRENCY,
             },
         )
@@ -268,7 +272,6 @@ class CapacityTable:
                 "image": default_image,
                 "video": default_video,
                 "audio": default_audio,
-                "text": 1,
                 RENDER_MEDIA_TYPE: RENDER_LANE_CONCURRENCY,
             },
         )
@@ -382,7 +385,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
     图片、音频、视频任务只在排队记录缺失（或记录的 provider 已不支持该媒体类型）时调用一次，
-    结果写回记录；文本与渲染通道的 provider 固定，每次认领都调用。
+    结果写回记录；本地渲染使用固定槽位。
 
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``generation_type="t2i"`` 取一个
@@ -400,11 +403,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     payload = raw_payload if isinstance(raw_payload, dict) else {}
     if task.get("task_type") == "reference_video" and isinstance(task.get("script_file"), str):
         payload = {**payload, "script_file": task["script_file"]}
-    is_text = task.get("media_type") == "text"
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
-    if is_text:
-        return "text"
     if task.get("media_type") == RENDER_MEDIA_TYPE:
         return RENDER_PROVIDER_ID
 
@@ -445,7 +445,7 @@ class WorkerStoppingError(Exception):
 
 
 class GenerationWorker:
-    """Queue worker with per-provider image/video/audio/text lanes, the local render lane and single-active lease."""
+    """Queue worker with per-provider media lanes, process-wide text and render lanes and single-active lease."""
 
     def __init__(
         self,
@@ -653,13 +653,21 @@ class GenerationWorker:
         槽位归属只看排队时记录的 provider，认领时不按项目现状推算，池满时一个认领周期的开销
         因此与排队任务数无关。排队期间项目改了供应商，由执行入口核对出漂移、改写记录并原位
         回队，新供应商在下一次认领时才占槽。没有记录的存量任务在认领时推算一次并写回。
-        文本与渲染通道的 provider 固定，照常推算。
+        文本任务共享进程槽，单轮限量认领。
         """
         claimed_any = False
 
+        text_claimed = 0
         for media_type in self._lanes:
             while not self._stop_event.is_set():
-                pool_full = self._pool_full_providers(media_type)
+                if media_type == "text":
+                    if text_claimed >= _TEXT_CLAIM_LIMIT or not self._slots.has_room(
+                        "text", "text", _TEXT_INFLIGHT_LIMIT
+                    ):
+                        break
+                    pool_full = frozenset()
+                else:
+                    pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(
                     media_type=media_type,
                     pool_full_providers=pool_full,
@@ -677,43 +685,47 @@ class GenerationWorker:
                     if self._stop_event.is_set():
                         await self._requeue_single_task(task["task_id"], project_name=project_name)
                         return claimed_any
-                    provider_id, recorded = await self._slot_provider(task, media_type)
-                    if self._stop_event.is_set():
-                        await self._requeue_single_task(task["task_id"], project_name=project_name)
-                        return claimed_any
-                    cap = self._capacity.get(provider_id, media_type)
+                    if media_type == "text":
+                        provider_id = "text"
+                        text_claimed += 1
+                    else:
+                        provider_id, recorded = await self._slot_provider(task, media_type)
+                        cap = self._capacity.get(provider_id, media_type)
+                        if self._stop_event.is_set():
+                            await self._requeue_single_task(task["task_id"], project_name=project_name)
+                            return claimed_any
 
-                    if cap <= 0:
-                        logger.warning(
-                            "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
-                            provider_id,
-                            media_type,
-                            task["task_id"],
-                        )
-                        await self._writes.failed(
-                            task["task_id"],
-                            encode_failure(
-                                "provider_unsupported_media",
-                                provider_id=provider_id,
-                                media_type=media_type,
-                            ),
-                        )
-                        claimed_any = True
-                        continue
-
-                    if not self._slots.has_room(provider_id, media_type, cap):
-                        logger.info(
-                            "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
-                            provider_id,
-                            media_type,
-                            task["task_id"],
-                        )
-                        if not recorded:
-                            recorded = await self._record_provider(task["task_id"], provider_id)
-                        await self._requeue_single_task(task["task_id"], project_name=project_name)
-                        if recorded:
+                        if cap <= 0:
+                            logger.warning(
+                                "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
+                                provider_id,
+                                media_type,
+                                task["task_id"],
+                            )
+                            await self._writes.failed(
+                                task["task_id"],
+                                encode_failure(
+                                    "provider_unsupported_media",
+                                    provider_id=provider_id,
+                                    media_type=media_type,
+                                ),
+                            )
+                            claimed_any = True
                             continue
-                        break
+
+                        if not self._slots.has_room(provider_id, media_type, cap):
+                            logger.info(
+                                "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
+                                provider_id,
+                                media_type,
+                                task["task_id"],
+                            )
+                            if not recorded:
+                                recorded = await self._record_provider(task["task_id"], provider_id)
+                            await self._requeue_single_task(task["task_id"], project_name=project_name)
+                            if recorded:
+                                continue
+                            break
 
                     claimed_any = True
                     execution = asyncio.create_task(
@@ -723,7 +735,7 @@ class GenerationWorker:
                     self._slots.register(provider_id, media_type, task["task_id"], execution)
                     execution.add_done_callback(partial(self._execution_done, lease))
                     transferred = True
-                    if media_type in ("text", RENDER_MEDIA_TYPE):
+                    if media_type == RENDER_MEDIA_TYPE:
                         break
                 finally:
                     if not transferred:
@@ -740,10 +752,9 @@ class GenerationWorker:
         """任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
 
         有记录且该 provider 支持此媒体类型时直接用记录。没有记录的存量任务，或记录的 provider
-        已不支持此媒体类型时，按项目现状推算一次并写回，之后的认领不再推算。文本与渲染通道的
-        provider 固定，照常推算，不写回。
+        已不支持此媒体类型时，按项目现状推算一次并写回，之后的认领不再推算。本地渲染使用固定槽位。
         """
-        if media_type in ("text", RENDER_MEDIA_TYPE):
+        if media_type == RENDER_MEDIA_TYPE:
             return await self._provider_projection(task), False
         recorded = task.get("provider_id")
         if isinstance(recorded, str) and recorded and self._capacity.get(recorded, media_type) > 0:
@@ -836,15 +847,27 @@ class GenerationWorker:
         """
         task_id = task["task_id"]
         with claim_task_project(task_id, task.get("project_name")) as claim:
-            await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
+            if task.get("media_type") == "text":
+                lifecycle = TextTaskLifecycle(task, self.queue, self._writes)
+                lifecycle.log("running")
+                with observe_text_provider(lifecycle.record_provider):
+                    await self._run_claimed_task(task, claim, claimed_provider_id=None, lifecycle=lifecycle)
+            else:
+                await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
 
     async def _run_claimed_task(
-        self, task: dict[str, Any], claim: TaskProjectClaim, *, claimed_provider_id: str
+        self,
+        task: dict[str, Any],
+        claim: TaskProjectClaim,
+        *,
+        claimed_provider_id: str | None,
+        lifecycle: TextTaskLifecycle | None = None,
     ) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
         provider_id = claimed_provider_id
-        logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+        if lifecycle is None:
+            logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
         try:
             if task_type in ("video", "reference_video"):
@@ -852,74 +875,89 @@ class GenerationWorker:
             result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
             await run_noninterruptible_async(self.queue.mark_task_interrupted(task_id))
+            if lifecycle:
+                lifecycle.log("cancelled", "interrupted")
             raise
-        except DispatchProviderChanged as exc:
+        except Exception as exc:
+            if claim.revoked:
+                await fail_task_of_deleted_project(self._writes, task)
+                if lifecycle:
+                    lifecycle.log("failed", "project_deleted_during_task")
+                return
+            if isinstance(exc, DispatchProviderChanged) and lifecycle is None:
+                await self._requeue_changed_provider(task, claim, exc)
+                return
+            reason = encode_task_failure_message(exc)
+            if lifecycle is None:
+                logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+            affected = await run_noninterruptible_async(self._writes.failed(task_id, reason))
+            if lifecycle and affected:
+                if isinstance(exc, QueuedGenerationError):
+                    lifecycle.log("failed", exc.code)
+                else:
+                    parsed = parse_failure(reason)
+                    lifecycle.log("failed", parsed[0] if parsed else "unclassified")
+            return
+
+        written = await run_noninterruptible_async(self._writes.succeeded(task_id, result, claim=claim))
+        if written is None:
+            await fail_task_of_deleted_project(self._writes, task)
+            if lifecycle:
+                lifecycle.log("failed", "project_deleted_during_task")
+            return
+        if lifecycle:
+            if written:
+                lifecycle.log("succeeded")
+            return
+        logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+
+    async def _requeue_changed_provider(
+        self, task: dict[str, Any], claim: TaskProjectClaim, exc: DispatchProviderChanged
+    ) -> None:
+        task_id = task["task_id"]
+        try:
+            await run_noninterruptible_async(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
+        except Exception:
+            logger.warning(
+                "执行 provider 漂移后的投影刷新失败 task_id=%s provider=%s",
+                task_id,
+                exc.actual_provider_id,
+                exc_info=True,
+            )
+        try:
+            requeued = await run_noninterruptible_async(
+                self._requeue_single_task(task_id, project_name=claim.project_name)
+            )
+        except Exception:
+            logger.exception("执行 provider 漂移后回队异常 task_id=%s", task_id)
+            requeued = False
+        if not requeued:
             if claim.revoked:
                 await fail_task_of_deleted_project(self._writes, task)
                 return
-            try:
-                await run_noninterruptible_async(
-                    self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id)
-                )
-            except Exception:
-                logger.warning(
-                    "执行 provider 漂移后的投影刷新失败 task_id=%s provider=%s",
-                    task_id,
-                    exc.actual_provider_id,
-                    exc_info=True,
-                )
-            try:
-                requeued = await run_noninterruptible_async(
-                    self._requeue_single_task(task_id, project_name=claim.project_name)
-                )
-            except Exception:
-                logger.exception("执行 provider 漂移后回队异常 task_id=%s", task_id)
-                requeued = False
-            if not requeued:
-                if claim.revoked:
-                    await fail_task_of_deleted_project(self._writes, task)
-                    return
-                logger.error(
-                    "任务 %s 执行 provider 从 %s 变为 %s，但回队失败",
-                    task_id,
-                    exc.claimed_provider_id,
-                    exc.actual_provider_id,
-                )
-                await run_noninterruptible_async(
-                    self._writes.failed(
-                        task_id,
-                        encode_failure(
-                            "dispatch_provider_requeue_failed",
-                            claimed_provider_id=exc.claimed_provider_id,
-                            actual_provider_id=exc.actual_provider_id,
-                        ),
-                    )
-                )
-                return
-            logger.info(
-                "任务 %s 执行 provider 从 %s 变为 %s，已回队等待新槽",
+            logger.error(
+                "任务 %s 执行 provider 从 %s 变为 %s，但回队失败",
                 task_id,
                 exc.claimed_provider_id,
                 exc.actual_provider_id,
             )
+            await run_noninterruptible_async(
+                self._writes.failed(
+                    task_id,
+                    encode_failure(
+                        "dispatch_provider_requeue_failed",
+                        claimed_provider_id=exc.claimed_provider_id,
+                        actual_provider_id=exc.actual_provider_id,
+                    ),
+                )
+            )
             return
-        except Exception as exc:
-            if claim.revoked:
-                await fail_task_of_deleted_project(self._writes, task)
-                return
-            logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            await run_noninterruptible_async(self._writes.failed(task_id, encode_task_failure_message(exc)))
-            return
-
-        try:
-            written = await run_noninterruptible_async(self._writes.succeeded(task_id, result, claim=claim))
-        except Exception:
-            logger.exception("标记任务成功失败 %s", task_id)
-            raise
-        if written is None:
-            await fail_task_of_deleted_project(self._writes, task)
-            return
-        logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
+        logger.info(
+            "任务 %s 执行 provider 从 %s 变为 %s，已回队等待新槽",
+            task_id,
+            exc.claimed_provider_id,
+            exc.actual_provider_id,
+        )
 
     async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
         ledger = Ledger(session_factory=self.queue.session_factory)
