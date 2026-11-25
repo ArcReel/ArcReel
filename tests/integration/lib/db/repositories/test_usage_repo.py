@@ -877,6 +877,24 @@ class TestNullCostReadPaths:
             PROJECT_LEVEL_SEGMENT_KEY: {"image": {"USD": 2.0}},
         }
 
+    async def test_text_costs_follow_settled_usage_including_interrupted_agent_turns(self, async_session):
+        async_session.add_all(
+            [
+                make_call(call_type="text", status=CallStatus.CANCELLED, purpose="assistant_session", cost_amount=0.5),
+                make_call(call_type="text", status=CallStatus.FAILED, cost_amount=null()),
+                make_call(call_type="text", status=CallStatus.FAILED, cost_amount=0),
+                make_call(call_type="text", status=CallStatus.CANCELLED, cost_amount=0),
+                make_call(call_type="text", status=CallStatus.PENDING, cost_amount=null()),
+            ]
+        )
+        await async_session.commit()
+        repo = UsageRepository(async_session)
+
+        assert await repo.get_actual_costs_by_segment("demo") == {PROJECT_LEVEL_SEGMENT_KEY: {"text": {"USD": 0.5}}}
+        assert await repo.get_unpriced_calls_by_model("demo") == [
+            ("text", "gemini", "gemini-3.1-flash-image-preview", 1)
+        ]
+
     async def test_project_image_costs_skip_null(self, async_session):
         await self._seed_mixed(async_session)
 

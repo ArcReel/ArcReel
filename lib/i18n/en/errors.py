@@ -280,7 +280,7 @@ MESSAGES = {
     "episode_planning_refused": "Episode planning could not be submitted: {reason}",
     "episode_planning_no_cut_point": "No cut point with a complete story arc was found in this part of the source text. Cut this part manually, then continue AI planning",
     "episode_planning_failed": "An error occurred. Try again, or hand it to the Agent if it keeps failing",
-    "text_wait_timeout": "Local waiting has ended. The provider may still complete the request and charge for it.",
+    "text_wait_timeout": "Local waiting has ended, but the provider may still complete the request and charge for it. Check the result before retrying",
     "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_duration_off_tier": "Video unit {position} in the script plan is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s), so the plan was not confirmed. Change the unit's duration to an available option, then confirm again",

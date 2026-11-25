@@ -17,7 +17,7 @@ class TextWaitTimeout(NonRetryableError):
 
     def __init__(self):
         self.params: dict[str, str] = {}
-        super().__init__("本地已停止等待，但上游请求仍可能继续完成并计费。")
+        super().__init__("本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试")
 
 
 class ProviderRejectedError(httpx.HTTPStatusError):

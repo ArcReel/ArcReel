@@ -75,6 +75,9 @@ export function CostLine({ projectName, readOnly = false }: { projectName: strin
   ];
   const actualRows = (by: CostByType): CostRow[] => [
     ...typeRows(by, actualUnpriced, recorded),
+    ...(costEntries(by.text).length > 0 || actualUnpriced.has("text")
+      ? [{ label: t("media_type_text"), value: formatCostTotal(by.text, !actualUnpriced.has("text")) }]
+      : []),
     ...(["characters", "scenes", "props", "products"] as const)
       .filter((kind) => by[kind] != null)
       .map((kind) => ({

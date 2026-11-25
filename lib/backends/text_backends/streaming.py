@@ -80,13 +80,17 @@ def _transport_failure(exc: Exception) -> tuple[bool, bool]:
     while candidate is not None and id(candidate) not in seen:
         seen.add(id(candidate))
         if isinstance(candidate, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout, httpx.ProxyError)):
-            return True, isinstance(candidate, httpx.TimeoutException)
+            return True, False
         if isinstance(candidate, httpx.TimeoutException):
             return False, True
-        status = getattr(candidate, "status_code", None)
-        if isinstance(candidate, httpx.HTTPStatusError):
-            status = candidate.response.status_code
-        if isinstance(status, int):
+        status = candidate.response.status_code if isinstance(candidate, httpx.HTTPStatusError) else None
+        if status is None:
+            for attr in ("status_code", "code"):
+                value = getattr(candidate, attr, None)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    status = value
+                    break
+        if isinstance(status, int) and not isinstance(status, bool):
             return is_retryable_http_status(status), False
         if isinstance(candidate, AioRpcError):
             return grok_should_retry(candidate), False

@@ -847,7 +847,6 @@ export default {
   'usage_media_audio': 'Audio',
   'usage_error_rate_limited': 'Rate limited',
   'usage_error_content_policy': 'Content policy',
-  'text_wait_timeout': 'Local waiting has ended. The provider may still complete the request and charge for it.',
   'usage_error_timeout': 'Timed out',
   'usage_error_download_failed': 'Download failed',
   'usage_error_interrupted': 'Interrupted',

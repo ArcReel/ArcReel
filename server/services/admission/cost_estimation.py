@@ -751,6 +751,8 @@ class CostEstimationService:
             return created
 
         for segment_id, actual_by_type in actual_by_segment.items():
+            if text_cost := actual_by_type.get("text"):
+                proj_act["text"] = _merge_breakdowns(proj_act.get("text", {}), text_cost)
             if segment_id == PROJECT_LEVEL_SEGMENT_KEY:
                 continue
             match = re.match(r"^E(\d+)(?:S|U)", segment_id)

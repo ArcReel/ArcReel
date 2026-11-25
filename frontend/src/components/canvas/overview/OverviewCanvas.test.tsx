@@ -139,14 +139,16 @@ describe("OverviewCanvas", () => {
 
   it("shows estimate and spend on one line and breaks them down in the details popover", async () => {
     const user = userEvent.setup();
-    setCost("demo", { video: { USD: 1 }, unassigned: { USD: 1.25 } });
+    setCost("demo", { video: { USD: 1 }, unassigned: { USD: 1.25 }, text: { USD: 0.046635 } });
     renderOverview();
 
     expect(screen.getByText("预估 $5.00")).toBeInTheDocument();
-    expect(screen.getByText("已花 $2.25")).toBeInTheDocument();
+    expect(screen.getByText("已花 $2.30")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "明细" }));
     const popover = await screen.findByRole("dialog", { name: "费用明细" });
+    expect(within(popover).getByText("文本")).toBeInTheDocument();
+    expect(within(popover).getByText("$0.05")).toBeInTheDocument();
     expect(within(popover).getByText("历史支出（未归属当前脚本）")).toBeInTheDocument();
     expect(within(popover).getByRole("link", { name: "查看使用记录" })).toHaveAttribute(
       "href",

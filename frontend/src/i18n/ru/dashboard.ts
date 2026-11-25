@@ -866,7 +866,6 @@ export default {
   'usage_media_audio': 'Аудио',
   'usage_error_rate_limited': 'Превышена частота запросов',
   'usage_error_content_policy': 'Правила контента',
-  'text_wait_timeout': 'Локальное ожидание завершено. Поставщик всё ещё может выполнить запрос и списать плату.',
   'usage_error_timeout': 'Тайм-аут',
   'usage_error_download_failed': 'Ошибка скачивания',
   'usage_error_interrupted': 'Прервано',

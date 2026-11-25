@@ -212,8 +212,12 @@ async def test_parseable_json_without_message_stop_is_not_replayed():
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("outcome", ["success", "truncated", "fallback_failed", "require_complete"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["success", "truncated", "fallback_failed", "require_complete", "failed_without_usage", "interrupted_after_usage"],
+)
 async def test_stream_settles_completed_requests(db_factory, caplog, outcome):
+    from anthropic import InternalServerError
     from sqlalchemy import select
 
     from lib.backends.providers import CallPurpose
@@ -223,28 +227,43 @@ async def test_stream_settles_completed_requests(db_factory, caplog, outcome):
     from lib.billing.ledger import Ledger
     from lib.db.models.api_call import ApiCall
     from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
+    from lib.infra.retry import bind_clock
 
-    calls = []
+    class _Clock:
+        now = 0.0
+
+        def monotonic(self):
+            return self.now
+
+        async def sleep(self, delay):
+            self.now += delay
+
     progress = []
     marker = "sensitive-model-output"
 
-    def replay(request):
-        calls.append(request)
+    def replay(request: httpx.Request) -> httpx.Response:
         assert request.extensions["timeout"]["connect"] == 15
+        if outcome == "failed_without_usage":
+            return httpx.Response(
+                500, json={"type": "error", "error": {"type": "api_error", "message": "server error"}}
+            )
         text = (
             marker if outcome == "fallback_failed" else '<think>hidden</think>```json\n{"score": 1,"label":"ok"}\n```'
         )
-        return _sse(
+        response = _sse(
             text,
             usage={"input_tokens": 100},
             output_tokens=50,
             stop_reason="max_tokens" if outcome in ("truncated", "require_complete") else "end_turn",
         )
 
+        if outcome == "interrupted_after_usage":
+            partial = response.content.split(b"event: message_stop")[0]
+            return httpx.Response(200, headers=response.headers, content=partial)
+        return response
+
     model = "gemini-3-flash-preview"
-    backend = AnthropicTextBackend(
-        api_key="secret-key-marker", model=model, transport_layer=lambda _: httpx.MockTransport(replay)
-    )
+    backend = AnthropicTextBackend(api_key="secret-key-marker", model=model)
     generator = TextGenerator(
         backend, Ledger(session_factory=db_factory), "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION
     )
@@ -253,18 +272,33 @@ async def test_stream_settles_completed_requests(db_factory, caplog, outcome):
         response_schema=None if outcome == "require_complete" else _Verdict,
         on_progress=progress.append,
     )
-    with caplog.at_level("INFO"):
+    with capture_http() as router, bind_clock(_Clock()), caplog.at_level("INFO"):
+        route = router.post("https://api.anthropic.com/v1/messages").mock(side_effect=replay)
         if outcome == "success":
             result = await generator.generate(request, "demo")
             assert _Verdict.model_validate_json(result.text).score == 1
         else:
-            error = StructuredOutputExhaustedError if outcome == "fallback_failed" else TextOutputTruncatedError
+            error = {
+                "fallback_failed": StructuredOutputExhaustedError,
+                "failed_without_usage": InternalServerError,
+                "interrupted_after_usage": RuntimeError,
+            }.get(outcome, TextOutputTruncatedError)
             with pytest.raises(error):
                 await generator.generate(request, "demo", require_complete=True)
     assert all(s not in caplog.text for s in (marker, request.prompt, "secret-key-marker"))
+    if outcome == "failed_without_usage":
+        assert route.call_count == 3
+        assert [p.phase for p in progress] == ["waiting", "retrying", "waiting", "retrying", "waiting"]
+        async with db_factory() as session:
+            row = (await session.execute(select(ApiCall))).scalar_one()
+            assert row.status == "failed"
+            assert (row.input_tokens, row.output_tokens) == (None, None)
+            assert row.cost_amount == 0.0
+            assert await UsageRepository(session).get_actual_costs_by_segment("demo") == {}
+        return
     assert [p.phase for p in progress][:2] == ["waiting", "receiving"]
     count = 3 if outcome == "fallback_failed" else 1
-    assert len(calls) == count
+    assert route.call_count == count
     async with db_factory() as session:
         row = (await session.execute(select(ApiCall))).scalar_one()
         assert row.status == ("success" if outcome == "success" else "failed")
@@ -279,7 +313,7 @@ async def test_missing_usage_and_thinking_events():
 
     progress = []
     response = _sse("{}", usage={}, output_tokens=1)
-    frames = []
+    frames = ['event: ping\ndata: {"type": "ping"}']
     for frame in response.text.strip().split("\n\n"):
         name, raw = frame.split("\ndata: ")
         event = json.loads(raw)
@@ -299,22 +333,27 @@ async def test_missing_usage_and_thinking_events():
                     {"type": "content_block_stop"},
                 )
             )
+            frames.append('event: ping\ndata: {"type": "ping"}')
         if "index" in event:
             event["index"] = 1
         frames.append(f"{name}\ndata: {json.dumps(event)}")
 
-    def replay(request):
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text="\n\n".join(frames) + "\n\n")
-
-    backend = AnthropicTextBackend(
-        api_key="fake", model="claude", transport_layer=lambda _: httpx.MockTransport(replay)
-    )
-    result = await backend.generate(
-        TextGenerationRequest(prompt="q", response_schema={"type": "object"}, on_progress=progress.append)
-    )
+    sse_payload = "\n\n".join(frames) + "\n\n"
+    backend = AnthropicTextBackend(api_key="fake", model="claude")
+    with capture_http() as router:
+        router.post("https://api.anthropic.com/v1/messages").mock(
+            return_value=httpx.Response(200, headers={"content-type": "text/event-stream"}, text=sse_payload)
+        )
+        result = await backend.generate(
+            TextGenerationRequest(prompt="q", response_schema={"type": "object"}, on_progress=progress.append)
+        )
     assert result.text == "{}"
     assert result.request_tokens() == []
-    assert [(p.thinking, p.characters) for p in progress if p.phase == "receiving"] == [(True, 0), (False, 2)]
+    assert [(p.phase, p.thinking, p.characters) for p in progress] == [
+        ("waiting", False, 0),
+        ("receiving", True, 0),
+        ("receiving", False, 2),
+    ]
 
 
 @pytest.mark.parametrize("native", [False, True])

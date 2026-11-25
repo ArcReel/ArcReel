@@ -230,7 +230,7 @@ Built-in speech from the video model, character reference audio, and voice-over 
 
 ### Where can I view costs and Tokens? How can I control spending? {#view-and-control-cost}
 
-The project cost panel displays image, video, text, and audio calls, along with estimated and actual costs. Settings provides call statistics by time range and provider.
+The project overview estimates image, video, and audio costs. Spent also includes reference costs for text calls. If text generation fails, any usage already metered and priced still counts. In Settings, filter usage records by time range and provider to see individual calls.
 
 Estimates are based on the current model's declared prices and the project structure; they are not the provider's final bill. When a model maps to no known model in the model catalog, a provider returns no usage, or the model catalog has no applicable unit price, the call is recorded as "Unpriced" and left out of the totals. Review different currencies separately instead of adding them together. The provider bill is the source of truth for the final amount.
 

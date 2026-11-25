@@ -109,4 +109,5 @@ export default {
   'event_stream_interrupted': 'Event stream interrupted',
   'event_stream_ended': 'Event stream ended',
   'scroll_target_not_found': 'Couldn\'t find the content to jump to: {{id}}',
+  'text_wait_timeout': 'Local waiting has ended, but the provider may still complete the request and charge for it. Check the result before retrying',
 };
