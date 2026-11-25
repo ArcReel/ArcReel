@@ -177,6 +177,8 @@ See [Production Stages](./workflows.md#production-stages) for what to review at 
 
 Image, video, and audio jobs use independent task channels. Only queued tasks can be canceled. Once a task starts running, it can no longer be canceled: the provider call already sent runs to completion and its result is saved as an artifact, so the cost already incurred is not wasted. If you are not satisfied with the result, switch back to an earlier version in the version history or regenerate. If you cancel a task with dependencies, the UI lists the queued downstream tasks that will be canceled with it.
 
+Long-text tasks such as episode planning, script planning, and prompt authoring show live waiting phases and elapsed time while running. If a task reaches the local wait limit, ArcReel stops waiting locally and warns that the provider may still complete and charge for the request—check the result before retrying.
+
 The task panel does not have one retry button that works for every task type. After a failure, expand the error details, correct the configuration or input, then regenerate from the corresponding asset, storyboard, or video action. Do not click Generate repeatedly before understanding the cause.
 
 There is one exception: when a video was generated successfully on the provider side but could not be downloaded, the task panel offers **Retry download**. This action resumes the original provider task and only re-fetches the output. It **does not resubmit the request and is not billed again**, so use it to recover this kind of failure instead of regenerating from the generation entry point. Regenerating creates a new paid task.

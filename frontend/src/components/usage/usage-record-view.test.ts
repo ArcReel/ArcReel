@@ -72,4 +72,16 @@ describe("taskToUsageRecordView", () => {
       ),
     ).toBeNull();
   });
+
+  it("projects text tasks with their purpose and no segment label", () => {
+    const planView = taskToUsageRecordView(
+      makeTask({ task_type: "text_episode_plan", media_type: "text", resource_id: "episode-planning" }),
+    );
+    expect(planView).toMatchObject({ mediaType: "text", purpose: "episode_planning", segmentId: null });
+
+    const scriptView = taskToUsageRecordView(
+      makeTask({ task_type: "text_drama_script_plan", media_type: "text", resource_id: "episode-1" }),
+    );
+    expect(scriptView).toMatchObject({ mediaType: "text", purpose: "script_generation", segmentId: null });
+  });
 });

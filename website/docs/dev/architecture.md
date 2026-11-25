@@ -42,7 +42,7 @@ flowchart TB
 
 ## 工作台与 API {#frontend-layer}
 
-`server/routers/` 提供项目、任务与设置相关的 HTTP 入口。对话 SSE 用于流式返回 Agent 回复，项目事件 SSE 用于通知工作台重新拉取项目数据；任务查询接口则提供执行进度，并支持断线重连后恢复展示。代理配置详见[反向代理与 HTTPS](../ops/deployment.md#reverse-proxy-and-https)。
+`server/routers/` 提供项目、任务与设置相关的 HTTP 入口。对话 SSE 用于流式返回 Agent 回复，项目事件 SSE 用于通知工作台重新拉取项目数据，并通过独立轻量 `task_progress` 事件推送长文本任务的实时等待阶段；任务查询接口与活跃任务快照提供执行进度，并支持刷新、断线重连与跨项目视图恢复展示。代理配置详见[反向代理与 HTTPS](../ops/deployment.md#reverse-proxy-and-https)。
 
 `frontend/src/components` 按页面和工作区组织界面组件，`frontend/src/stores` 维护跨界面的共享状态。任务与产物的状态统一由后端判定。具体的布局、保存与刷新规则见[前端规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/frontend.md)。
 
@@ -88,6 +88,8 @@ flowchart TB
 客户端可通过 `GET /api/v1/tasks/active` 获取正在排队或执行的任务。传入可选查询参数 `project_name` 可限定项目，也可使用 `GET /api/v1/projects/{project_name}/tasks/active`。响应包含 `items` 和 `truncated`。可见的活跃任务超过 5000 条时，返回 5000 条且将 `truncated` 设为 `true`。最近任务列表继续按更新时间分页。
 
 `POST /api/v1/tasks/lookup` 接收 `task_ids` 字符串数组和可选的 `project_name`。同一 ID 只处理一次，超过 200 个不同 ID 时返回 HTTP 400。响应中的 `items` 使用单条任务详情的可见范围及本地化规则，`missing_ids` 包含不存在或超出查询范围的 ID。任务行的 `updated_at` 使用带微秒的 UTC ISO 8601 时间，重试下载回到执行中时，时间严格晚于失败行。参见 [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md)。
+
+长文本队列任务默认通过统一流式运行时执行，受建连 15 秒、有效正文或思考增量空闲停滞 180 秒与整次生成 900 秒三段等待上限约束；触达上限时以失败码 `text_wait_timeout` 停止本地等待，并明确提示供应商仍可能继续完成请求并计费。同进程 Worker 仅在内存中维护 `waiting`、`receiving`（含已接收字数或思考状态）与 `retrying` 三类真实阶段，通过项目事件流的独立 `task_progress` 事件（带单调 `seq`）节流推送，并在活跃任务快照中附带以供刷新、重连与跨项目界面补齐。参见 [ADR 0006](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0006-cancel-only-queued-tasks.md) 与 [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md)。
 
 项目资产写入与生成入队共用资产准入锁。上传、供应商素材导入、版本恢复或资产身份变更遇到冲突时，API 返回 HTTP 409，错误码为 `asset_resource_busy`。等待占用目标的任务结束后可重试。角色资产图与参考音频分别检查各自的占用。资产合并同时检查被并方和保留方。仅修改文本、重复提交相同字段值、确认声音通知、追加商品原图和 `dry_run` 预览可在生成期间执行。
 
