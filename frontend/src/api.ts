@@ -29,6 +29,7 @@ import type {
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
+  TaskProgress,
   AssistantSessionResumedPayload,
   AutoBackendsResponse,
   RecommendationChange,
@@ -2547,6 +2548,9 @@ class API {
             break;
           case "project_deleted":
             options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
+            break;
+          case "task_progress":
+            options.onTaskProgress?.(payload as unknown as TaskProgress);
             break;
           case "assistant_session_resumed":
             options.onAssistantSessionResumed?.(payload as unknown as AssistantSessionResumedPayload);

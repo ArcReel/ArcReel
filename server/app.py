@@ -519,6 +519,7 @@ async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGener
     project_event_service = ProjectEventService(PROJECT_ROOT, data_root=layout.root)
     app.state.project_event_service = project_event_service
     shutdown.on_shutdown(project_event_service.stop_streams)
+    worker.text_progress.publish = project_event_service.publish_task_progress
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(
