@@ -13,11 +13,12 @@ from lib.script.draft_violation import DraftViolation, schema_violations, violat
 from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import validate_source_text_anchor
 from lib.script.script_models import (
+    DramaNormalizedScript,
     NarrationScriptPlanDraft,
     NarrationVideoPrompt,
     ReferenceVideoUnit,
     Utterance,
-    build_drama_normalized_script_model,
+    build_drama_script_plan_model,
 )
 from lib.script.script_plan_validation import collect_drama_violations, collect_narration_violations
 from server.routers import script_review as router_mod
@@ -154,7 +155,7 @@ def test_schema_violations_show_bounds_and_allowed_values_in_each_locale():
         NarrationScriptPlanDraft, {"segments": [_SCHEMA_SEGMENT]}, "segments", "segment_id"
     )
     drama, drama_agent = _schema_entries(
-        build_drama_normalized_script_model([4, 6, 8]),
+        build_drama_script_plan_model([4, 6, 8]),
         {
             "title": "第一集",
             "scenes": [
@@ -202,7 +203,7 @@ def test_length_limits_read_naturally_for_a_single_character():
         "scenes": [],
         "new_assets": [{"type": "character", "name": "", "decision": "register", "reason": "首次出场"}],
     }
-    entries, _agent = _schema_entries(build_drama_normalized_script_model([8]), content, "scenes")
+    entries, _agent = _schema_entries(DramaNormalizedScript, content, "scenes")
     assert _web_messages(entries, "en") == {
         "content.new_assets.0.name": 'Draft content.new_assets.0.name does not match the output structure: minimum length is 1 (current value: ""). Check required fields, types, and values.'
     }

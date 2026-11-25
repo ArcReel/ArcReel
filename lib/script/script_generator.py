@@ -224,7 +224,7 @@ class UnitDurationOffTier(ValueError):
 
 
 class AdScriptRejected(ValueError):
-    """广告/短片整份生成的产出违约：不写正式脚本、不登记资产、不落待修复草稿。
+    """广告/短片整份生成的产出违约：不写正式脚本、不登记资产。
 
     ``problems`` 逐条说明违约，供任务失败原因展示；用户可以补充附加指令后重新生成。
     """
@@ -700,7 +700,7 @@ class ScriptGenerator:
     async def _load_plan_entries_for_materialization(self, episode: int) -> tuple[ScriptPlanKind, list[dict]]:
         """按项目路线读脚本规划并过物化的准入断言，返回 (变体, 条目)。
 
-        三条路线各自的加载器负责结构校验、待修复草稿守卫与规划指纹 / 输入登记的冻结；时长档位与
+        三条路线各自的加载器负责结构校验与规划指纹 / 输入登记的冻结；时长档位与
         发声准入按当前视频能力判定。参考生视频单元正文不按机器口径预判：单元以待编写落盘，正文由之后的
         提示词编写改写并在那里校验。
         """
@@ -1426,11 +1426,7 @@ class ScriptGenerator:
                 )
 
     def _assert_reference_units_authorable(self, units: list[dict], *, facts: PlanningVideoFacts) -> None:
-        """提示词编写付费调用前对待编写单元现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
-
-        产出路径与晋升路径（待修复草稿重判前）共用这一份：草稿在场期间用户可能在时间线上改过
-        单元，两处口径若分叉，就会出现「晋升放行、下次编写被拒」或反过来的死角。
-        """
+        """付费编写前验证所选单元的时长档位和正文。"""
         for unit, hydration in zip(units, self._hydrate_reference_units(units), strict=True):
             bucket = hydration.hydrated_generation_type
             facts.require(bucket)
@@ -1831,7 +1827,7 @@ class ScriptGenerator:
         """广告/短片参考生视频的提示词编写：按 brief、商品信息与前后单元写出待编写单元的正文。
 
         时长沿用单元现值（ad 单元编排时长不按供应商档位量化）；单元里已有的台词逐字保留。
-        与 ad 整份生成同口径不落待修复草稿，违约直接报错。
+        违约直接报错。
         """
         logger.info(
             "正在为第 %d 集编写提示词（ad video_units，%d/%d 个单元）...",

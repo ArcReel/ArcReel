@@ -422,7 +422,6 @@ describe("API", () => {
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.getEpisodesView("demo");
       await API.adoptSourceFile("demo", "旧 稿.txt", { target: "episode", episode: 2 });
-      await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
 
@@ -992,14 +991,10 @@ describe("API", () => {
       );
     });
 
-    it("handles source and draft text APIs", async () => {
+    it("handles source text APIs", async () => {
       const fetchMock = vi
         .fn()
         .mockResolvedValueOnce(mockResponse({ textData: "source content" }))
-        .mockResolvedValueOnce(
-          mockResponse({ jsonData: { success: true }, statusText: "OK" }),
-        )
-        .mockResolvedValueOnce(mockResponse({ textData: "draft content" }))
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
         );
@@ -1011,11 +1006,6 @@ describe("API", () => {
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
-      await expect(API.getDraftContent("demo", 1, "script_plan")).resolves.toBe("draft content");
-      await expect(API.saveDraft("demo", 1, "script_plan", "draft")).resolves.toEqual({
-        success: true,
-      });
-
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
         "/api/v1/projects/demo/source/source.txt",

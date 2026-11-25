@@ -1,22 +1,4 @@
-"""script_plan→prompt_authoring 内容确认的核心逻辑：适用性判定、script_plan 路径、内容指纹、确认状态派生，
-以及参考生视频正式 script_plan 的单一写盘出口（``script_plan_write_lock`` / ``write_script_plan_locked``）。
-
-gate 由 web router / service（结构化中间态查看 / 编辑 / 确认，确认即转为正式脚本）、Agent 确认工具与
-工作流状态消费。状态派生只依赖 script_plan 文件 + project dict
-的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
-重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 prompt_authoring 草稿清理只存在一处。
-
-真值只存「确认指纹」于 project.json ``episodes[i].script_plan_review``；pending / confirmed 由读时
-比对 live script_plan 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-经草稿晋升改写 script_plan、web 手改 script_plan 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
-上报。
-
-适用范围（拥有结构化 script_plan 中间态的三条内容/视觉两段式路径）：
-- drama / narration 的图生 / 宫格路径：script_plan_normalized_script.json / script_plan_segments.json；
-- reference_video 路径（跨 narration / drama content_mode）：script_plan_reference_units.json。
-三者的 script_plan 变体由 ``script_plan_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 script_plan，
-不纳入 gate。
-"""
+"""脚本规划的路径、内容指纹、确认状态与持锁写盘。"""
 
 from __future__ import annotations
 
@@ -132,7 +114,7 @@ def content_fingerprint(path: Path) -> str | None:
 def published_revision(fingerprint: str | None) -> str | None:
     """内容指纹对外的 revision 写法：带 ``sha256-v1:`` 前缀，与读取面其余 revision 同一种表示。
 
-    指纹本身（落盘的基线、草稿 meta、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
+    指纹本身（落盘的基线、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
     入参经 ``fingerprint_of_revision`` 去前缀后再与指纹比对。
     """
     return prefixed(fingerprint) if fingerprint is not None else None
@@ -253,8 +235,8 @@ def official_reference_script_plan_path(project_path: Path, episode: int) -> Pat
 def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Generator[Path]:
     """任一变体正式 script_plan 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
-    与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
-    进程间排他、不可重入）。凡要「读正式文件后据此写盘或写草稿」的操作都应整段包在本
+    与迁移读改写、Web 端保存、重拆分 / 增量修改共用同一把 ``ProjectManager.file_lock``（per-path，
+    进程间排他、不可重入）。凡要「读正式文件后据此写盘」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
 
     路径由调用方按变体传入（``script_plan_path`` / ``official_reference_script_plan_path``）：三个 script_plan
@@ -745,9 +727,9 @@ def migrate_script_plan_draft_in_place(
 ) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
     """对已读入内存的 script_plan 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
 
-    调用方须按「prompt_authoring 草稿 → 正式 script_plan」顺序持有两把排他锁；回写经单一写盘出口
+    调用方须持有正式脚本规划的文件锁；回写经单一写盘出口
     ``write_script_plan_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
-    收编、不是内容编辑，不作废 prompt_authoring 草稿；同临界区读改写也无并发窗口，不做基线比对。
+    收编、不是内容编辑；同临界区读改写也无并发窗口，不做基线比对。
     未发生迁移时不回写，返回 ``(None, [])``。
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集

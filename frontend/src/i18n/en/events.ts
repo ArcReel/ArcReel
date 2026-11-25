@@ -22,8 +22,6 @@ export default {
   "label.overview": "Project overview",
   "label.episode": "{{episode_name}}",
   "label.script_plan": "Script plan for {{episode_name}}",
-  "label.draft_normalized_script": "Normalized script for {{episode_name}}",
-  "label.draft_segment_splitting": "Segment splitting for {{episode_name}}",
 
   "entity.project": "projects",
   "entity.character": "characters",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -39,9 +39,8 @@ from lib.generation.video_request_facts import (
     require_video_request_facts,
 )
 from lib.i18n import _ as translate
-from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync
 from lib.infra.json_io import load_json_or_none
-from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import ASSET_SPECS
@@ -377,39 +376,6 @@ def plan_item_ids(path: Path) -> list[str]:
     return [item[id_field] for item in items if isinstance(item, dict) and isinstance(item.get(id_field), str)]
 
 
-async def reissue_plan_item_ids(
-    projects: ProjectManager,
-    project_name: str,
-    episode: int,
-    content: dict[str, Any],
-    *,
-    keep: Collection[str] = (),
-) -> None:
-    """脚本规划落盘前由服务端给条目发号，就地改写：编号只由服务端发，只分配、不复用。
-
-    ``keep`` 是此前已由服务端发给这份脚本规划的编号（晋升时盘上正式规划的编号）：条目带着其中之一且不重复时
-    沿用，原样晋升的规划因此逐字不变；模型或草稿里自己写的编号一律换成新发的号。
-    """
-    items, id_field, kind = resolve_kind_items(content)
-    if not isinstance(items, list):
-        return
-    kept: set[str] = set()
-    fresh: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        item_id = item.get(id_field)
-        if isinstance(item_id, str) and item_id in keep and item_id not in kept:
-            kept.add(item_id)
-        else:
-            fresh.append(item)
-    if not fresh:
-        return
-    issued = await run_sync_transaction(projects.reserve_item_ids, project_name, episode, kind, len(fresh))
-    for item, item_id in zip(fresh, issued, strict=True):
-        item[id_field] = item_id
-
-
 def _instructions(value: Any) -> str | None:
     if value is None:
         return None
@@ -493,44 +459,6 @@ def _parse_normalized_content(response_text: str, model: type[BaseModel]) -> dic
     return _parse_script_plan_json(response_text, model, label="script_plan 规范化内容", top_shape="{title, scenes}")
 
 
-def load_novel_source(project_path: Path, source: str | None, *, episode: int) -> str:
-    """读取 script_plan 工具的源文：指定 source 文件，或缺省时本集派生源文；异常情况抛 ValueError。
-
-    normalize / split 两类 script_plan 工具共用：路径越界、文件缺失、内容为空均 fail-fast，
-    调用方把消息包装为工具错误信封。
-
-    缺省（``source`` 为 None）解析为 ``source/episode_N.txt``，与 ``WorkflowTarget.source``
-    及 ``ArtifactBasis`` 的指纹来源同口径：``source/`` 目录同时存放原文与各集派生文件，按整个
-    目录拼接会把别集内容一并送进 prompt，各集因此拿到同一份源文。派生文件缺失时不回落到原文
-    ——那同样是「本集之外的内容」，报错指引先跑分集规划工具重建。
-
-    ``source`` 除工具自己产出外，也会被 ``revalidate_reference_script_plan_draft`` 传入草稿的
-    ``meta.source``——那是 Agent 可编辑的 JSON 字段，类型标注管不住运行时值。非 str/None 时
-    直接抛 ValueError 而非让它落进 ``safe_join``：那里对非路径类型是 ``TypeError``，本函数
-    的调用方一律只接 ValueError，放行 TypeError 会在内容确认的读时重算里变成未处理的
-    500，而不是「无法重算」这个本该有的降级态。
-    """
-    if source is not None and not is_str(source):
-        raise ValueError(f"meta.source 类型非法，须为字符串或 null：{source!r}")
-    if source == "":
-        raise ValueError("源文件路径不能为空")
-    resolved = episode_source_relpath(episode) if source is None else source
-    try:
-        source_path = safe_join(project_path, resolved)
-    except PathTraversalError as exc:
-        raise ValueError(f"路径超出项目目录: {resolved}") from exc
-    if not source_path.is_file():
-        if source is not None:
-            raise ValueError(f"未找到源文件: {source_path}")
-        raise ValueError(
-            f"未找到本集派生源文: {source_path}；请先运行分集规划工具（plan_episodes）按账本派生该文件，再重试"
-        )
-    novel_text = source_path.read_text(encoding="utf-8")
-    if not novel_text.strip():
-        raise ValueError("小说原文为空")
-    return novel_text
-
-
 def load_script_plan_source_with_basis(
     project_path: Path,
     source: str | None,
@@ -548,11 +476,6 @@ def load_script_plan_source_with_basis(
         expected_variant=expected_variant,
     )
     return novel_text, prompt_inputs, basis
-
-
-def uses_reference_video_units(project_data: dict[str, Any]) -> bool:
-    """脚本规划草稿仅适用于非广告的参考生视频项目。"""
-    return project_data.get("content_mode", "narration") != "ad" and is_reference_video_project(project_data)
 
 
 class OperationNotAdmittedError(TextGenerationError):
@@ -621,7 +544,7 @@ def prompt_authoring_preflight(
     overwrite_revision: str | None = None,
     regenerate: bool = False,
 ) -> None:
-    """复用制作状态的正式脚本、待编写条目与草稿事实，再调用同一份准入谓词。"""
+    """复用制作状态的正式脚本、待编写条目事实，再调用同一份准入谓词。"""
     projects = ProjectManager.for_project_dir(project_path)
     status = WorkflowStateService(projects).get_status(project_path.name, episode)
     if status.blockers:
@@ -960,8 +883,7 @@ async def generate_drama_script_plan(
             script_plan_basis,
         )
         return TextGenerationResult(
-            drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes, action="生成")
-            + report,
+            drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes) + report,
             blocking_issues=violation_entries(validation.blocking_issues),
         )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
@@ -1067,49 +989,31 @@ SOFT_VIOLATION_NOTE_COMMITTED = "产物已落盘"
 
 
 def render_soft_violation_section(soft_violations: list[str], *, note: str) -> str:
-    """把软违约文本行渲染成可拼接的「降级提示」段（无软违约时为空串）。
-
-    ``note`` 交代该段在当前语境下的处置：成功回执里产物已落盘，违约报告里草稿仍在场。段本身
-    的标题与条目形状由本函数独占，报告与回执因此不会在措辞上分叉，Agent 也能按同一形状识别。
-    """
     if not soft_violations:
         return ""
     return f"\n⚠️ 降级提示（不阻断，{note}）:\n" + "\n".join(f"- {line}" for line in soft_violations)
 
 
-def drama_script_plan_result_text(script_plan_path: Path, scenes: list[dict], *, action: str) -> str:
-    """drama script_plan 的落盘回执。``action`` 是「生成」/「晋升」——两条路的统计段同一出口，
-    只在动作词上分叉，Agent 因此按同一种格式读产出与晋升两次结果。
-    """
-    return f"✅ 规范化剧本{action}（结构化内容）已保存: {script_plan_path}\n📊 生成统计: {len(scenes)} 个分镜"
+def drama_script_plan_result_text(script_plan_path: Path, scenes: list[dict]) -> str:
+    return f"✅ 规范化剧本生成（结构化内容）已保存: {script_plan_path}\n📊 生成统计: {len(scenes)} 个分镜"
 
 
-def narration_script_plan_result_text(script_plan_path: Path, segments: list[dict], *, action: str) -> str:
-    """narration script_plan 的落盘回执；``action`` 取「拆分」/「晋升」，理由同 drama 侧。"""
+def narration_script_plan_result_text(script_plan_path: Path, segments: list[dict]) -> str:
     total_chars = sum(len(str(segment.get("novel_text") or "")) for segment in segments)
     total_seconds = sum(int(segment.get("duration_seconds") or 0) for segment in segments)
     break_count = sum(1 for segment in segments if segment.get("segment_break"))
     return (
-        f"✅ 旁白/解说分镜{action}（结构化 script_plan）已保存: {script_plan_path}\n"
+        f"✅ 旁白/解说分镜拆分（结构化 script_plan）已保存: {script_plan_path}\n"
         f"📊 生成统计: {len(segments)} 个分镜 / {total_chars} 字，"
         f"预计总时长 {total_seconds} 秒；segment_break 标记 {break_count} 个"
     )
 
 
-def reference_result_text(script_plan_path: Path, units: list[dict], soft_violations: list[str], *, action: str) -> str:
-    """晋升 / 拆分成功后回给 Agent 的摘要：落盘统计 + 软违约段。
-
-    ``action`` 点明这份正式 script_plan 是重新拆分还是草稿晋升来的：两条路都写同一个文件，摘要不分
-    的话，Agent 修完草稿会收到一句「拆分已保存」，读起来像它的修改被一次重抽覆盖了。
-
-    软违约不阻断落盘，但必须随产物呈现——「角色没配参考音频」「本单元没引用场景」这类降级只在
-    生成后才听得出来、看得出来，不在产出当时说，Agent 与用户都不会知道声音一致性或画面地点已经
-    打了折。段的渲染走 ``render_soft_violation_section``，与晋升被违约挡下时的报告同一出口。
-    """
+def reference_result_text(script_plan_path: Path, units: list[dict], soft_violations: list[str]) -> str:
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
     max_unit_refs = max(len(extract_mentions(str(u.get("text") or ""))) for u in units)
     text = (
-        f"✅ 视频单元{action}（结构化 script_plan）已保存: {script_plan_path}\n"
+        f"✅ 视频单元拆分（结构化 script_plan）已保存: {script_plan_path}\n"
         f"📊 生成统计: {len(units)} 个 unit，总时长 {total_seconds} 秒；"
         f"单 unit `@` 提及最多 {max_unit_refs} 个"
     )
@@ -1224,7 +1128,6 @@ async def generate_reference_script_plan(
                 script_review.official_reference_script_plan_path(project_path, episode).relative_to(project_path),
                 raw_units,
                 soft_violations,
-                action="拆分",
             )
             + report,
             blocking_issues=violation_entries(validation.blocking_issues),
@@ -1325,8 +1228,7 @@ async def generate_narration_script_plan(
             script_plan_basis,
         )
         return TextGenerationResult(
-            narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments, action="拆分")
-            + report,
+            narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments) + report,
             blocking_issues=violation_entries(validation.blocking_issues),
         )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):

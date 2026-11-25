@@ -24,8 +24,6 @@ export default {
   "label.overview": "Tổng quan dự án",
   "label.episode": "{{episode_name}}",
   "label.script_plan": "Kế hoạch kịch bản {{episode_name}}",
-  "label.draft_normalized_script": "Kịch bản đã chuẩn hóa của {{episode_name}}",
-  "label.draft_segment_splitting": "Chia đoạn của {{episode_name}}",
 
   "entity.project": "dự án",
   "entity.character": "nhân vật",

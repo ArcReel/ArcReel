@@ -885,7 +885,7 @@ def _normalize_fullwidth_braces(value: object) -> object:
     return value.translate(str.maketrans("｛｝", "{}")) if isinstance(value, str) else value
 
 
-class _ReferenceScriptPlanFlatFields(BaseModel):
+class ReferenceScriptPlanFlatUnit(BaseModel):
     """参考生视频扁平单元的公共字段。"""
 
     model_config = _STRICT_CONFIG
@@ -896,10 +896,6 @@ class _ReferenceScriptPlanFlatFields(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
-
-
-class ReferenceScriptPlanFlatUnit(_ReferenceScriptPlanFlatFields):
     text: Annotated[str, BeforeValidator(_normalize_fullwidth_braces)] = Field(
         min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号"
     )
@@ -1055,20 +1051,6 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     )
 
 
-def build_drama_normalized_script_model(supported_durations: list[int]) -> type[BaseModel]:
-    """按当前档位校验带服务端 ID 的旧剧情演绎隔离草稿。"""
-    scene = _constrained_duration_item(
-        DramaSceneContent,
-        _duration_literal(supported_durations),
-        "分镜时长（秒），必须取 supported_durations 中的值",
-    )
-    return create_model(
-        "DramaNormalizedScript",
-        __base__=DramaNormalizedScript,
-        scenes=(_list_of(scene), Field(description="分镜内容列表")),
-    )
-
-
 class DramaScriptPlanOutput(BaseModel):
     title: str = Field(description="剧集标题")
     scenes: list[_DramaModelOutputScene] = Field(min_length=1, description="分镜内容列表")
@@ -1144,17 +1126,8 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
     prompt_authoring 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
     ``ReferenceAuthoringResponse``。
     """
-    return _reference_flat_plan_model(ReferenceScriptPlanFlatUnit, supported_durations)
-
-
-def build_reference_quarantine_plan_model(supported_durations: list[int]) -> type[BaseModel]:
-    """Legacy edited quarantine drafts use the original, unmodified text."""
-    return _reference_flat_plan_model(_ReferenceScriptPlanFlatFields, supported_durations)
-
-
-def _reference_flat_plan_model(unit_base: type[BaseModel], supported_durations: list[int]) -> type[BaseModel]:
     unit = _constrained_duration_item(
-        unit_base,
+        ReferenceScriptPlanFlatUnit,
         _duration_literal(supported_durations),
         "该单元时长（秒），必须取 supported_durations 中的值",
     )

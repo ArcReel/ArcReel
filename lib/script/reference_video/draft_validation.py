@@ -1,20 +1,4 @@
-"""参考生视频 script_plan / prompt_authoring 扁平草稿结构的机械校验。
-
-LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同一份文本上；本模块是「parser
-后校验」这一层的落点：schema 已卡死枚举与外层结构，剩下的语法与内容约束在这里逐 unit
-判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
-
-「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落待修复草稿（``lib.script.draft_quarantine``）等 Agent 修复后重判，不重抽。
-每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
-
-违约条目类型与报告渲染（:class:`DraftViolation` / :func:`collect_violations` /
-:func:`render_violation_report`）三条路线通用，定义在路线中立的 ``lib.script.draft_violation``；
-本模块原样再导出它们，参考生视频的既有导入路径不变。
-
-与编辑器侧（人写）的容忍口径分流：``lib.script.reference_video.script_preview`` 对同样的文本只
-出 warning、照常落盘——那里有作者意图要保护；本模块面向机器产物，没有意图可保护，一律拒。
-"""
+"""按视频单元校验参考生视频的提示词语法与内容约束。"""
 
 from __future__ import annotations
 

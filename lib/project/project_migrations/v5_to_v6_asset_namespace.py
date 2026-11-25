@@ -566,6 +566,8 @@ def _migrate_staged_tree(project_dir: Path) -> list[MigrationAdjustment]:
             _rewrite_payload(payload, occurrences)
             atomic_write_json(path, payload)
     for path in sorted((project_dir / "drafts").rglob("*.json")) if (project_dir / "drafts").is_dir() else []:
+        if path.name.endswith(".invalid.json"):
+            continue
         _assert_migration_write_target(project_dir, path)
         payload = load_json(path)
         if isinstance(payload, dict):

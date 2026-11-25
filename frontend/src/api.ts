@@ -2103,51 +2103,6 @@ class API {
   }
 
 
-  static async getDraftContent(
-    projectName: string,
-    episode: number,
-    stage: string
-  ): Promise<string> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url)
-    );
-    await throwIfNotOk(response, i18n.t("errors:stage_file_load_failed"));
-    return response.text();
-  }
-
-  static async saveDraft(
-    projectName: string,
-    episode: number,
-    stage: string,
-    content: string
-  ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: content,
-      })
-    );
-    await throwIfNotOk(response, i18n.t("errors:stage_file_save_failed"));
-    return response.json() as Promise<SuccessResponse>;
-  }
-
-  static async deleteDraft(
-    projectName: string,
-    episode: number,
-    stage: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`,
-      { method: "DELETE" }
-    );
-  }
-
-
   static async generateOverview(
     projectName: string
   ): Promise<{ success: boolean; overview: ProjectOverview }> {
