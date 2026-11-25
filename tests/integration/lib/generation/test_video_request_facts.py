@@ -783,10 +783,13 @@ async def test_aistudio_bills_audio_in_estimate_and_ledger(resolver, db_factory,
 async def test_vidu_tail_frame_quote_preserves_submission_inputs(resolver, db_factory, tmp_path):
     from dataclasses import replace
 
+    import httpx
+
     from lib.backends.video_backends.vidu import Vidu2VideoBackend
     from lib.generation.video_request_facts import VideoRequestCostFacts
     from server.services.admission.cost_estimation import quote_video_request
     from tests.factories import image_bytes
+    from tests.http_capture import capture_http, only_request, request_json
 
     facts = await read_video_request_facts(
         {"video_provider_i2v": VIDU2}, route="storyboard", generation_type="i2v", resolver=resolver, uses_end_frame=True
@@ -799,14 +802,28 @@ async def test_vidu_tail_frame_quote_preserves_submission_inputs(resolver, db_fa
     request = cost.provider_request()
     frame = tmp_path / "frame.png"
     frame.write_bytes(image_bytes())
-    endpoint, payload = Vidu2VideoBackend(api_key="test", model="vidu2.0")._build_request(
-        replace(
-            request, start_image=frame if request.start_image else None, end_image=frame if request.end_image else None
-        )
+    real_request = replace(
+        request,
+        output_path=tmp_path / "clip.mp4",
+        start_image=frame if request.start_image else None,
+        end_image=frame if request.end_image else None,
     )
-    assert endpoint == "/start-end2video"
+    backend = Vidu2VideoBackend(api_key="test", model="vidu2.0")
+    with capture_http(assert_all_called=True) as http:
+        submit = http.post(url__regex=r".*/start-end2video$").mock(
+            return_value=httpx.Response(200, json={"task_id": "vidu-job"})
+        )
+        http.get(url__regex=r".*/tasks/vidu-job/creations$").mock(
+            return_value=httpx.Response(
+                200, json={"state": "success", "creations": [{"url": "https://cdn.test/video.mp4"}]}
+            )
+        )
+        http.get("https://cdn.test/video.mp4").mock(return_value=httpx.Response(200, content=b"local-video"))
+        result = await backend.generate(real_request)
+    payload = request_json(only_request(submit))
     assert payload["duration"] == quote.request_duration_seconds
     assert len(payload["images"]) == 2
+    assert result.duration_seconds == quote.request_duration_seconds
 
 
 @pytest.mark.parametrize(
@@ -821,10 +838,13 @@ async def test_vidu_tail_frame_quote_preserves_submission_inputs(resolver, db_fa
 async def test_kling_request_tier_matches_quote_and_payload(resolver, resolution, tier, mode, supports_tail, tmp_path):
     from dataclasses import replace
 
+    import httpx
+
     from lib.backends.video_backends.kling import KLING_BACKENDS
     from lib.generation.video_request_facts import VideoRequestCostFacts
     from lib.video_runtime.builtin import builtin_video_metered_usage
     from tests.factories import image_bytes
+    from tests.http_capture import capture_http, only_request, request_json
 
     model = "relay-kling"
     catalog.install_user_added_models(
@@ -861,9 +881,31 @@ async def test_kling_request_tier_matches_quote_and_payload(resolver, resolution
         backend = KLING_BACKENDS["kling-video-pro-audio"](auth_mode="bearer", api_key="test", model=model)
         frame = tmp_path / "frame.png"
         frame.write_bytes(image_bytes())
-        _, payload = backend._build_payload(
-            replace(request, start_image=frame, end_image=frame if request.end_image else None)
+        real_request = replace(
+            request,
+            output_path=tmp_path / "clip.mp4",
+            start_image=frame,
+            end_image=frame if request.end_image else None,
         )
+        with capture_http(assert_all_called=True) as http:
+            submit = http.post(url__regex=r".*/videos/image2video$").mock(
+                return_value=httpx.Response(200, json={"code": 0, "data": {"task_id": "kling-job"}})
+            )
+            http.get(url__regex=r".*/videos/image2video/kling-job$").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "code": 0,
+                        "data": {
+                            "task_status": "succeed",
+                            "task_result": {"videos": [{"url": "https://cdn.test/video.mp4"}]},
+                        },
+                    },
+                )
+            )
+            http.get("https://cdn.test/video.mp4").mock(return_value=httpx.Response(200, content=b"local-video"))
+            await backend.generate(real_request)
+        payload = request_json(only_request(submit))
         assert payload["mode"] == mode
         assert ("image_tail" in payload) is supports_tail
         assert (payload.get("sound") == "on") is supports_tail
@@ -876,6 +918,7 @@ async def test_kling_request_tier_matches_quote_and_payload(resolver, resolution
 async def test_kling_rejects_reference_images_with_frames_before_quoting(resolver, tail, tmp_path):
     from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
     from lib.backends.video_backends.kling import KLING_BACKENDS
+    from tests.http_capture import capture_http
 
     model = "kling-v3-omni"
     facts = await read_video_request_facts(
@@ -896,6 +939,7 @@ async def test_kling_rejects_reference_images_with_frames_before_quoting(resolve
         end_image=frame if tail else None,
     )
     backend = KLING_BACKENDS["kling-video-audio"](auth_mode="bearer", api_key="test", model=model)
-    with pytest.raises(VideoCapabilityError) as exc:
-        backend._build_payload(request)
+    with capture_http(assert_all_called=True) as http, pytest.raises(VideoCapabilityError) as exc:
+        await backend.generate(request)
     assert exc.value.code == facts.code
+    assert len(http.calls) == 0

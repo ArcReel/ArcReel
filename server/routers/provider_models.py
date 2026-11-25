@@ -1036,7 +1036,8 @@ async def _save_builtin_settings(
                 and endpoint != (item.view.endpoint or builtin_model_endpoint(provider_id, media, model_id))
             )
             if rebound or "capability_overrides" in fields:
-                carried = item.view.capability_overrides if rebound else None
+                explicit = "capability_overrides" in fields
+                carried = item.view.capability_overrides if rebound and not explicit else None
                 view = item.view
                 target = (body.model_id or model_id).strip()
                 if media == "video" and (binding is not None or pending or target != model_id):
@@ -1048,10 +1049,10 @@ async def _save_builtin_settings(
                         provider_id,
                         target,
                         view,
-                        body.capability_overrides if "capability_overrides" in fields else carried,
+                        body.capability_overrides if explicit else carried,
                         endpoint=endpoint or view.endpoint,
                         carried=carried,
-                        explicit="capability_overrides" in fields,
+                        explicit=explicit,
                     )
                 except OverrideRejected as exc:
                     raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc

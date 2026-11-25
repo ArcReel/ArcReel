@@ -356,6 +356,50 @@ describe("ProviderModelSheet", () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith("minimax", "acme-video", { endpoint: "minimax-h3" }));
   });
 
+  it("omits capability_overrides when a custom model switches endpoint so the server keeps compatible overrides", async () => {
+    const user = userEvent.setup();
+    const overrides = { durations: [5], has_audio_track: false, last_frame: true };
+    const customDetail = unmatchedVideo({
+      path_overrides: null,
+      requests: [SUBMIT],
+      capabilities: { ...unmatchedVideo().capabilities, overrides, effective: overrides },
+    });
+    const requested = { ...VIDEO_ENDPOINT, requests: [SUBMIT] };
+    vi.mocked(API.listEndpointCatalog).mockResolvedValue({
+      endpoints: [requested, { ...requested, key: "xai-video", display_name: "xAI Video" }],
+    });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(customDetail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(customDetail);
+    renderSheet();
+
+    await user.click(await screen.findByRole("combobox", { name: "调用端点" }));
+    await user.click(await screen.findByRole("option", { name: /xAI Video/ }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { endpoint: "xai-video" }));
+  });
+
+  it("omits capability_overrides when a builtin user-added model switches endpoint so the server keeps compatible overrides", async () => {
+    const user = userEvent.setup();
+    const overrides = { durations: [5], has_audio_track: false, last_frame: true };
+    const builtinDetail = unmatchedVideo({
+      model: item({ model_id: "acme-video", api_model_name: "acme-video", endpoint: null }),
+      endpoint: "minimax-hailuo-v1",
+      endpoint_options: [
+        { key: "minimax-hailuo-v1", display_name_key: "", display_name: "MiniMax 海螺" },
+        { key: "minimax-h3", display_name_key: "", display_name: "MiniMax H3" },
+      ],
+      capabilities: { ...unmatchedVideo().capabilities, overrides, effective: overrides },
+    });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(builtinDetail);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(builtinDetail);
+    renderSheet({ providerId: "minimax", providerName: "MiniMax", custom: undefined, open: { modelId: "acme-video", key: 1 } });
+
+    await user.click(await screen.findByRole("combobox", { name: "调用端点" }));
+    await user.click(await screen.findByRole("option", { name: "MiniMax H3" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith("minimax", "acme-video", { endpoint: "minimax-h3" }));
+  });
+
   it("opens the model's endpoint with a way back to this provider", async () => {
     vi.spyOn(API, "getProviderModel").mockResolvedValue(unmatchedVideo());
     renderSheet();

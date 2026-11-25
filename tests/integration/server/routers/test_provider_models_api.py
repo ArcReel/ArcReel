@@ -1388,6 +1388,47 @@ async def test_endpoint_change_preserves_only_compatible_video_overrides(models_
     assert models_client.get(url).json()["capabilities"]["overrides"] == {"max_prompt_chars": 1200}
 
 
+async def test_endpoint_change_with_explicit_incoherent_audio_pair_rejected(models_client):
+    model = "relay-incoherent-rebound"
+    added = models_client.post(
+        "/api/v1/providers/vidu/models",
+        json={"model_id": model, "media_type": "video", "endpoint": "vidu-video-q4"},
+    )
+    assert added.status_code == 201
+    url = f"/api/v1/providers/vidu/models/{model}"
+    assert (
+        models_client.patch(
+            url, json={"capability_overrides": {"reference_audio_mode": "direct", "max_reference_audio_count": 2}}
+        ).status_code
+        == 200
+    )
+    rejected = models_client.patch(
+        url,
+        json={
+            "endpoint": "vidu-video-q3-drama",
+            "capability_overrides": {"reference_audio_mode": "direct", "max_reference_audio_count": 0},
+        },
+    )
+    assert rejected.status_code == 422
+    assert "max_reference_audio_count" in rejected.json()["detail"]
+
+
+async def test_patch_endpoint_change_drops_carried_legacy_controllable_audio(models_client, db_factory):
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    model = "relay-legacy-controllable"
+    pid = await _custom_provider(db_factory, [{"model_id": model, "display_name": model, "endpoint": "newapi-video"}])
+    async with db_factory() as session:
+        repo = CustomProviderRepository(session)
+        row = (await repo.list_models(pid))[0]
+        row.capability_overrides = {"audio_track": "controllable", "durations": [5]}
+        await session.commit()
+    url = f"/api/v1/providers/custom-{pid}/models/{model}"
+    patched = models_client.patch(url, json={"endpoint": "dashscope-video"})
+    assert patched.status_code == 200, patched.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"durations": [5]}
+
+
 async def test_builtin_legacy_audio_survives_detail_edit_and_runtime_reload(models_client, db_factory):
     from lib.backends.backend_assembly.specs import builtin_video_snapshot
     from lib.capabilities.kernel import RequestConditions

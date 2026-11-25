@@ -13,6 +13,8 @@ from lib.capabilities.override_schema import (
     INPUT_SLOT,
     LEGACY_AUDIO_KEYS,
     OVERRIDE_KEYS,
+    VIDEO_CHANNEL_FLAG_KEYS,
+    is_legacy_audio_mode,
     normalized_value,
     same_override_value,
     valid_value,
@@ -102,9 +104,20 @@ def _freeze(value: Any) -> Any:
     raise ValueError(f"invalid capability value: {type(value).__name__}")
 
 
+type OverrideRejectionReason = Literal[
+    "official",
+    "not_applicable",
+    "invalid_value",
+    "last_frame_unsupported",
+    "reference_audio_unsupported",
+    "audio_pair_incoherent",
+]
+
+
 class InvalidOverrides(ValueError):
-    def __init__(self, keys: set[str]):
-        self.keys = keys
+    def __init__(self, keys: set[str], reasons: Mapping[str, OverrideRejectionReason] | None = None):
+        self.keys = set(keys)
+        self.reasons: dict[str, OverrideRejectionReason] = dict(reasons or {})
         super().__init__(", ".join(sorted(keys)))
 
 
@@ -170,9 +183,7 @@ class Endpoint:
     binding_owned: bool = False
 
     def __post_init__(self):
-        if set(self.defaults) - (
-            OVERRIDE_KEYS[self.media] | {"qualities", "first_frame_ratio_adaptive_only", "reference_audio_per_image"}
-        ):
+        if set(self.defaults) - (OVERRIDE_KEYS[self.media] | {"qualities"} | VIDEO_CHANNEL_FLAG_KEYS):
             raise ValueError("unknown endpoint capability")
         if any(
             not k.startswith("max_") or k not in OVERRIDE_KEYS[self.media] or not valid_value(k, v)
@@ -211,11 +222,7 @@ class Endpoint:
 
     def validate(self, raw: Values, *, facts: Values | None = None, official: bool = False) -> dict[str, Any]:
         if official and raw:
-            raise ValueError("official model")
-        for legacy, key in LEGACY_AUDIO_KEYS.items():
-            route = "i2v" if legacy == "audio_track" else "r2v"
-            if raw.get(legacy) == "controllable" and self.protocol(route) != AudioProtocol.SWITCH:
-                raise ValueError(key)
+            raise InvalidOverrides(set(raw), dict.fromkeys(raw, "official"))
         return self._overrides(raw, {} if self.binding_owned else facts or {}, strict=True)
 
     def filter_overrides(self, raw: object, facts: Values) -> dict[str, Any]:
@@ -223,13 +230,23 @@ class Endpoint:
 
     def _overrides(self, raw: Values, facts: Values, *, strict: bool) -> dict[str, Any]:
         result: dict[str, Any] = {}
-        invalid = set()
+        invalid: set[str] = set()
+        reasons: dict[str, OverrideRejectionReason] = {}
+
+        def reject(key: str, reason: OverrideRejectionReason) -> None:
+            invalid.add(key)
+            reasons.setdefault(key, reason)
+
         for original, value in raw.items():
             key = LEGACY_AUDIO_KEYS.get(original, original)
-            if original in LEGACY_AUDIO_KEYS and value in ("always_on", "controllable", "always_off"):
+            if original in LEGACY_AUDIO_KEYS and is_legacy_audio_mode(value):
+                route: Route = "i2v" if original == "audio_track" else "r2v"
+                if strict and value == "controllable" and self.protocol(route) != AudioProtocol.SWITCH:
+                    reject(key, "not_applicable")
+                    continue
                 value = value != "always_off"
             elif original in LEGACY_AUDIO_KEYS:
-                invalid.add(key)
+                reject(key, "invalid_value")
                 continue
             silent_false = (
                 key in LEGACY_AUDIO_KEYS.values()
@@ -237,14 +254,24 @@ class Endpoint:
                 and not self.binding_owned
                 and isinstance(self.duration, ModelDurations)
             )
-            if (
-                key not in OVERRIDE_KEYS[self.media]
-                or (key not in self.editable and not silent_false)
-                or not valid_value(key, value)
-                or (key in result and result[key] != value)
-                or (key in self.limits and (value is None or value > self.limits[key]))
+            if key not in OVERRIDE_KEYS[self.media]:
+                reject(key, "not_applicable")
+                continue
+            if not valid_value(key, value):
+                reject(key, "invalid_value")
+                continue
+            if key not in self.editable and not silent_false:
+                if not self.binding_owned and key == "last_frame" and value is True:
+                    reject(key, "last_frame_unsupported")
+                elif not self.binding_owned and key == "reference_audio_mode" and value == "direct":
+                    reject(key, "reference_audio_unsupported")
+                else:
+                    reject(key, "not_applicable")
+                continue
+            if (key in result and result[key] != value) or (
+                key in self.limits and (value is None or value > self.limits[key])
             ):
-                invalid.add(key)
+                reject(key, "not_applicable")
                 continue
             result[key] = normalized_value(key, value)
         for key in invalid:
@@ -257,12 +284,12 @@ class Endpoint:
         ):
             for key in ("reference_audio_mode", "max_reference_audio_count"):
                 if key in result:
-                    invalid.add(key)
+                    reject(key, "audio_pair_incoherent")
                     del result[key]
             if "reference_audio_mode" in invalid:
-                invalid.add("max_reference_audio_count")
+                reject("max_reference_audio_count", "audio_pair_incoherent")
         if strict and invalid:
-            raise InvalidOverrides(invalid)
+            raise InvalidOverrides(invalid, reasons)
         return result
 
 
@@ -334,22 +361,25 @@ class CapabilitySnapshot:
         try:
             return self.endpoint.validate(raw, facts=self.model_facts, official=self.official)
         except InvalidOverrides as exc:
-            if not carried:
+            if not carried or "official" in exc.reasons.values():
                 raise
             inherited = dict(carried)
             for legacy, key in LEGACY_AUDIO_KEYS.items():
-                if inherited.get(legacy) in ("controllable", "always_off", "always_on"):
+                if is_legacy_audio_mode(inherited.get(legacy)):
                     inherited.setdefault(key, inherited[legacy] != "always_off")
             keep = dict(raw)
             paired = {key for legacy, key in LEGACY_AUDIO_KEYS.items() if legacy in raw and key in raw}
+            incoherent_explicit = "audio_pair_incoherent" in exc.reasons.values() and any(
+                k in raw and (k not in inherited or not same_override_value(k, inherited[k], raw[k]))
+                for k in ("reference_audio_mode", "max_reference_audio_count")
+            )
             for key, value in raw.items():
-                if LEGACY_AUDIO_KEYS.get(key, key) in paired:
+                canonical = LEGACY_AUDIO_KEYS.get(key, key)
+                if canonical in paired:
                     continue
-                if (
-                    LEGACY_AUDIO_KEYS.get(key, key) in exc.keys
-                    and key in inherited
-                    and same_override_value(key, inherited[key], value)
-                ):
+                if incoherent_explicit and exc.reasons.get(canonical) == "audio_pair_incoherent":
+                    continue
+                if canonical in exc.keys and key in inherited and same_override_value(key, inherited[key], value):
                     del keep[key]
             return self.endpoint.validate(keep, facts=self.model_facts, official=self.official)
 

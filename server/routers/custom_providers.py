@@ -39,8 +39,10 @@ from lib.custom_provider.capabilities import (
 )
 from lib.custom_provider.capability_view import (
     CapabilityView,
+    OverrideRejected,
     custom_capability_view,
     overridable_keys,
+    validate_video_overrides,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
@@ -627,9 +629,16 @@ def _check_capability_overrides(
                 entry_binding=entry_binding,
                 pending=pending,
             )
-            if not explicit:
-                overrides = snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
-            return snapshot.validate_overrides(overrides, carried=carried) or None
+            return validate_video_overrides(
+                snapshot,
+                overrides,
+                model_id=model_id,
+                endpoint=endpoint,
+                carried=carried,
+                explicit=explicit,
+            )
+        except OverrideRejected as exc:
+            raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
         except ValueError as exc:
             raise HTTPException(
                 status_code=422,

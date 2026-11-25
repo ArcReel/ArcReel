@@ -39,8 +39,15 @@ from lib.backends.image_capabilities import (
     image_reference_override,
 )
 from lib.backends.video_capabilities import resolve_video_model, video_endpoint
-from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, FixedDuration
-from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS, OVERRIDE_KEYS, normalized_value, valid_value
+from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, FixedDuration, InvalidOverrides
+from lib.capabilities.override_schema import (
+    LEGACY_AUDIO_KEYS,
+    OVERRIDE_KEYS,
+    expected_type_name,
+    is_legacy_audio_mode,
+    normalized_value,
+    valid_value,
+)
 from lib.catalog.query import CatalogModel, ProviderModelView
 from lib.custom_provider.capabilities import custom_video_snapshot
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
@@ -380,12 +387,15 @@ def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_i
     if not isinstance(raw, Mapping):
         return {}
     if media_type == "video":
-        return {
-            key: normalized_value(key, value)
-            for key, value in raw.items()
-            if (key in OVERRIDE_KEYS["video"] and valid_value(key, value))
-            or (key in LEGACY_AUDIO_KEYS and value in ("always_on", "always_off", "controllable"))
-        }
+        applied: dict[str, object] = {}
+        for key, value in raw.items():
+            if (key in OVERRIDE_KEYS["video"] and valid_value(key, value)) or (
+                key in LEGACY_AUDIO_KEYS and is_legacy_audio_mode(value)
+            ):
+                applied[key] = normalized_value(key, value)
+            else:
+                logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法或维度不适用", model_id, key, value)
+        return applied
     return model_fact_overrides(raw, media_type, model_id=model_id)
 
 
@@ -396,6 +406,63 @@ class OverrideRejected(Exception):
         super().__init__(code)
         self.code = code
         self.params = params
+
+
+def validate_video_overrides(
+    snapshot: CapabilitySnapshot,
+    overrides: Mapping[str, object],
+    *,
+    model_id: str,
+    endpoint: str,
+    carried: Mapping[str, object] | None = None,
+    explicit: bool = True,
+) -> dict[str, object] | None:
+    """用纯能力快照校验视频模型能力覆盖，失败时抛出带具体本地化原因的 :class:`OverrideRejected`。"""
+    effective = (
+        overrides if (explicit or carried) else snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
+    )
+    try:
+        return snapshot.validate_overrides(effective, carried=carried) or None
+    except InvalidOverrides as exc:
+        raise _override_rejected_from_invalid(exc, model_id=model_id, endpoint=endpoint) from exc
+    except ValueError as exc:
+        raise OverrideRejected(
+            "capability_override_not_applicable",
+            model_id=model_id,
+            endpoint=endpoint,
+            media_type="video",
+            capability=str(exc),
+        ) from exc
+
+
+def _override_rejected_from_invalid(exc: InvalidOverrides, *, model_id: str, endpoint: str) -> OverrideRejected:
+    ordered = sorted(exc.keys)
+    by_reason = {
+        reason: next((k for k in ordered if exc.reasons.get(k) == reason), None) for reason in set(exc.reasons.values())
+    }
+    if "official" in by_reason:
+        return OverrideRejected("builtin_model_official_settings", model=model_id)
+    if "audio_pair_incoherent" in by_reason:
+        return OverrideRejected("capability_override_audio_pair_incoherent", model_id=model_id)
+    if "last_frame_unsupported" in by_reason:
+        return OverrideRejected("capability_override_last_frame_unsupported", model_id=model_id, endpoint=endpoint)
+    if "reference_audio_unsupported" in by_reason:
+        return OverrideRejected("capability_override_reference_audio_unsupported", model_id=model_id, endpoint=endpoint)
+    if (invalid_key := by_reason.get("invalid_value")) is not None:
+        return OverrideRejected(
+            "capability_override_invalid_value",
+            model_id=model_id,
+            capability=invalid_key,
+            expected=expected_type_name(invalid_key),
+        )
+    key = ordered[0] if ordered else ""
+    return OverrideRejected(
+        "capability_override_not_applicable",
+        model_id=model_id,
+        endpoint=endpoint,
+        media_type="video",
+        capability=key,
+    )
 
 
 def check_user_added_overrides(
@@ -422,9 +489,6 @@ def check_user_added_overrides(
             snapshot = builtin_video_snapshot_from_view(
                 provider_id, model_id, view, endpoint=endpoint, overrides={}, always_bill_audio=False
             )
-            if not explicit:
-                overrides = snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
-            return snapshot.validate_overrides(overrides, carried=carried) or None
         except ValueError as exc:
             raise OverrideRejected(
                 "capability_override_not_applicable",
@@ -433,6 +497,14 @@ def check_user_added_overrides(
                 media_type=media_type,
                 capability=str(exc),
             ) from exc
+        return validate_video_overrides(
+            snapshot,
+            overrides,
+            model_id=model_id,
+            endpoint=endpoint or provider_id,
+            carried=carried,
+            explicit=explicit,
+        )
     applicable = overridable_keys(media_type)
     for key, value in overrides.items():
         if key not in applicable:

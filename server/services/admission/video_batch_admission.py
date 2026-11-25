@@ -964,6 +964,8 @@ async def storyboard_video_request_facts(
         return await read_video_facts_pair(
             project, route="storyboard", generation_type=bucket, resolver=resolver, include_end_frame=has_end_frame
         )
+    if isinstance(base, VideoRequestFactsFailure):
+        return base, base if has_end_frame else None
     end = (
         await read_video_request_facts(
             project, route="storyboard", generation_type=bucket, resolver=resolver, uses_end_frame=True
