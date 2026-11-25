@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import asdict
 from typing import Any
 
 import httpx
@@ -26,6 +27,7 @@ from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_ANTHROPIC
 from lib.backends.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
@@ -103,43 +105,62 @@ class AnthropicTextBackend:
             raise
 
         snapshot: ParsedMessage[Any] | None = None
-        async with stream:
-            yield TextDelta("")
-            async for event in stream:
-                if event.type == "message_start" and getattr(event.message, "usage", None) is None:
-                    event.message.usage = Usage.model_construct()
-                if event.type == "message_delta" and getattr(event, "usage", None) is None:
-                    event.usage = MessageDeltaUsage.model_construct(output_tokens=None)
-                snapshot = accumulate_event(event=event, current_snapshot=snapshot)
-                if event.type == "content_block_delta":
-                    if event.delta.type == "text_delta":
-                        yield TextDelta(event.delta.text)
-                    elif event.delta.type == "thinking_delta":
-                        yield TextDelta(event.delta.thinking, thinking=True)
-                elif event.type == "content_block_start" and event.content_block.type == "text":
-                    yield TextDelta(event.content_block.text)
-                elif event.type == "message_stop":
-                    usage = snapshot.usage
-                    output_tokens = getattr(usage, "output_tokens", None)
-                    reason = snapshot.stop_reason
-                    cache_read = getattr(usage, "cache_read_input_tokens", None)
-                    cache_write = getattr(usage, "cache_creation_input_tokens", None)
-                    breakdown = getattr(usage, "cache_creation", None)
-                    uncached = getattr(usage, "input_tokens", None)
-                    yield TextGenerationResult(
-                        text="".join(block.text for block in snapshot.content if block.type == "text").strip(),
-                        provider=self.name,
-                        model=self.model,
-                        input_tokens=None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0),
-                        output_tokens=output_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_5m_tokens=breakdown.ephemeral_5m_input_tokens if breakdown else cache_write,
-                        cache_write_1h_tokens=breakdown.ephemeral_1h_input_tokens if breakdown else None,
-                        truncated=check_truncation(
-                            reason, provider=self.name, model=self.model, output_tokens=output_tokens, structured=False
-                        ),
-                    )
-                    return
+        delivered = False
+        try:
+            async with stream:
+                yield TextDelta("")
+                async for event in stream:
+                    if event.type == "message_start" and getattr(event.message, "usage", None) is None:
+                        event.message.usage = Usage.model_construct()
+                    if event.type == "message_delta" and getattr(event, "usage", None) is None:
+                        event.usage = MessageDeltaUsage.model_construct(
+                            output_tokens=getattr(snapshot.usage, "output_tokens", None) if snapshot else None
+                        )
+                    snapshot = accumulate_event(event=event, current_snapshot=snapshot)
+                    if event.type == "content_block_delta":
+                        if event.delta.type == "text_delta":
+                            yield TextDelta(event.delta.text)
+                        elif event.delta.type == "thinking_delta":
+                            yield TextDelta(event.delta.thinking, thinking=True)
+                    elif event.type == "content_block_start" and event.content_block.type == "text":
+                        yield TextDelta(event.content_block.text)
+                    elif event.type == "message_stop":
+                        tokens = _request_tokens(snapshot.usage)
+                        result = TextGenerationResult(
+                            text="".join(block.text for block in snapshot.content if block.type == "text").strip(),
+                            provider=self.name,
+                            model=self.model,
+                            truncated=check_truncation(
+                                snapshot.stop_reason,
+                                provider=self.name,
+                                model=self.model,
+                                output_tokens=tokens.output_tokens,
+                                structured=False,
+                            ),
+                            **asdict(tokens),
+                        )
+                        delivered = True
+                        yield result
+                        return
+        finally:
+            if not delivered and snapshot is not None and request.on_usage:
+                tokens = _request_tokens(snapshot.usage)
+                if tokens != RequestTokens():
+                    request.on_usage(tokens)
+
+
+def _request_tokens(usage: Usage) -> RequestTokens:
+    cache_read = getattr(usage, "cache_read_input_tokens", None)
+    cache_write = getattr(usage, "cache_creation_input_tokens", None)
+    breakdown = getattr(usage, "cache_creation", None)
+    uncached = getattr(usage, "input_tokens", None)
+    return RequestTokens(
+        input_tokens=None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0),
+        output_tokens=getattr(usage, "output_tokens", None),
+        cache_read_tokens=cache_read,
+        cache_write_5m_tokens=breakdown.ephemeral_5m_input_tokens if breakdown else cache_write,
+        cache_write_1h_tokens=breakdown.ephemeral_1h_input_tokens if breakdown else None,
+    )
 
 
 def _build_user_content(request: TextGenerationRequest) -> list[dict]:

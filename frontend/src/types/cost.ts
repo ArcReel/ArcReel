@@ -4,6 +4,7 @@ export interface CostByType {
   image?: CostBreakdown;
   video?: CostBreakdown;
   audio?: CostBreakdown;
+  text?: CostBreakdown;
   characters?: CostBreakdown;
   scenes?: CostBreakdown;
   props?: CostBreakdown;
@@ -31,7 +32,7 @@ export interface ModelInfo {
 }
 
 export interface UnpricedModel {
-  call_type: "image" | "video" | "audio";
+  call_type: "image" | "video" | "audio" | "text";
   provider: string;
   provider_name: string;
   model: string;

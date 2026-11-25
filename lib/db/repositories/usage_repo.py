@@ -73,6 +73,10 @@ PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
 _MEDIA_CALL_TYPES = ("image", "video", "audio")
 
 
+def _cancelled_agent_turn() -> ColumnElement[bool]:
+    return and_(ApiCall.status == CallStatus.CANCELLED, ApiCall.purpose == CallPurpose.ASSISTANT_SESSION)
+
+
 @dataclass(frozen=True)
 class SettlementInput:
     """仓储写侧的申报值对象：承载 caller 在快照时刻提交的原始计费维度。
@@ -638,7 +642,7 @@ class UsageRepository(BaseRepository):
             )
             .where(
                 ApiCall.project_name == project_name,
-                ApiCall.status.in_((CallStatus.SUCCESS, CallStatus.FAILED)),
+                or_(ApiCall.status.in_((CallStatus.SUCCESS, CallStatus.FAILED)), _cancelled_agent_turn()),
                 ApiCall.cost_amount > 0,
             )
             .group_by(ApiCall.segment_id, ApiCall.call_type, ApiCall.currency)
@@ -653,7 +657,7 @@ class UsageRepository(BaseRepository):
         return result
 
     async def get_unpriced_calls_by_model(self, project_name: str) -> list[tuple[str, str, str, int]]:
-        """成功但未定价（``cost_amount`` 为 NULL）的媒体调用，按 (call_type, provider, model) 计数。
+        """已结算但未定价（``cost_amount`` 为 NULL）的调用，按 (call_type, provider, model) 计数。
 
         0 是定价为零，不在其中；历史上记为 0 的调用不会被追认为未定价。
         """
@@ -661,8 +665,11 @@ class UsageRepository(BaseRepository):
             select(ApiCall.call_type, ApiCall.provider, ApiCall.model, func.count().label("calls"))
             .where(
                 ApiCall.project_name == project_name,
-                ApiCall.status == CallStatus.SUCCESS,
-                ApiCall.call_type.in_(_MEDIA_CALL_TYPES),
+                or_(
+                    ApiCall.status == CallStatus.SUCCESS,
+                    and_(ApiCall.call_type == CALL_TYPE_TEXT, ApiCall.status == CallStatus.FAILED),
+                    _cancelled_agent_turn(),
+                ),
                 ApiCall.cost_amount.is_(None),
             )
             .group_by(ApiCall.call_type, ApiCall.provider, ApiCall.model)

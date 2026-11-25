@@ -110,4 +110,5 @@ export default {
   'event_stream_interrupted': '事件流中断',
   'event_stream_ended': '事件流已结束',
   'scroll_target_not_found': '未找到可定位的内容：{{id}}',
+  'text_wait_timeout': '本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试',
 } satisfies Record<keyof typeof enErrors, string>;

@@ -841,7 +841,6 @@ export default {
   'usage_media_audio': 'Âm thanh',
   'usage_error_rate_limited': 'Bị giới hạn tần suất',
   'usage_error_content_policy': 'Chính sách nội dung',
-  'text_wait_timeout': 'Hệ thống đã ngừng chờ. Nhà cung cấp vẫn có thể hoàn tất yêu cầu và tính phí.',
   'usage_error_timeout': 'Hết thời gian',
   'usage_error_download_failed': 'Tải xuống thất bại',
   'usage_error_interrupted': 'Bị gián đoạn',

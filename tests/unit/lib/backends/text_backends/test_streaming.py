@@ -75,7 +75,7 @@ async def test_only_effective_deltas_extend_idle_deadline(kind):
             provider="p",
             protocol="test",
             model="m",
-            limits=WaitLimits(idle=0.001 if kind == "silent" else 1),
+            limits=WaitLimits(idle=0 if kind == "silent" else 1),
         )
 
     with bind_clock(clock):
@@ -109,3 +109,37 @@ async def test_wrapped_transport_failures_preserve_delivery_boundary(cause):
         else:
             assert (await run).text == "ok"
             assert len(calls) == 2
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout("connect"), httpx.PoolTimeout("pool")])
+async def test_exhausted_pre_delivery_timeout_does_not_raise_wait_timeout(error):
+    calls = []
+
+    async def stream(request):
+        calls.append(request)
+        if calls:
+            raise error
+        yield TextDelta("")
+
+    with bind_clock(Clock()), pytest.raises(type(error)):
+        await execute_stream(TextGenerationRequest("q"), stream, provider="p", protocol="test", model="m")
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize(("code", "expected"), [(429, 3), (503, 3), (400, 1), (True, 1)])
+async def test_integer_code_status_obeys_retry_rules(code, expected):
+    class CodeStatusError(Exception):
+        def __init__(self, value):
+            self.code = value
+
+    calls = []
+
+    async def stream(request):
+        calls.append(request)
+        if calls:
+            raise CodeStatusError(code)
+        yield TextDelta("")
+
+    with bind_clock(Clock()), pytest.raises(CodeStatusError):
+        await execute_stream(TextGenerationRequest("q"), stream, provider="p", protocol="test", model="m")
+    assert len(calls) == expected

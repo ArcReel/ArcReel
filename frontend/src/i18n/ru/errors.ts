@@ -110,4 +110,5 @@ export default {
   'event_stream_interrupted': 'Поток событий прерван',
   'event_stream_ended': 'Поток событий завершён',
   'scroll_target_not_found': 'Не удалось найти элемент для перехода: {{id}}',
+  'text_wait_timeout': 'Локальное ожидание завершено, но поставщик всё ещё может выполнить запрос и списать плату. Проверьте результат перед повторной попыткой',
 } satisfies Record<keyof typeof enErrors, string> & Record<string, string>;

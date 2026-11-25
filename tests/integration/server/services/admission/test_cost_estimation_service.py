@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
-from lib.backends.providers import PROVIDER_GEMINI
+from lib.backends.providers import PROVIDER_GEMINI, CallStatus
 from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
@@ -45,6 +45,7 @@ async def _seed_call(
     cost_amount: float | None = None,
     currency: str | None = None,
     unpriced: bool = False,
+    status: CallStatus = CallStatus.SUCCESS,
 ) -> None:
     """直连 UsageRepository 写入一条已完成调用记录（等价于旧 UsageTracker 的种子写法）。
 
@@ -64,7 +65,7 @@ async def _seed_call(
         )
         await repo.finish_call(
             cid,
-            status="success",
+            status=status,
             settlement=SettlementInput(usage_tokens=usage_tokens, cost_amount=cost_amount, currency=currency),
             output_path=output_path,
         )
@@ -529,6 +530,24 @@ class TestCostEstimationService:
             for cost in seg["estimate"].values():
                 assert isinstance(cost, dict)
                 assert all(isinstance(v, (int, float)) for v in cost.values())
+
+    @pytest.mark.parametrize("segment_id", [None, "E1S001"])
+    async def test_settled_failed_text_counts_towards_project_spend(self, db_factory, segment_id):
+        await _seed_call(
+            db_factory,
+            "qa-cost",
+            "text",
+            "model",
+            segment_id=segment_id,
+            cost_amount=0.046635,
+            currency="USD",
+            status=CallStatus.FAILED,
+        )
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        result = await service.compute({"episodes": []}, {}, project_name="qa-cost")
+
+        assert result["project_totals"] == {"estimate": {}, "actual": {"text": {"USD": 0.046635}}}
 
     async def test_actual_costs_included(self, db_factory):
         resolver = ConfigResolver(db_factory)
