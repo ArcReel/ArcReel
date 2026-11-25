@@ -426,7 +426,7 @@ class TrialRunManager:
             poll_timeout = await self._poll_timeout()
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            if target.snapshot is not None:
+            if is_video and target.snapshot is not None:
                 conditions = video_request_conditions(
                     resolution=parameters.resolution,
                     has_first_frame=_single(assets.get("start_image")) is not None,
@@ -442,7 +442,11 @@ class TrialRunManager:
                     refs = assets.get("reference_images")
                     paths = refs if isinstance(refs, list) else []
                     await gate_image_request(
-                        backend, provider_id=target.provider, reference_count=len(paths), reference_paths=paths
+                        backend,
+                        provider_id=target.provider,
+                        reference_count=len(paths),
+                        reference_paths=paths,
+                        snapshot=target.snapshot,
                     )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)

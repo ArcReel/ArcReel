@@ -46,7 +46,9 @@ from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
-from lib.backends.image_backends.registry import accepts_explicit_quality_of, reference_limit_of
+from lib.backends.image_backends.registry import (
+    describe_image_backend_class,
+)
 from lib.backends.kling_shared import kling_model_path_base_url
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
@@ -94,7 +96,6 @@ from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_image_backend import (
     ComfyuiImageBackend,
     binding_image_capabilities,
-    binding_reference_limit,
 )
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import (
@@ -105,7 +106,6 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.custom_provider.declarative_image_backend import (
     DeclarativeImageBackend,
-    definition_reference_limit,
     image_capabilities_from_definition,
 )
 from lib.custom_provider.definition_capabilities import decode_definition
@@ -168,11 +168,25 @@ class EndpointSpec:
     build_backend: BackendBuilder
     source: Literal["builtin", "custom"] = "builtin"
     image_capabilities: frozenset[ImageCapability] | None = None
+    describe_image: Endpoint | None = None
     video_max_reference_images: int | None = None
     describe_video: Callable[[str, CatalogEntry | None], Endpoint] | None = None
     definition: Mapping[str, Any] | None = None
     requests: tuple[EndpointRequest, ...] = ()
     metering_backend: type | None = None
+
+    def image_description(self) -> Endpoint:
+        if self.media_type != "image":
+            raise ValueError(f"endpoint {self.key!r} is {self.media_type}, not image")
+        if self.describe_image is not None:
+            return self.describe_image
+        if self.definition is not None:
+            return decode_definition(self.definition)
+        if self.metering_backend is not None:
+            return describe_image_backend_class(self.metering_backend, capabilities=self.image_capabilities)
+        if self.image_capabilities is None:
+            raise ValueError(f"invalid image capability declaration for {self.key!r}")
+        return Endpoint("image", frozenset(cap.value for cap in self.image_capabilities))
 
     def video_description(self, model_id: str, entry: CatalogEntry | None = None) -> Endpoint:
         if self.media_type != "video":
@@ -1377,7 +1391,7 @@ def declarative_endpoint_spec(
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    description = decode_definition(definition) if is_video else None
+    description = decode_definition(definition) if media_type in ("image", "video") else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1388,7 +1402,8 @@ def declarative_endpoint_spec(
         request_path_template=declarative_request_path(definition),
         build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
         image_capabilities=None if is_video else image_capabilities_from_definition(definition),
-        describe_video=(lambda _model_id, _entry: description) if description is not None else None,
+        describe_image=description if media_type == "image" else None,
+        describe_video=(lambda _model_id, _entry: description) if is_video and description is not None else None,
         definition=definition,
         requests=declarative_requests(definition),
     )
@@ -1460,7 +1475,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    description = decode_definition(definition) if is_video else None
+    description = decode_definition(definition) if media_type in ("image", "video") else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1471,7 +1486,8 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else binding_image_capabilities(definition),
-        describe_video=(lambda _model_id, _entry: description) if description is not None else None,
+        describe_image=description if media_type == "image" else None,
+        describe_video=(lambda _model_id, _entry: description) if is_video and description is not None else None,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
@@ -1506,6 +1522,8 @@ def _validate_registry() -> None:
         if is_custom_endpoint(key):
             raise ValueError(f"builtin endpoint key {key!r} must not use the custom endpoint prefix")
         validate_video_caps_declaration(spec)
+        if spec.media_type == "image":
+            spec.image_description()
 
 
 _validate_registry()
@@ -1548,29 +1566,19 @@ def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
 
 
 def endpoint_reference_image_limit(spec: EndpointSpec) -> int | None:
-    """图片端点静态声明的参考图上限（通道事实），与端点构造出的 backend 的 ``reference_image_limit()`` 同源。
-
-    ComfyUI 端点取节点绑定的参考图槽位数，声明式端点取定义里的声明，Python 端点取被包装调用通道类上的
-    ``CHANNEL_REFERENCE_LIMIT``；``None`` 表示通道本身不限张数。按模型运行时查询的通道（OpenRouter）这里只给出
-    端点上限，执行时可能再收窄。
-    """
-    if spec.definition is not None:
-        if spec.kind == COMFYUI_KIND:
-            return binding_reference_limit(spec.definition)
-        return definition_reference_limit(spec.definition)
-    if spec.metering_backend is None:
+    """图片端点静态声明的参考图上限（通道事实），与端点单一能力描述同源。"""
+    if spec.media_type != "image":
         return None
-    return reference_limit_of(spec.metering_backend)
+    description = spec.image_description()
+    limit = description.limits.get("max_reference_images")
+    if limit is None:
+        limit = description.defaults.get("max_reference_images")
+    return int(limit) if isinstance(limit, int) and limit > 0 else None
 
 
 def endpoint_accepts_explicit_quality(spec: EndpointSpec) -> bool:
-    """图片端点是否接受显式画质（通道事实），与端点构造出的 backend 同源。
-
-    Python 端点取被包装调用通道类上的 ``CHANNEL_ACCEPTS_QUALITY``；声明式端点与 ComfyUI 端点不接受。
-    """
-    if spec.definition is not None or spec.metering_backend is None:
-        return False
-    return accepts_explicit_quality_of(spec.metering_backend)
+    """图片端点是否接受显式画质（通道事实），与端点单一能力描述同源。"""
+    return spec.media_type == "image" and "explicit_quality" in spec.image_description().slots
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
@@ -1581,6 +1589,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
+    data.pop("describe_image", None)
     data.pop("describe_video", None)
     data["end_image_capable"] = spec.end_image_capable
     data["reference_audio_capable"] = spec.reference_audio_capable

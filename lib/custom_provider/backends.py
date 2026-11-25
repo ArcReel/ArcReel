@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from copy import copy
 from dataclasses import replace
 from typing import Literal, cast
@@ -84,6 +85,7 @@ class CustomImageBackend:
         entry_reference_limit: int | None = None,
         reference_limit_override: int | None = None,
         quality_options: tuple[str, ...] = (),
+        snapshot: CapabilitySnapshot | None = None,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
@@ -91,7 +93,24 @@ class CustomImageBackend:
         self._model_capabilities = model_capabilities
         self._entry_reference_limit = entry_reference_limit
         self.reference_limit_override = reference_limit_override
-        self.quality_options = quality_options
+        self._quality_options = quality_options
+        self._snapshot = snapshot
+
+    def with_snapshot(self, snapshot: CapabilitySnapshot) -> CustomImageBackend:
+        backend = copy(self)
+        backend._snapshot = snapshot
+        backend._quality_options = tuple(snapshot.effective.get("qualities", ()))
+        return backend
+
+    @property
+    def snapshot(self) -> CapabilitySnapshot | None:
+        return self._snapshot
+
+    @property
+    def quality_options(self) -> tuple[str, ...]:
+        if self._snapshot is not None:
+            return tuple(self._snapshot.effective.get("qualities", ()))
+        return self._quality_options
 
     def with_model_facts(
         self,
@@ -130,16 +149,28 @@ class CustomImageBackend:
 
     @property
     def entry_reference_limit(self) -> int | None:
+        if self._snapshot is not None:
+            value = self._snapshot.model_facts.get("max_reference_images")
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
         return self._entry_reference_limit
 
     @property
     def effective_capabilities(self) -> frozenset[ImageCapability]:
         """调用通道实现了、且模型事实一侧允许的文生图 / 图生图。"""
+        if self._snapshot is not None:
+            return frozenset(cap for cap in ImageCapability if self._snapshot.effective.get(cap.value) is True)
         implemented = frozenset(self.capabilities)
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     async def reference_image_limit(self) -> int | None:
         return await self._delegate.reference_image_limit()
+
+    async def remote_reference_image_limit(self) -> int | None:
+        probe = getattr(self._delegate, "remote_reference_image_limit", None)
+        if callable(probe):
+            result = await cast(Callable[[], Awaitable[object]], probe)()
+            return result if isinstance(result, int) and not isinstance(result, bool) else None
+        return None
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)

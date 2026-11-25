@@ -11,13 +11,11 @@ from typing import Any, Literal
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
-from lib.backends.backend_assembly import assemble_backend, callable_model_key
-from lib.backends.builtin_endpoints import builtin_model_endpoint
+from lib.backends.backend_assembly import assemble_backend as assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import (
-    backend_image_quality_options,
-    backend_reference_image_limit,
     effective_image_quality,
+    resolved_image_reference_limit,
 )
 from lib.config.resolver import (
     ConfigResolver,
@@ -28,7 +26,6 @@ from lib.config.resolver import (
     project_image_quality,
     video_bucket_for_generation_mode,
 )
-from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.media_generator import MediaGenerator
 from lib.generation.video_request_facts import (
@@ -43,6 +40,8 @@ from lib.project.project_manager import get_project_manager
 from lib.prompts.reference_image_numbering import ReferenceImageSlot, require_reference_image_limit
 from lib.video_runtime.assembly import assemble_video
 from lib.video_runtime.audio import AudioRuntime, AudioTarget, assemble_audio
+from lib.video_runtime.image_assembly import assemble_image
+from lib.video_runtime.image_resolution import ImageRuntime, ImageTarget
 from lib.video_runtime.resolution import VideoRuntime, VideoTarget
 
 rate_limiter = get_shared_rate_limiter()
@@ -115,44 +114,6 @@ def reset_backend_cache_for_tests() -> None:
     _backend_cache.invalidate()
 
 
-async def _get_or_create_backend(
-    media_type: str,
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    default_model: str | None,
-    generation_type: str | None = None,
-) -> Any:
-    effective_model = await callable_model_key(
-        provider_id=provider_name,
-        media_type=media_type,
-        model_id=provider_settings.get("model") or default_model or None,
-        resolver=resolver,
-        generation_type=generation_type,
-    )
-
-    endpoint = (
-        None
-        if is_custom_provider(provider_name)
-        else builtin_model_endpoint(provider_name, media_type, effective_model)
-    )
-
-    async def _factory() -> Any:
-        return await assemble_backend(
-            provider_id=provider_name,
-            media_type=media_type,
-            model_id=effective_model,
-            resolver=resolver,
-            rate_limiter=rate_limiter,
-            generation_type=generation_type,
-            builtin_endpoint=endpoint,
-        )
-
-    return await _backend_cache.get_or_create(
-        (media_type, provider_name, effective_model, generation_type, endpoint), _factory
-    )
-
-
 async def _video_backend_for(target: VideoTarget):
     snapshot = target.snapshot
     return await _backend_cache.get_or_create(
@@ -163,21 +124,13 @@ async def _video_backend_for(target: VideoTarget):
     )
 
 
-async def _get_or_create_image_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_image_model: str | None = None,
-    generation_type: Literal["t2i", "i2i"] | None = None,
-):
-    """获取或创建 ImageBackend 实例（带缓存）。
-
-    generation_type 是本次调用所属的任务类型桶：自定义供应商的默认模型按桶分槽，桶随构造一路
-    传到 ``load_custom_backend``，也进缓存 key（t2i 与 i2i 不互相命中）。
-    """
-    return await _get_or_create_backend(
-        "image", provider_name, provider_settings, resolver, default_image_model, generation_type
+async def _image_backend_for(target: ImageTarget):
+    snapshot = target.snapshot
+    return await _backend_cache.get_or_create(
+        ("image", snapshot.provider_id, snapshot.model_id, None, None),
+        lambda: assemble_image(target.spec),
+        generation=target.generation,
+        spec=target.spec,
     )
 
 
@@ -401,29 +354,26 @@ async def resolve_generation_context(
     video_backend: Any = None
     audio_backend: Any = None
 
+    image_target: ImageTarget | None = None
     target: VideoTarget | None = None
     video_limits = None
     generation = _backend_cache.generation()
     async with resolver.session(snapshot_settings=isinstance(video, VideoLaneRequest)) as r:
         if image is not None:
+            image_runtime = ImageRuntime(r, capture_generation=lambda: generation, rate_limiter=rate_limiter)
             try:
-                resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+                image_target = await image_runtime.resolve(project, payload, bucket=image.generation_type)
             except ImageBucketCapabilityError as exc:
                 if image.generation_type == "i2i":
                     require_reference_image_limit(image.references, 0, model=exc.model_id)
                 raise
-            image_backend = await _get_or_create_image_backend(
-                resolved.provider_id,
-                {},
-                r,
-                default_image_model=resolved.model_id or None,
-                generation_type=image.generation_type,
-            )
-            image_provider_model = resolved
-            image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
+            image_snapshot = image_target.snapshot
+            image_backend = await _image_backend_for(image_target)
+            image_provider_model = ProviderModel(image_snapshot.provider_id, image_snapshot.model_id)
+            image_resolution = await r.resolve_resolution(project, image_snapshot.provider_id, image_backend.model)
             image_quality = effective_image_quality(
-                project_image_quality(project, resolved.provider_id, image_backend.model),
-                backend_image_quality_options(image_backend, provider_id=resolved.provider_id),
+                project_image_quality(project, image_snapshot.provider_id, image_backend.model),
+                tuple(image_snapshot.effective["qualities"]),
             )
 
         if video is not None:
@@ -488,15 +438,13 @@ async def resolve_generation_context(
                 voices=tuple(audio_backend.list_voices()),
             )
 
-    if image_provider_model is not None:
+    if image_target is not None and image_provider_model is not None:
         image_result = ImageLaneResult(
             provider_model=image_provider_model,
             backend_name=image_backend.name,
             backend_model=image_backend.model,
             resolution=image_resolution,
-            max_reference_images=(
-                await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
-            ).to_json(),
+            max_reference_images=(await resolved_image_reference_limit(image_target.snapshot, image_backend)).to_json(),
             quality=image_quality,
         )
 
@@ -504,6 +452,7 @@ async def resolve_generation_context(
         resolved_project_path,
         rate_limiter=rate_limiter,
         image_backend=image_backend,
+        image_snapshot=image_target.snapshot if image_target else None,
         video_backend=video_backend,
         video_snapshot=target.snapshot if target else None,
         video_limits=video_limits,

@@ -1344,6 +1344,11 @@ def use_backend_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.tasks.generation_context.assemble_backend", assemble)
 
 
+def use_image_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:
+    """生成上下文解析时图片装配改调 *assemble*：配置、快照与预检走真实实现，只换掉图片后端构造。"""
+    monkeypatch.setattr("server.services.tasks.generation_context.assemble_image", assemble)
+
+
 async def stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
     """替身生成器落盘产出并提交正式版本。
 

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
     from lib.backends.backend_assembly.specs import ProviderSpec
+    from lib.backends.image_backends.base import ImageBackend
     from lib.backends.text_backends.base import TextBackend
     from lib.billing.metering import Usage
 
@@ -104,6 +105,59 @@ def build_builtin_audio(config: LoadedConfig, model: str | None, provider_id: st
     if base_url:
         kwargs["base_url"] = base_url
     return audio_backends.create_backend(registry, **kwargs)
+
+
+def build_legacy_image(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> ImageBackend:
+    api_model_name: str | None = None
+    if provider_id == "kling" and model:
+        from lib.catalog import query as catalog
+
+        model_info = catalog.get_model("kling", model)
+        if model_info is not None and model_info.api_model_name:
+            api_model_name = model_info.api_model_name
+    return build_builtin_image(config, model, provider_id, registry, api_model_name=api_model_name)
+
+
+def build_builtin_image(
+    config: LoadedConfig,
+    model: str | None,
+    provider_id: str,
+    registry: str,
+    *,
+    api_model_name: str | None = None,
+) -> ImageBackend:
+    from lib.backends.image_backends import registry as image_backends
+
+    credentials = config.credentials
+    api_key = credentials.get("api_key")
+    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
+    base_url = credentials.get("base_url") or default_base_url
+    if provider_id in {"gemini-aistudio", "gemini-vertex"}:
+        vertex = provider_id == "gemini-vertex"
+        return image_backends.create_backend(
+            registry,
+            backend_type="vertex" if vertex else "aistudio",
+            api_key=api_key,
+            base_url=credentials.get("base_url"),
+            rate_limiter=config.rate_limiter,
+            image_model=model,
+            **({"credentials_path": credentials.get("credentials_path")} if vertex else {}),
+        )
+    kwargs: dict[str, Any] = {"model": model}
+    if provider_id == "kling":
+        auth_mode = kling_auth_mode(credentials)
+        kwargs["auth_mode"] = auth_mode
+        if auth_mode == "bearer":
+            kwargs["api_key"] = api_key
+        else:
+            kwargs.update(access_key=credentials.get("access_key"), secret_key=credentials.get("secret_key"))
+        if api_model_name:
+            kwargs["api_model_name"] = api_model_name
+    elif api_key:
+        kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["base_url"] = base_url
+    return image_backends.create_backend(registry, **kwargs)
 
 
 def build_legacy_video(

@@ -13,7 +13,6 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import cast
 
 import pytest
 from PIL import Image
@@ -46,6 +45,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
 )
 from lib.project.project_manager import ProjectManager
+from lib.video_runtime.image_resolution import ImageRuntime
 from lib.video_runtime.resolution import read_video_request_facts
 from server.services.tasks import generation_context
 from server.services.tasks.generation_context import (
@@ -61,6 +61,7 @@ from server.services.tasks.generation_context import (
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.factories import make_video_request_facts
 from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
+from tests.fakes import use_image_assembler as _patch_image_assembler
 from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 
@@ -88,6 +89,23 @@ def use_audio_assembler(monkeypatch, assemble):
         )
 
     monkeypatch.setattr(generation_context, "assemble_audio", assemble_spec)
+
+
+def use_image_assembler(monkeypatch, assemble):
+    async def assemble_spec(spec):
+        return await assemble(
+            provider_id=spec.snapshot.provider_id,
+            model_id=spec.snapshot.model_id,
+            media_type="image",
+            builtin_endpoint=spec.endpoint,
+            resolver=None,
+        )
+
+    _patch_image_assembler(monkeypatch, assemble_spec)
+
+
+def _registry_image_model(provider_id: str) -> str:
+    return next(mid for mid, mi in catalog.list_models(provider_id).items() if mi.media_type == "image")
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -166,6 +184,7 @@ def fake_assemble(monkeypatch):
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
     use_backend_assembler(monkeypatch, _assemble)
+    use_image_assembler(monkeypatch, _assemble)
     use_video_assembler(monkeypatch, _assemble)
     use_audio_assembler(monkeypatch, _assemble)
     return calls
@@ -230,13 +249,14 @@ async def _seed_custom_image_provider(patched_session_factory, models: list[dict
 class TestLaneDeclaration:
     async def test_only_declared_lanes_are_constructed(self, patched_session_factory, project_env, fake_assemble):
         """只声明 image lane：不解析、不构造 video/audio，视频供应商缺配置不影响图片任务。"""
-        project = {"image_provider_t2i": "ark/img-model-x"}
+        image_model = _registry_image_model("ark")
+        project = {"image_provider_t2i": f"ark/{image_model}"}
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
 
         assert [media for _, media, _ in fake_assemble] == ["image"]
-        assert ctx.image.provider_model == ProviderModel("ark", "img-model-x")
+        assert ctx.image.provider_model == ProviderModel("ark", image_model)
         assert ctx.image.backend_name == "ark"
-        assert ctx.image.backend_model == "img-model-x"
+        assert ctx.image.backend_model == image_model
         with pytest.raises(RuntimeError, match="video lane 未声明"):
             _ = ctx.video
         with pytest.raises(RuntimeError, match="audio lane 未声明"):
@@ -275,20 +295,22 @@ class TestLaneDeclaration:
         assert ctx.generator.project_path == project_path
 
     async def test_i2i_capability_selects_i2i_slot(self, patched_session_factory, project_env, fake_assemble):
+        i2i_model = _registry_image_model("ark")
         project = {
             "image_provider_t2i": "ark/img-t2i",
-            "image_provider_i2i": "ark/img-i2i",
+            "image_provider_i2i": f"ark/{i2i_model}",
         }
         ctx = await resolve_generation_context(
             "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i")
         )
-        assert ctx.image.provider_model == ProviderModel("ark", "img-i2i")
+        assert ctx.image.provider_model == ProviderModel("ark", i2i_model)
 
     async def test_all_three_lanes(self, patched_session_factory, project_env, fake_assemble):
+        image_model = _registry_image_model("ark")
         video_model = _registry_video_model("ark")
         audio_model = _registry_audio_model("dashscope")
         project = {
-            "image_provider_t2i": "ark/img-model-x",
+            "image_provider_t2i": f"ark/{image_model}",
             "video_backend": f"ark/{video_model}",
             "audio_backend": f"dashscope/{audio_model}",
         }
@@ -674,13 +696,15 @@ class TestAtomicFailure:
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         use_video_assembler(monkeypatch, _assemble)
+        image_model = _registry_image_model("ark")
         video_model = _registry_video_model("ark")
         with pytest.raises(ValueError, match="video backend 构造失败"):
             await resolve_generation_context(
                 "demo",
                 None,
-                project={"image_provider_t2i": "ark/img-model-x", "video_backend": f"ark/{video_model}"},
+                project={"image_provider_t2i": f"ark/{image_model}", "video_backend": f"ark/{video_model}"},
                 image=ImageLaneRequest(),
                 video=VideoLaneRequest(),
             )
@@ -692,7 +716,8 @@ class TestAtomicFailure:
 
 class TestBackendCache:
     async def test_backend_reused_until_invalidated(self, patched_session_factory, project_env, fake_assemble):
-        project = {"image_provider_t2i": "ark/img-model-x"}
+        image_model = _registry_image_model("ark")
+        project = {"image_provider_t2i": f"ark/{image_model}"}
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 1, "第二次调用须命中缓存，不再重建 backend"
@@ -727,22 +752,27 @@ class TestBackendCache:
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         resolver = ConfigResolver(db_factory)
+        runtime = ImageRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
+
+        async def _get(model_id: str | None):
+            project = {"image_provider_t2i": f"ark/{model_id}" if model_id else "ark"}
+            return await generation_context._image_backend_for(await runtime.resolve(project, None, bucket="t2i"))
 
         set_catalog_today(monkeypatch, date(2026, 11, 23))
-        explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
+        explicit = await _get(default)
         assert (explicit.model, built) == (default, [default])
         with pytest.raises(ModelNotInCatalogError):
-            await generation_context._get_or_create_image_backend("ark", {}, resolver)
+            await _get(None)
 
         set_catalog_today(monkeypatch, date(2026, 11, 24))
         with pytest.raises(ModelDiscontinuedError) as excinfo:
-            await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
+            await _get(default)
         assert excinfo.value.params["successor"] == "bytedance/next"
         with pytest.raises(ModelNotInCatalogError) as excinfo:
-            await generation_context._get_or_create_image_backend("ark", {}, resolver)
-        assert excinfo.value.code == "provider_unsupported_media"
+            await _get(None)
+        assert excinfo.value.code == "model_not_selected"
         assert built == [default], "跨过关停日期后不再构造，也不取缓存"
 
     async def test_cached_custom_backend_is_not_reused_once_its_entry_is_discontinued(
@@ -782,31 +812,28 @@ class TestBackendCache:
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or SEEDREAM_LITE)
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         resolver = ConfigResolver(patched_session_factory)
+        runtime = ImageRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
+
+        async def _get(model_id: str | None):
+            project = {"image_provider_t2i": f"{provider_id}/{model_id or 'missing-model'}"}
+            return await generation_context._image_backend_for(await runtime.resolve(project, None, bucket="t2i"))
 
         set_catalog_today(monkeypatch, date(2026, 11, 23))
-        explicit = await generation_context._get_or_create_image_backend(
-            provider_id, {"model": SEEDREAM_LITE}, resolver, generation_type="t2i"
-        )
-        implicit = await generation_context._get_or_create_image_backend(
-            provider_id, {}, resolver, generation_type="t2i"
-        )
-        assert (explicit.model, implicit.model, built) == (SEEDREAM_LITE, SEEDREAM_LITE, [SEEDREAM_LITE, None])
+        explicit = await _get(SEEDREAM_LITE)
+        implicit = await _get(None)
+        assert (explicit.model, implicit.model, built) == (SEEDREAM_LITE, SEEDREAM_LITE, [SEEDREAM_LITE])
 
         set_catalog_today(monkeypatch, date(2026, 11, 24))
         with pytest.raises(ModelDiscontinuedError) as excinfo:
-            await generation_context._get_or_create_image_backend(
-                provider_id, {"model": SEEDREAM_LITE}, resolver, generation_type="t2i"
-            )
+            await _get(SEEDREAM_LITE)
         assert excinfo.value.params["successor"] == "bytedance/doubao-seedream-5-0-pro"
         with pytest.raises(ValueError, match="没有默认 t2i image 模型"):
-            await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="t2i")
-        live = await generation_context._get_or_create_image_backend(
-            provider_id, {"model": "relay-image"}, resolver, generation_type="t2i"
-        )
+            await _get(None)
+        live = await _get("relay-image")
         assert live.model == "relay-image"
-        assert built == [SEEDREAM_LITE, None, "relay-image"], "已下线的引用不再构造，也不取缓存"
+        assert built == [SEEDREAM_LITE, "relay-image"], "已下线的引用不再构造，也不取缓存"
 
     async def test_image_buckets_do_not_share_a_cache_entry(self, patched_session_factory, monkeypatch):
         """同 (media_type, provider, model) 的 t2i 与 i2i 各自构造：桶参与构造，须各占一条缓存。
@@ -834,23 +861,28 @@ class TestBackendCache:
             submitted_job=False,
             builtin_endpoint=None,
         ):
-            seen.append(generation_type)
-            return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
+            seen.append(model_id)
+            return _FakeBackend(name=provider_id, model=f"{model_id}")
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         resolver = ConfigResolver(patched_session_factory)
+        runtime = ImageRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
 
-        t2i = await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="t2i")
-        i2i = await generation_context._get_or_create_image_backend(provider_id, {}, resolver, generation_type="i2i")
-        t2i_again = await generation_context._get_or_create_image_backend(
-            provider_id, {}, resolver, generation_type="t2i"
+        t2i = await generation_context._image_backend_for(
+            await runtime.resolve({"image_provider_t2i": f"{provider_id}/missing-model"}, None, bucket="t2i")
+        )
+        i2i = await generation_context._image_backend_for(
+            await runtime.resolve({"image_provider_i2i": f"{provider_id}/missing-model"}, None, bucket="i2i")
+        )
+        t2i_again = await generation_context._image_backend_for(
+            await runtime.resolve({"image_provider_t2i": f"{provider_id}/missing-model"}, None, bucket="t2i")
         )
 
-        assert seen == ["t2i", "i2i"], "换桶须重新构造，同桶重复请求须命中缓存"
-        assert (t2i.model, i2i.model) == ("t2i-model", "i2i-model")
+        assert seen == ["t2i-m", "i2i-m"], "换桶须重新构造，同桶重复请求须命中缓存"
+        assert (t2i.model, i2i.model) == ("t2i-m", "i2i-m")
         assert t2i_again is t2i
 
-    async def test_a_changed_endpoint_is_not_served_from_the_cache(self, monkeypatch):
+    async def test_a_changed_endpoint_is_not_served_from_the_cache(self, db_factory, monkeypatch):
         """模型挂接的端点变了（如官方目录同步不经缓存失效），下一次取到的是按新端点构造的实例。"""
         built_with: list[str | None] = []
 
@@ -868,15 +900,17 @@ class TestBackendCache:
             built_with.append(builtin_endpoint)
             return _FakeBackend(name=provider_id, model=model_id)
 
-        use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
+        use_image_assembler(monkeypatch, _assemble)
+        resolver = ConfigResolver(db_factory)
+        runtime = ImageRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
         model_id = "ep-image-endpoint"
         try:
             for endpoint in ("ark-seedream-3", "ark-seedream-4"):
                 catalog.install_user_added_models(
                     (catalog.UserAddedModel("ark", model_id, "image", endpoint=endpoint),)
                 )
-                await generation_context._get_or_create_image_backend("ark", {"model": model_id}, resolver)
+                target = await runtime.resolve({"image_provider_t2i": f"ark/{model_id}"}, None, bucket="t2i")
+                await generation_context._image_backend_for(target)
         finally:
             catalog.install_user_added_models(())
 

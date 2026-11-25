@@ -31,15 +31,20 @@ from lib.backends.backend_assembly.specs import (
     builtin_video_snapshot,
     builtin_video_snapshot_from_view,
 )
-from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_capabilities import (
-    builtin_channel_capabilities,
-    builtin_channel_reference_limit,
-    image_reference_limit,
-    image_reference_override,
+    builtin_image_snapshot,
+    builtin_image_snapshot_from_view,
+    resolve_image_model,
 )
 from lib.backends.video_capabilities import resolve_video_model, video_endpoint
-from lib.capabilities.kernel import TEXT_ENDPOINT, AudioProtocol, CapabilitySnapshot, FixedDuration, InvalidOverrides
+from lib.capabilities.kernel import (
+    TEXT_ENDPOINT,
+    AudioProtocol,
+    CapabilitySnapshot,
+    Endpoint,
+    FixedDuration,
+    InvalidOverrides,
+)
 from lib.capabilities.override_schema import (
     LEGACY_AUDIO_KEYS,
     OVERRIDE_KEYS,
@@ -49,12 +54,11 @@ from lib.capabilities.override_schema import (
     valid_value,
 )
 from lib.catalog.query import CatalogModel, ProviderModelView
-from lib.custom_provider.capabilities import custom_video_snapshot
-from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
+from lib.custom_provider.capabilities import custom_image_snapshot, custom_video_snapshot
+from lib.custom_provider.endpoints import EndpointSpec
 from lib.custom_provider.model_facts import (
     builtin_text_snapshot,
     builtin_text_snapshot_from_view,
-    image_model_facts,
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
@@ -86,16 +90,6 @@ OVERRIDE_KEY_ORDER: tuple[str, ...] = (
     "has_audio_track",
     "reference_route_has_audio_track",
 )
-
-_IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
-    "text_to_image": ImageCapability.TEXT_TO_IMAGE,
-    "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
-}
-
-_IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
-    **_IMAGE_CAPABILITY_BY_KEY,
-    "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
-}
 
 
 @dataclass(frozen=True)
@@ -185,6 +179,23 @@ def _video_view(snapshot: CapabilitySnapshot) -> CapabilityView:
     )
 
 
+def _image_view(snapshot: CapabilitySnapshot) -> CapabilityView:
+    def values(data: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "text_to_image": data["text_to_image"],
+            "image_to_image": data["image_to_image"],
+            "max_reference_images": data["max_reference_images"],
+        }
+
+    return CapabilityView(
+        "image",
+        editable=_ordered(snapshot.editable),
+        base=values(snapshot.base),
+        effective_values=values(snapshot.effective),
+        overrides=snapshot.override_dict(),
+    )
+
+
 def _catalog_video_facts(base_model: CatalogModel) -> VideoFacts:
     return VideoFacts(
         durations=tuple(base_model.supported_durations),
@@ -229,18 +240,17 @@ def custom_capability_view(
                 model_id=model_id,
             )
         return _video_view(snapshot)
-    if spec.kind == COMFYUI_KIND:
-        if media_type == "image":
-            return CapabilityView(
-                media_type,
-                base=_image_base(
-                    implemented=spec.image_capabilities or frozenset(),
-                    text_to_image=True,
-                    image_to_image=True,
-                    entry_limit=None,
-                    channel_limit=endpoint_reference_image_limit(spec),
-                ),
+    if media_type == "image":
+        raw = raw_overrides if isinstance(raw_overrides, Mapping) else {}
+        try:
+            snapshot = custom_image_snapshot(
+                endpoint=endpoint, model_id=model_id, endpoint_spec=spec, entry_binding=entry_binding, overrides=raw
             )
+        except ValueError:
+            logger.warning("无法判定图片能力: endpoint=%r model_id=%r", endpoint, model_id)
+            snapshot = resolve_image_model(Endpoint("image"), None, raw, model_id=model_id)
+        return _image_view(snapshot)
+    if spec.kind == COMFYUI_KIND:
         return CapabilityView(media_type)
 
     base: dict[str, object] = {}
@@ -253,18 +263,6 @@ def custom_capability_view(
                 entry_binding=entry_binding,
             )
             return _text_view(snapshot)
-        case "image":
-            image = image_model_facts(model_id, None, entry_binding=entry_binding)
-            implemented = spec.image_capabilities or frozenset()
-            return _image_view(
-                implemented=implemented,
-                text_to_image=image.text_to_image is not False,
-                image_to_image=image.image_to_image is not False,
-                entry_limit=image.max_reference_images,
-                channel_limit=endpoint_reference_image_limit(spec),
-                editable=editable,
-                overrides=applied_overrides or {},
-            )
         case _:
             editable = set()
     overrides = dict(applied_overrides or {})
@@ -284,73 +282,6 @@ def _catalog_model_facts(model: CatalogModel) -> dict[str, object]:
             }
         case _:
             return {}
-
-
-def _image_base(
-    *,
-    implemented: frozenset[ImageCapability],
-    text_to_image: bool,
-    image_to_image: bool,
-    entry_limit: int | None,
-    channel_limit: int | None,
-    reference_override: int | None = None,
-) -> dict[str, object]:
-    """图片三维的原值，与任务类型桶的候选、执行时的校验读同一个求值结果（``image_reference_limit``）。
-
-    ``text_to_image`` / ``image_to_image`` 是模型事实一侧（条目，对应不上条目时按允许算），与调用通道实现了的
-    ``implemented`` 取交集。图生图另须参考图上限接受参考图：条目记为 0 张时为不支持。参考图上限按生效的图生图求值，
-    ``reference_override`` 在两侧求值后整维替换上限。
-    """
-
-    reference_limit = image_reference_limit(
-        capabilities=implemented if image_to_image else frozenset(),
-        entry_limit=entry_limit,
-        channel_limit=channel_limit,
-        override=reference_override,
-    )
-    return {
-        "text_to_image": text_to_image and ImageCapability.TEXT_TO_IMAGE in implemented,
-        "image_to_image": reference_limit.accepts_input,
-        "max_reference_images": reference_limit.to_json(),
-    }
-
-
-def _image_view(
-    *,
-    implemented: frozenset[ImageCapability],
-    text_to_image: bool,
-    image_to_image: bool,
-    entry_limit: int | None,
-    channel_limit: int | None,
-    editable: set[str],
-    overrides: Mapping[str, object],
-) -> CapabilityView:
-    editable = {key for key in editable if _IMAGE_EDITABLE_REQUIRES[key] in implemented}
-    base = _image_base(
-        implemented=implemented,
-        text_to_image=text_to_image,
-        image_to_image=image_to_image,
-        entry_limit=entry_limit,
-        channel_limit=channel_limit,
-    )
-    effective = _image_base(
-        implemented=implemented,
-        text_to_image=overrides.get("text_to_image", text_to_image) is True,
-        image_to_image=overrides.get("image_to_image", image_to_image) is True,
-        entry_limit=entry_limit,
-        channel_limit=channel_limit,
-        reference_override=image_reference_override(overrides),
-    )
-    return CapabilityView(
-        "image", editable=_ordered(editable), base=base, overrides=dict(overrides), effective_values=effective
-    )
-
-
-def _image_channel(provider_id: str, model_id: str, endpoint: str | None = None) -> frozenset[ImageCapability]:
-    try:
-        return builtin_channel_capabilities(provider_id, model_id, endpoint=endpoint)
-    except ValueError:
-        return frozenset()
 
 
 def builtin_capability_view(
@@ -388,23 +319,29 @@ def builtin_capability_view(
             overrides={} if official else overrides,
         )
         return _text_view(snapshot)
+    if media_type == "image":
+        try:
+            snapshot = builtin_image_snapshot(
+                provider_id, model_id, overrides=overrides, official=official, base_model=base_model
+            )
+        except ValueError:
+            logger.warning("无法读取内置图片能力: provider=%r model_id=%r", provider_id, model_id)
+            snapshot = resolve_image_model(
+                Endpoint("image"),
+                {
+                    "text_to_image": "text_to_image" in base_model.capabilities,
+                    "image_to_image": "image_to_image" in base_model.capabilities,
+                    "max_reference_images": base_model.max_reference_images,
+                    "resolutions": tuple(base_model.resolutions),
+                },
+                overrides,
+                provider_id=provider_id,
+                model_id=model_id,
+                official=official,
+            )
+        return _image_view(snapshot)
     base = _catalog_model_facts(base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
-    if media_type == "image":
-        implemented = _image_channel(provider_id, model_id)
-        try:
-            channel_limit = builtin_channel_reference_limit(provider_id, model_id)
-        except ValueError:
-            channel_limit = None
-        return _image_view(
-            implemented=implemented,
-            text_to_image="text_to_image" in base_model.capabilities,
-            image_to_image="image_to_image" in base_model.capabilities,
-            entry_limit=base_model.max_reference_images,
-            channel_limit=channel_limit,
-            editable=editable,
-            overrides={} if official else overrides,
-        )
     if official:
         return CapabilityView(media_type, base=base)
     return CapabilityView(media_type, editable=_ordered(editable), base=base, overrides=dict(overrides))
@@ -414,11 +351,12 @@ def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_i
     """用户添加的模型装入目录查询时采用的能力覆盖：该媒体类型的维度里值合法的那些，其余丢弃并告警。"""
     if not isinstance(raw, Mapping):
         return {}
-    if media_type == "video":
+    if media_type in ("video", "image"):
         applied: dict[str, object] = {}
+        allowed = OVERRIDE_KEYS[media_type]
         for key, value in raw.items():
-            if (key in OVERRIDE_KEYS["video"] and valid_value(key, value)) or (
-                key in LEGACY_AUDIO_KEYS and is_legacy_audio_mode(value)
+            if (key in allowed and valid_value(key, value)) or (
+                media_type == "video" and key in LEGACY_AUDIO_KEYS and is_legacy_audio_mode(value)
             ):
                 applied[key] = normalized_value(key, value)
             else:
@@ -512,6 +450,10 @@ def _override_rejected_from_invalid(
         return OverrideRejected("builtin_model_official_settings", model=model_id)
     if "audio_pair_incoherent" in by_reason:
         return OverrideRejected("capability_override_audio_pair_incoherent", model_id=model_id)
+    if (image_key := by_reason.get("image_unsupported")) is not None:
+        return OverrideRejected(
+            "capability_override_image_unsupported", model_id=model_id, endpoint=endpoint, capability=image_key
+        )
     if "last_frame_unsupported" in by_reason:
         return OverrideRejected("capability_override_last_frame_unsupported", model_id=model_id, endpoint=endpoint)
     if "reference_audio_unsupported" in by_reason:
@@ -552,11 +494,16 @@ def check_user_added_overrides(
     media_type = view.model.media_type
     if not overrides:
         return None
-    if media_type == "video":
+    if media_type in ("video", "image"):
         try:
-            snapshot = builtin_video_snapshot_from_view(
-                provider_id, model_id, view, endpoint=endpoint, overrides={}, always_bill_audio=False
-            )
+            if media_type == "video":
+                snapshot = builtin_video_snapshot_from_view(
+                    provider_id, model_id, view, endpoint=endpoint, overrides={}, always_bill_audio=False
+                )
+            else:
+                snapshot = builtin_image_snapshot_from_view(
+                    provider_id, model_id, view, endpoint=endpoint, overrides={}
+                )
         except ValueError as exc:
             raise OverrideRejected(
                 "capability_override_not_applicable",
@@ -565,7 +512,7 @@ def check_user_added_overrides(
                 media_type=media_type,
                 capability=str(exc),
             ) from exc
-        return validate_video_overrides(
+        return validate_snapshot_overrides(
             snapshot,
             overrides,
             model_id=model_id,
@@ -599,14 +546,5 @@ def check_user_added_overrides(
                 model_id=model_id,
                 capability=key,
                 expected=model_fact_type_name(key),
-            )
-        image_capability = _IMAGE_CAPABILITY_BY_KEY.get(key)
-        if (
-            image_capability is not None
-            and value is True
-            and image_capability not in _image_channel(provider_id, model_id, endpoint)
-        ):
-            raise OverrideRejected(
-                "capability_override_image_unsupported", model_id=model_id, endpoint=provider_id, capability=key
             )
     return dict(overrides)

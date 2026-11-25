@@ -8,7 +8,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Literal
 
-from lib.capabilities.limits import InputLimit
+from lib.capabilities.limits import InputLimit, LimitState
 from lib.capabilities.override_schema import (
     INPUT_SLOT,
     LEGACY_AUDIO_KEYS,
@@ -108,6 +108,7 @@ type OverrideRejectionReason = Literal[
     "official",
     "not_applicable",
     "invalid_value",
+    "image_unsupported",
     "last_frame_unsupported",
     "reference_audio_unsupported",
     "audio_pair_incoherent",
@@ -261,7 +262,9 @@ class Endpoint:
                 reject(key, "invalid_value")
                 continue
             if key not in self.editable and not silent_false:
-                if not self.binding_owned and key == "last_frame" and value is True:
+                if not self.binding_owned and key in ("text_to_image", "image_to_image") and value is True:
+                    reject(key, "image_unsupported")
+                elif not self.binding_owned and key == "last_frame" and value is True:
                     reject(key, "last_frame_unsupported")
                 elif not self.binding_owned and key == "reference_audio_mode" and value == "direct":
                     reject(key, "reference_audio_unsupported")
@@ -418,6 +421,13 @@ class CapabilitySnapshot:
         for name in ("base", "overrides", "effective", "model_facts"):
             object.__setattr__(self, name, _freeze(getattr(self, name)))
         object.__setattr__(self, "editable", frozenset(self.editable))
+
+    def with_remote_reference_limit(self, remote_limit: int | None) -> InputLimit[int]:
+        if remote_limit is None or not self.reference_images.accepts_input:
+            return self.reference_images
+        if self.reference_images.state == LimitState.UNRECORDED or self.reference_images.maximum is None:
+            return InputLimit.at_most(remote_limit)
+        return InputLimit.at_most(min(self.reference_images.maximum, remote_limit))
 
     def audio(self, route: Route, *, requested: bool, base: bool = False) -> AudioDecision:
         protocol = self.reference_protocol if route == "r2v" else self.primary_protocol

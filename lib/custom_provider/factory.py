@@ -4,19 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lib.backends.image_capabilities import (
-    custom_image_model_capabilities,
-    custom_image_quality_options,
-    entry_reference_limit,
-    image_reference_override,
-)
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.capabilities import custom_video_snapshot
+from lib.custom_provider.capabilities import custom_image_snapshot, custom_video_snapshot
 from lib.custom_provider.endpoints import EndpointSpec, ProviderConnectionSnapshot, get_endpoint_spec
 from lib.custom_provider.model_facts import model_entry
 from lib.custom_provider.path_overrides import effective_path_overrides
@@ -72,14 +66,12 @@ def create_custom_backend(
         entry = None if snapshot.endpoint.binding_owned else model_entry(model_id, spec.media_type, entry_binding)
         return backend.with_endpoint(endpoint, path_overrides=paths).with_snapshot(snapshot).with_catalog_entry(entry)
     if isinstance(backend, CustomImageBackend):
-        return backend.with_model_facts(
-            custom_image_model_capabilities(
-                model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
-            ),
-            reference_limit_override=image_reference_override(capability_overrides, endpoint_kind=spec.kind),
-            entry_reference_limit=entry_reference_limit(
-                model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
-            ),
-            quality_options=custom_image_quality_options(model_id, endpoint_spec=spec, entry_binding=entry_binding),
+        snapshot = custom_image_snapshot(
+            endpoint=endpoint,
+            model_id=model_id,
+            overrides=capability_overrides,
+            endpoint_spec=spec,
+            entry_binding=entry_binding,
         )
+        return backend.with_snapshot(snapshot)
     return backend

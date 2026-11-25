@@ -36,7 +36,6 @@ from starlette.datastructures import FormData, UploadFile
 
 from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
-from lib.backends.backend_assembly import assemble_backend
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
@@ -66,7 +65,7 @@ from lib.custom_provider.endpoint_test import (
     trial_run_manager,
 )
 from lib.custom_provider.model_facts import model_entry
-from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, effective_path_overrides
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -78,6 +77,8 @@ from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, 
 from lib.infra.async_thread import run_sync_transaction
 from lib.video_runtime.assembly import VideoAssemblySpec, assemble_video
 from lib.video_runtime.builtin import builtin_declarative_credentials
+from lib.video_runtime.image_assembly import assemble_image
+from lib.video_runtime.image_resolution import custom_image_spec
 from lib.video_runtime.resolution import builtin_video_spec, custom_video_spec
 from server.i18n import DisplayNamesCatalog, Translator
 
@@ -577,13 +578,22 @@ async def _model_ref_target(
         spec = custom_video_spec(provider, model, endpoint_spec, entry)
         return video_target(spec, definition, spec.entry), credentials, definition, spec.paths
 
-    async def build_image():
-        return await assemble_backend(
-            provider_id=model_ref.provider_id, media_type="image", model_id=model_ref.model_id, resolver=resolver
-        )
+    entry = None if endpoint_spec.kind == "comfyui" else model_entry(model.model_id, "image", model.entry_binding)
+    image_spec = custom_image_spec(provider, model, endpoint_spec, entry)
 
-    target = TrialRunTarget(model_ref.provider_id, model_ref.model_id, build_image, definition, media_type="image")
-    return target, credentials, definition, effective_path_overrides(model.path_overrides, endpoint_spec.requests)
+    async def build_image():
+        catalog.reject_discontinued_entry(model_ref.provider_id, model_ref.model_id, "image", entry)
+        return await assemble_image(image_spec)
+
+    target = TrialRunTarget(
+        model_ref.provider_id,
+        model_ref.model_id,
+        build_image,
+        definition,
+        media_type="image",
+        snapshot=image_spec.snapshot,
+    )
+    return target, credentials, definition, image_spec.paths
 
 
 def _preview_payload(
