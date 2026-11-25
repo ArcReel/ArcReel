@@ -10,6 +10,7 @@ from lib.i18n import MESSAGES, SUPPORTED_LOCALES
 from lib.script.draft_violation import SCHEMA_ERROR_PARAM, DraftViolation, draft_violation_message_key, violation_items
 from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import assert_dialogue_preserved, validate_unit_text
+from scripts.audit_tests import dotted
 
 ROOT = Path(__file__).resolve().parents[4]
 PRODUCER_ROOTS = ("lib", "server")
@@ -55,12 +56,27 @@ def _schema_error_types(root: Path = ROOT):
                             yield kind.value
 
 
+def _constructor_aliases(tree: ast.AST) -> dict[str, str]:
+    return {
+        alias.asname: alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.asname and alias.name in {"DraftViolation", "NewAssetProblem"}
+    }
+
+
 def _producer_contracts(root: Path = ROOT):
     for filename, tree in _iter_producer_trees(root):
+        aliases = _constructor_aliases(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            if isinstance(node.func, ast.Name) and node.func.id == "DraftViolation":
+            name = dotted(node.func)
+            if not name:
+                continue
+            constructor = aliases.get(name, name.rsplit(".", 1)[-1])
+            if constructor == "DraftViolation":
                 kwargs = {arg.arg: arg.value for arg in node.keywords}
                 code = kwargs.get("code")
                 if not isinstance(code, ast.Constant) or code.value == "quarantined":
@@ -72,7 +88,7 @@ def _producer_contracts(root: Path = ROOT):
                 code = node.args[0]
                 assert isinstance(code, ast.Constant)
                 yield code.value, {"label", *(kw.arg for kw in node.keywords)}
-            elif isinstance(node.func, ast.Name) and node.func.id == "NewAssetProblem" and node.args:
+            elif constructor == "NewAssetProblem" and node.args:
                 code = node.args[0]
                 if isinstance(code, ast.Constant):
                     params = node.args[3]
@@ -80,22 +96,29 @@ def _producer_contracts(root: Path = ROOT):
                     yield code.value, {key.value for key in params.keys if isinstance(key, ast.Constant)}
 
 
-def test_producer_discovery_covers_new_modules_without_manual_list(tmp_path: Path):
-    module = tmp_path / "lib" / "script" / "unregistered_validator.py"
-    module.parent.mkdir(parents=True)
+@pytest.mark.parametrize(
+    ("base", "import_statement", "constructor"),
+    [
+        ("lib", "from lib.script.draft_violation import DraftViolation", "DraftViolation"),
+        ("server", "from lib.script.draft_violation import DraftViolation as DV", "DV"),
+        ("lib", "from lib.script import draft_violation", "draft_violation.DraftViolation"),
+        ("server", "import lib.script.draft_violation as diagnostics", "diagnostics.DraftViolation"),
+    ],
+)
+def test_unregistered_producer_reports_missing_template(tmp_path: Path, base, import_statement, constructor):
+    module = tmp_path / base / "unregistered_validator.py"
+    module.parent.mkdir()
     module.write_text(
-        "from lib.script.draft_violation import DraftViolation\n"
+        f"{import_statement}\n"
         "def check():\n"
-        '    return DraftViolation(code="unregistered_violation", params={"field": "x"})\n',
+        f'    return {constructor}("failure", code="unregistered_violation", params={{"field": "x"}})\n',
         encoding="utf-8",
     )
-    assert list(_producer_contracts(tmp_path)) == [("unregistered_violation", {"field"})]
+    with pytest.raises(AssertionError, match="unregistered_violation"):
+        _assert_producer_templates("zh", list(_producer_contracts(tmp_path)))
 
 
-@pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
-def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
-    contracts = list(_producer_contracts())
-    assert len(contracts) >= 40
+def _assert_producer_templates(locale, contracts):
     for code, fields in contracts:
         key = draft_violation_message_key(code)
         assert key in MESSAGES[locale], (locale, code)
@@ -103,6 +126,13 @@ def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
             assert SCHEMA_ERROR_PARAM in fields, (locale, code)
             fields = fields - {SCHEMA_ERROR_PARAM}
         assert _fields(MESSAGES[locale][key]) == fields, (locale, code)
+
+
+@pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
+def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
+    contracts = list(_producer_contracts())
+    assert len(contracts) >= 40
+    _assert_producer_templates(locale, contracts)
 
 
 def test_schema_reason_templates_share_placeholders_across_locales():
