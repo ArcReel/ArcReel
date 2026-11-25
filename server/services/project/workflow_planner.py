@@ -19,7 +19,7 @@ from lib.generation.generation_result import (
     migration_problem,
     provider_checkpoint_from_task,
 )
-from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, is_derivative_artifact_id
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, is_derivative_artifact_id, split_derivative_artifact_id
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -40,6 +40,7 @@ from lib.workflow.workflow_plan import (
     build_workflow_plan,
 )
 from lib.workflow.workflow_state import (
+    WorkflowActionType,
     WorkflowBlocker,
     WorkflowRead,
     WorkflowStateService,
@@ -255,11 +256,20 @@ class WorkflowPlanner:
 
         if facts is not None:
             asset_tasks: dict[str, list[str]] = {}
+            planned_asset_ids = (
+                set(status.next_action.requested_ids)
+                if status.next_action.type is WorkflowActionType.GENERATE_ASSET_SHEETS
+                else set()
+            )
             for asset_type, collection in status.artifacts["asset_sheets"].items():
                 for field in ("current_ids", "missing_ids", "stale_ids"):
                     for name in collection.get(field, []):
                         task_type = DERIVATIVE_TASK_TYPE if is_derivative_artifact_id(name) else asset_type
                         asset_tasks.setdefault(task_type, []).append(name)
+                        if is_derivative_artifact_id(name):
+                            owner, _ = split_derivative_artifact_id(name)
+                            if owner in planned_asset_ids and owner not in asset_tasks.get(asset_type, []):
+                                asset_tasks.setdefault(asset_type, []).append(owner)
             for task_type, resource_ids in asset_tasks.items():
                 rows.extend(
                     await get_active_tasks_for_resources(

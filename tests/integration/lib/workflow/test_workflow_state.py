@@ -1320,8 +1320,7 @@ def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: st
             register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
         elif kind == "blocked_derivative":
             pm.update_project("demo", lambda project: project["characters"]["Alice"].update({"description": ""}))
-        names = ["Alice", "Alice/战损"] if kind == "owner_and_derivative" else ["Alice/战损"]
-        shot = _valid_ad_shot(characters_in_shot=names)
+        shot = _valid_ad_shot(characters_in_shot=["Alice/战损"])
     script = {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [shot]}
     _write_registered_script(project_path, script)
     project = pm.load_project("demo")
@@ -1334,8 +1333,11 @@ def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: st
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    if kind == "derivative":
-        assert status.artifacts["asset_sheets"]["character"]["current_ids"] == []
+    if kind in {"derivative", "owner_and_derivative"}:
+        character_sheets = status.artifacts["asset_sheets"]["character"]
+        assert "Alice" not in (
+            character_sheets["current_ids"] + character_sheets["missing_ids"] + character_sheets["stale_ids"]
+        )
     if plan.target_ids:
         assert status.next_action.type == "generate_asset_sheets"
         assert status.next_action.args == {"episode_id": 1}
@@ -2736,6 +2738,7 @@ def test_large_ledger_plans_only_returned_target_and_visible_unfinished_rows(
 
     from lib.artifacts.artifact_planner import TargetStatePlanner
     from server.auth import CurrentUserInfo, get_current_user
+    from server.error_handlers import register_error_handlers
     from server.routers import projects
     from tests.fakes import use_project_manager
 
@@ -2798,6 +2801,7 @@ def test_large_ledger_plans_only_returned_target_and_visible_unfinished_rows(
     scopes.clear()
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     use_project_manager(monkeypatch, pm)
     app.include_router(projects.router)

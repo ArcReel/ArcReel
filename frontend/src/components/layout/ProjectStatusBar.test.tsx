@@ -210,6 +210,27 @@ describe("ProjectStatusBar", () => {
     expect(location.history?.at(-1)).toBe("/episodes/7");
   });
 
+  it("shows the stale annotation for episode 33 from the next page", async () => {
+    const episodes = Array.from({ length: 33 }, (_, i) => ({ episode: i + 1, status: "draft" as const }));
+    setProject({ ...SUMMARY, episodes_summary: { total: 33, scripted: 0, in_production: 0, completed: 0 } }, episodes);
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(workflowStatus(action("none")));
+    const pages = vi.spyOn(API, "getEpisodeNextSteps")
+      .mockResolvedValueOnce({
+        episodes: episodes.slice(0, 32).map(({ episode }) => ({
+          episode, plan_stale: false, episode_complete: true, next_action: null,
+        })),
+        next_cursor: "page-2",
+      })
+      .mockResolvedValueOnce({
+        episodes: [{ episode: 33, plan_stale: true, episode_complete: false, next_action: null }],
+        next_cursor: null,
+      });
+    renderBar();
+    await userEvent.setup().click(screen.getByRole("button", { name: /0\/33 集/ }));
+    expect(await screen.findByText("原文已重新规划")).toBeInTheDocument();
+    expect(pages).toHaveBeenNthCalledWith(2, "demo", expect.objectContaining({ cursor: "page-2" }));
+  });
+
   it("hands episode planning to the agent with the additional requirements", async () => {
     setProject({ ...SUMMARY, episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 } }, []);
     vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(

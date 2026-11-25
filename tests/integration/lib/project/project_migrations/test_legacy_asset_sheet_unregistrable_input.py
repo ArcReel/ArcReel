@@ -44,10 +44,9 @@ def test_asset_sheets_with_generation_input_gaps_are_backfilled_and_read_current
     assert report is not None
     assert [item for item in report.skipped if item.kind == "asset-sheet"] == []
     assert {key: _status(project_dir, *key) for key in _SHEETS} == dict.fromkeys(_SHEETS, "current")
-    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name)
-    characters = status.artifacts["asset_sheets"]["character"]
-    assert characters["current_ids"] == ["张三", "李四"]
-    assert characters["missing_ids"] == []
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
+    assert summary.assets["character"].model_dump() == {"total": 2, "available": 2, "stale": 0}
+    assert summary.assets["scene"].model_dump() == {"total": 1, "available": 1, "stale": 0}
     project = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
     refusal = asset_sheet_input(
         project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)

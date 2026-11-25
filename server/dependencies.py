@@ -21,7 +21,7 @@ _READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 async def project_reads(request: Request) -> RequestCoalescer:
     reads = getattr(request.app.state, "project_reads", None)
-    if reads is None:
+    if reads is None or reads.is_closed:
         reads = RequestCoalescer(asyncio.get_running_loop())
         request.app.state.project_reads = reads
     return reads

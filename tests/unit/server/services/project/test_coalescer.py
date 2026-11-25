@@ -41,3 +41,16 @@ async def test_cancelled_client_and_failed_round_leave_fresh_waiter_and_retry():
     version = 3
     assert await reads.run("plan", compute) == 3
     assert observed == [1, 2, 3]
+
+
+async def test_is_closed_tracks_shutdown_and_closed_loop():
+    reads = RequestCoalescer(asyncio.get_running_loop())
+    assert not reads.is_closed
+    await reads.close()
+    assert reads.is_closed
+
+    loop = asyncio.new_event_loop()
+    bound = RequestCoalescer(loop)
+    assert not bound.is_closed
+    loop.close()
+    assert bound.is_closed

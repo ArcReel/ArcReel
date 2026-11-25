@@ -781,7 +781,7 @@ async def get_workflow_status(
     try:
         manager = get_project_manager()
         read = await reads.run(
-            ("workflow-status-v3", id(manager), name, current_user.role, current_user.id, episode),
+            ("workflow-status-v3", id(manager), name, current_user.id, current_user.role, episode),
             lambda: asyncio.to_thread(WorkflowStateService(manager).read_status, name, episode),
         )
         return present_episode_diagnostics(read.value, read.require_project(), _t)
@@ -820,7 +820,7 @@ async def get_episode_next_steps(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise BadRequestError("request_invalid") from exc
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)

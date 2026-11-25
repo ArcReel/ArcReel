@@ -76,6 +76,23 @@ from lib.workflow.workflow_rules import workflow_rule
 logger = logging.getLogger(__name__)
 
 
+EPISODE_NEXT_STEPS_PAGE_SIZE = 32
+
+
+def _encode_episode_cursor(revision: str, offset: int) -> str:
+    return f"{revision}.{offset}"
+
+
+def _decode_episode_cursor(cursor: str, revision: str, total: int) -> int:
+    digest, _, offset = cursor.rpartition(".")
+    if digest != revision or not offset.isascii() or not offset.isdecimal() or len(offset) > 10:
+        raise WorkflowRequestError("invalid or expired episode cursor")
+    start = int(offset)
+    if not 0 < start < total or start % EPISODE_NEXT_STEPS_PAGE_SIZE:
+        raise WorkflowRequestError("invalid episode cursor offset")
+    return start
+
+
 class WorkflowRequestError(ValueError):
     """调用方给出的查询参数本身不合法。
 
@@ -907,27 +924,22 @@ class WorkflowStateService:
             requested = set(episodes)
             if (
                 cursor is not None
-                or not 1 <= len(episodes) <= 32
+                or not 1 <= len(episodes) <= EPISODE_NEXT_STEPS_PAGE_SIZE
                 or len(requested) != len(episodes)
                 or min(requested) < 1
             ):
-                raise WorkflowRequestError("request up to 32 distinct positive episode numbers without a cursor")
+                raise WorkflowRequestError(
+                    f"request up to {EPISODE_NEXT_STEPS_PAGE_SIZE} distinct positive episode numbers without a cursor"
+                )
             window = [pair for pair in ledger if pair[0] in requested]
             if len(window) != len(requested):
                 raise WorkflowRequestError("unknown episode number")
         else:
             revision = prefixed_canonical_json_digest(project.get("episodes", []))
-            start = 0
-            if cursor is not None:
-                digest, _, offset = cursor.rpartition(".")
-                if digest != revision or not offset.isascii() or not offset.isdecimal() or len(offset) > 10:
-                    raise WorkflowRequestError("invalid or expired episode cursor")
-                start = int(offset)
-                if not 0 < start < len(ledger) or start % 32:
-                    raise WorkflowRequestError("invalid episode cursor offset")
-            window = ledger[start : start + 32]
-            if start + 32 < len(ledger):
-                next_cursor = f"{revision}.{start + 32}"
+            start = _decode_episode_cursor(cursor, revision, len(ledger)) if cursor is not None else 0
+            window = ledger[start : start + EPISODE_NEXT_STEPS_PAGE_SIZE]
+            if start + EPISODE_NEXT_STEPS_PAGE_SIZE < len(ledger):
+                next_cursor = _encode_episode_cursor(revision, start + EPISODE_NEXT_STEPS_PAGE_SIZE)
         steps = []
         for pair in window:
             facts = self._scan_episode(project_name, project, project_path, shared, pair)
@@ -1585,10 +1597,20 @@ class WorkflowStateService:
                 continue
             if asset.owner is not None and (asset.asset_type, asset.owner) not in accepted_sheets:
                 owner_path = owner.get(spec.sheet_field)
-                if not isinstance(owner_path, str) or not owner_path or shared.currency is None:
-                    continue
-                key = ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.owner))
-                if self._artifact_state(shared.currency, key, owner_path, issues) not in {"current", "stale"}:
+                if isinstance(owner_path, str) and owner_path:
+                    if shared.currency is None:
+                        continue
+                    key = ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.owner))
+                    owner_state = self._artifact_state(shared.currency, key, owner_path, issues)
+                else:
+                    owner_state = ArtifactStatus.MISSING.value
+                if owner_state == ArtifactStatus.MISSING.value:
+                    owner_description = owner.get("description")
+                    if not isinstance(owner_description, str) or not owner_description.strip():
+                        continue
+                    missing.append(asset.owner)
+                    accepted_sheets.add((asset.asset_type, asset.owner))
+                elif owner_state not in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                     continue
             missing.append(asset.name)
             accepted_sheets.add((asset.asset_type, asset.name))

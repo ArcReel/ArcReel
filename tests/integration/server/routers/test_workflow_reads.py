@@ -80,12 +80,11 @@ def test_single_episode_opens_metadata_and_script_once(tmp_path, monkeypatch, db
 class _Arrivals(RequestCoalescer):
     def __init__(self):
         super().__init__(asyncio.get_running_loop())
-        self.owner = asyncio.get_running_loop()
         self.keys = asyncio.Queue()
 
-    async def run(self, key, compute):
-        self.owner.call_soon_threadsafe(self.keys.put_nowait, key)
-        return await super().run(key, compute)
+    async def _run(self, key, compute):
+        self.keys.put_nowait(key)
+        return await super()._run(key, compute)
 
 
 async def test_mixed_hosts_share_two_rounds_and_independent_keys_progress(tmp_path, monkeypatch, db_factory):

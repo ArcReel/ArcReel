@@ -65,6 +65,10 @@ class RequestCoalescer:
                 if slots.get(key) is me:
                     del slots[key]
 
+    @property
+    def is_closed(self) -> bool:
+        return self._closed or (self._loop is not None and self._loop.is_closed())
+
     async def close(self) -> None:
         self._closed = True
         tasks = [*self._running.values(), *self._waiting.values()]

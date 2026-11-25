@@ -91,20 +91,28 @@ def _add_character_with_sheet(pm: ProjectManager, project_path: Path, name: str 
 
 
 def _episode_with_media(
-    pm: ProjectManager, project_path: Path, source_text: str = "完整原文", *, edit_timeline: bool = True
+    pm: ProjectManager,
+    project_path: Path,
+    source_text: str = "完整原文",
+    *,
+    edit_timeline: bool = True,
+    characters: list[str] | None = None,
 ) -> None:
     """把项目推到「一集脚本已生成、分镜与视频齐备」的状态；``edit_timeline`` 时再按脚本新建一条剪辑时间线。"""
 
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
     generated_assets = _complete_episode_media(project_path)
+    segment = _valid_narration_segment(generated_assets=generated_assets)
+    if characters is not None:
+        segment["characters_in_segment"] = characters
     _write_registered_script(
         project_path,
         {
             "episode": 1,
             "title": "第一集",
             "content_mode": "narration",
-            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+            "segments": [segment],
         },
     )
     _register_produced_artifacts(project_path)
@@ -337,7 +345,7 @@ def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tm
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
     sheet = _add_character_with_sheet(pm, project_path)
-    _episode_with_media(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text, characters=["小明"])
     service = WorkflowStateService(pm)
 
     before = service.get_project_summary("demo")
