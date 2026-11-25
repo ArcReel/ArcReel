@@ -226,6 +226,8 @@ ArcReel 会按用途选择生成模型：优先采用项目设置中的选择，
 
 高推理模型未必适合所有场景，建议将复杂的内容分析与常规的结构化转换分配给不同模型。
 
+使用 Anthropic Messages 端点生成文本时，若连续 180 秒未收到正文或思考增量，或整次生成已等待 900 秒，ArcReel 会停止本地等待。供应商仍可能完成请求并计费。结构化输出降级或截断导致任务失败时，使用记录会保留已取得的用量和对应参考费用。
+
 ## 8. TTS 配置 {#tts-providers}
 
 ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、MiniMax 语音、Gemini TTS（AI Studio、Vertex）、Grok TTS、火山方舟 Agent Plan 的豆包语音合成模型 2.0 或兼容的 TTS 接口。

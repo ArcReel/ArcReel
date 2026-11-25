@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Literal
 
 import httpx
+import pytest
 from pydantic import BaseModel
 
 from lib.backends.text_backends.base import ImageInput, TextGenerationRequest
@@ -196,3 +197,146 @@ async def test_pasted_endpoint_suffix_matches_displayed_address_with_and_without
 
     assert default_route.call_count == 1
     assert override_route.call_count == 1
+
+
+async def test_parseable_json_without_message_stop_is_not_replayed():
+    backend = create_custom_backend(provider=_provider(), model_id="claude-x", endpoint="anthropic-messages")
+    complete = _sse("{}", usage={"input_tokens": 10}, output_tokens=2)
+    partial = complete.content.split(b"event: message_stop")[0]
+    with capture_http() as router:
+        route = router.post(_MESSAGES_URL).mock(
+            return_value=httpx.Response(200, headers=complete.headers, content=partial)
+        )
+        with pytest.raises(RuntimeError, match="terminal"):
+            await backend.generate(TextGenerationRequest(prompt="test", response_schema={"type": "object"}))
+    assert route.call_count == 1
+
+
+@pytest.mark.parametrize("outcome", ["success", "truncated", "fallback_failed", "require_complete"])
+async def test_stream_settles_completed_requests(db_factory, caplog, outcome):
+    from sqlalchemy import select
+
+    from lib.backends.providers import CallPurpose
+    from lib.backends.text_backends.anthropic import AnthropicTextBackend
+    from lib.backends.text_backends.base import StructuredOutputExhaustedError, TextOutputTruncatedError
+    from lib.backends.text_generator import TextGenerator
+    from lib.billing.ledger import Ledger
+    from lib.db.models.api_call import ApiCall
+    from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
+
+    calls = []
+    progress = []
+    marker = "sensitive-model-output"
+
+    def replay(request):
+        calls.append(request)
+        assert request.extensions["timeout"]["connect"] == 15
+        text = (
+            marker if outcome == "fallback_failed" else '<think>hidden</think>```json\n{"score": 1,"label":"ok"}\n```'
+        )
+        return _sse(
+            text,
+            usage={"input_tokens": 100},
+            output_tokens=50,
+            stop_reason="max_tokens" if outcome in ("truncated", "require_complete") else "end_turn",
+        )
+
+    model = "gemini-3-flash-preview"
+    backend = AnthropicTextBackend(
+        api_key="secret-key-marker", model=model, transport_layer=lambda _: httpx.MockTransport(replay)
+    )
+    generator = TextGenerator(
+        backend, Ledger(session_factory=db_factory), "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION
+    )
+    request = TextGenerationRequest(
+        prompt="sensitive-request-marker",
+        response_schema=None if outcome == "require_complete" else _Verdict,
+        on_progress=progress.append,
+    )
+    with caplog.at_level("INFO"):
+        if outcome == "success":
+            result = await generator.generate(request, "demo")
+            assert _Verdict.model_validate_json(result.text).score == 1
+        else:
+            error = StructuredOutputExhaustedError if outcome == "fallback_failed" else TextOutputTruncatedError
+            with pytest.raises(error):
+                await generator.generate(request, "demo", require_complete=True)
+    assert all(s not in caplog.text for s in (marker, request.prompt, "secret-key-marker"))
+    assert [p.phase for p in progress][:2] == ["waiting", "receiving"]
+    count = 3 if outcome == "fallback_failed" else 1
+    assert len(calls) == count
+    async with db_factory() as session:
+        row = (await session.execute(select(ApiCall))).scalar_one()
+        assert row.status == ("success" if outcome == "success" else "failed")
+        assert (row.input_tokens, row.output_tokens) == (100 * count, 50 * count)
+        assert row.cost_amount == pytest.approx(0.0002 * count)
+        costs = await UsageRepository(session).get_actual_costs_by_segment("demo")
+        assert costs[PROJECT_LEVEL_SEGMENT_KEY]["text"]["USD"] == pytest.approx(0.0002 * count)
+
+
+async def test_missing_usage_and_thinking_events():
+    from lib.backends.text_backends.anthropic import AnthropicTextBackend
+
+    progress = []
+    response = _sse("{}", usage={}, output_tokens=1)
+    frames = []
+    for frame in response.text.strip().split("\n\n"):
+        name, raw = frame.split("\ndata: ")
+        event = json.loads(raw)
+        if event["type"] == "message_start":
+            del event["message"]["usage"]
+        if event["type"] == "message_delta":
+            del event["usage"]
+        if event["type"] == "content_block_start":
+            frames.extend(
+                f"event: {extra['type']}\ndata: {json.dumps(dict(extra, index=0))}"
+                for extra in (
+                    {
+                        "type": "content_block_start",
+                        "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+                    },
+                    {"type": "content_block_delta", "delta": {"type": "thinking_delta", "thinking": "thought"}},
+                    {"type": "content_block_stop"},
+                )
+            )
+        if "index" in event:
+            event["index"] = 1
+        frames.append(f"{name}\ndata: {json.dumps(event)}")
+
+    def replay(request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text="\n\n".join(frames) + "\n\n")
+
+    backend = AnthropicTextBackend(
+        api_key="fake", model="claude", transport_layer=lambda _: httpx.MockTransport(replay)
+    )
+    result = await backend.generate(
+        TextGenerationRequest(prompt="q", response_schema={"type": "object"}, on_progress=progress.append)
+    )
+    assert result.text == "{}"
+    assert result.request_tokens() == []
+    assert [(p.thinking, p.characters) for p in progress if p.phase == "receiving"] == [(True, 0), (False, 2)]
+
+
+@pytest.mark.parametrize("native", [False, True])
+async def test_model_capability_and_schema_rejection_select_prompt_fallback(native):
+    from lib.custom_provider.model_facts import text_capability_snapshot
+    from lib.video_runtime.text import AssembledTextBackend
+
+    backend = create_custom_backend(provider=_provider(), model_id="claude-x", endpoint="anthropic-messages")
+    snapshot = text_capability_snapshot("claude-x", {"structured_output": native}, entry=None, provider_id="custom-7")
+    with capture_http() as router:
+        responses = [_sse('{"score":1,"label":"ok"}', usage={"input_tokens": 10}, output_tokens=2)]
+        if native:
+            responses.insert(
+                0,
+                httpx.Response(
+                    400,
+                    json={"type": "error", "error": {"type": "invalid_request_error", "message": "unsupported schema"}},
+                ),
+            )
+        route = router.post(_MESSAGES_URL).mock(side_effect=responses)
+        result = await AssembledTextBackend(backend, snapshot).generate(
+            TextGenerationRequest(prompt="q", response_schema=_Verdict)
+        )
+    assert _Verdict.model_validate_json(result.text).score == 1
+    assert ["output_config" in request_json(c.request) for c in route.calls] == ([True, False] if native else [False])

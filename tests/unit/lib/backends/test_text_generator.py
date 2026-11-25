@@ -168,3 +168,22 @@ class TestOutputTokenCeiling:
         assert caught.value.model == "gemini-3-flash-preview"
         assert caught.value.output_tokens == 8192
         assert caught.value.custom_model is True
+
+
+async def test_cancellation_after_a_completed_request_settles_at_zero(wired):
+    import asyncio
+
+    from lib.billing.metering import RequestTokens
+
+    backend = _make_backend()
+
+    async def cancel_during_fallback(request):
+        request.on_usage(RequestTokens(input_tokens=100, output_tokens=50))
+        raise asyncio.CancelledError()
+
+    backend.generate.side_effect = cancel_during_fallback
+    generator = TextGenerator(backend, wired.ledger, "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION)
+    with pytest.raises(asyncio.CancelledError):
+        await generator.generate(TextGenerationRequest(prompt="q"), "demo")
+    (call,) = await wired.stored_calls("demo")
+    assert (call.status, call.cost_amount) == ("cancelled", 0.0)

@@ -245,6 +245,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
     "restart_lost_text": GenerationAction.RETRY,
+    "text_wait_timeout": GenerationAction.RETRY,
     "restart_lost_render": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,

@@ -582,7 +582,8 @@ class UsageRepository(BaseRepository):
             row=row,
             finished_at=finished_at,
             settlement=settlement,
-            auto_calc=status == CallStatus.SUCCESS,
+            auto_calc=status == CallStatus.SUCCESS
+            or (status == CallStatus.FAILED and row.call_type == "text" and bool(settlement.usage)),
             base_currency=row.currency or "USD",
         )
 
@@ -637,7 +638,7 @@ class UsageRepository(BaseRepository):
             )
             .where(
                 ApiCall.project_name == project_name,
-                ApiCall.status == CallStatus.SUCCESS,
+                ApiCall.status.in_((CallStatus.SUCCESS, CallStatus.FAILED)),
                 ApiCall.cost_amount > 0,
             )
             .group_by(ApiCall.segment_id, ApiCall.call_type, ApiCall.currency)

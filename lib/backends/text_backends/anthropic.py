@@ -7,18 +7,20 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+from collections.abc import AsyncGenerator
+from typing import Any
 
+import httpx
 from anthropic import (
-    APIConnectionError,
-    APITimeoutError,
     AsyncAnthropic,
     BadRequestError,
     DefaultAsyncHttpxClient,
-    InternalServerError,
-    RateLimitError,
+    UnprocessableEntityError,
     transform_schema,
 )
+from anthropic.lib.streaming._messages import accumulate_event
+from anthropic.types import MessageDeltaUsage, Usage
+from anthropic.types.parsed_message import ParsedMessage
 
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_ANTHROPIC
@@ -28,25 +30,11 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
-    merge_billed_usage,
-    prompt_json_fallback,
     resolve_schema,
-    structured_fallback_reason,
-    truncate_for_log,
 )
+from lib.backends.text_backends.streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
 from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_ANTHROPIC_BASE_URL
-from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
-
-logger = logging.getLogger(__name__)
-
-ANTHROPIC_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
-    APIConnectionError,
-    APITimeoutError,
-    InternalServerError,
-    RateLimitError,
-)
 
 
 class AnthropicTextBackend:
@@ -62,6 +50,7 @@ class AnthropicTextBackend:
             api_key=api_key,
             base_url=(base_url or "").strip() or OFFICIAL_ANTHROPIC_BASE_URL,
             max_retries=0,
+            timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT),
             http_client=(
                 layer_async_client(DefaultAsyncHttpxClient(), transport_layer) if transport_layer is not None else None
             ),
@@ -85,49 +74,12 @@ class AnthropicTextBackend:
         }
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
+        return await execute_stream(
+            request, self._stream, provider=self.name, protocol="anthropic_messages", model=self.model
+        )
 
-        本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成，复验与降级
-        不进重试范围，免得降级失败连带重放已成功的原生调用。
-        """
+    async def _stream(self, request: TextGenerationRequest) -> AsyncGenerator[TextDelta | TextGenerationResult]:
         content = await asyncio.to_thread(_build_user_content, request)
-        structured = bool(request.response_schema)
-        native = await self._generate_native(request, content, structured=structured)
-
-        if native is None:
-            return await self._prompt_json_fallback(request)
-
-        if request.response_schema:
-            fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
-            if fallback_reason:
-                logger.warning(
-                    "原生 output_config %s，降级到 prompt 注入路径；模型原始输出：%s",
-                    fallback_reason,
-                    truncate_for_log(native.text),
-                )
-                result = await self._prompt_json_fallback(request)
-                merge_billed_usage(result, native)
-                return result
-
-        return native
-
-    async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
-        async def _once(fb_request: TextGenerationRequest) -> TextGenerationResult:
-            content = await asyncio.to_thread(_build_user_content, fb_request)
-            result = await self._generate_native(fb_request, content, structured=True)
-            assert result is not None
-            return result
-
-        return await prompt_json_fallback(request, _once, provider=PROVIDER_ANTHROPIC, model=self._model)
-
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=ANTHROPIC_RETRYABLE_ERRORS)
-    async def _generate_native(
-        self, request: TextGenerationRequest, content: list[dict], *, structured: bool
-    ) -> TextGenerationResult | None:
-        """单次 Messages 调用：瞬态错误重试；output_config 被拒时返回 ``None`` 作为降级信号。
-
-        输出上限可达数万 token，非流式请求会被 SDK 以超时风险拒绝，固定走流式再取完整消息。
-        """
         kwargs: dict = {
             "model": self._model,
             "max_tokens": request.max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
@@ -135,47 +87,59 @@ class AnthropicTextBackend:
         }
         if request.system_prompt:
             kwargs["system"] = request.system_prompt
-        if request.response_schema:
-            kwargs["output_config"] = {
-                "format": {"type": "json_schema", "schema": transform_schema(resolve_schema(request.response_schema))}
-            }
+        if request.response_schema is not None:
+            schema = resolve_schema(request.response_schema)
+            try:
+                native_schema = transform_schema(schema)
+            except ValueError as exc:
+                raise NativeSchemaRejected() from exc
+            kwargs["output_config"] = {"format": {"type": "json_schema", "schema": native_schema}}
 
-        logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         try:
-            async with self._client.messages.stream(**kwargs) as stream:
-                message = await stream.get_final_message()
-        except BadRequestError as exc:
-            if request.response_schema:
-                logger.warning("原生 output_config 失败 (%s)，降级到 prompt 注入路径", exc)
-                return None
+            stream = await self._client.messages.create(**kwargs, stream=True)
+        except (BadRequestError, UnprocessableEntityError) as exc:
+            if request.response_schema is not None:
+                raise NativeSchemaRejected() from exc
             raise
 
-        usage = message.usage
-        cache_read = usage.cache_read_input_tokens or 0
-        cache_write = usage.cache_creation_input_tokens or 0
-        breakdown = usage.cache_creation
-        cache_write_1h = breakdown.ephemeral_1h_input_tokens if breakdown is not None else 0
-        cache_write_5m = breakdown.ephemeral_5m_input_tokens if breakdown is not None else cache_write
-        input_tokens = usage.input_tokens + cache_read + cache_write
-        text = "".join(block.text for block in message.content if block.type == "text").strip()
-        truncated = check_truncation(
-            message.stop_reason,
-            provider=PROVIDER_ANTHROPIC,
-            model=self._model,
-            output_tokens=usage.output_tokens,
-            structured=structured,
-        )
-        return TextGenerationResult(
-            text=text,
-            provider=PROVIDER_ANTHROPIC,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=usage.output_tokens,
-            truncated=truncated,
-            cache_read_tokens=cache_read,
-            cache_write_5m_tokens=cache_write_5m,
-            cache_write_1h_tokens=cache_write_1h,
-        )
+        snapshot: ParsedMessage[Any] | None = None
+        async with stream:
+            yield TextDelta("")
+            async for event in stream:
+                if event.type == "message_start" and getattr(event.message, "usage", None) is None:
+                    event.message.usage = Usage.model_construct()
+                if event.type == "message_delta" and getattr(event, "usage", None) is None:
+                    event.usage = MessageDeltaUsage.model_construct(output_tokens=None)
+                snapshot = accumulate_event(event=event, current_snapshot=snapshot)
+                if event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        yield TextDelta(event.delta.text)
+                    elif event.delta.type == "thinking_delta":
+                        yield TextDelta(event.delta.thinking, thinking=True)
+                elif event.type == "content_block_start" and event.content_block.type == "text":
+                    yield TextDelta(event.content_block.text)
+                elif event.type == "message_stop":
+                    usage = snapshot.usage
+                    output_tokens = getattr(usage, "output_tokens", None)
+                    reason = snapshot.stop_reason
+                    cache_read = getattr(usage, "cache_read_input_tokens", None)
+                    cache_write = getattr(usage, "cache_creation_input_tokens", None)
+                    breakdown = getattr(usage, "cache_creation", None)
+                    uncached = getattr(usage, "input_tokens", None)
+                    yield TextGenerationResult(
+                        text="".join(block.text for block in snapshot.content if block.type == "text").strip(),
+                        provider=self.name,
+                        model=self.model,
+                        input_tokens=None if uncached is None else uncached + (cache_read or 0) + (cache_write or 0),
+                        output_tokens=output_tokens,
+                        cache_read_tokens=cache_read,
+                        cache_write_5m_tokens=breakdown.ephemeral_5m_input_tokens if breakdown else cache_write,
+                        cache_write_1h_tokens=breakdown.ephemeral_1h_input_tokens if breakdown else None,
+                        truncated=check_truncation(
+                            reason, provider=self.name, model=self.model, output_tokens=output_tokens, structured=False
+                        ),
+                    )
+                    return
 
 
 def _build_user_content(request: TextGenerationRequest) -> list[dict]:

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.backends.http_status_errors import ProviderRejectedError
+from lib.backends.http_status_errors import ProviderRejectedError, TextWaitTimeout
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
@@ -550,6 +550,7 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
 @pytest.mark.parametrize(
     ("failure", "code", "action", "params"),
     [
+        (TextWaitTimeout(), "text_wait_timeout", GenerationAction.RETRY, {}),
         (
             PlanningOutputTruncatedError(
                 TextOutputTruncatedError(
