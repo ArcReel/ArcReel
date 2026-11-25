@@ -5,9 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from server.agent_runtime.event_log import EventLogStore
 from server.agent_runtime.service import AssistantService
+from server.agent_runtime.session_actor import SessionActor
+from server.agent_runtime.session_manager import ManagedSession
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.factories import make_session_meta
+from tests.fakes import FakeSDKClient
 
 
 class _FakePM:
@@ -638,6 +642,91 @@ class TestAssistantService:
             await service.delete_session("s1")
 
         assert "s1" in sm.sessions
+
+    @pytest.mark.asyncio
+    async def test_delete_session_waits_for_in_progress_eviction(self, tmp_path, db_factory, monkeypatch):
+        meta_store = SessionMetaStore(session_factory=db_factory)
+        event_log_store = EventLogStore(session_factory=db_factory)
+        meta = await meta_store.create("demo", "s1")
+        await event_log_store.append(meta.id, [{"type": "user", "message": {"role": "user", "content": "hi"}}])
+
+        service = AssistantService(project_root=tmp_path)
+        service.meta_store = meta_store
+        service.event_log_store = event_log_store
+        service.session_manager.meta_store = meta_store
+
+        client = FakeSDKClient()
+        actor = SessionActor(client_factory=lambda: client, on_message=lambda _: None)
+        await actor.start()
+        managed = ManagedSession(
+            session_id=meta.id,
+            resolved_sdk_id=meta.id,
+            actor=actor,
+            status="completed",
+            project_name="demo",
+        )
+        service.session_manager.sessions[meta.id] = managed
+
+        sdk_records = {meta.id}
+
+        async def delete_sdk_via_store(_store, session_id, directory=None):
+            sdk_records.discard(session_id)
+
+        def delete_sdk_direct(session_id):
+            sdk_records.discard(session_id)
+
+        monkeypatch.setattr("server.agent_runtime.service.delete_session_via_store", delete_sdk_via_store)
+        monkeypatch.setattr("server.agent_runtime.service.sdk_delete_session", delete_sdk_direct)
+
+        persisting = asyncio.Event()
+        release = asyncio.Event()
+        real_update_status = meta_store.update_status
+        status_write_hits: list[bool] = []
+
+        async def gated_update(session_id, status):
+            persisting.set()
+            await release.wait()
+            updated = await real_update_status(session_id, status)
+            status_write_hits.append(updated)
+            return updated
+
+        monkeypatch.setattr(meta_store, "update_status", gated_update)
+
+        eviction = asyncio.create_task(service.session_manager._evict_one(managed))
+        try:
+            await asyncio.wait_for(persisting.wait(), timeout=2)
+            waiting_for_eviction = asyncio.Event()
+            eviction_finished = service.session_manager._disconnecting[meta.id]
+            wait_for_eviction = eviction_finished.wait
+
+            async def observe_wait():
+                waiting_for_eviction.set()
+                return await wait_for_eviction()
+
+            monkeypatch.setattr(eviction_finished, "wait", observe_wait)
+            deletion = asyncio.create_task(service.delete_session(meta.id))
+            wait_observer = asyncio.create_task(waiting_for_eviction.wait())
+            try:
+                done, _ = await asyncio.wait({wait_observer, deletion}, timeout=2, return_when=asyncio.FIRST_COMPLETED)
+                assert wait_observer in done
+                assert not deletion.done()
+                assert meta.id in sdk_records
+                assert await meta_store.get(meta.id) is not None
+                assert await event_log_store.has_entries(meta.id) is True
+            finally:
+                wait_observer.cancel()
+                release.set()
+                await asyncio.wait_for(deletion, timeout=2)
+        finally:
+            release.set()
+            await asyncio.wait_for(eviction, timeout=2)
+
+        assert deletion.result() is True
+        assert status_write_hits == [True]
+        assert meta.id not in service.session_manager.sessions
+        assert meta.id not in sdk_records
+        assert await meta_store.get(meta.id) is None
+        assert await event_log_store.has_entries(meta.id) is False
 
     def test_status_event_helpers(self, tmp_path):
         service = AssistantService(project_root=tmp_path)

@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import (
     ManagedSession,
@@ -52,51 +51,58 @@ async def _start(managed: ManagedSession) -> ManagedSession:
 
 
 class TestCloseSession:
-    async def test_delete_waits_for_eviction_status_write(self, tmp_path, monkeypatch):
-        service = AssistantService(project_root=tmp_path)
-        managed, _ = _make_managed("s1", status="completed")
-        managed.resolved_sdk_id = "s1"
+    async def test_close_waits_for_in_progress_eviction(self, tmp_path, db_factory, monkeypatch):
+        meta_store = SessionMetaStore(session_factory=db_factory)
+        meta = await meta_store.create("demo", "s1")
+        mgr = SessionManager(project_root=tmp_path, meta_store=meta_store)
+        managed, client = _make_managed(meta.id, status="completed")
+        managed.resolved_sdk_id = meta.id
         await _start(managed)
-        service.session_manager.sessions["s1"] = managed
-        writing = asyncio.Event()
+        mgr.sessions[meta.id] = managed
+
+        persisting = asyncio.Event()
         release = asyncio.Event()
-        deleting = asyncio.Event()
-        calls = []
+        real_update_status = meta_store.update_status
 
-        async def write_status(session_id, status):
-            writing.set()
+        async def gated_update(session_id, status):
+            persisting.set()
             await release.wait()
-            calls.append("status")
+            return await real_update_status(session_id, status)
 
-        async def delete_sdk(*args, **kwargs):
-            calls.append("sdk")
+        monkeypatch.setattr(meta_store, "update_status", gated_update)
 
-        async def delete_meta(session_id):
-            calls.append("meta")
-            return True
-
-        async def delete():
-            deleting.set()
-            return await service.delete_session("s1")
-
-        monkeypatch.setattr(service.meta_store, "update_status", write_status)
-        monkeypatch.setattr(service.meta_store, "get", AsyncMock(return_value=None))
-        monkeypatch.setattr(service.meta_store, "delete", delete_meta)
-        monkeypatch.setattr(service.event_log_store, "delete_session", AsyncMock())
-        monkeypatch.setattr(service, "_session_store", object())
-        monkeypatch.setattr("server.agent_runtime.service.delete_session_via_store", delete_sdk)
-        eviction = asyncio.create_task(service.session_manager.close_session("s1"))
-        await asyncio.wait_for(writing.wait(), timeout=2)
-        deletion = asyncio.create_task(delete())
+        eviction = asyncio.create_task(mgr._evict_one(managed))
         try:
-            await asyncio.wait_for(deleting.wait(), timeout=2)
-            assert calls == []
+            await asyncio.wait_for(persisting.wait(), timeout=2)
+            waiting_for_eviction = asyncio.Event()
+            eviction_finished = mgr._disconnecting[meta.id]
+            wait_for_eviction = eviction_finished.wait
+
+            async def observe_wait():
+                waiting_for_eviction.set()
+                return await wait_for_eviction()
+
+            monkeypatch.setattr(eviction_finished, "wait", observe_wait)
+            closer = asyncio.create_task(mgr.close_session(meta.id, reason="session deleted"))
+            wait_observer = asyncio.create_task(waiting_for_eviction.wait())
+            try:
+                done, _ = await asyncio.wait({wait_observer, closer}, timeout=2, return_when=asyncio.FIRST_COMPLETED)
+                assert wait_observer in done
+                assert not closer.done()
+                assert meta.id in mgr.sessions
+            finally:
+                wait_observer.cancel()
+                release.set()
+                await asyncio.wait_for(closer, timeout=2)
         finally:
             release.set()
-            await asyncio.wait_for(asyncio.gather(eviction, deletion), timeout=2)
+            await asyncio.wait_for(eviction, timeout=2)
 
-        assert deletion.result() is True
-        assert calls == ["status", "sdk", "meta"]
+        assert meta.id not in mgr.sessions
+        assert client.disconnected is True
+        persisted = await meta_store.get(meta.id)
+        assert persisted is not None
+        assert persisted.status == "completed"
 
     async def test_close_removes_session_and_lock(self, tmp_path):
         mgr = _make_manager(tmp_path)
