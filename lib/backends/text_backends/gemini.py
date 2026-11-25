@@ -214,12 +214,18 @@ class GeminiTextBackend:
             async def track_response(response: httpx.Response) -> None:
                 stack.push_async_callback(response.aclose)
 
-            http = layer_async_client(
-                httpx.AsyncClient(
-                    follow_redirects=True, event_hooks={"request": [configure_timeout], "response": [track_response]}
-                ),
-                self._transport_layer,
-            )
+            def build_http() -> httpx.AsyncClient:
+                http = layer_async_client(
+                    httpx.AsyncClient(
+                        follow_redirects=True,
+                        event_hooks={"request": [configure_timeout], "response": [track_response]},
+                    ),
+                    self._transport_layer,
+                )
+                stack.push_async_callback(http.aclose)
+                return http
+
+            http = await run_sync_transaction(build_http)
             await stack.enter_async_context(http)
             options = types.HttpOptions(
                 base_url=self._base_url or None,
@@ -276,6 +282,7 @@ class GeminiTextBackend:
                                 provider=self.name,
                                 model=self.model,
                                 structured=False,
+                                truncation_values=("MAX_TOKENS", "CONTINUATION"),
                                 output_tokens=tokens.output_tokens,
                             ),
                             **asdict(tokens),

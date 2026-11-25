@@ -1,19 +1,21 @@
 """Replay gRPC frames through the xAI SDK's cumulative Response and incremental Chunk."""
 
 import asyncio
+import inspect
 import json
 from unittest.mock import AsyncMock, MagicMock
 
 import grpc
+import httpx
 import pytest
 from xai_sdk.proto import chat_pb2, chat_pb2_grpc, sample_pb2, usage_pb2
 
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.text_backends.base import RequestTokens, TextGenerationRequest, TextOutputTruncatedError
 from lib.backends.text_backends.grok import GrokTextBackend
-from lib.backends.text_backends.streaming import TextWaitTimeout
+from tests.fakes import bounded_poll_clock
 from tests.unit.lib.backends.text_backends.response_schema_support import (
-    leaked_class_docstrings,
+    class_docstring_texts,
     response_schema_params,
 )
 
@@ -49,7 +51,7 @@ def replay(monkeypatch, channel):
     stub = MagicMock()
     monkeypatch.setattr(chat_pb2_grpc, "ChatStub", lambda channel: stub)
 
-    def setup(*streams):
+    def setup(*streams, **backend_kwargs):
         replies = iter(streams)
 
         async def stream(request):
@@ -59,7 +61,7 @@ def replay(monkeypatch, channel):
                 yield frame
 
         stub.GetCompletionChunk.side_effect = stream
-        return GrokTextBackend(api_key="test"), stub.GetCompletionChunk
+        return GrokTextBackend(api_key="test", **backend_kwargs), stub.GetCompletionChunk
 
     return setup
 
@@ -88,12 +90,14 @@ async def test_chunk_progress_and_terminal_usage(replay, channel):
 
 
 @pytest.mark.parametrize("finish", ["REASON_MAX_LEN", "REASON_MAX_CONTEXT"])
-async def test_truncation(replay, finish):
+async def test_truncation(replay, finish, caplog):
     frames = [_frame("partial", finish=finish, usage=_USAGE)]
     backend, rpc = replay(frames, frames)
-    result = await backend.generate(TextGenerationRequest(prompt="hi"))
+    with caplog.at_level("WARNING", logger="lib.backends.text_backends.base"):
+        result = await backend.generate(TextGenerationRequest(prompt="hi"))
     assert result.truncated
     assert result.text == "partial"
+    assert any(finish in record.message for record in caplog.records)
     billed = []
     with pytest.raises(TextOutputTruncatedError):
         await backend.generate(TextGenerationRequest(prompt="hi", response_schema={}, on_usage=billed.append))
@@ -144,13 +148,33 @@ async def test_pydantic_schema_omits_docstrings(replay, model):
     backend, rpc = replay([_frame("partial", finish="REASON_MAX_LEN")])
     with pytest.raises(TextOutputTruncatedError):
         await backend.generate(TextGenerationRequest(prompt="hi", response_schema=model))
-    assert not leaked_class_docstrings(model, rpc.call_args.args[0].response_format.schema)
+    wire_json = rpc.call_args.args[0].response_format.schema
+    first_lines = (inspect.cleandoc(text).splitlines()[0] for text in class_docstring_texts(model))
+    assert not [line for line in first_lines if json.dumps(line, ensure_ascii=False)[1:-1] in wire_json]
 
 
-async def test_connection_deadline_precedes_rpc(replay, channel, monkeypatch):
-    backend, rpc = replay()
-    monkeypatch.setattr("lib.backends.text_backends.grok.CONNECT_TIMEOUT", 0)
+async def test_connection_deadline_retries_before_rpc(replay, channel):
+    backend, rpc = replay(connect_timeout=0)
     channel.return_value.channel_ready.side_effect = asyncio.Event().wait
-    with pytest.raises(TextWaitTimeout):
+    with bounded_poll_clock(step=0.1), pytest.raises(httpx.ConnectTimeout):
         await backend.generate(TextGenerationRequest(prompt="hi"))
+    assert channel.return_value.channel_ready.await_count == 3
     rpc.assert_not_called()
+
+
+async def test_connection_deadline_recovers_on_retry(replay, channel):
+    backend, rpc = replay([_frame("ok", finish="REASON_STOP", usage=_USAGE)], connect_timeout=0)
+    attempts = 0
+
+    async def ready():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            await asyncio.Event().wait()
+
+    channel.return_value.channel_ready.side_effect = ready
+    with bounded_poll_clock(step=0.1):
+        result = await backend.generate(TextGenerationRequest(prompt="hi"))
+    assert attempts == 2
+    assert rpc.call_count == 1
+    assert result.text == "ok"

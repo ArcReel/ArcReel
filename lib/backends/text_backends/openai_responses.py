@@ -22,6 +22,7 @@ from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    check_truncation,
     resolve_schema,
 )
 from lib.backends.text_backends.openai import DEFAULT_MODEL
@@ -42,7 +43,11 @@ class OpenAIResponsesTextBackend:
         provider_name: str = PROVIDER_OPENAI,
     ):
         self._client = create_openai_client(
-            api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
+            api_key=api_key,
+            base_url=base_url,
+            max_retries=0,
+            transport_layer=transport_layer,
+            timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT),
         )
         self._model = model or DEFAULT_MODEL
         self._provider_name = provider_name
@@ -86,14 +91,12 @@ class OpenAIResponsesTextBackend:
             }
 
         try:
-            stream = await self._client.responses.create(
-                **kwargs, stream=True, timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT)
-            )
+            stream = await self._client.responses.create(**kwargs, stream=True)
         except (BadRequestError, UnprocessableEntityError) as exc:
             if request.response_schema is not None and (
                 exc.code == "invalid_json_schema"
                 or (exc.param or "").startswith(("text.format", "response_format"))
-                or any(field in exc.message.lower() for field in ("text.format", "response_format", "json_schema"))
+                or (not exc.code and not exc.param)
             ):
                 raise NativeSchemaRejected() from exc
             raise
@@ -131,8 +134,12 @@ class OpenAIResponsesTextBackend:
                             pending = tokens
                         if event.type != f"response.{response.status}" or response.status == "failed":
                             raise RuntimeError("Responses generation failed")
-                        truncated = response.status == "incomplete"
-                        if truncated and getattr(response.incomplete_details, "reason", None) != "max_output_tokens":
+                        reason = (
+                            getattr(response.incomplete_details, "reason", None)
+                            if response.status == "incomplete"
+                            else None
+                        )
+                        if response.status == "incomplete" and reason != "max_output_tokens":
                             raise RuntimeError("Responses generation incomplete")
                         if refused or any(
                             part.type == "refusal"
@@ -141,6 +148,14 @@ class OpenAIResponsesTextBackend:
                             for part in item.content
                         ):
                             raise RuntimeError("Responses generation refused")
+                        truncated = check_truncation(
+                            reason,
+                            provider=self.name,
+                            model=self.model,
+                            output_tokens=tokens.output_tokens,
+                            structured=False,
+                            truncation_values=("max_output_tokens",),
+                        )
                         result = TextGenerationResult(
                             text="".join(parts) if parts else response.output_text,
                             provider=self.name,

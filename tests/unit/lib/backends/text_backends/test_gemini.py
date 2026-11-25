@@ -70,7 +70,8 @@ BILL = RequestTokens(input_tokens=100, cache_read_tokens=70, output_tokens=8)
 
 
 @pytest.mark.parametrize(
-    ("finish", "usage"), [("STOP", TOKENS), ("STOP", None), ("MAX_TOKENS", TOKENS), (None, TOKENS)]
+    ("finish", "usage"),
+    [("STOP", TOKENS), ("STOP", None), ("MAX_TOKENS", TOKENS), ("CONTINUATION", TOKENS), (None, TOKENS)],
 )
 async def test_stream_outcome(channel, finish, usage):
     backend, layer = channel
@@ -86,7 +87,7 @@ async def test_stream_outcome(channel, finish, usage):
     )
     with capture_http() as router, bounded_poll_clock(step=45):
         route = router.post(path__regex=":streamGenerateContent$").mock(return_value=_sse(*frames))
-        if finish == "MAX_TOKENS":
+        if finish in {"MAX_TOKENS", "CONTINUATION"}:
             with pytest.raises(TextOutputTruncatedError):
                 await backend.generate(request)
         elif finish is None:

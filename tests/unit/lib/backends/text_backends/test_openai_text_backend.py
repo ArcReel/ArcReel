@@ -125,21 +125,31 @@ async def test_structured_partial_output_records_known_usage(finish):
     assert route.call_count == 1
 
 
-async def test_gateway_rejects_usage_option():
+@pytest.mark.parametrize(
+    ("error_body", "response_schema", "expected_text"),
+    [
+        ({"error": {"param": "stream_options", "code": "unsupported_parameter"}}, None, "ok"),
+        ({"error": {"message": "Unknown parameter: stream_options"}}, None, "ok"),
+        ({"error": {"message": "Unknown parameter: stream_options"}}, {"type": "object"}, "{}"),
+    ],
+)
+async def test_gateway_rejects_usage_option(error_body, response_schema, expected_text):
     with capture_http() as router:
         route = router.post(URL).mock(
             side_effect=[
-                httpx.Response(400, json={"error": {"param": "stream_options", "code": "unsupported_parameter"}}),
-                sse(frame({"content": "ok"}, "stop")),
+                httpx.Response(400, json=error_body),
+                sse(frame({"content": expected_text}, "stop")),
             ]
         )
-        result = await OpenAITextBackend(api_key="k").generate(TextGenerationRequest("q"))
+        result = await OpenAITextBackend(api_key="k").generate(
+            TextGenerationRequest("q", response_schema=response_schema)
+        )
     first, second = [request_json(call.request) for call in route.calls]
     assert first.pop("stream_options") == {"include_usage": True}
     assert first == second
     assert "max_tokens" not in second
     assert "max_completion_tokens" not in second
-    assert result.text == "ok"
+    assert result.text == expected_text
     assert result.request_tokens() == []
 
 
