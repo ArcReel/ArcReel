@@ -48,7 +48,11 @@ from lib.artifacts.generation_input import (
     storyboard_image_input,
 )
 from lib.artifacts.input_gap import GAP_TOLERANT_BASIS_SCHEMA_VERSION, InputGap, project_basis_records_gaps
-from lib.artifacts.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
+from lib.artifacts.media_artifact_currency import (
+    CURRENT_AUDIO_RULES,
+    AudioBasisRules,
+    build_current_video_artifact_basis,
+)
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
@@ -274,6 +278,7 @@ class TargetStatePlanner:
         allow_stale_formal_targets: bool = False,
         pending_renames: Mapping[str, str] | None = None,
         pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
+        audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
         shared_versions: SharedVersionMetadata | None = None,
         manifest_snapshot: ArtifactManifestSnapshot | None = None,
@@ -284,6 +289,7 @@ class TargetStatePlanner:
         self.project_path = self.project_dir / "project.json"
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
+        self.audio_rules = audio_rules
         self.legacy_audio_entries = legacy_audio_entries
         self.manifest_snapshot = manifest_snapshot
         self.shared_observations = shared_observations
@@ -1149,7 +1155,7 @@ class TargetStatePlanner:
             self.entries[key] = self._media_entry(artifact_path, basis.digest, uploaded)
             return
         try:
-            target = parse_typed_media_version_target(resource_type, record)
+            target = parse_typed_media_version_target(resource_type, record, read_audio=self.audio_rules.read)
         except (TypeError, ValueError):
             self._skip(
                 key,
@@ -1176,7 +1182,7 @@ class TargetStatePlanner:
                 return
         try:
             if resource_type == "audio":
-                current_basis = build_current_audio_artifact_basis(
+                current_basis = self.audio_rules.project(
                     project=self.project,
                     item=item,
                     skeleton_kind=episode.kind,
@@ -1190,6 +1196,7 @@ class TargetStatePlanner:
                     resource_type=resource_type,
                     resource_id=resource_id,
                     version_metadata=record,
+                    audio_rules=self.audio_rules,
                     legacy_audio_entries=self._legacy_audio_entries(),
                 )
         except (KeyError, OSError, TypeError, ValueError):
@@ -1752,7 +1759,7 @@ class TargetStatePlanner:
                     uploaded_video_version_basis(record, snapshot_digest=unprefixed(content_digest))
                 )
             else:
-                target = parse_typed_media_version_target(resource_type, record)
+                target = parse_typed_media_version_target(resource_type, record, read_audio=self.audio_rules.read)
                 if (
                     target.episode != episode.episode
                     or normalize_script_binding(target.script_file) != episode.script_file
@@ -2012,6 +2019,7 @@ class TargetStatePlanner:
 def plan_artifact_target_state(
     project_dir: Path,
     *,
+    audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
     pending_renames: Mapping[str, str] | None = None,
 ) -> ArtifactTargetStatePlan:
     """Perform the complete read-only activation preflight.
@@ -2021,7 +2029,7 @@ def plan_artifact_target_state(
     里的依赖路径与产物路径因此都是提交时刻的事实，激活的稳定性闸门可直接复用。
     """
 
-    return TargetStatePlanner(project_dir, pending_renames=pending_renames).plan()
+    return TargetStatePlanner(project_dir, audio_rules=audio_rules, pending_renames=pending_renames).plan()
 
 
 def plan_artifact_target_state_by_gap_rule(
@@ -2029,6 +2037,7 @@ def plan_artifact_target_state_by_gap_rule(
     project: Mapping[str, Any],
     *,
     record_gaps: bool,
+    audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
 ) -> ArtifactTargetStatePlan:
     """按指定的缺口口径规划一次完整目标态，不必先落盘。
 
@@ -2039,7 +2048,7 @@ def plan_artifact_target_state_by_gap_rule(
 
     schema_version = GAP_TOLERANT_BASIS_SCHEMA_VERSION - (0 if record_gaps else 1)
     project_bytes = json.dumps({**project, "schema_version": schema_version}, ensure_ascii=False).encode("utf-8")
-    return TargetStatePlanner(project_dir, project_bytes=project_bytes).plan()
+    return TargetStatePlanner(project_dir, audio_rules=audio_rules, project_bytes=project_bytes).plan()
 
 
 def gap_backfill_entries(

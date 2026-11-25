@@ -44,6 +44,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD, parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.project.project_migration_report import ArtifactBackfillOutcome, MigrationSkippedArtifact
@@ -107,7 +108,9 @@ def _plan(project_dir: Path, project: Mapping[str, Any], *, allow_stale: bool) -
     目标来裁决，放行过期目标不会让本就过期的条目混进来。
     """
     project_bytes = json.dumps(project, ensure_ascii=False).encode("utf-8")
-    planner = TargetStatePlanner(project_dir, project_bytes=project_bytes, allow_stale_formal_targets=allow_stale)
+    planner = TargetStatePlanner(
+        project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=project_bytes, allow_stale_formal_targets=allow_stale
+    )
     plan = planner.plan()
     return _Planned(plan=plan, bases=dict(planner.bases))
 

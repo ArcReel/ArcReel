@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
@@ -1968,7 +1969,17 @@ def write_legacy_quarantine_project(root: Path) -> Path:
     return project_dir
 
 
+def _write_released_tts_project(root: Path, *, shape: str) -> Path:
+    """v15 音频和转场沿用 v0.31.0，字幕采用现行计时规则。v20 快照由 v0.37.0 渲染。"""
+    project_dir = root / shape
+    with zipfile.ZipFile(Path(__file__).parent / "fixtures" / f"{shape}.zip") as snapshot:
+        snapshot.extractall(project_dir)
+    return project_dir
+
+
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
+    "v15-tts": partial(_write_released_tts_project, shape="v15-tts"),
+    "v20-tts-exports": partial(_write_released_tts_project, shape="v20-tts-exports"),
     "storyboard": write_legacy_storyboard_project,
     "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),
     "borrowed-sheet": partial(_write_shared_asset_project, modify=share_asset_sheets),

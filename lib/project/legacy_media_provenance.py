@@ -28,7 +28,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
-from lib.artifacts.media_artifact_currency import VideoExecutionShape, project_video_basis_components
+from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES, VideoExecutionShape, project_video_basis_components
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json_digest
@@ -187,7 +187,7 @@ def _selected_record(versions_data: dict[str, Any], resource_type: str, resource
 
 def _is_typed(resource_type: str, record: Mapping[str, Any]) -> bool:
     try:
-        parse_typed_media_version_target(resource_type, record)
+        parse_typed_media_version_target(resource_type, record, read_audio=V1_AUDIO_RULES.read)
     except (TypeError, ValueError):
         return False
     return True

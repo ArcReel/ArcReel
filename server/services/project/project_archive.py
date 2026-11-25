@@ -26,6 +26,7 @@ from lib.artifacts.artifact_activation import (
     snapshot_preserved_artifact_manifest,
     stage_preserved_artifact_claims,
     take_migrated_artifact_claims,
+    verified_legacy_json_claims,
 )
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
@@ -751,6 +752,19 @@ class ProjectArchiveService:
                         staging_dir,
                     )
 
+                    try:
+                        preserved_manifest = (
+                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
+                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
+                            else None
+                        )
+                        verified_json = (
+                            verified_legacy_json_claims(staging_dir, preserved_manifest)
+                            if preserved_manifest is not None
+                            else frozenset()
+                        )
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        self._raise_artifact_activation_validation_error(ArchiveDiagnostics(), exc)
                     self._confine_version_history(staging_dir)
                     diagnostics = self._repair_project_tree(staging_dir)
                     encoding_summary = migrate_project_source_encoding(staging_dir)
@@ -761,11 +775,6 @@ class ProjectArchiveService:
                             ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
                     try:
-                        preserved_manifest = (
-                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
-                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
-                            else None
-                        )
                         staged = preserved_manifest is not None and stage_preserved_artifact_claims(
                             staging_dir, preserved_manifest
                         )
@@ -775,12 +784,14 @@ class ProjectArchiveService:
                         migrate_project_dir(staging_dir, bare_provider_models=self._bare_provider_models)
                     except Exception as exc:
                         self._raise_migration_validation_error(diagnostics, exc)
+                    self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     if preserved_manifest is not None and staged:
                         try:
-                            preserved_manifest = take_migrated_artifact_claims(staging_dir, preserved_manifest)
+                            preserved_manifest = take_migrated_artifact_claims(
+                                staging_dir, preserved_manifest, verified_json=verified_json
+                            )
                         except _ARTIFACT_ACTIVATION_ERRORS as exc:
                             self._raise_artifact_activation_validation_error(diagnostics, exc)
-                    self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
