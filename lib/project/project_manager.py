@@ -2854,19 +2854,19 @@ class ProjectManager:
         """
         drafts_root = self.get_project_path(project_name) / "drafts"
 
-        def plan_files() -> list[Path]:
+        def current_drafts() -> list[Path]:
             return sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
 
         while True:
             with ExitStack() as stack:
-                draft_files = plan_files()
+                draft_files = current_drafts()
                 for path in draft_files:
                     stack.enter_context(self.file_lock(path))
                 script_files = self._canonical_episode_scripts(project_name)
                 for filename in script_files:
                     stack.enter_context(self._script_lock(project_name, filename))
                 stack.enter_context(self._project_lock(project_name))
-                if draft_files == plan_files() and script_files == self._canonical_episode_scripts(project_name):
+                if draft_files == current_drafts() and script_files == self._canonical_episode_scripts(project_name):
                     yield script_files, draft_files
                     return
 
@@ -3187,7 +3187,7 @@ class ProjectManager:
     ) -> dict:
         """衍生改名的级联事务：本体条目内的衍生表 key，加上全部剧本 / 草稿里的 ``本体名/旧衍生名``。
 
-        与 :meth:`rename_asset` 同一把锁序（剧本 → 草稿 → 项目）与同一套引用改写
+        与 :meth:`rename_asset` 同一把锁序（规划文件 → 剧本 → 项目）与同一套引用改写
         （``rewrite_payload_references``，旧名传 ``本体名/旧衍生名``）：衍生共享本体的名字与
         身份，引用形态只多一段（见 ``docs/adr/0072``），没有理由让它走另一条改写口径。
         返回改名后的本体条目。
