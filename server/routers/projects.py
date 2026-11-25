@@ -698,6 +698,8 @@ async def create_project(
             return {"success": True, "name": project_name, "project": project}
 
         return await run_sync_transaction(_sync)
+    except ModelNotInCatalogError:
+        raise
     except ValueError as e:
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
@@ -1071,7 +1073,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
         return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    except (HTTPException, ApiError):
+    except (HTTPException, ApiError, ModelNotInCatalogError):
         raise
     except Exception as exc:
         logger.exception("请求处理失败")

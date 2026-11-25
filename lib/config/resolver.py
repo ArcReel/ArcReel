@@ -37,6 +37,7 @@ from lib.speech.character_voice import CharacterVoiceBinding
 from lib.speech.narration_config import (
     TTS_GROUP_FIELDS,
     USE_TTS,
+    NarrationConfigError,
     TtsSynthesisSettings,
     project_narration_delivery,
     require_project_tts_generation,
@@ -688,24 +689,42 @@ class ConfigResolver:
             return await svc.get_default_text_backend()
 
     async def audio_model_profile(self, provider: str, model: str) -> AudioProfile:
-        from lib.config.tts import model_profile
+        from lib.config.tts import builtin_audio_profile, model_profile
 
+        if not is_custom_provider(provider):
+            return builtin_audio_profile(provider, model)
         async with self._open_session() as (session, _):
             return await model_profile(session, provider, model)
 
-    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
+    async def resolve_tts_synthesis_settings(
+        self, project: dict, *, validate_profile: bool = True
+    ) -> TtsSynthesisSettings:
         if project_narration_delivery(project) != USE_TTS or any(key in project for key in TTS_GROUP_FIELDS):
-            return require_project_tts_generation(project)
-        async with self._open_session() as (_, svc):
-            saved = await svc.get_all_settings()
-        return require_project_tts_generation(
-            {
-                "narration_delivery": USE_TTS,
-                "audio_backend": saved.get("default_audio_backend"),
-                "narration_voice": saved.get("narration_voice"),
-                "narration_speed": saved.get("narration_speed") or None,
-            }
-        )
+            settings = require_project_tts_generation(project)
+        else:
+            async with self._open_session() as (session, svc):
+                saved = await svc.get_all_settings()
+                backend = (saved.get("default_audio_backend") or "").strip()
+                if not backend:
+                    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+                    repo = CustomProviderRepository(session)
+                    for row in await repo.list_enabled_models_by_media_type("audio"):
+                        if row.is_default and await repo.get_provider(row.provider_id) is not None:
+                            raise NarrationConfigError("narration_tts_voice_required")
+                    raise NarrationConfigError("narration_tts_model_required")
+                settings = require_project_tts_generation(
+                    {
+                        "narration_delivery": USE_TTS,
+                        "audio_backend": backend,
+                        "narration_voice": saved.get("narration_voice"),
+                        "narration_speed": saved.get("narration_speed") or None,
+                    }
+                )
+        if validate_profile:
+            profile = await self.audio_model_profile(settings.provider_id, settings.model_id)
+            profile.validate(settings.voice, settings.speed)
+        return settings
 
     async def narration_defaults(self) -> tuple[str, float | None]:
         """返回全局默认旁白音色与配音语速。"""

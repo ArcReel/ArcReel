@@ -70,17 +70,20 @@ def apply_project_tts_patch(
     if not any(k in patch for k in TTS_GROUP_FIELDS):
         return
     previous = project.get(TTS_BACKEND_FIELD)
-    backend = patch.get(TTS_BACKEND_FIELD, previous)
+    raw_backend = patch.get(TTS_BACKEND_FIELD, previous)
+    if raw_backend is not None and not isinstance(raw_backend, str):
+        raise NarrationConfigError("narration_tts_model_invalid")
+    backend = (raw_backend or "").strip()
     if not backend:
         if TTS_BACKEND_FIELD not in patch:
             raise NarrationConfigError("narration_tts_model_required")
-        if patch.get(TTS_VOICE_FIELD) or patch.get(TTS_SPEED_FIELD) is not None:
+        raw_voice = patch.get(TTS_VOICE_FIELD)
+        has_voice = bool(raw_voice.strip()) if isinstance(raw_voice, str) else raw_voice is not None
+        if has_voice or patch.get(TTS_SPEED_FIELD) is not None:
             raise NarrationConfigError("narration_tts_clear_conflict")
         for key in TTS_GROUP_FIELDS:
             project.pop(key, None)
         return
-    if not isinstance(backend, str):
-        raise NarrationConfigError("narration_tts_model_invalid")
     normalized = validate_tts_backend(backend)
     provider, model = normalized.split("/", 1)
     profile = profile_for(provider, model)

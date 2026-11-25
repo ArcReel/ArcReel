@@ -16,6 +16,7 @@ from lib.artifacts.artifact_planner import TargetStatePlanner
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.project.project_migrations.backups import ensure_versioned_backup
 from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES, read_v1_audio_target
+from lib.project.project_trash import trash_dir
 from lib.speech.narration_config import TTS_GROUP_FIELDS, project_tts_settings
 from lib.speech.narration_delivery import build_narration_audio_basis_from_canonical_text
 from lib.speech.speech_presentation import materialize_speech_presentation
@@ -27,6 +28,36 @@ _KINDS = {
     ArtifactKind.EPISODE_FINAL_CUT,
     ArtifactKind.EPISODE_JIANYING_DRAFT,
 }
+
+
+def _upgrade_audio_metadata(metadata: dict, prompt: Any) -> tuple[str, ArtifactBasisDescriptor] | None:
+    try:
+        old = read_v1_audio_target({**metadata, "prompt": prompt})
+    except (TypeError, ValueError):
+        return None
+    new = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis_from_canonical_text(prompt))
+    metadata.update(artifact_audio_basis=new.to_dict(), tts_basis_digest=new.digest, tts_speed=old.settings.speed)
+    return old.basis.digest, new
+
+
+def _upgrade_deleted_audio_versions(root: Path) -> None:
+    trash = trash_dir(root)
+    if trash.parent.is_symlink() or trash.is_symlink():
+        raise ValueError("项目回收站路径不能是符号链接")
+    for path in trash.glob("*/record.json"):
+        if path.parent.is_symlink() or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            record = json.loads(path.read_bytes())
+        except ValueError:
+            continue
+        obj = record.get("object") if isinstance(record, dict) else None
+        if not isinstance(obj, dict) or obj.get("kind") != "version" or obj.get("resource_type") != "audio":
+            continue
+        metadata = obj.get("metadata")
+        if isinstance(metadata, dict) and _upgrade_audio_metadata(metadata, obj.get("prompt")) is not None:
+            ensure_versioned_backup(path, 20)
+            atomic_write_json(path, record)
 
 
 def _upgrade_records(history: dict) -> dict[str, ArtifactBasisDescriptor]:
@@ -41,13 +72,9 @@ def _upgrade_records(history: dict) -> dict[str, ArtifactBasisDescriptor]:
         for record in records:
             if not isinstance(record, dict):
                 continue
-            try:
-                old = read_v1_audio_target(record)
-            except (TypeError, ValueError):
-                continue
-            new = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis_from_canonical_text(record["prompt"]))
-            rewritten[old.basis.digest] = new
-            record.update(artifact_audio_basis=new.to_dict(), tts_basis_digest=new.digest, tts_speed=old.settings.speed)
+            if upgraded := _upgrade_audio_metadata(record, record.get("prompt")):
+                old_digest, new = upgraded
+                rewritten[old_digest] = new
     return rewritten
 
 
@@ -103,6 +130,7 @@ def upgrade_audio_delivery(root: Path, project: dict[str, Any]) -> None:
     root = root.resolve()
     source = root / "versions/versions.json"
     _restore_preflight_inputs(root)
+    _upgrade_deleted_audio_versions(root)
     if source.is_file() and source.resolve() == source:
         history = json.loads(source.read_bytes())
         rewritten = _upgrade_records(history)

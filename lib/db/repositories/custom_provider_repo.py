@@ -188,12 +188,16 @@ class CustomProviderRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return list(result.scalars())
 
-    async def get_model_by_ids(self, provider_id: int, model_id: str) -> CustomProviderModel | None:
+    async def get_model_by_ids(
+        self, provider_id: int, model_id: str, *, media_type: str | None = None
+    ) -> CustomProviderModel | None:
         """根据供应商 ID 和模型 ID 获取模型。"""
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == provider_id,
             CustomProviderModel.model_id == model_id,
         )
+        if media_type is not None:
+            stmt = stmt.where(_media_type_endpoint_filter(media_type))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

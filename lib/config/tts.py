@@ -32,9 +32,9 @@ async def model_profile(session: AsyncSession, provider: str, model: str) -> Aud
         db_id = parse_provider_id(provider)
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
-    row = await repo.get_model_by_ids(db_id, model)
+    row = await repo.get_model_by_ids(db_id, model, media_type="audio")
     if row is None:
-        return AudioProfile()
+        raise UnprocessableError("narration_tts_model_invalid")
     host = await repo.get_provider(db_id) if row.endpoint == "openai-tts" else None
     return endpoint_profile(
         row.endpoint,

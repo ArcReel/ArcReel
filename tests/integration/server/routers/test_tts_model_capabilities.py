@@ -166,7 +166,7 @@ async def test_atomic_audio_group_transitions(tts_config_client):
     for invalid in (
         {"narration_voice": "unknown"},
         {"default_audio_backend": "minimax/speech-2.8-hd", "narration_speed": 2.1},
-        {"default_audio_backend": "custom-8/no-suggestions"},
+        {"default_audio_backend": "custom-8/missing", "narration_voice": "alloy"},
         {"default_audio_backend": None, "narration_voice": "Zephyr"},
         {"narration_voice": ""},
     ):

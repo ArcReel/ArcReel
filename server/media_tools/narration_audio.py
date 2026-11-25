@@ -20,6 +20,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
@@ -32,6 +33,8 @@ from lib.generation.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
+from lib.i18n import _ as i18n_message
+from lib.infra.api_errors import UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
@@ -49,7 +52,15 @@ from server.media_tools.context import (
     tool_error,
     tool_problem,
 )
-from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
+from server.tool_runtime import (
+    CallerContext,
+    ProjectScope,
+    Services,
+    ToolOutcome,
+    ToolRequest,
+    model_not_in_catalog_problem,
+    submit_media_generation,
+)
 
 _OPERATION = "generate_narration_audio"
 
@@ -158,6 +169,10 @@ async def generate_narration_audio(
             settings = await services.capabilities.resolve_tts_synthesis_settings(project)
         except NarrationConfigError as exc:
             return tool_problem(_NARRATION_CONFIG_DETAILS[exc.code], code=exc.code)
+        except ModelNotInCatalogError as exc:
+            return ToolOutcome(problem=model_not_in_catalog_problem(exc))
+        except UnprocessableError as exc:
+            return tool_problem(i18n_message(exc.key, "zh", **exc.params), code=exc.key)
         content_mode = resolve_content_mode(script, project)
         ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
         items, id_field, kind = resolve_items(script)
