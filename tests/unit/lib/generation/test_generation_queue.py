@@ -603,22 +603,24 @@ class TestGenerationQueue:
 @pytest.fixture
 def stub_enqueue_resolution(monkeypatch):
     """把入队解析链（视频 / 图片 / 音频三条）换成固定身份，返回一个可改写解析结果的 holder。"""
+    from types import SimpleNamespace
+
     from lib.config.resolver import ProviderModel
 
     holder = {"resolved": ProviderModel("custom-7", "advisory-video-model")}
 
-    class _FakeResolver:
-        def __init__(self, factory):
-            pass
+    async def _video_read_bucket(self, project, bucket, *, payload=None):
+        del self, project, bucket, payload
+        resolved = holder["resolved"]
+        return SimpleNamespace(snapshot=SimpleNamespace(provider_id=resolved.provider_id, model_id=resolved.model_id))
 
-        async def resolve_video_backend(self, project, payload, *, generation_type=None):
-            return holder["resolved"]
+    async def _image_read_identity(self, project, bucket, *, payload=None):
+        del self, project, bucket, payload
+        return holder["resolved"], None
 
-        async def resolve_image_backend(self, project, payload, *, generation_type):
-            return holder["resolved"]
-
-        async def resolve_audio_backend(self, project, payload):
-            return holder["resolved"]
+    async def _audio_read_identity(self, project, payload=None):
+        del self, project, payload
+        return holder["resolved"]
 
     class _FakeProjectManager:
         def load_project(self, project_name):
@@ -627,7 +629,11 @@ def stub_enqueue_resolution(monkeypatch):
         def get_project_path(self, project_name):
             raise FileNotFoundError(project_name)
 
-    monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
+    from tests.fakes import use_audio_read_identity, use_image_read_identity, use_video_read_bucket
+
+    use_video_read_bucket(monkeypatch, _video_read_bucket)
+    use_image_read_identity(monkeypatch, _image_read_identity)
+    use_audio_read_identity(monkeypatch, _audio_read_identity)
     use_project_manager(monkeypatch, _FakeProjectManager())
     return holder
 

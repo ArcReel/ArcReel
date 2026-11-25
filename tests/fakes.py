@@ -749,6 +749,22 @@ class FakeConfigResolver:
         )
         return VideoReadSnapshot(snapshot=snapshot, requested_audio=bool(caps.get("requested_generate_audio", True)))
 
+    def fake_image_read_snapshot(self, project: dict[str, Any] | None, generation_type: str | None = None) -> Any:
+        from lib.capabilities.kernel import Endpoint, resolve
+
+        del project
+        self.image_generation_type_calls.append(generation_type)
+        if self._image_backend_error is not None:
+            raise self._image_backend_error
+        provider_id, model_id = self._image_backend
+        endpoint = Endpoint("image", slots=frozenset({"text_to_image", "image_to_image"}))
+        return resolve(
+            endpoint,
+            provider_id=provider_id,
+            model_id=model_id,
+            default_resolution=self._image_resolution,
+        )
+
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
         return self._image_resolution
@@ -957,47 +973,6 @@ def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> 
         yield from_openai
 
 
-@contextmanager
-def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
-    """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
-
-    装配层（``ProviderSpec.build_backend``、``lib.backends.text_backends.factory``）的产出就是
-    「往哪个 media registry、用什么后端名、什么构造参数建后端」，真实后端要凭证要网络。
-    按名逐个换工厂（保留键集合，``get_registered_backends`` 的读者不受影响），记录列表让
-    断言落在构造参数本身；未注册名照旧由 ``create_backend`` fail-loud。
-    """
-    from lib.backends.audio_backends import registry as audio_registry
-    from lib.backends.image_backends import registry as image_registry
-    from lib.backends.text_backends import registry as text_registry
-    from lib.backends.video_backends import registry as video_registry
-
-    records: list[dict[str, Any]] = []
-    factories: dict[str, dict[str, Any]] = {
-        "text": text_registry._BACKEND_FACTORIES,
-        "image": image_registry._BACKEND_FACTORIES,
-        "video": video_registry._BACKEND_FACTORIES,
-        "audio": audio_registry._BACKEND_FACTORIES,
-    }
-
-    def _recorder(media: str, name: str) -> Callable[..., Any]:
-        def _build(**kwargs: Any) -> Any:
-            records.append({"media": media, "backend": name, "kwargs": kwargs})
-            return object()
-
-        return _build
-
-    saved = {media: dict(table) for media, table in factories.items()}
-    for media, table in factories.items():
-        for name in list(table):
-            table[name] = _recorder(media, name)
-    try:
-        yield records
-    finally:
-        for media, table in factories.items():
-            table.clear()
-            table.update(saved[media])
-
-
 class _BlockingFileReadGate:
     """把某个路径的同步读挡在闸门后，观测 async 生产路径是否把该读卸载到线程。
 
@@ -1173,7 +1148,9 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     """
     for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
     monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
-    monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
+    monkeypatch.setattr("lib.project.project_manager.get_project_manager", for_pm)
+    monkeypatch.setattr("lib.video_runtime.text.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.project.model_references.get_project_manager", for_pm)
     monkeypatch.setattr("lib.generation.asset_admission.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
@@ -1241,8 +1218,8 @@ def use_text_generator(monkeypatch, create: Callable[..., Any]) -> None:
 
 
 def use_text_backend_sessions(monkeypatch, factory) -> None:
-    """文本 backend 工厂经 *factory* 解析真实模型配置，不替换模型解析器。"""
-    monkeypatch.setattr("lib.backends.text_backends.factory.async_session_factory", factory)
+    """文本运行时经 *factory* 解析真实模型配置，不替换模型解析器。"""
+    monkeypatch.setattr("lib.db.async_session_factory", factory)
 
 
 def bind_session_factory(monkeypatch, factory) -> None:
@@ -1339,9 +1316,25 @@ def use_generation_queue(monkeypatch, queue: Any) -> None:
     monkeypatch.setattr("server.routers.reference_videos.get_generation_queue", lambda: queue)
 
 
-def use_backend_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:
-    """生成上下文解析时组装后端改调 *assemble*：其余解析（配置、项目、DB）走真实实现，只换掉供应商后端。"""
-    monkeypatch.setattr("server.services.tasks.generation_context.assemble_backend", assemble)
+def use_video_read_bucket(monkeypatch, handler: Callable[..., Any]) -> None:
+    """将 ``VideoRuntime.read_bucket`` 替换为 *handler*。"""
+    from lib.video_runtime.resolution import VideoRuntime
+
+    monkeypatch.setattr(VideoRuntime, "read_bucket", handler)
+
+
+def use_image_read_identity(monkeypatch, handler: Callable[..., Any]) -> None:
+    """将 ``ImageRuntime.read_identity`` 替换为 *handler*。"""
+    from lib.video_runtime.image_resolution import ImageRuntime
+
+    monkeypatch.setattr(ImageRuntime, "read_identity", handler)
+
+
+def use_audio_read_identity(monkeypatch, handler: Callable[..., Any]) -> None:
+    """将 ``AudioRuntime.read_identity`` 替换为 *handler*。"""
+    from lib.video_runtime.audio import AudioRuntime
+
+    monkeypatch.setattr(AudioRuntime, "read_identity", handler)
 
 
 def use_image_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:

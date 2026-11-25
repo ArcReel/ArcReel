@@ -601,7 +601,9 @@ class AutoBackendsResponse(BaseModel):
 @router.get("/system/config/auto-backends", response_model=AutoBackendsResponse)
 async def get_auto_backends() -> AutoBackendsResponse:
     """「自动选择」的实际模型：与执行期解析同口径，设置界面据此显示当前模型并按它查询能力。"""
-    resolved = await ConfigResolver(async_session_factory).auto_resolved_backends()
+    from lib.video_runtime.auto_backends import auto_resolved_backends
+
+    resolved = await auto_resolved_backends(ConfigResolver(async_session_factory))
     return AutoBackendsResponse(
         **{purpose: f"{pair[0]}/{pair[1]}" if pair else None for purpose, pair in resolved.items()}
     )

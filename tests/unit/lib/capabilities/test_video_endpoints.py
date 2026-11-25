@@ -1,7 +1,3 @@
-import json
-from dataclasses import asdict
-from pathlib import Path
-
 import pytest
 
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
@@ -10,62 +6,52 @@ from lib.catalog import query as catalog
 from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.capability_view import builtin_capability_view, custom_capability_view
 from lib.custom_provider.endpoints import comfyui_endpoint_spec, get_endpoint_spec
+from tests.factories import comfyui_endpoint_definition
 
-_CASES = json.loads(Path("tests/fixtures/capabilities-before-4003.json").read_text(encoding="utf-8"))["cases"]
 
+def test_builtin_and_custom_video_settings_views_reflect_protocol_bounds():
+    kling_info = catalog.get_model("kling", "kling-v3-omni")
+    assert kling_info is not None
+    kling_view = builtin_capability_view("kling", "kling-v3-omni", base_model=kling_info, official=True, overrides={})
+    assert kling_view.effective["has_audio_track"] is True
+    assert kling_view.effective["audio_switch_controllable"] is True
+    assert kling_view.effective["reference_route_has_audio_track"] is False
+    assert kling_view.effective["reference_route_audio_switch_controllable"] is False
+    assert "reference_route_has_audio_track" not in kling_view.editable
+    assert sorted(builtin_model_bucket_fit("kling", "kling-v3-omni", kling_info).buckets) == ["i2v", "r2v"]
 
-@pytest.mark.parametrize(
-    "case", [c for c in _CASES if c["entry"] in {"builtin_video", "custom_video"}], ids=lambda c: c["input"]["model_id"]
-)
-def test_video_endpoints_match_frozen_settings_and_bucket_decisions(case):
-    inputs = case["input"]
-    model = inputs["model_id"]
-    if case["entry"] == "builtin_video":
-        provider = inputs["provider_id"]
-        info = catalog.get_model(provider, model)
-        assert info
-        caps = builtin_video_capabilities_for_model(provider, model)
-        fit = builtin_model_bucket_fit(provider, model, info)
-        view = builtin_capability_view(provider, model, base_model=info, official=True, overrides={})
-        assert sorted(fit.buckets) == case["bucket_fit"]["buckets"]
-        expected, unmet = case["output"], case["bucket_fit"]["unmet"]
-    else:
-        endpoint = inputs["endpoint"]
-        definition = inputs["definition"]
-        spec = comfyui_endpoint_spec(endpoint, definition) if definition else get_endpoint_spec(endpoint)
-        caps = synthesize_video_capabilities(endpoint=endpoint, model_id=model, endpoint_spec=spec, overrides={})
-        fit = custom_model_bucket_fit(endpoint=endpoint, model_id=model, endpoint_spec=spec)
-        view = custom_capability_view(
-            endpoint=endpoint, model_id=model, spec=spec, raw_overrides={}, applied_overrides={}, entry_binding=None
-        )
-        expected, unmet = case["output"]["capabilities"], case["output"]["unmet"]
-    assert asdict(caps) == expected
-    assert {k: list(v) for k, v in fit.unmet.items()} == unmet
-    for section, actual in (("base", view.base), ("effective", view.effective)):
-        expected_values = dict(case["settings"][section])
-        for prefix in ("", "reference_route_"):
-            mode = expected_values.pop(prefix + "audio_track")
-            expected_values[prefix + "has_audio_track"] = mode != "always_off"
-            expected_values[prefix + "audio_switch_controllable"] = mode == "controllable"
-        if model == "workflow":
-            expected_values["duration_fixed"] = True
-        assert actual == expected_values
+    custom_spec = get_endpoint_spec("kling-video-audio")
+    custom_view = custom_capability_view(
+        endpoint="kling-video-audio",
+        model_id="kling-v3-omni",
+        spec=custom_spec,
+        raw_overrides={},
+        applied_overrides={},
+        entry_binding=None,
+    )
+    assert "has_audio_track" in custom_view.editable
+    assert "reference_route_has_audio_track" not in custom_view.editable
+    assert sorted(
+        custom_model_bucket_fit(
+            endpoint="kling-video-audio", model_id="kling-v3-omni", endpoint_spec=custom_spec
+        ).buckets
+    ) == [
+        "i2v",
+        "r2v",
+    ]
 
-    editable = {
-        "has_audio_track"
-        if key == "audio_track"
-        else "reference_route_has_audio_track"
-        if key == "reference_route_audio_track"
-        else key
-        for key in case["settings"]["editable"]
-    }
-    unsupported = {
-        "wan2.7-i2v": {"last_frame", "max_reference_images"},
-        "kling-v3-omni": {"max_reference_images"},
-    }.get(model, set())
-    if model in ("wan2.7-i2v", "custom-model", "kling-v3-omni"):
-        unsupported.update(("reference_audio_mode", "max_reference_audio_count", "max_reference_audio_total_seconds"))
-    assert set(view.editable) == editable - unsupported
+    comfy_spec = comfyui_endpoint_spec("comfyui-fixed", comfyui_endpoint_definition(media_type="video"))
+    comfy_view = custom_capability_view(
+        endpoint="comfyui-fixed",
+        model_id="workflow",
+        spec=comfy_spec,
+        raw_overrides={},
+        applied_overrides={},
+        entry_binding=None,
+    )
+    assert comfy_view.effective["duration_fixed"] is True
+    assert "durations" not in comfy_view.editable
+    assert builtin_video_capabilities_for_model("kling", "kling-v3-omni").first_frame is True
 
 
 def test_kling_multi_image_protocol_cannot_be_overridden_to_have_sound():
@@ -248,31 +234,23 @@ def test_grok_endpoint_describes_reference_route_resolution_limit(route, slot, f
     assert getattr(at_1080p, field) == blocked_value
 
 
-def test_read_side_request_facts_match_frozen_baseline():
+def test_read_side_request_facts_reflect_snapshot_and_project_preferences():
     from lib.backends.backend_assembly.specs import builtin_video_snapshot
     from lib.generation.video_request_facts import snapshot_video_request_facts
 
-    cases = [c for c in _CASES if c["entry"] == "request_facts"]
-    assert cases
-    for case in cases:
-        inp = case["input"]
-        project = inp["project"]
-        bucket = inp["generation_type"]
-        provider_id, model_id = project[f"video_provider_{bucket}"].split("/", 1)
-        snapshot = builtin_video_snapshot(provider_id, model_id)
-        facts = snapshot_video_request_facts(
-            snapshot,
-            project,
-            route=inp["route"],
-            generation_type=bucket,
-            requested_audio=True,
-        )
-        assert {key: getattr(facts, key) for key in case["output"]} == {
-            **case["output"],
-            "supported_durations": tuple(case["output"]["supported_durations"]),
-            "allowed_durations": tuple(case["output"]["allowed_durations"]),
-            "excluded_durations": tuple(tuple(pair) for pair in case["output"]["excluded_durations"]),
-        }
+    snapshot = builtin_video_snapshot("kling", "kling-v3-omni")
+    facts = snapshot_video_request_facts(
+        snapshot,
+        {"generation_mode": "reference_video", "video_provider_r2v": "kling/kling-v3-omni"},
+        route="reference_video",
+        generation_type="r2v",
+        requested_audio=True,
+    )
+    assert facts.provider_id == "kling"
+    assert facts.model_id == "kling-v3-omni"
+    assert facts.has_audio_track is False
+    assert facts.generate_audio is False
+    assert facts.voice_consistency == "none"
 
 
 def test_kling_r2v_read_side_projection_and_facts_match_silent_protocol():

@@ -9,7 +9,7 @@ from PIL import Image
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.config.resolver import ProviderModel
 from lib.i18n import _ as i18n_message
 from lib.project.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
@@ -120,15 +120,17 @@ def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True, resolve_error: 
     use_project_manager(monkeypatch, fake_pm)
     use_generation_queue(monkeypatch, fake_queue)
 
-    async def _resolve(self, project, payload, *, generation_type):
-        assert generation_type == "i2i"
+    async def _resolve(self, project, bucket, *, payload=None):
+        assert bucket == "i2i"
         if resolve_error is not None:
             raise resolve_error
         if not i2i_ready:
             raise ValueError("未找到可用的 image 供应商")
-        return ProviderModel("gemini-aistudio", "gemini-image")
+        return ProviderModel("gemini-aistudio", "gemini-image"), None
 
-    monkeypatch.setattr(ConfigResolver, "resolve_image_backend", _resolve)
+    from tests.fakes import use_image_read_identity
+
+    use_image_read_identity(monkeypatch, _resolve)
 
     app = FastAPI()
     register_error_handlers(app)

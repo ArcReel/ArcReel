@@ -15,6 +15,7 @@ from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, ProviderEndpoints
 from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.video_runtime.builtin import build_builtin_backend
 
 
 @pytest.fixture
@@ -29,7 +30,8 @@ def _install(*models: catalog.UserAddedModel) -> None:
 
 def _built_endpoint_and_text_to_video(provider_id: str, model_id: str):
     spec = builtin_model_spec(provider_id, "video", model_id)
-    backend = spec.build_backend(
+    backend = build_builtin_backend(
+        spec,
         LoadedConfig(
             credentials={"api_key": "sk-test"}, provider_meta=PROVIDER_REGISTRY[provider_id], rate_limiter=None
         ),

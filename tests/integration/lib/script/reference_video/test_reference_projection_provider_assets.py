@@ -18,11 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import CredentialType, account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets
-from lib.backends.backend_assembly.assembler import assemble_backend
 from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
 from lib.backends.video_frame_slots import resolve_video_capabilities
 from lib.catalog import query as catalog
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import make_provider_id
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
@@ -34,6 +33,8 @@ from lib.script.reference_video.request_projection import (
     ReferenceUnitRequestProjection,
     project_reference_unit_request,
 )
+from lib.video_runtime.assembly import assemble_video
+from lib.video_runtime.resolution import VideoRuntime
 from tests.factories import activate_reference_project
 from tests.fakes import fake_reference_request_facts
 
@@ -127,9 +128,8 @@ class _World:
 
     async def execution_side(self, provider_id: str, model_id: str) -> ReferenceUnitRequestProjection:
         """执行侧的投影：素材关联按 lane 实际构造的调用通道核对（执行器交给投影的就是这一份）。"""
-        backend = await assemble_backend(
-            provider_id=provider_id, media_type="video", model_id=model_id, resolver=self.resolver
-        )
+        target = await VideoRuntime(self.resolver).materialized(ProviderModel(provider_id, model_id))
+        backend = await assemble_video(target.spec)
         choose = partial(
             choose_reference_image_assets,
             self.sessions,
@@ -265,15 +265,11 @@ async def test_opaque_custom_model_bound_to_seedance_gets_the_entry_video_capabi
     await world.link(state="failed", error_code="DownloadFailed", error_message="cannot fetch")
     provider_id = make_provider_id(db_id)
 
-    selected = await world.resolver.resolve_video_backend(
-        {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
-    )
+    target = await VideoRuntime(world.resolver).bucket({"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, "r2v")
     projection = await _configured_projection(world, provider_id, OPAQUE_MODEL)
-    backend = await assemble_backend(
-        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
-    )
+    backend = await assemble_video(target.spec)
 
-    assert (selected.provider_id, selected.model_id) == (provider_id, OPAQUE_MODEL)
+    assert (target.snapshot.provider_id, target.snapshot.model_id) == (provider_id, OPAQUE_MODEL)
     assert projection.request_facts is not None
     assert projection.request_facts.max_reference_images == 9
     assert len(projection.request_assets) == 2
@@ -291,14 +287,10 @@ async def test_opaque_custom_model_without_binding_keeps_the_conservative_capabi
     db_id = await world.custom_provider([{"model_id": OPAQUE_MODEL, "is_default": True}])
     provider_id = make_provider_id(db_id)
 
-    selected = await world.resolver.resolve_video_backend(
-        {"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, None, generation_type="r2v"
-    )
-    backend = await assemble_backend(
-        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
-    )
+    target = await VideoRuntime(world.resolver).bucket({"video_provider_r2v": f"{provider_id}/{OPAQUE_MODEL}"}, "r2v")
+    backend = await assemble_video(target.spec)
     caps = backend.video_capabilities_for_tier("default")
-    assert (selected.provider_id, selected.model_id) == (provider_id, OPAQUE_MODEL)
+    assert (target.snapshot.provider_id, target.snapshot.model_id) == (provider_id, OPAQUE_MODEL)
     assert caps.max_reference_images is None
     assert caps.last_frame is False
     assert caps.max_reference_audio_count == 0
@@ -318,11 +310,9 @@ async def test_explicit_capability_override_still_wins_over_the_bound_entry(worl
     )
     provider_id = make_provider_id(db_id)
 
-    caps = await world.resolver.video_capabilities_for_model(provider_id, OPAQUE_MODEL, generation_type="r2v")
-    backend = await assemble_backend(
-        provider_id=provider_id, media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
-    )
-    assert caps["max_reference_images"] == 3
+    target = await VideoRuntime(world.resolver).materialized(ProviderModel(provider_id, OPAQUE_MODEL))
+    backend = await assemble_video(target.spec)
+    assert target.snapshot.effective["max_reference_images"] == 3
     assert backend.video_capabilities_for_tier("default").max_reference_images == 3
 
 
@@ -336,9 +326,8 @@ async def test_user_added_builtin_model_bound_to_seedance_gets_the_entry_video_c
     )
     try:
         projection = await _configured_projection(world, "ark", OPAQUE_MODEL)
-        backend = await assemble_backend(
-            provider_id="ark", media_type="video", model_id=OPAQUE_MODEL, resolver=world.resolver
-        )
+        target = await VideoRuntime(world.resolver).materialized(ProviderModel("ark", OPAQUE_MODEL))
+        backend = await assemble_video(target.spec)
         executed = effective_builtin_video_capabilities(resolve_video_capabilities(backend), "ark", OPAQUE_MODEL)
     finally:
         catalog.install_user_added_models(())

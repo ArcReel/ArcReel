@@ -15,8 +15,9 @@ from lib.backends.builtin_endpoints import get_provider_endpoints
 from lib.backends.image_capabilities import builtin_image_snapshot_from_view
 from lib.capabilities.kernel import CapabilitySnapshot, bucket_fit
 from lib.catalog import query as catalog
-from lib.config.resolver import ConfigResolver, ImageBucketCapabilityError, ProviderModel
-from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.catalog.errors import ModelDiscontinuedError
+from lib.config.resolver import ConfigResolver, ImageBucketCapabilityError, NoAvailableProviderError, ProviderModel
+from lib.custom_provider import is_custom_provider, make_provider_id, parse_provider_id
 from lib.custom_provider.capabilities import custom_image_snapshot_from_entry
 from lib.custom_provider.default_models import resolve_default_model
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
@@ -53,12 +54,70 @@ class ImageRuntime:
         generation = self.capture_generation()
         async with self.resolver.session() as resolver:
             selected = await resolver.configured_image_identity(project, payload, bucket)
-            if is_custom_provider(selected.provider_id):
+            if selected is None:
                 async with resolver._open_session() as (session, _):
-                    spec: ImageAssemblySpec = await _custom_image_spec(session, selected, bucket=bucket)
+                    spec: ImageAssemblySpec = await _automatic_image_spec(session, bucket)
+            elif is_custom_provider(selected.provider_id):
+                async with resolver._open_session() as (session, _):
+                    spec = await _custom_image_spec(session, selected, bucket=bucket)
             else:
                 spec = await builtin_image_spec(resolver, selected, rate_limiter=self.rate_limiter)
         return ImageTarget(generation, spec)
+
+    async def read_bucket(
+        self, project: dict | None, bucket: ImageGenerationType, *, payload: dict | None = None
+    ) -> CapabilitySnapshot:
+        async with self.resolver.session() as resolver:
+            selected = await resolver.configured_image_identity(project, payload, bucket)
+            if selected is None:
+                async with resolver._open_session() as (session, _):
+                    return (await _automatic_image_spec(session, bucket)).snapshot
+            if is_custom_provider(selected.provider_id):
+                async with resolver._open_session() as (session, _):
+                    return (await _custom_image_spec(session, selected, bucket=bucket)).snapshot
+            return _builtin_image_snapshot(selected)[0]
+
+    async def read_identity(
+        self, project: dict | None, bucket: ImageGenerationType, *, payload: dict | None = None
+    ) -> tuple[ProviderModel, str | None]:
+        """解析图片槽位的身份与自定义模型默认分辨率（不加载凭证、不因未收录型号抛错）。"""
+        async with self.resolver.session() as resolver:
+            selected = await resolver.configured_image_identity(project, payload, bucket)
+            if selected is None:
+                async with resolver._open_session() as (session, _):
+                    spec = await _automatic_image_spec(session, bucket)
+                return ProviderModel(
+                    spec.snapshot.provider_id, spec.snapshot.model_id
+                ), spec.snapshot.default_resolution
+            if not is_custom_provider(selected.provider_id):
+                return selected, None
+            try:
+                db_pid = parse_provider_id(selected.provider_id)
+            except ValueError:
+                return selected, None
+            async with resolver._open_session() as (session, _):
+                model = await CustomProviderRepository(session).get_model_by_ids(db_pid, selected.model_id)
+                if model is None:
+                    return selected, None
+                if model.is_enabled:
+                    from lib.custom_provider.default_models import lacks_bucket
+
+                    if await lacks_bucket(session, model, bucket):
+                        raise ImageBucketCapabilityError(
+                            generation_type=bucket,
+                            provider_id=selected.provider_id,
+                            model_id=selected.model_id,
+                        )
+                return selected, model.resolution or None
+
+
+def _builtin_image_snapshot(selected: ProviderModel) -> tuple[CapabilitySnapshot, Any, str | None]:
+    provider, model = selected.provider_id, selected.model_id
+    get_provider_endpoints(provider, "image")
+    view, endpoint = catalog.callable_model_view(provider, model, "image", submitted=False)
+    builtin = get_provider_spec(provider, "image", endpoint)
+    snapshot = builtin_image_snapshot_from_view(provider, model, view, endpoint=builtin.endpoint)
+    return snapshot, builtin, view.model.api_model_name
 
 
 async def builtin_image_spec(
@@ -67,18 +126,14 @@ async def builtin_image_spec(
     *,
     rate_limiter: Any = None,
 ) -> BuiltinImageSpec:
-    provider, model = selected.provider_id, selected.model_id
-    get_provider_endpoints(provider, "image")
-    view, endpoint = catalog.callable_model_view(provider, model, "image", submitted=False)
-    builtin = get_provider_spec(provider, "image", endpoint)
-    snapshot = builtin_image_snapshot_from_view(provider, model, view, endpoint=builtin.endpoint)
-    config = await load_builtin_config(resolver, provider, rate_limiter)
+    snapshot, builtin, api_model_name = _builtin_image_snapshot(selected)
+    config = await load_builtin_config(resolver, selected.provider_id, rate_limiter)
     return BuiltinImageSpec(
         snapshot,
         builtin.endpoint,
         builtin.registry_backend,
         config,
-        api_model_name=view.model.api_model_name,
+        api_model_name=api_model_name,
     )
 
 
@@ -153,3 +208,34 @@ async def _custom_image_spec(
         else model_entry(default_row.model_id, "image", default_row.entry_binding)
     )
     return custom_image_spec(provider, default_row, default_endpoint, default_entry)
+
+
+async def _automatic_image_spec(session: AsyncSession, bucket: ImageGenerationType) -> CustomImageSpec:
+    repo = CustomProviderRepository(session)
+    endpoint_repo = CustomEndpointRepository(session)
+    for row in await repo.list_enabled_models_by_media_type("image"):
+        if not row.is_default:
+            continue
+        provider_id = make_provider_id(row.provider_id)
+        try:
+            endpoint = await resolve_endpoint_spec(row.endpoint, endpoint_repo.get)
+        except ValueError:
+            continue
+        if endpoint.media_type != "image":
+            continue
+        entry = None if endpoint.kind == "comfyui" else model_entry(row.model_id, "image", row.entry_binding)
+        if entry is not None:
+            try:
+                catalog.reject_discontinued_entry(provider_id, row.model_id, "image", entry)
+            except ModelDiscontinuedError:
+                continue
+        provider = await repo.get_provider(row.provider_id)
+        if provider is None:
+            continue
+        spec = custom_image_spec(provider, row, endpoint, entry)
+        if bucket not in bucket_fit("image", spec.snapshot):
+            return spec
+    raise NoAvailableProviderError(
+        "没有设置 image 默认模型。请在「全局设置 → 默认模型」中选择，或先在「全局设置 → 供应商」配置供应商。",
+        media_type="image",
+    )

@@ -60,7 +60,7 @@ from server.services.tasks.generation_context import (
 )
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.factories import make_video_request_facts
-from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
+from tests.fakes import bind_session_factory, use_project_manager
 from tests.fakes import use_image_assembler as _patch_image_assembler
 from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
@@ -183,7 +183,6 @@ def fake_assemble(monkeypatch):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-    use_backend_assembler(monkeypatch, _assemble)
     use_image_assembler(monkeypatch, _assemble)
     use_video_assembler(monkeypatch, _assemble)
     use_audio_assembler(monkeypatch, _assemble)
@@ -456,7 +455,10 @@ class TestVideoLane:
         backends = []
 
         async def _assemble(*, provider_id, media_type, model_id, builtin_endpoint, **kwargs):
-            backend = get_provider_spec(provider_id, media_type, builtin_endpoint).build_backend(
+            from lib.video_runtime.builtin import build_builtin_backend
+
+            backend = build_builtin_backend(
+                get_provider_spec(provider_id, media_type, builtin_endpoint),
                 LoadedConfig(
                     credentials={"access_key": "test", "secret_key": "test"}, provider_meta=None, rate_limiter=None
                 ),
@@ -695,7 +697,6 @@ class TestAtomicFailure:
                 raise ValueError("video backend 构造失败")
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-        use_backend_assembler(monkeypatch, _assemble)
         use_image_assembler(monkeypatch, _assemble)
         use_video_assembler(monkeypatch, _assemble)
         image_model = _registry_image_model("ark")
@@ -1264,8 +1265,6 @@ async def test_video_execution_reads_one_configuration_through_provider_submissi
     monkeypatch.setattr(ConfigService, "get_provider_config", config)
     monkeypatch.setattr(catalog, "callable_model_view", view)
     for method in (
-        "video_capabilities_for_model",
-        "resolve_resolution",
         "reference_payload_limits",
         "video_generate_audio",
     ):

@@ -137,20 +137,6 @@ layers = [
 ]
 containers = ["lib"]
 ignore_imports = [
-    "lib.backends.backend_assembly.specs -> lib.video_runtime.builtin",
-    "lib.config.resolver -> lib.custom_provider",
-    "lib.config.resolver -> lib.custom_provider.capabilities",
-    "lib.config.resolver -> lib.custom_provider.default_models",
-    "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
-    "lib.config.resolver -> lib.custom_provider.model_facts",
-    "lib.config.resolver -> lib.backends.text_backends.base",
-    "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
-    "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
-    "lib.project.project_manager -> lib.backends.text_backends.base",
-    "lib.backends.text_generator -> lib.backends.text_backends.base",
-    "lib.backends.text_generator -> lib.video_runtime.text",
-    "lib.backends.backend_assembly.assembler -> lib.custom_provider",
-    "lib.backends.backend_assembly.assembler -> lib.custom_provider.loader",
     "lib.billing.multipliers -> lib.custom_provider",
     "lib.billing.multipliers -> lib.custom_provider.discovery_formats",
     "lib.db.repositories.usage_repo -> lib.custom_provider",

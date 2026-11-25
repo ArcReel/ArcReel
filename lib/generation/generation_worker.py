@@ -424,10 +424,14 @@ async def _extract_provider(task: dict[str, Any]) -> str:
                 resource_id=task.get("resource_id"),
             )
         elif is_audio:
-            resolved = await resolver.resolve_audio_backend(project, payload)
+            from lib.video_runtime.audio import AudioRuntime
+
+            resolved = await AudioRuntime(resolver).read_identity(project, payload)
         else:
+            from lib.video_runtime.image_resolution import ImageRuntime
+
             generation_type = "i2i" if task.get("task_type") in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload, generation_type=generation_type)
+            resolved, _ = await ImageRuntime(resolver).read_identity(project, generation_type, payload=payload)
     except ModelNotInCatalogError as exc:
         return exc.provider_id
     except Exception:

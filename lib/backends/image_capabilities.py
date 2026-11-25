@@ -24,9 +24,9 @@ ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from arcreel_catalog_core import ImageFacts
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
@@ -169,9 +169,12 @@ def builtin_image_snapshot_from_view(
 
 
 async def _probe_remote_reference_limit(backend: ImageBackend) -> int | None:
+    import inspect
+
     probe = getattr(backend, "remote_reference_image_limit", None)
     if callable(probe):
-        result = await cast(Callable[[], Awaitable[object]], probe)()
+        raw = probe()
+        result = await raw if inspect.isawaitable(raw) else raw
         return result if isinstance(result, int) and not isinstance(result, bool) else None
     return None
 

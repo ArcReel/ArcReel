@@ -330,9 +330,10 @@ async def _require_audio_provider_configured(project: dict) -> str:
     返回解析出的 provider_id，入队时直接复用，避免每段重复解析。
     """
     from lib.db import async_session_factory
+    from lib.video_runtime.audio import AudioRuntime
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
+        resolved = await AudioRuntime(ConfigResolver(async_session_factory)).read_identity(project)
     except ModelNotInCatalogError:
         raise
     except NoAvailableProviderError as exc:
@@ -880,11 +881,10 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
     """
     from lib.db import async_session_factory
+    from lib.video_runtime.image_resolution import ImageRuntime
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
-            project, None, generation_type="i2i"
-        )
+        resolved, _ = await ImageRuntime(ConfigResolver(async_session_factory)).read_identity(project, "i2i")
     except ModelNotInCatalogError:
         raise
     except ValueError as exc:

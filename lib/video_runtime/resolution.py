@@ -28,6 +28,7 @@ from lib.config.resolver import (
     ProviderModel,
     VideoBucketCapabilityError,
     VideoGenerationType,
+    payload_video_pinned_pair,
     reference_limits_from_config,
     video_bucket_capability_missing,
     video_bucket_reference_unavailable,
@@ -88,9 +89,11 @@ class VideoRuntime:
     async def bucket(self, project: dict | None, bucket: VideoGenerationType) -> VideoTarget:
         return await self._read(project=project, bucket=bucket)
 
-    async def read_bucket(self, project: dict | None, bucket: VideoGenerationType) -> VideoReadSnapshot:
+    async def read_bucket(
+        self, project: dict | None, bucket: VideoGenerationType | None, *, payload: dict | None = None
+    ) -> VideoReadSnapshot:
         async with self.resolver.session(snapshot_settings=True) as resolver:
-            snapshot = await self._read_snapshot(resolver, project=project, bucket=bucket)
+            snapshot = await self._read_snapshot(resolver, project=project, bucket=bucket, payload=payload)
             requested_audio = await resolver.video_generate_audio_for_project(project)
         return VideoReadSnapshot(snapshot, requested_audio)
 
@@ -157,8 +160,20 @@ class VideoRuntime:
         resolver: ConfigResolver,
         *,
         project: dict | None,
-        bucket: VideoGenerationType,
+        bucket: VideoGenerationType | None,
+        payload: dict | None = None,
     ) -> CapabilitySnapshot:
+        pinned = payload_video_pinned_pair(payload, bucket) if payload else None
+        if pinned is not None:
+            pinned_bucket, pair = pinned
+            selected = ProviderModel(*pair)
+            provider = selected.provider_id
+            if is_custom_provider(provider):
+                async with resolver._open_session() as (session, _):
+                    return (
+                        await _custom_spec(session, selected, fallback=False, bucket=pinned_bucket, submitted=False)
+                    ).snapshot
+            return _builtin_video_snapshot(selected, submitted=False, bucket=pinned_bucket)[0]
         selected = await resolver.configured_video_identity(project, bucket)
         if selected is None:
             async with resolver._open_session() as (session, _):
@@ -166,11 +181,11 @@ class VideoRuntime:
         provider, model = selected.provider_id, selected.model_id
         if is_custom_provider(provider):
             async with resolver._open_session() as (session, _):
-                spec = await _custom_spec(session, selected, fallback=False, bucket=bucket, submitted=False)
+                spec = await _custom_spec(session, selected, fallback=bucket is None, bucket=bucket, submitted=False)
             snapshot = spec.snapshot
         else:
             snapshot = _builtin_video_snapshot(selected, submitted=False, bucket=bucket)[0]
-        if bucket in bucket_fit("video", snapshot):
+        if bucket is not None and bucket in bucket_fit("video", snapshot):
             raise video_bucket_capability_missing(bucket, provider, model)
         return snapshot
 

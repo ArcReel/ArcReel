@@ -151,7 +151,11 @@ async def test_rename_rewrites_project_model_settings_and_global_refs(model_refs
     assert _refs(model_refs_pm, "pa") == dict.fromkeys(PROJECT_MODEL_SETTING_KEYS, f"{pid}/new-a")
     refs = model_refs_client.get(f"/api/v1/providers/{pid}/model-references", params={"model_id": "old-a"}).json()
     assert refs["projects"] == []
-    assert await ConfigResolver(db_factory).text_backend_for_task("script", "pa") == (pid, "new-a")
+    from lib.backends.text_backends.base import TextTaskType
+    from lib.video_runtime.text import TextRuntime
+
+    target = await TextRuntime(ConfigResolver(db_factory)).for_task(TextTaskType.SCRIPT, "pa")
+    assert (target.provider_id, target.model_id) == (pid, "new-a")
 
 
 async def test_rename_leaves_other_providers_and_models_untouched(model_refs_client, db_factory, model_refs_pm):

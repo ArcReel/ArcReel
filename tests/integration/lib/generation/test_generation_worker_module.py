@@ -164,7 +164,7 @@ class TestExtractProvider:
         )
         for target in (
             "lib.generation.generation_worker.get_project_manager",
-            "lib.config.resolver.get_project_manager",
+            "lib.project.project_manager.get_project_manager",
         ):
             monkeypatch.setattr(target, pm_cls)
         task = {
@@ -199,7 +199,7 @@ class TestExtractProvider:
         )
         for target in (
             "lib.generation.generation_worker.get_project_manager",
-            "lib.config.resolver.get_project_manager",
+            "lib.project.project_manager.get_project_manager",
         ):
             monkeypatch.setattr(target, pm_cls)
         task = {
@@ -225,7 +225,7 @@ class TestExtractProvider:
         pm_cls = type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})
         for target in (
             "lib.generation.generation_worker.get_project_manager",
-            "lib.config.resolver.get_project_manager",
+            "lib.project.project_manager.get_project_manager",
         ):
             monkeypatch.setattr(target, pm_cls)
         task = {
@@ -248,7 +248,7 @@ class TestExtractProvider:
 
         for target in (
             "lib.generation.generation_worker.get_project_manager",
-            "lib.config.resolver.get_project_manager",
+            "lib.project.project_manager.get_project_manager",
         ):
             monkeypatch.setattr(target, _raising_pm)
         task = {"payload": {}, "project_name": "deleted-proj", "task_type": "video"}
@@ -261,26 +261,30 @@ class TestExtractProviderAlignsWithExecution:
     async def test_image_alignment(self, monkeypatch):
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
+        from lib.video_runtime.image_resolution import ImageRuntime
 
         project = {"image_provider_t2i": "openai/gen-1", "image_provider_i2i": "openai/edit-1"}
         use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
 
         worker_provider = await _extract_provider(task)
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, {}, generation_type="t2i")
+        resolved, _ = await ImageRuntime(ConfigResolver(async_session_factory)).read_identity(
+            project, "t2i", payload={}
+        )
         assert worker_provider == resolved.provider_id == "openai"
 
     async def test_video_alignment(self, monkeypatch):
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
+        from lib.video_runtime.resolution import VideoRuntime
 
         project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
         use_worker_project(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 
         worker_provider = await _extract_provider(task)
-        resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {}, generation_type="i2v")
-        assert worker_provider == resolved.provider_id == "ark"
+        read = await VideoRuntime(ConfigResolver(async_session_factory)).read_bucket(project, "i2v", payload={})
+        assert worker_provider == read.snapshot.provider_id == "ark"
 
 
 class TestExecuteTaskPollTimeout:

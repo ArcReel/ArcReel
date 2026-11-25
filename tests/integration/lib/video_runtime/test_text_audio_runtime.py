@@ -136,8 +136,6 @@ class TestTextRuntimeAndVisionGate:
 
         with pytest.raises(VisionCapabilityError):
             await runtime.for_task(TextTaskType.STYLE_ANALYSIS)
-        with pytest.raises(VisionCapabilityError):
-            await resolver.text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
 
         pid = await _seed_custom_provider(
             db_factory,
@@ -170,8 +168,6 @@ class TestTextRuntimeAndVisionGate:
             await ConfigService(session).set_setting("default_text_backend", f"{pid}/relay-no-vision")
         with pytest.raises(VisionCapabilityError):
             await runtime.for_task(TextTaskType.STYLE_ANALYSIS)
-        with pytest.raises(VisionCapabilityError):
-            await resolver.text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
 
         async with db_factory.begin() as session:
             await ConfigService(session).set_setting("default_text_backend", f"{pid}/relay-forced-vision")

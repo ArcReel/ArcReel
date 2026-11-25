@@ -39,8 +39,10 @@ async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monke
     data_root = tmp_path / "data"
     project_dir, stale_backup = _seed_stale_project(DataRootLayout(data_root).projects_dir)
 
+    from tests.fakes import use_project_manager
+
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
-    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
+    use_project_manager(monkeypatch, ProjectManager(data_root))
     stub_lifespan_dependencies(monkeypatch)
     monkeypatch.setattr(app_module, "migrate_local_transcripts_to_store", _noop_async)
 

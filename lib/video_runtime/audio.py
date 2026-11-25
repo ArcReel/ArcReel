@@ -68,6 +68,15 @@ class AudioRuntime:
     async def resolve(self, project: dict | None, payload: dict | None = None) -> AudioTarget:
         return await self._read(project=project, payload=payload)
 
+    async def read_identity(self, project: dict | None, payload: dict | None = None) -> ProviderModel:
+        async with self.resolver.session() as resolver:
+            selected = await resolver.configured_audio_identity(project, payload)
+            if selected is None:
+                async with resolver._open_session() as (session, _):
+                    spec = await _automatic_audio_spec(session)
+                return ProviderModel(spec.provider_id, spec.model_id)
+            return selected
+
     async def for_identity(self, identity: ProviderModel) -> AudioTarget:
         if not identity or not identity.provider_id or not identity.model_id:
             raise ValueError("expected an audio provider and model")
@@ -176,3 +185,14 @@ def _build_audio(spec: AudioAssemblySpec) -> AudioBackend:
 
 async def assemble_audio(spec: AudioAssemblySpec) -> AudioBackend:
     return await asyncio.to_thread(_build_audio, spec)
+
+
+async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel, str, float | None]:
+    """新建 TTS 项目的预填值：全局默认音频 (provider, model)、旁白音色与配音语速。
+
+    未配置任何音频供应商时抛 ValueError。项目创建后不再读取这些全局值（docs/adr/0089）。
+    """
+    async with resolver.session() as r:
+        identity = await AudioRuntime(r).read_identity(None)
+        voice, speed = await r.narration_defaults()
+        return identity, voice, speed

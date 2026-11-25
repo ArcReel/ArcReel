@@ -2192,19 +2192,17 @@ _OPAQUE = "opaque-relay-model"
 
 async def _builtin_video_backend(provider_id: str, model_id: str, entry_binding: str | None):
     """内置供应商下的视频模型，经生产装配构造；``entry_binding`` 给出时作为用户添加的模型并绑定条目。"""
-    from lib.backends.backend_assembly.assembler import assemble_backend
     from lib.catalog import query as catalog
+    from lib.config.resolver import ProviderModel
+    from lib.video_runtime.assembly import assemble_video
+    from lib.video_runtime.resolution import builtin_video_spec
 
     if entry_binding is not None:
         catalog.install_user_added_models(
             [catalog.UserAddedModel(provider_id, model_id, "video", entry_binding=entry_binding)]
         )
-    return await assemble_backend(
-        provider_id=provider_id,
-        media_type="video",
-        model_id=model_id,
-        resolver=_BuiltinConfig(),
-    )
+    spec = await builtin_video_spec(_BuiltinConfig(), ProviderModel(provider_id, model_id), submitted=False)
+    return await assemble_video(spec)
 
 
 def _custom_video_backend(endpoint: str, model_id: str, entry_binding: str | None):
@@ -2383,8 +2381,8 @@ class TestEntryBoundVideoRequests:
 
     def test_gemini_vertex_endpoint_keeps_the_audio_switch_with_or_without_a_bound_entry(self):
         """Vertex 端点声明音轨可控，绑定条目、官方型号与未收录的模型按同一规则求值。"""
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.catalog import query as catalog
-        from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
             [
@@ -2392,23 +2390,37 @@ class TestEntryBoundVideoRequests:
                 catalog.UserAddedModel("gemini-vertex", "veo-unbound-relay", "video"),
             ]
         )
-        assert builtin_video_audio_track("gemini-vertex", _OPAQUE, generation_type="i2v") == "controllable"
         assert (
-            builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
+            builtin_video_capabilities_for_model("gemini-vertex", _OPAQUE).audio_track_for_route("i2v").value
+            == "controllable"
         )
-        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "controllable"
+        assert (
+            builtin_video_capabilities_for_model("gemini-vertex", "veo-3.1-generate-001")
+            .audio_track_for_route("i2v")
+            .value
+            == "controllable"
+        )
+        assert (
+            builtin_video_capabilities_for_model("gemini-vertex", "veo-unbound-relay")
+            .audio_track_for_route("i2v")
+            .value
+            == "controllable"
+        )
 
     @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
     def test_gemini_aistudio_endpoint_keeps_audio_on_even_with_a_vertex_entry(self, model):
         """AI Studio 端点声明恒有声，绑定 Vertex 条目或使用其 API 型号名都不会改变音轨形态。"""
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.catalog import query as catalog
-        from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
             [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-001")]
         )
 
-        assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"
+        assert (
+            builtin_video_capabilities_for_model("gemini-aistudio", model).audio_track_for_route("i2v").value
+            == "always_on"
+        )
 
 
 @pytest.mark.parametrize("failed", [False, True])

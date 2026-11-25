@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.backends.backend_assembly.assembler import load_builtin_config
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import get_provider_spec
-from lib.backends.text_backends.base import VISION_REQUIRED_TASKS, TextBackend, TextTaskType
+from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextBackend, TextTaskType
 from lib.capabilities.kernel import CapabilitySnapshot
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError
@@ -24,6 +24,7 @@ from lib.custom_provider.path_overrides import PathOverrides, effective_path_ove
 from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.project.project_manager import get_project_manager
 from lib.video_runtime.builtin import build_builtin_text
 
 
@@ -75,8 +76,12 @@ class TextRuntime:
         self.resolver = resolver
 
     async def for_task(self, task_type: TextTaskType, project_name: str | None = None) -> TextTarget:
+        project = (
+            await asyncio.to_thread(lambda: get_project_manager().load_project(project_name)) if project_name else None
+        )
+        tier = TEXT_TASK_TIERS[task_type].value
         async with self.resolver.session() as resolver:
-            selected = await resolver.configured_text_identity(task_type, project_name)
+            selected = await resolver.configured_text_identity(tier, project)
             if selected is None:
                 async with resolver._open_session() as (session, _):
                     spec: TextAssemblySpec = await _automatic_text_spec(session)
@@ -207,3 +212,26 @@ async def create_text_backend_for_task(
 ) -> tuple[TextBackend, str]:
     backend, target = await resolve_and_assemble_text(task_type, project_name)
     return backend, target.provider_id
+
+
+@dataclass(frozen=True)
+class OutputLimitFacts:
+    """模型在请求输出上限与截断出路上需要的事实。"""
+
+    registered_max_output_tokens: int | None
+    custom_model: bool
+
+
+async def output_limit_facts(*, provider_id: str, model_id: str, resolver: ConfigResolver) -> OutputLimitFacts:
+    if is_custom_provider(provider_id):
+        from lib.custom_provider.loader import custom_model_max_output_tokens
+
+        async with resolver._open_session() as (session, _):
+            registered = await custom_model_max_output_tokens(
+                session=session, provider_id=provider_id, model_id=model_id
+            )
+        return OutputLimitFacts(registered_max_output_tokens=registered, custom_model=True)
+    info = catalog.get_model(provider_id, model_id)
+    return OutputLimitFacts(
+        registered_max_output_tokens=info.max_output_tokens if info is not None else None, custom_model=False
+    )

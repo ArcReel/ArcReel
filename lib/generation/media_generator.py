@@ -1104,7 +1104,15 @@ class MediaGenerator:
         if "generate_audio" in version_metadata:
             effective_generate_audio = version_metadata["generate_audio"]
         elif self._config is not None:
-            effective_generate_audio = await self._config.video_generate_audio(self.project_name)
+            from lib.project.project_manager import get_project_manager
+
+            project: dict | None = None
+            if self.project_name:
+                try:
+                    project = await asyncio.to_thread(lambda: get_project_manager().load_project(self.project_name))
+                except FileNotFoundError:
+                    project = None
+            effective_generate_audio = await self._config.video_generate_audio_for_project(project)
         else:
             from lib.config.resolver import ConfigResolver
 

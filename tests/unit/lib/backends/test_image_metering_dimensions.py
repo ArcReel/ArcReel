@@ -118,7 +118,10 @@ async def test_every_listed_image_model_reports_all_price_dimensions(
                 router.post(url__regex=r"https://.*").respond(200, json=response)
                 router.get("https://cdn.test/image.png").respond(200, content=image_bytes)
                 router.get(url__regex=r"https://.*").respond(200, json=response)
-                backend = spec.build_backend(
+                from lib.video_runtime.builtin import build_builtin_backend
+
+                backend = build_builtin_backend(
+                    spec,
                     LoadedConfig(
                         credentials=credentials,
                         provider_meta=None,

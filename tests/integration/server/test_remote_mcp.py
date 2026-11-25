@@ -75,14 +75,17 @@ class _Planner:
 
 
 class _Capabilities:
-    async def resolve_image_backend(self, _project: dict, _payload: object, *, generation_type: str) -> None:
+    def fake_image_read_snapshot(self, _project: dict | None, generation_type: str | None = None) -> object:
         assert generation_type == "i2i"
         raise ValueError("image capability unavailable")
 
 
 class _AvailableImageCapabilities(_Capabilities):
-    async def resolve_image_backend(self, _project: dict, _payload: object, *, generation_type: str) -> None:
+    def fake_image_read_snapshot(self, _project: dict | None, generation_type: str | None = None) -> object:
+        from types import SimpleNamespace
+
         assert generation_type == "i2i"
+        return SimpleNamespace(provider_id="fake", model_id="fake-image", default_resolution=None)
 
 
 @pytest.fixture

@@ -82,7 +82,6 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     pm = ProjectManager(tmp_path)
     for target in (
         "lib.project.project_manager.get_project_manager",
-        "lib.config.resolver.get_project_manager",
         "lib.generation.generation_worker.get_project_manager",
         "lib.generation.restart_recovery.get_project_manager",
         "lib.generation.video_resume.get_project_manager",
@@ -613,7 +612,7 @@ async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_projec
     project = json.loads(project_file.read_text())
     project_file.write_text(json.dumps({**project, "video_generate_audio": False, "default_duration": 17}))
     monkeypatch.setattr(generation_context, "snapshot_video_request_facts", unexpected_preference)
-    for method in ("resolve_resolution", "video_generate_audio", "video_generate_audio_for_project"):
+    for method in ("video_generate_audio", "video_generate_audio_for_project"):
         monkeypatch.setattr(f"lib.config.resolver.ConfigResolver.{method}", unexpected_preference)
 
     with capture_http() as router:

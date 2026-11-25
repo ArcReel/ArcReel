@@ -119,7 +119,10 @@ async def _start(db: _Database) -> ProviderModel:
         await pre_upgrade_recommendations.capture(session)
     async with db.sessions() as session:
         await freeze_effective_defaults(session)
-    return await ConfigResolver(db.sessions).resolve_image_backend(None, None, generation_type="t2i")
+    from lib.video_runtime.image_resolution import ImageRuntime
+
+    resolved, _ = await ImageRuntime(ConfigResolver(db.sessions)).read_identity(None, "t2i")
+    return resolved
 
 
 async def _fail_writes(db: _Database, table: str, event: str, condition: str) -> None:

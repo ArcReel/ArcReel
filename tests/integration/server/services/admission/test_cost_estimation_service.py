@@ -1956,10 +1956,12 @@ class TestCostEstimationService:
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        async def _raise(self, project, payload, *, generation_type):
+        from tests.fakes import use_video_read_bucket
+
+        async def _raise(self, project, bucket, *, payload=None):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(ConfigResolver, "resolve_video_backend", _raise)
+        use_video_read_bucket(monkeypatch, _raise)
 
         project_data = {
             "title": "Test",
@@ -2715,17 +2717,18 @@ class TestImageBatchEstimate:
     async def test_lane_whose_provider_cannot_be_resolved_counts_all_its_images_as_unpriced(
         self, db_factory, monkeypatch
     ):
-        from lib.config.resolver import ConfigResolver as Resolver
+        from lib.video_runtime.image_resolution import ImageRuntime
         from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.fakes import use_image_read_identity
 
-        real = Resolver.resolve_image_backend
+        real = ImageRuntime.read_identity
 
-        async def resolve(self, project, payload, *, generation_type=None, **kwargs):
-            if generation_type == "i2i":
+        async def resolve(self, project, bucket, *, payload=None):
+            if bucket == "i2i":
                 raise ValueError("没有配置图片供应商")
-            return await real(self, project, payload, generation_type=generation_type, **kwargs)
+            return await real(self, project, bucket, payload=payload)
 
-        monkeypatch.setattr(Resolver, "resolve_image_backend", resolve)
+        use_image_read_identity(monkeypatch, resolve)
         project = {
             "title": "T",
             "content_mode": "narration",

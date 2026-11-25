@@ -186,16 +186,60 @@ def set_video_request_facts(
             monkeypatch.setattr(consumer, "read_video_request_facts", fake)
         monkeypatch.setattr(cost_estimation, "read_video_facts_pair", fake_pair)
         monkeypatch.setattr(facts_mod, "snapshot_video_request_facts", sync_evaluate)
-        orig_read_bucket = video_resolution.VideoRuntime.read_bucket
+        from lib.video_runtime import image_resolution
 
-        async def _read_bucket(self, project, bucket):
+        orig_read_bucket = video_resolution.VideoRuntime.read_bucket
+        orig_image_read_bucket = image_resolution.ImageRuntime.read_bucket
+
+        async def _read_bucket(self, project, bucket, *, payload=None):
             if hasattr(self.resolver, "fake_video_read_snapshot"):
                 return self.resolver.fake_video_read_snapshot(project, bucket)
-            return await orig_read_bucket(self, project, bucket)
+            return await orig_read_bucket(self, project, bucket, payload=payload)
 
-        monkeypatch.setattr(video_resolution.VideoRuntime, "read_bucket", _read_bucket)
+        async def _image_read_bucket(self, project, bucket, *, payload=None):
+            if hasattr(self.resolver, "fake_image_read_snapshot"):
+                return self.resolver.fake_image_read_snapshot(project, bucket)
+            return await orig_image_read_bucket(self, project, bucket, payload=payload)
+
+        from tests.fakes import use_video_read_bucket
+
+        use_video_read_bucket(monkeypatch, _read_bucket)
+        monkeypatch.setattr(image_resolution.ImageRuntime, "read_bucket", _image_read_bucket)
 
     return configure
+
+
+@pytest.fixture(autouse=True)
+def _route_fake_config_resolver_through_runtimes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lib.video_runtime import image_resolution
+    from lib.video_runtime import resolution as video_resolution
+    from tests.fakes import use_image_read_identity, use_video_read_bucket
+
+    orig_video_read_bucket = video_resolution.VideoRuntime.read_bucket
+    orig_image_read_bucket = image_resolution.ImageRuntime.read_bucket
+    orig_image_read_identity = image_resolution.ImageRuntime.read_identity
+
+    async def _read_bucket(self, project, bucket, *, payload=None):
+        if hasattr(self.resolver, "fake_video_read_snapshot"):
+            return self.resolver.fake_video_read_snapshot(project, bucket)
+        return await orig_video_read_bucket(self, project, bucket, payload=payload)
+
+    async def _image_read_bucket(self, project, bucket, *, payload=None):
+        if hasattr(self.resolver, "fake_image_read_snapshot"):
+            return self.resolver.fake_image_read_snapshot(project, bucket)
+        return await orig_image_read_bucket(self, project, bucket, payload=payload)
+
+    async def _image_read_identity(self, project, bucket, *, payload=None):
+        if hasattr(self.resolver, "fake_image_read_snapshot"):
+            snap = self.resolver.fake_image_read_snapshot(project, bucket)
+            from lib.config.resolver import ProviderModel
+
+            return ProviderModel(snap.provider_id, snap.model_id), snap.default_resolution
+        return await orig_image_read_identity(self, project, bucket, payload=payload)
+
+    use_video_read_bucket(monkeypatch, _read_bucket)
+    monkeypatch.setattr(image_resolution.ImageRuntime, "read_bucket", _image_read_bucket)
+    use_image_read_identity(monkeypatch, _image_read_identity)
 
 
 @pytest.fixture

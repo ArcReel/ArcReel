@@ -179,9 +179,8 @@ async def test_resolution_after_upgrade(name, before, after):
         if expected is None:
             assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{generation_type}", _KEYS[0]))
             continue
-        resolved = await resolver._resolve_layered_backend(
+        resolved = await resolver._configured_backend_pair(
             _Settings(),
-            None,
             None,
             _IMAGE_LAYERED_KEYS[generation_type],
         )

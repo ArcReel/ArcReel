@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -1585,16 +1585,26 @@ def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
     return [ENDPOINT_REGISTRY[k] for k in ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())]
 
 
+_ENDPOINT_SPEC_EXCLUDED_FIELDS = frozenset(
+    {"build_backend", "describe_image", "describe_video", "metering_backend", "definition"}
+)
+
+
 def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
-    """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
-    data = asdict(spec)
-    data.pop("build_backend", None)
-    data.pop("describe_image", None)
-    data.pop("describe_video", None)
+    """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包与内部描述）。"""
+    from dataclasses import fields
+
+    data = {
+        f.name: asdict(value) if is_dataclass(value) and not isinstance(value, type) else value
+        for f in fields(spec)
+        if f.name not in _ENDPOINT_SPEC_EXCLUDED_FIELDS
+        for value in (getattr(spec, f.name),)
+    }
+    raw_requests = data.get("requests")
+    if isinstance(raw_requests, (list, tuple)):
+        data["requests"] = [asdict(v) if is_dataclass(v) and not isinstance(v, type) else v for v in raw_requests]
     data["end_image_capable"] = spec.end_image_capable
     data["reference_audio_capable"] = spec.reference_audio_capable
-    data.pop("metering_backend", None)
-    data.pop("definition", None)
     data["kind"] = spec.kind
     data["display_name"] = spec.display_name
     data["size_fixed"] = spec.size_fixed
