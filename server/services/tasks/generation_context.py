@@ -42,6 +42,7 @@ from lib.generation.video_request_facts import (
 from lib.project.project_manager import get_project_manager
 from lib.prompts.reference_image_numbering import ReferenceImageSlot, require_reference_image_limit
 from lib.video_runtime.assembly import assemble_video
+from lib.video_runtime.audio import AudioRuntime, AudioTarget, assemble_audio
 from lib.video_runtime.resolution import VideoRuntime, VideoTarget
 
 rate_limiter = get_shared_rate_limiter()
@@ -180,21 +181,21 @@ async def _get_or_create_image_backend(
     )
 
 
-async def _get_or_create_audio_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_audio_model: str | None = None,
-):
-    """获取或创建 AudioBackend 实例（带缓存）。audio 无媒体特例：自定义 + 简单族统一经构造缝。"""
-    return await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
+async def _audio_backend_for_target(target: AudioTarget):
+    return await _backend_cache.get_or_create(
+        ("audio", target.provider_id, target.model_id, None, target.spec.endpoint),
+        lambda: assemble_audio(target.spec),
+        generation=target.generation,
+        spec=target.spec,
+    )
 
 
 async def _audio_backend_for(provider_id: str, model_id: str, resolver: ConfigResolver):
     """构造（或取缓存的）指定音频 backend。供应商未配置或模型不可用时原样抛出构造错误。"""
-    async with resolver.session() as r:
-        return await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
+    target = await AudioRuntime(resolver, capture_generation=_backend_cache.generation).for_identity(
+        ProviderModel(provider_id, model_id)
+    )
+    return await _audio_backend_for_target(target)
 
 
 @dataclass(frozen=True)
@@ -478,15 +479,10 @@ async def resolve_generation_context(
             )
 
         if audio is not None:
-            resolved = await r.resolve_audio_backend(project, payload)
-            audio_backend = await _get_or_create_audio_backend(
-                resolved.provider_id,
-                {},
-                r,
-                default_audio_model=resolved.model_id or None,
-            )
+            audio_target = await AudioRuntime(r, capture_generation=lambda: generation).resolve(project, payload)
+            audio_backend = await _audio_backend_for_target(audio_target)
             audio_result = AudioLaneResult(
-                provider_model=resolved,
+                provider_model=ProviderModel(audio_target.provider_id, audio_target.model_id),
                 backend_name=audio_backend.name,
                 backend_model=audio_backend.model,
                 voices=tuple(audio_backend.list_voices()),

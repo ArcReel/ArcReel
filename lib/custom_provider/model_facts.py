@@ -19,8 +19,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import EllipsisType
 
 from arcreel_catalog_core import CatalogEntry, DurationConstraints, ImageFacts, TextFacts, VideoFacts
+from lib.capabilities.kernel import TEXT_ENDPOINT, CapabilitySnapshot, resolve
 from lib.capabilities.override_schema import valid_value
 from lib.catalog import query as catalog
 from lib.custom_provider.duration_presets import infer_supported_durations
@@ -115,17 +117,108 @@ def model_entry(
     return pending if pending and matched and pending.key == matched.key else matched
 
 
+def _text_entry_facts(entry: CatalogEntry | None) -> dict[str, object]:
+    if entry is not None and isinstance(entry.facts, TextFacts):
+        return {
+            "image_input": entry.facts.image_input,
+            "structured_output": entry.facts.structured_output,
+            "max_output_tokens": entry.facts.max_output_tokens,
+        }
+    return {}
+
+
+def text_capability_snapshot(
+    model_id: str,
+    overrides: object | None = None,
+    *,
+    entry: CatalogEntry | EllipsisType | None = ...,
+    entry_binding: str | None = None,
+    official: bool = False,
+    provider_id: str = "",
+    pending: CatalogEntry | None = None,
+    base_facts: Mapping[str, object] | None = None,
+) -> CapabilitySnapshot:
+    """经纯能力内核求值文本模型的能力快照：能力覆盖 > 模型事实 > 无约束。"""
+    if base_facts is not None:
+        facts: Mapping[str, object] = base_facts
+    else:
+        resolved_entry = model_entry(model_id, "text", entry_binding, pending=pending) if entry is ... else entry
+        facts = _text_entry_facts(resolved_entry)
+    return resolve(
+        TEXT_ENDPOINT,
+        facts=facts,
+        overrides=overrides,
+        official=official,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
+
+
+def builtin_text_snapshot_from_view(
+    provider_id: str,
+    model_id: str,
+    view: catalog.ProviderModelView | None,
+    *,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    """内置文本模型的能力快照：有目录条目取条目事实，否则取目录模型基线，未收录时不加约束。"""
+    entry = view.entry if view is not None else None
+    fallback = (view.base_model or view.model) if view is not None else base_model
+    base_facts: dict[str, object] | None = None
+    if entry is None and fallback is not None:
+        caps = set(fallback.capabilities)
+        base_facts = {
+            "image_input": "vision" in caps,
+            "structured_output": "structured_output" in caps,
+            "max_output_tokens": fallback.max_output_tokens,
+        }
+    effective_overrides = view.capability_overrides if view is not None and overrides is None else overrides
+    is_official = view.official if official is None and view is not None else bool(official)
+    return text_capability_snapshot(
+        model_id,
+        effective_overrides,
+        entry=entry,
+        official=is_official,
+        provider_id=provider_id,
+        base_facts=base_facts,
+    )
+
+
+def builtin_text_snapshot(
+    provider_id: str,
+    model_id: str,
+    *,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    view = catalog.provider_model_view(provider_id, model_id, media_type="text")
+    return builtin_text_snapshot_from_view(
+        provider_id,
+        model_id,
+        view,
+        overrides=overrides,
+        official=official,
+        base_model=base_model,
+    )
+
+
 def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> TextModelFacts:
-    """文本供应商模型的生效模型事实：能力覆盖 > 对应条目；都没有时不加约束。"""
-    applied = model_fact_overrides(overrides, "text", model_id=model_id)
-    entry = model_entry(model_id, "text", entry_binding)
-    facts = entry.facts if entry is not None and isinstance(entry.facts, TextFacts) else None
-    max_output_tokens = applied.get("max_output_tokens")
-    if max_output_tokens is None and facts is not None:
-        max_output_tokens = facts.max_output_tokens
+    """文本供应商模型的生效模型事实：经纯能力内核求值（能力覆盖 > 对应条目；都没有时不加约束）。"""
+    if isinstance(overrides, Mapping):
+        text_keys = MODEL_FACT_OVERRIDE_KEYS["text"]
+        for key, value in overrides.items():
+            if key in text_keys and not model_fact_value_matches(key, value):
+                logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法，该维度回到条目或回落值", model_id, key, value)
+    snapshot = text_capability_snapshot(model_id, overrides, entry_binding=entry_binding)
+    image_input = snapshot.effective.get("image_input")
+    structured_output = snapshot.effective.get("structured_output")
+    max_output_tokens = snapshot.effective.get("max_output_tokens")
     return TextModelFacts(
-        image_input=_bool_fact(applied, "image_input", None if facts is None else facts.image_input),
-        structured_output=_bool_fact(applied, "structured_output", None if facts is None else facts.structured_output),
+        image_input=image_input if isinstance(image_input, bool) else None,
+        structured_output=structured_output if isinstance(structured_output, bool) else None,
         max_output_tokens=max_output_tokens if isinstance(max_output_tokens, int) else None,
     )
 

@@ -39,7 +39,7 @@ from lib.backends.image_capabilities import (
     image_reference_override,
 )
 from lib.backends.video_capabilities import resolve_video_model, video_endpoint
-from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, FixedDuration, InvalidOverrides
+from lib.capabilities.kernel import TEXT_ENDPOINT, AudioProtocol, CapabilitySnapshot, FixedDuration, InvalidOverrides
 from lib.capabilities.override_schema import (
     LEGACY_AUDIO_KEYS,
     OVERRIDE_KEYS,
@@ -52,11 +52,13 @@ from lib.catalog.query import CatalogModel, ProviderModelView
 from lib.custom_provider.capabilities import custom_video_snapshot
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_reference_image_limit
 from lib.custom_provider.model_facts import (
+    builtin_text_snapshot,
+    builtin_text_snapshot_from_view,
     image_model_facts,
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
-    text_model_facts,
+    text_capability_snapshot,
     video_model_facts,
 )
 
@@ -129,6 +131,23 @@ def overridable_keys(media_type: str) -> frozenset[str]:
 
 def _ordered(keys: frozenset[str] | set[str]) -> tuple[str, ...]:
     return tuple(key for key in OVERRIDE_KEY_ORDER if key in keys)
+
+
+def _text_view(snapshot: CapabilitySnapshot) -> CapabilityView:
+    def values(data: Mapping[str, object]) -> dict[str, object]:
+        return {
+            "image_input": data.get("image_input"),
+            "structured_output": data.get("structured_output"),
+            "max_output_tokens": data.get("max_output_tokens"),
+        }
+
+    return CapabilityView(
+        "text",
+        editable=_ordered(snapshot.editable),
+        base=values(snapshot.base),
+        effective_values=values(snapshot.effective),
+        overrides=snapshot.override_dict(),
+    )
 
 
 def _video_view(snapshot: CapabilitySnapshot) -> CapabilityView:
@@ -228,12 +247,12 @@ def custom_capability_view(
     editable = set(overridable_keys(media_type))
     match media_type:
         case "text":
-            text = text_model_facts(model_id, None, entry_binding=entry_binding)
-            base = {
-                "image_input": text.image_input,
-                "structured_output": text.structured_output,
-                "max_output_tokens": text.max_output_tokens,
-            }
+            snapshot = text_capability_snapshot(
+                model_id,
+                raw_overrides if raw_overrides is not None else applied_overrides,
+                entry_binding=entry_binding,
+            )
+            return _text_view(snapshot)
         case "image":
             image = image_model_facts(model_id, None, entry_binding=entry_binding)
             implemented = spec.image_capabilities or frozenset()
@@ -360,6 +379,15 @@ def builtin_capability_view(
                 official=official,
             )
         return _video_view(snapshot)
+    if media_type == "text":
+        snapshot = builtin_text_snapshot(
+            provider_id,
+            model_id,
+            base_model=base_model,
+            official=official,
+            overrides={} if official else overrides,
+        )
+        return _text_view(snapshot)
     base = _catalog_model_facts(base_model)
     editable = set(overridable_keys(media_type)) if not official else set()
     if media_type == "image":
@@ -396,6 +424,12 @@ def user_added_runtime_overrides(media_type: str, raw: object | None, *, model_i
             else:
                 logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法或维度不适用", model_id, key, value)
         return applied
+    if media_type == "text":
+        applied_text = TEXT_ENDPOINT.filter_overrides(raw, {})
+        for key, value in raw.items():
+            if key not in applied_text:
+                logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法或维度不适用", model_id, key, value)
+        return applied_text
     return model_fact_overrides(raw, media_type, model_id=model_id)
 
 
@@ -408,6 +442,35 @@ class OverrideRejected(Exception):
         self.params = params
 
 
+def validate_snapshot_overrides(
+    snapshot: CapabilitySnapshot,
+    overrides: Mapping[str, object],
+    *,
+    model_id: str,
+    endpoint: str,
+    carried: Mapping[str, object] | None = None,
+    explicit: bool = True,
+) -> dict[str, object] | None:
+    """用纯能力快照校验模型能力覆盖，失败时抛出带具体本地化原因的 :class:`OverrideRejected`。"""
+    effective = (
+        overrides if (explicit or carried) else snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
+    )
+    try:
+        return snapshot.validate_overrides(effective, carried=carried) or None
+    except InvalidOverrides as exc:
+        raise _override_rejected_from_invalid(
+            exc, model_id=model_id, endpoint=endpoint, media_type=snapshot.media
+        ) from exc
+    except ValueError as exc:
+        raise OverrideRejected(
+            "capability_override_not_applicable",
+            model_id=model_id,
+            endpoint=endpoint,
+            media_type=snapshot.media,
+            capability=str(exc),
+        ) from exc
+
+
 def validate_video_overrides(
     snapshot: CapabilitySnapshot,
     overrides: Mapping[str, object],
@@ -418,24 +481,29 @@ def validate_video_overrides(
     explicit: bool = True,
 ) -> dict[str, object] | None:
     """用纯能力快照校验视频模型能力覆盖，失败时抛出带具体本地化原因的 :class:`OverrideRejected`。"""
-    effective = (
-        overrides if (explicit or carried) else snapshot.endpoint.filter_overrides(overrides, snapshot.model_facts)
+    return validate_snapshot_overrides(
+        snapshot, overrides, model_id=model_id, endpoint=endpoint, carried=carried, explicit=explicit
     )
-    try:
-        return snapshot.validate_overrides(effective, carried=carried) or None
-    except InvalidOverrides as exc:
-        raise _override_rejected_from_invalid(exc, model_id=model_id, endpoint=endpoint) from exc
-    except ValueError as exc:
-        raise OverrideRejected(
-            "capability_override_not_applicable",
-            model_id=model_id,
-            endpoint=endpoint,
-            media_type="video",
-            capability=str(exc),
-        ) from exc
 
 
-def _override_rejected_from_invalid(exc: InvalidOverrides, *, model_id: str, endpoint: str) -> OverrideRejected:
+def validate_text_overrides(
+    snapshot: CapabilitySnapshot,
+    overrides: Mapping[str, object],
+    *,
+    model_id: str,
+    endpoint: str,
+    carried: Mapping[str, object] | None = None,
+    explicit: bool = True,
+) -> dict[str, object] | None:
+    """用纯能力快照校验文本模型能力覆盖，失败时抛出带具体本地化原因的 :class:`OverrideRejected`。"""
+    return validate_snapshot_overrides(
+        snapshot, overrides, model_id=model_id, endpoint=endpoint, carried=carried, explicit=explicit
+    )
+
+
+def _override_rejected_from_invalid(
+    exc: InvalidOverrides, *, model_id: str, endpoint: str, media_type: str = "video"
+) -> OverrideRejected:
     ordered = sorted(exc.keys)
     by_reason = {
         reason: next((k for k in ordered if exc.reasons.get(k) == reason), None) for reason in set(exc.reasons.values())
@@ -460,7 +528,7 @@ def _override_rejected_from_invalid(exc: InvalidOverrides, *, model_id: str, end
         "capability_override_not_applicable",
         model_id=model_id,
         endpoint=endpoint,
-        media_type="video",
+        media_type=media_type,
         capability=key,
     )
 
@@ -498,6 +566,16 @@ def check_user_added_overrides(
                 capability=str(exc),
             ) from exc
         return validate_video_overrides(
+            snapshot,
+            overrides,
+            model_id=model_id,
+            endpoint=endpoint or provider_id,
+            carried=carried,
+            explicit=explicit,
+        )
+    if media_type == "text":
+        snapshot = builtin_text_snapshot_from_view(provider_id, model_id, view, overrides={})
+        return validate_text_overrides(
             snapshot,
             overrides,
             model_id=model_id,

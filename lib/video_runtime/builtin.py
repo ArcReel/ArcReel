@@ -13,9 +13,97 @@ from lib.custom_provider.builtin_definitions import builtin_definitions
 
 if TYPE_CHECKING:
     from arcreel_market_core.video_backend_contract import VideoBackend, VideoGenerationRequest, VideoGenerationResult
+    from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
     from lib.backends.backend_assembly.specs import ProviderSpec
+    from lib.backends.text_backends.base import TextBackend
     from lib.billing.metering import Usage
+
+
+def build_legacy_text(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> TextBackend:
+    return build_builtin_text(config, model, provider_id, registry)
+
+
+def build_builtin_text(config: LoadedConfig, model: str | None, provider_id: str, registry: str) -> TextBackend:
+    from lib.backends.dashscope_shared import dashscope_text_base_url
+    from lib.backends.minimax_shared import minimax_text_base_url
+    from lib.backends.text_backends import registry as text_backends
+
+    credentials = config.credentials
+    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
+    if provider_id == "gemini-aistudio":
+        return text_backends.create_backend(
+            registry,
+            model=model,
+            api_key=credentials.get("api_key"),
+            base_url=credentials.get("base_url"),
+        )
+    if provider_id == "gemini-vertex":
+        return text_backends.create_backend(
+            registry,
+            model=model,
+            backend="vertex",
+            gcs_bucket=credentials.get("gcs_bucket"),
+            credentials_path=credentials.get("credentials_path"),
+        )
+    if provider_id in {"openai", "dashscope", "minimax"}:
+        user_base_url = credentials.get("base_url")
+        if provider_id == "dashscope":
+            base_url: str | None = dashscope_text_base_url(user_base_url)
+            provider_name: str | None = "dashscope"
+        elif provider_id == "minimax":
+            base_url = minimax_text_base_url(user_base_url)
+            provider_name = "minimax"
+        else:
+            base_url = user_base_url
+            provider_name = None
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "api_key": credentials.get("api_key"),
+            "base_url": base_url,
+        }
+        if provider_name:
+            kwargs["provider_name"] = provider_name
+        return text_backends.create_backend(registry, **kwargs)
+    kwargs = {"model": model, "api_key": credentials.get("api_key")}
+    base_url = credentials.get("base_url") or default_base_url
+    if base_url:
+        kwargs["base_url"] = base_url
+    return text_backends.create_backend(registry, **kwargs)
+
+
+def build_legacy_audio(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> AudioBackend:
+    return build_builtin_audio(config, model, provider_id, registry)
+
+
+def build_builtin_audio(config: LoadedConfig, model: str | None, provider_id: str, registry: str) -> AudioBackend:
+    from lib.backends.audio_backends import registry as audio_backends
+
+    credentials = config.credentials
+    api_key = credentials.get("api_key")
+    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
+    if provider_id in {"gemini-aistudio", "gemini-vertex"}:
+        vertex = provider_id == "gemini-vertex"
+        return audio_backends.create_backend(
+            registry,
+            backend_type="vertex" if vertex else "aistudio",
+            api_key=api_key,
+            base_url=credentials.get("base_url"),
+            model=model,
+            **({"credentials_path": credentials.get("credentials_path")} if vertex else {}),
+        )
+    if provider_id == "ark-agent-plan":
+        kwargs: dict[str, Any] = {"model": model}
+        if api_key:
+            kwargs["api_key"] = api_key
+        return audio_backends.create_backend(registry, **kwargs)
+    kwargs = {"model": model}
+    if api_key:
+        kwargs["api_key"] = api_key
+    base_url = credentials.get("base_url") or default_base_url
+    if base_url:
+        kwargs["base_url"] = base_url
+    return audio_backends.create_backend(registry, **kwargs)
 
 
 def build_legacy_video(
