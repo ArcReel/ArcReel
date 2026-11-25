@@ -849,23 +849,26 @@ class WorkflowStateService:
             resolver: ArtifactComparer | None = (
                 RegisteredArtifactResolver(project_path, project)
                 if currency == "registered"
-                else ArtifactCurrencyResolver(project_path)
+                else ArtifactCurrencyResolver(project_path, project=project)
             )
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
             resolver = None
         assets = self._asset_counts(project_path, project, resolver)
-        episode_summaries = [
-            self._episode_summary(
-                project_name,
-                project,
-                project_path,
-                number,
-                entry,
-                resolver=resolver,
-                preloaded_scripts=preloaded_scripts,
+        episode_summaries = []
+        for number, entry in episodes:
+            episode_summaries.append(
+                self._episode_summary(
+                    project_name,
+                    project,
+                    project_path,
+                    number,
+                    entry,
+                    resolver=resolver,
+                    preloaded_scripts=preloaded_scripts,
+                )
             )
-            for number, entry in episodes
-        ]
+            if isinstance(resolver, ArtifactCurrencyResolver):
+                resolver.release_episode()
         return ProjectSummary(
             needs_repair=False,
             repair_reason=None,
@@ -1093,7 +1096,7 @@ class WorkflowStateService:
                 )
         currency: ArtifactCurrencyResolver | None = None
         try:
-            currency = ArtifactCurrencyResolver(project_path)
+            currency = ArtifactCurrencyResolver(project_path, project=project)
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
             blockers.append(
                 WorkflowBlocker(

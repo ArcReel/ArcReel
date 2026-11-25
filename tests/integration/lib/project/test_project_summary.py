@@ -790,7 +790,7 @@ def test_verified_versions_parses_do_not_grow_with_the_episode_count(
         assert [(episode.videos.total, episode.videos.available) for episode in summary.episodes] == [(1, 1)] * count
         parses[count] = versions_parses["parses"]
 
-    assert parses[3] == parses[1] == 1
+    assert parses[3] == parses[1] == 0
 
 
 def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path) -> None:

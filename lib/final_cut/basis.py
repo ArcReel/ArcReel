@@ -136,11 +136,19 @@ def current_video(
     版本记录写入时记下了快照指纹就直接用它，不读快照（快照在渲染使用前对照记录校验）；没有记录指纹的
     旧版本才用 ``digest`` 现取。
     """
-    version = versions.get_current_version(resource_type, unit_id)
+    return current_video_from_history(
+        project_dir, versions.get_versions(resource_type, unit_id), resource_type, unit_id, digest
+    )
+
+
+def current_video_from_history(
+    project_dir: Path, history: Mapping[str, Any], resource_type: str, unit_id: str, digest: Callable[[str], str]
+) -> CurrentVideo | None:
+    version = history.get("current_version")
     artifact_path = resource_relative_path(resource_type, unit_id)
-    if version <= 0 or not (project_dir / artifact_path).is_file():
+    if type(version) is not int or version <= 0 or not (project_dir / artifact_path).is_file():
         return None
-    found = version_snapshot(project_dir, versions, resource_type, unit_id, version)
+    found = _record_snapshot(project_dir, resource_type, history.get("versions"), version)
     if found is None:
         return None
     snapshot, record = found
@@ -174,7 +182,14 @@ def version_snapshot(
     project_dir: Path, versions: VersionManager, resource_type: str, unit_id: str, version: int
 ) -> tuple[Path, Mapping[str, Any]] | None:
     """指定视频版本的快照文件与版本记录；没有该版本、快照路径不受管或文件不在时为 None。"""
-    records = versions.get_versions(resource_type, unit_id).get("versions")
+    return _record_snapshot(
+        project_dir, resource_type, versions.get_versions(resource_type, unit_id).get("versions"), version
+    )
+
+
+def _record_snapshot(
+    project_dir: Path, resource_type: str, records: object, version: int
+) -> tuple[Path, Mapping[str, Any]] | None:
     for record in records if isinstance(records, list) else []:
         if isinstance(record, Mapping) and record.get("version") == version:
             try:

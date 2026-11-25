@@ -30,6 +30,7 @@ from typing import BinaryIO, NamedTuple, Protocol, Self, cast
 
 import portalocker
 
+from lib.artifacts.legacy_history_index import LegacyHistoryIndex
 from lib.infra.content_digest import (
     CONTENT_DIGEST_RE,
     HASH_ALGORITHM,
@@ -802,9 +803,11 @@ class ProjectArtifactManifestAdapter:
         project_dir: Path,
         *,
         nofollow_supported: bool = True,
+        legacy_history: LegacyHistoryIndex | None = None,
         clock_ns: Callable[[], int] = time.time_ns,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        self._legacy_history = legacy_history
         self._nofollow_supported = nofollow_supported
         self._clock_ns = clock_ns
         self._sleep = sleep
@@ -910,7 +913,7 @@ class ProjectArtifactManifestAdapter:
         需要实际字节的读取方先经 ``lib.material.work_files.local_work_files`` 取回；这里只回答在场与内容身份。
         没有 stat：图片类产物不记内容事实。
         """
-        digest = absent_work_file_digest(self._project_dir, normalized)
+        digest = absent_work_file_digest(self._project_dir, normalized, history=self._legacy_history)
         if digest is None:
             return None
         return ArtifactObservation(

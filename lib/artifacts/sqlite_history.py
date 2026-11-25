@@ -235,6 +235,22 @@ class SQLiteHistory:
                 data.setdefault(kind, {})[name] = attrs
         return ResourceBatch(data)
 
+    def selected_resources(self, keys: Iterable[Identity], *, proof_version: int | None = None) -> History:
+        result: History = {}
+        with self._read_connection() as db:
+            for kind, name in dict.fromkeys(keys):
+                rows = db.execute(
+                    "SELECT r.current_version,v.payload FROM resource r LEFT JOIN version_record v "
+                    "ON v.resource=r.id AND (v.number=r.current_version OR v.number=?) "
+                    "WHERE r.kind=? AND r.name=? ORDER BY v.position",
+                    (proof_version, kind, name),
+                )
+                for current, payload in rows:
+                    history = result.setdefault(kind, {}).setdefault(name, {"current_version": current, "versions": []})
+                    if payload is not None:
+                        history["versions"].append(json.loads(payload))
+        return result
+
     def allocation(self, key: Identity) -> tuple[int, int]:
         with self._read_connection() as db:
             row = db.execute(

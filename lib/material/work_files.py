@@ -29,11 +29,13 @@ from collections.abc import AsyncGenerator, Generator, Iterable, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
+from itertools import chain
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.legacy_history_index import LegacyHistoryIndex
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError
 from lib.infra.content_digest import sha256_file
@@ -205,7 +207,7 @@ def _file_version(path: Path) -> tuple[object, ...] | None:
     return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size, stat_result.st_mtime_ns)
 
 
-def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
+def remote_work_file_digests(project_path: Path, *, history: LegacyHistoryIndex | None = None) -> Mapping[str, str]:
     """项目中远端内容版本的全部工作文件（项目内相对路径 → 记录的内容摘要），不论本地是否在场。
 
     缓存随 SQLite 历史修订号或版本 JSON 文件标识更新。替换 project.json 也会使缓存失效。
@@ -231,29 +233,31 @@ def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
         files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
         index = {item.path: item.digest for item in files}
     else:
-        index = {}
         try:
-            raw = versions_file.read_bytes()
-        except OSError:
+            rows = (history or LegacyHistoryIndex()).remote_rows(versions_file)
+            with contextlib.closing(rows) as stream:
+                first = next(stream, None)
+                files = (
+                    _work_files_from_rows(chain((first,), stream), _load_project_json(project_path))
+                    if first is not None
+                    else ()
+                )
+                index = {item.path: item.digest for item in files}
+        except (OSError, ValueError):
             return {}
-        if b'"storage"' in raw:
-            try:
-                data = json.loads(raw)
-            except ValueError:
-                data = None
-            for item in _work_files(data, _load_project_json(project_path)):
-                index[item.path] = item.digest
     with _INDEX_GUARD:
         _INDEX_CACHE[key] = (version, index)
     return index
 
 
-def absent_work_file_digest(project_path: Path, relative_path: str) -> str | None:
+def absent_work_file_digest(
+    project_path: Path, relative_path: str, *, history: LegacyHistoryIndex | None = None
+) -> str | None:
     """``relative_path`` 是远端内容版本的工作文件、而本地缓存不在时，返回记录的内容摘要。
 
     文件在本地（应照常读取并校验内容）或它不是远端内容版本的工作文件时返回 ``None``。
     """
-    digest = remote_work_file_digests(project_path).get(PurePosixPath(relative_path).as_posix())
+    digest = remote_work_file_digests(project_path, history=history).get(PurePosixPath(relative_path).as_posix())
     if digest is None or (Path(project_path) / relative_path).exists():
         return None
     return digest
