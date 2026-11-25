@@ -180,6 +180,8 @@ MESSAGES = {
     "text_default_model_not_set": "No default text model is set: choose one in Settings → Default models; if no provider is configured yet, add one in Settings → Providers first",
     "audio_default_model_not_set": "No default narration voice-over model is set: choose one in Settings → Default models; if no text-to-speech capable provider is configured yet, add one in Settings → Providers first",
     "narration_tts_model_invalid": "The selected TTS model is unavailable; choose a model from a text-to-speech provider",
+    "narration_tts_clear_conflict": "Clear the voice and speed when clearing the narration model",
+    "narration_tts_voice_invalid": "Choose a voice supported by this TTS model",
     "narration_tts_voice_required": "Enter a narration voice when narration is delivered with TTS voiceover",
     "narration_tts_speed_invalid": "Voice speed must be a positive number",
     "narration_tts_speed_out_of_range": "The selected TTS model supports voice speeds from {minimum} to {maximum}, but the current value is {speed}. Change or clear the voice speed",

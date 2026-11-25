@@ -322,7 +322,7 @@ _TEXT_LAYERED_KEYS: dict[TextTierKey, _LayeredBackendKeys] = {
 }
 
 
-AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text"]
+AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text", "audio"]
 
 
 VoiceConsistency = Literal["native", "soft", "none"]
@@ -682,7 +682,12 @@ class ConfigResolver:
     async def narration_defaults(self) -> tuple[str, float | None]:
         """返回全局默认旁白音色与配音语速。"""
         async with self._open_session() as (_session, svc):
-            return await svc.get_narration_voice(), await svc.get_narration_speed()
+            settings = await svc.get_all_settings()
+            if not settings.get("default_audio_backend"):
+                return "", None
+            return settings.get("narration_voice", "").strip(), svc.parse_narration_speed(
+                settings.get("narration_speed", "")
+            )
 
     async def provider_config(self, provider_id: str) -> dict[str, str]:
         """获取单个供应商配置。"""

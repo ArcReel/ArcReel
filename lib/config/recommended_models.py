@@ -23,12 +23,16 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES
+from lib.backends.audio_backends.profiles import AudioProfile
 from lib.catalog import builtin_models
 from lib.config import pre_upgrade_recommendations
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import SystemSettingRepository
 from lib.config.resolver import ProviderModel
 from lib.config.service import ConfigService
+from lib.config.tts import builtin_audio_profile
+from lib.infra.api_errors import UnprocessableError
+from lib.speech.narration_config import parse_tts_backend
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +116,46 @@ def auto_fallback_allowed(frozen_marker: str, media_type: str) -> bool:
     return isinstance(unknown, list) and media_type not in unknown
 
 
+def _audio_profile(provider: str, model: str) -> AudioProfile:
+    try:
+        return builtin_audio_profile(provider, model)
+    except ValueError:
+        return AudioProfile()
+
+
+async def _write_recommendation(
+    repo: SystemSettingRepository, media_type: str, provider: str, model: str, *, only_if_empty: bool = False
+) -> bool:
+    first_voice = _audio_profile(provider, model).first_voice if media_type == "audio" else ""
+    if media_type == "audio":
+        if not first_voice:
+            return False
+        await repo.lock_audio_group()
+    if only_if_empty and _is_set(await repo.get(GLOBAL_DEFAULT_KEYS[media_type])):
+        return True
+    if first_voice:
+        await repo.upsert("narration_voice", first_voice)
+        await repo.upsert("narration_speed", "")
+    await repo.upsert(GLOBAL_DEFAULT_KEYS[media_type], ProviderModel(provider, model).pair_key)
+    return True
+
+
+async def _complete_frozen_audio_group(repo: SystemSettingRepository) -> None:
+    marker = "global_tts_group_upgraded"
+    if await repo.get(marker):
+        return
+    pair = parse_tts_backend(await repo.get("default_audio_backend"))
+    if pair:
+        profile = _audio_profile(*pair)
+        voice = (await repo.get("narration_voice")).strip()
+        if not profile.accepts_voice(voice):
+            await repo.upsert("narration_voice", profile.first_voice)
+    else:
+        await repo.delete("narration_voice")
+        await repo.delete("narration_speed")
+    await repo.upsert(marker, "1")
+
+
 async def seed_provider_recommendations(session: AsyncSession, provider_id: str) -> None:
     """供应商首次配置：全局默认模型还没有设置的媒体类型写入它的推荐模型，并为还没有记录的媒体类型记下推荐。
 
@@ -125,9 +169,8 @@ async def seed_provider_recommendations(session: AsyncSession, provider_id: str)
         return
     repo = SystemSettingRepository(session)
     for media_type, model in (await _recommendations(session, provider_id)).items():
-        key = GLOBAL_DEFAULT_KEYS[media_type]
-        if not _is_set(await repo.get(key, "")):
-            await repo.upsert(key, ProviderModel(provider_id, model).pair_key)
+        if not await _write_recommendation(repo, media_type, provider_id, model, only_if_empty=True):
+            continue
         await repo.insert_if_absent(_seen_key(provider_id, media_type), model)
 
 
@@ -143,6 +186,8 @@ async def freeze_effective_defaults(session: AsyncSession) -> None:
     """
     repo = SystemSettingRepository(session)
     if await is_frozen(session):
+        await _complete_frozen_audio_group(repo)
+        await session.commit()
         return
     table = await pre_upgrade_recommendations.load(session)
     if table is None:
@@ -164,6 +209,7 @@ async def freeze_effective_defaults(session: AsyncSession) -> None:
             if model is not None and media_type not in unknown:
                 await repo.insert_if_absent(_seen_key(provider_id, media_type), model)
     await repo.upsert(FROZEN_SETTING_KEY, json.dumps(unknown))
+    await _complete_frozen_audio_group(repo)
     await session.commit()
 
 
@@ -216,8 +262,8 @@ async def acknowledge_recommendation(
     if recommended is None or recommended != model:
         raise StaleRecommendationError(model)
     repo = SystemSettingRepository(session)
-    if apply:
-        await repo.upsert(GLOBAL_DEFAULT_KEYS[media_type], ProviderModel(provider_id, model).pair_key)
+    if apply and not await _write_recommendation(repo, media_type, provider_id, model):
+        raise UnprocessableError("narration_tts_voice_required")
     await repo.upsert(_seen_key(provider_id, media_type), model)
 
 

@@ -30,6 +30,7 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.backends.audio_backends.profiles import endpoint_profile
 from lib.backends.backend_runtime import (
     should_retry_signed_download,
     should_retry_submit,
@@ -55,30 +56,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "qwen3-tts-flash"
 
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
-
-
-_QWEN3_TTS_FLASH = "qwen3-tts-flash"
-_VOICE_CATALOG: tuple[VoiceOption, ...] = (
-    VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),
-    VoiceOption(id="Serena", label="voice_label_dashscope_serena"),
-    VoiceOption(id="Ethan", label="voice_label_dashscope_ethan"),
-    VoiceOption(id="Chelsie", label="voice_label_dashscope_chelsie"),
-    VoiceOption(id="Nofish", label="voice_label_dashscope_nofish"),
-    VoiceOption(id="Jennifer", label="voice_label_dashscope_jennifer"),
-    VoiceOption(id="Ryan", label="voice_label_dashscope_ryan"),
-    VoiceOption(id="Bellona", label="voice_label_dashscope_bellona"),
-    VoiceOption(id="Neil", label="voice_label_dashscope_neil"),
-    VoiceOption(id="Elias", label="voice_label_dashscope_elias"),
-    VoiceOption(id="Momo", label="voice_label_dashscope_momo"),
-    VoiceOption(id="Vivian", label="voice_label_dashscope_vivian"),
-    VoiceOption(id="Moon", label="voice_label_dashscope_moon"),
-    VoiceOption(id="Maia", label="voice_label_dashscope_maia"),
-    VoiceOption(id="Kai", label="voice_label_dashscope_kai"),
-    VoiceOption(id="Katerina", label="voice_label_dashscope_katerina"),
-    VoiceOption(id="Bella", label="voice_label_dashscope_bella"),
-    VoiceOption(id="Eldric Sage", label="voice_label_dashscope_eldric_sage"),
-    VoiceOption(id="Vincent", label="voice_label_dashscope_vincent"),
-)
 
 
 class _EmptyDownloadError(RuntimeError):
@@ -122,10 +99,11 @@ class DashScopeAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG) if self._model == _QWEN3_TTS_FLASH else []
+        return list(endpoint_profile("dashscope-tts", self._model).voices)
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
         """请求体 ``input`` 段。multimodal 端点只收文本、音色与语种。"""
+        endpoint_profile("dashscope-tts", self._model).validate(request.voice, None)
         if request.speed is not None:
             logger.debug("DashScope 同步 TTS 不支持语速参数 speed=%s，已忽略", request.speed)
         return {

@@ -44,4 +44,5 @@ async def test_auto_backends_returns_bucket_models_and_null_for_unavailable(db_f
         "i2v": None,
         "r2v": None,
         "text": None,
+        "audio": None,
     }

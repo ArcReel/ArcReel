@@ -709,12 +709,19 @@ class TestAutoResolvedBackendsPreview:
             target = await TextRuntime(resolver).for_task(TextTaskType.SCRIPT, None)
             return (target.snapshot.provider_id, target.snapshot.model_id)
 
+        async def _audio_pair():
+            from lib.video_runtime.audio import AudioRuntime
+
+            identity = await AudioRuntime(resolver).read_identity(None)
+            return identity.provider_id, identity.model_id
+
         return {
             "t2i": await _or_none(_image_pair("t2i")),
             "i2i": await _or_none(_image_pair("i2i")),
             "i2v": await _or_none(_video_pair("i2v")),
             "r2v": await _or_none(_video_pair("r2v")),
             "text": await _or_none(_text_pair()),
+            "audio": await _or_none(_audio_pair()),
         }
 
     async def test_ready_builtin_providers_are_not_previewed(self, db_factory):
@@ -728,7 +735,7 @@ class TestAutoResolvedBackendsPreview:
         preview = await auto_resolved_backends(resolver)
         executed = await self._execution_pairs(resolver)
         assert preview == executed
-        assert preview == {"t2i": None, "i2i": None, "i2v": None, "r2v": None, "text": None}
+        assert preview == {"t2i": None, "i2i": None, "i2v": None, "r2v": None, "text": None, "audio": None}
 
     async def test_custom_fallback_filters_by_bucket_and_reports_missing_media(self, db_factory):
         """无就绪内置供应商时按桶取自定义默认；该媒体一个候选都没有时为 None，不报错。"""
@@ -768,5 +775,12 @@ class TestAutoResolvedBackendsPreview:
         resolver = ConfigResolver(db_factory)
         preview = await auto_resolved_backends(resolver)
         executed = await self._execution_pairs(resolver)
-        assert preview == {"t2i": (pid, "t2i-m"), "i2i": (pid, "i2i-m"), "i2v": None, "r2v": None, "text": None}
+        assert preview == {
+            "t2i": (pid, "t2i-m"),
+            "i2i": (pid, "i2i-m"),
+            "i2v": None,
+            "r2v": None,
+            "text": None,
+            "audio": None,
+        }
         assert preview == executed

@@ -14,6 +14,7 @@ _AUTO_RESOLVE_TARGETS: dict[AutoResolvePurpose, tuple[str, str | None]] = {
     "i2v": ("video", "i2v"),
     "r2v": ("video", "r2v"),
     "text": ("text", None),
+    "audio": ("audio", None),
 }
 
 

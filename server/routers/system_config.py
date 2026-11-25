@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -25,7 +24,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.app_version import PYPROJECT_PATH, load_app_version
-from lib.backends.audio_backends.base import AudioCapability
 from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
     BucketDimension,
@@ -44,6 +42,7 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
+from lib.config.tts import model_profile, patch_global_tts
 from lib.db import async_session_factory, get_async_session
 from lib.i18n import DEFAULT_LOCALE, translate_or
 from lib.infra.api_errors import ConflictError, UnprocessableError
@@ -55,7 +54,6 @@ from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
 from server.services.project.model_references import project_model_references
 from server.services.project.narration_settings import default_narration_tts
-from server.services.tasks.generation_context import audio_backend_profile
 
 logger = logging.getLogger(__name__)
 
@@ -515,8 +513,8 @@ async def get_system_config(
         "default_image_backend_i2i": all_s.get("default_image_backend_i2i", ""),
         "default_text_backend": all_s.get("default_text_backend", ""),
         "default_audio_backend": all_s.get("default_audio_backend", ""),
-        "narration_voice": all_s.get("narration_voice", ""),
-        "narration_speed": narration_speed,
+        "narration_voice": all_s.get("narration_voice", "") if all_s.get("default_audio_backend") else "",
+        "narration_speed": narration_speed if all_s.get("default_audio_backend") else None,
         "video_generate_audio": video_generate_audio,
         "video_poll_timeout_seconds": ConfigService.parse_video_poll_timeout_seconds(
             all_s.get("video_poll_timeout_seconds") or str(DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS)
@@ -596,6 +594,7 @@ class AutoBackendsResponse(BaseModel):
     i2v: str | None
     r2v: str | None
     text: str | None
+    audio: str | None = None
 
 
 @router.get("/system/config/auto-backends", response_model=AutoBackendsResponse)
@@ -677,15 +676,13 @@ class NarrationDefaultsResponse(BaseModel):
 
 
 @router.get("/system/narration-defaults", response_model=NarrationDefaultsResponse)
-async def get_narration_defaults(
-    svc: Annotated[ConfigService, Depends(get_config_service)],
-) -> NarrationDefaultsResponse:
+async def get_narration_defaults() -> NarrationDefaultsResponse:
     """全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。"""
     try:
         backend, voice, speed = await default_narration_tts(ConfigResolver(async_session_factory))
         audio_backend: str | None = f"{backend.provider_id}/{backend.model_id}"
     except ValueError:
-        audio_backend, voice, speed = None, await svc.get_narration_voice(), await svc.get_narration_speed()
+        audio_backend, voice, speed = None, "", None
     return NarrationDefaultsResponse(audio_backend=audio_backend, narration_voice=voice, narration_speed=speed)
 
 
@@ -700,7 +697,9 @@ class TtsModelCapabilitiesResponse(BaseModel):
 
 
 @router.get("/system/tts-model-capabilities", response_model=TtsModelCapabilitiesResponse)
-async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCapabilitiesResponse:
+async def get_tts_model_capabilities(
+    backend: str, _t: Translator, session: AsyncSession = Depends(get_async_session)
+) -> TtsModelCapabilitiesResponse:
     """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商，以及它可选的音色。
 
     语速不支持时设置页置灰语速输入。音色的 label 对部分供应商是 lib/i18n 翻译 key，按请求 locale 渲染；
@@ -710,13 +709,13 @@ async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCa
     if pair is None:
         raise UnprocessableError("narration_tts_model_required")
     try:
-        profile = await audio_backend_profile(*pair)
+        profile = await model_profile(session, *pair)
     except ModelNotInCatalogError:
         raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
     return TtsModelCapabilitiesResponse(
-        supports_speed=AudioCapability.SPEECH_SPEED in profile.capabilities,
+        supports_speed=profile.supports_speed,
         voices=[TtsVoiceOption(id=v.id, label=_t(v.label)) for v in profile.voices],
     )
 
@@ -785,6 +784,10 @@ async def patch_system_config(
     for field_name in req.model_fields_set:
         patch[field_name] = getattr(req, field_name)
 
+    if patch.get("default_audio_backend"):
+        validate_backend_value(patch["default_audio_backend"].strip(), "default_audio_backend")
+    await patch_global_tts(svc, session, patch)
+
     for backend_key in (
         "default_video_backend",
         "default_video_backend_i2v",
@@ -793,7 +796,6 @@ async def patch_system_config(
         "default_image_backend_t2i",
         "default_image_backend_i2i",
         "default_text_backend",
-        "default_audio_backend",
         "text_backend_simple",
         "text_backend_complex",
     ):
@@ -803,24 +805,11 @@ async def patch_system_config(
                 validate_backend_value(value, backend_key)
             await svc.set_setting(backend_key, value)
 
-    if "narration_voice" in patch:
-        await svc.set_setting("narration_voice", str(patch["narration_voice"] or "").strip())
-
     if "market_github_proxy_prefix" in patch:
         prefix = str(patch["market_github_proxy_prefix"] or "").strip()
         if prefix and not _is_valid_proxy_prefix(prefix):
             raise UnprocessableError("market_github_proxy_prefix_invalid")
         await svc.set_setting(PROXY_PREFIX_SETTING, prefix)
-
-    if "narration_speed" in patch:
-        speed = patch["narration_speed"]
-        if speed is None:
-            await svc.set_setting("narration_speed", "")
-        else:
-            speed = float(speed)
-            if not math.isfinite(speed) or speed <= 0:
-                raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
-            await svc.set_setting("narration_speed", str(speed))
 
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
         await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")

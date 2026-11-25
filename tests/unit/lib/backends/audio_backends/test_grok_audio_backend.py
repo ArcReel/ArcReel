@@ -136,6 +136,13 @@ async def test_out_of_range_speed_fails_before_any_billed_request(tmp_path: Path
         assert all(value in rendered for value in ("0.7", "1.5", str(speed)))
 
 
+async def test_unknown_voice_is_rejected_before_submission(tmp_path: Path):
+    request = _request(tmp_path)
+    request.voice = "outside-the-grok-list"
+    with capture_http(), pytest.raises(UnprocessableError, match="narration_tts_voice_invalid"):
+        await _backend().synthesize(request)
+
+
 def test_declares_speed_and_the_official_voice_list():
     backend = _backend()
     assert backend.capabilities == {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}

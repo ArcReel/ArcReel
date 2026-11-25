@@ -26,6 +26,8 @@ from typing import Any
 
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, VoiceOption
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.profiles import endpoint_profile
+from lib.backends.audio_backends.profiles import voices_for_model as voices_for_model
 from lib.backends.transport_layer import TransportLayer
 
 logger = logging.getLogger(__name__)
@@ -37,57 +39,6 @@ SPEECH_SYNTHESIZER_PATH = "/services/audio/tts/SpeechSynthesizer"
 _SUPPORTED_FORMATS = frozenset({"mp3", "pcm", "wav", "opus"})
 _FALLBACK_FORMAT = "wav"
 _SAMPLE_RATE = 24000
-_RATE_MIN = 0.5
-_RATE_MAX = 2.0
-
-
-def _voices(*voice_ids: str) -> tuple[VoiceOption, ...]:
-    return tuple(
-        VoiceOption(id=voice_id, label=f"voice_label_dashscope_{voice_id.lower().replace('.', '_')}")
-        for voice_id in voice_ids
-    )
-
-
-_V31_FLAGSHIP = ("longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1")
-_VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
-    "qwen-audio-3.1-tts-plus": _voices(*_V31_FLAGSHIP),
-    "qwen-audio-3.1-tts-flash": _voices(
-        *_V31_FLAGSHIP,
-        "yuxiaoyun_v3.1",
-        "wenhuaiqing_v3.1",
-        "xieshurou_v3.1",
-        "anmingyuan_v3.1",
-        "huozhuoshi_v3.1",
-        "longshu_v3.1",
-        "longze_v3.1",
-        "longxiaocheng_v3.1",
-        "longke_v3.1",
-        "Emily_v3.1",
-        "Eric_v3.1",
-        "Ava_v3.1",
-        "Brian_v3.1",
-    ),
-    "qwen-audio-3.0-tts-plus": _voices("longanlingxin", "longanlufeng"),
-    "qwen-audio-3.0-tts-flash": _voices(
-        "longanfengyue",
-        "longanyuanfei",
-        "longanlingxi",
-        "longanxiaoxin",
-        "longanhuan_v3.6",
-        "longjielidou_v3.6",
-        "longpaopao_v3.6",
-        "longhuohuo_v3.6",
-        "longchuanshu_v3.6",
-        "loongmary",
-        "loongeva_v3.6",
-        "loongjohn",
-    ),
-}
-
-
-def voices_for_model(model: str) -> tuple[VoiceOption, ...]:
-    """该模型可用的音色子集；音色表没有收录这个型号名时为空，不借用其他型号的音色。"""
-    return _VOICES_BY_MODEL.get(model, ())
 
 
 def _format_for(request: AudioSynthesisRequest) -> str:
@@ -129,7 +80,7 @@ class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(voices_for_model(self._model))
+        return list(endpoint_profile("dashscope-speech-synthesizer", self._model).voices)
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
         body: dict[str, Any] = {
@@ -138,11 +89,9 @@ class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
             "format": _format_for(request),
             "sample_rate": _SAMPLE_RATE,
         }
+        endpoint_profile("dashscope-speech-synthesizer", self._model).validate(request.voice, request.speed)
         if request.speed is not None:
-            rate = min(max(request.speed, _RATE_MIN), _RATE_MAX)
-            if rate != request.speed:
-                logger.debug("DashScope SpeechSynthesizer 语速 %s 超出 [0.5, 2.0]，按 %s 提交", request.speed, rate)
-            body["rate"] = rate
+            body["rate"] = request.speed
         return body
 
     def _usage_tokens(self, response: dict[str, Any]) -> tuple[int | None, int | None]:

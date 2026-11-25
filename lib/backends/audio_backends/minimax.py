@@ -18,6 +18,7 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.backends.audio_backends.profiles import endpoint_profile
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.minimax_shared import minimax_headers, minimax_text_base_url, resolve_minimax_api_key
 from lib.backends.providers import PROVIDER_MINIMAX
@@ -31,32 +32,6 @@ DEFAULT_MODEL = "speech-2.8-hd"
 
 _SUPPORTED_FORMATS = frozenset({"mp3", "wav", "flac", "pcm"})
 _FALLBACK_FORMAT = "wav"
-
-_VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
-    VoiceOption(id=voice_id, label=f"voice_label_minimax_{voice_id.replace('-', '_')}")
-    for voice_id in (
-        "male-qn-qingse",
-        "male-qn-jingying",
-        "male-qn-badao",
-        "male-qn-daxuesheng",
-        "female-shaonv",
-        "female-yujie",
-        "female-chengshu",
-        "female-tianmei",
-    )
-)
-_T2A_MODELS = frozenset(
-    {
-        "speech-2.8-hd",
-        "speech-2.8-turbo",
-        "speech-2.6-hd",
-        "speech-2.6-turbo",
-        "speech-02-hd",
-        "speech-02-turbo",
-        "speech-01-hd",
-        "speech-01-turbo",
-    }
-)
 
 
 def _format_for(output_path: Path) -> str:
@@ -116,9 +91,10 @@ class MiniMaxAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG) if self._model in _T2A_MODELS else []
+        return list(endpoint_profile("minimax-tts", self._model).voices)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
+        endpoint_profile("minimax-tts", self._model).validate(request.voice, request.speed)
         audio = await self._request_speech(request)
         await run_noninterruptible_sync(request.output_path.write_bytes, audio)
         logger.info("MiniMax 语音合成完成: %s", request.output_path)

@@ -144,15 +144,15 @@ async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
     assert fields["narration_voice"] == "Cherry"
 
 
-async def test_voice_is_kept_when_the_model_cannot_be_constructed(db_factory):
-    """取不到音色表（SDK 构造失败）时不阻断建项，全局音色原样预填。"""
+async def test_offline_prefill_when_the_model_cannot_be_constructed(db_factory):
+    """SDK 无法构造时仍能离线预填。"""
     await _set_api_keys(db_factory, "gemini-aistudio")
     await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
     with patched_genai_client(error=OSError("credentials unreadable")):
         fields = await new_project_narration_fields(
             NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
         )
-    assert fields["narration_voice"] == "Cherry"
+    assert fields["narration_voice"] == "Zephyr"
 
 
 async def test_custom_provider_default_keeps_the_global_voice(db_factory):

@@ -204,7 +204,7 @@ async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel
 
     未配置任何音频供应商时抛 ValueError。项目创建后不再读取这些全局值（docs/adr/0089）。
     """
-    async with resolver.session() as r:
+    async with resolver.session(snapshot_settings=True) as r:
         identity = await AudioRuntime(r).read_identity(None)
         voice, speed = await r.narration_defaults()
         return identity, voice, speed
