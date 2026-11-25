@@ -317,6 +317,7 @@ class EndpointSpec:
 def _build_openai_chat(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAITextBackend(
+        provider_name=provider.provider_id,
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,

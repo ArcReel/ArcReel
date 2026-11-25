@@ -112,6 +112,7 @@ class TestEndpointDispatch:
         assert built == {
             "backend": "OpenAITextBackend",
             "kwargs": {
+                "provider_name": "custom-42",
                 "api_key": "sk-test",
                 "base_url": "https://api.example.com/v1",
                 "model": "gpt-4o",

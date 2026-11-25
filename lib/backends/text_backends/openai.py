@@ -1,14 +1,15 @@
-"""OpenAITextBackend — OpenAI 文本生成后端。"""
+"""OpenAI Chat Completions 异步流式文本驱动。"""
 
 from __future__ import annotations
 
 import asyncio
-import logging
+from collections.abc import AsyncGenerator
 
-from openai import AsyncOpenAI, BadRequestError
+import httpx
+from openai import APIStatusError
 
-from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
-from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
+from lib.backends.openai_shared import create_openai_client
+from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
@@ -16,25 +17,16 @@ from lib.backends.text_backends.base import (
     TokenParam,
     chat_completion_result,
     check_truncation,
-    merge_billed_usage,
     resolve_schema,
-    strip_leading_think_block,
-    structured_fallback_reason,
-    truncate_for_log,
 )
+from lib.backends.text_backends.streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
 from lib.backends.transport_layer import TransportLayer
 from lib.config.url_utils import is_official_openai_base_url
-from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 class OpenAITextBackend:
-    """OpenAI 文本生成后端，支持 Chat Completions API。"""
-
     def __init__(
         self,
         *,
@@ -43,30 +35,24 @@ class OpenAITextBackend:
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
+        strict: bool = True,
+        vision: bool = True,
+        token_param: TokenParam | None = None,
     ):
         self._client = create_openai_client(
-            api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
+            api_key=api_key,
+            base_url=base_url,
+            max_retries=0,
+            transport_layer=transport_layer,
+            timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT),
         )
-        self._model = model or DEFAULT_MODEL
         self._provider_name = provider_name
-        self._max_tokens_param: TokenParam = (
+        self._model = model or DEFAULT_MODEL
+        self._strict = strict
+        self._vision = vision
+        self._max_tokens_param = token_param or (
             "max_completion_tokens" if is_official_openai_base_url(base_url) else "max_tokens"
         )
-        self._capabilities: set[TextCapability] = self._resolve_capabilities()
-
-    def _resolve_capabilities(self) -> set[TextCapability]:
-        """官方 OpenAI 与自定义 provider 保持固定能力；DashScope 按注册表声明判定。"""
-        base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
-        if self._provider_name != PROVIDER_DASHSCOPE:
-            base.add(TextCapability.STRUCTURED_OUTPUT)
-            return base
-
-        from lib.catalog import query as catalog
-
-        model_info = catalog.get_model(self._provider_name, self._model)
-        if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
-            base.add(TextCapability.STRUCTURED_OUTPUT)
-        return base
 
     @property
     def name(self) -> str:
@@ -78,120 +64,86 @@ class OpenAITextBackend:
 
     @property
     def capabilities(self) -> set[TextCapability]:
-        return self._capabilities
+        caps = {TextCapability.TEXT_GENERATION, TextCapability.STRUCTURED_OUTPUT}
+        if self._vision:
+            caps.add(TextCapability.VISION)
+        return caps
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
+        return await execute_stream(
+            request, self._stream, provider=self.name, model=self.model, protocol="openai_chat", strict=self._strict
+        )
 
-        本方法不带重试装饰器：瞬态错误重试分别在 :meth:`_generate_native` 与
-        :func:`_instructor_fallback` 层完成。若把复验/降级也包进重试范围，降级尝试的
-        失败会连带重放已成功的原生调用（重试叠乘），且降级异常消息含模型侧动态文本，
-        可能误中重试判定的字符串模式。
-        """
-        messages = await asyncio.to_thread(_build_messages, request)
-        if request.response_schema and TextCapability.STRUCTURED_OUTPUT not in self._capabilities:
-            logger.info("%s/%s 未声明原生结构化输出，直接走 Instructor", self._provider_name, self._model)
-            return await _instructor_fallback(
-                self._client,
-                self._model,
-                request,
-                messages,
-                provider=self._provider_name,
-                token_param=self._max_tokens_param,
-            )
-
-        native = await self._generate_native(request, messages)
-        if native is None:
-            return await _instructor_fallback(
-                self._client,
-                self._model,
-                request,
-                messages,
-                provider=self._provider_name,
-                token_param=self._max_tokens_param,
-            )
-
-        if request.response_schema:
-            fallback_reason = structured_fallback_reason(native.text, request.response_schema)
-            if fallback_reason:
-                logger.warning(
-                    "原生 response_format %s，降级到带校验的 Instructor 路径；模型原始输出：%s",
-                    fallback_reason,
-                    truncate_for_log(native.text),
-                )
-                result = await _instructor_fallback(
-                    self._client,
-                    self._model,
-                    request,
-                    messages,
-                    provider=self._provider_name,
-                    token_param=self._max_tokens_param,
-                )
-                merge_billed_usage(result, native)
-                return result
-
-        return native
-
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-    async def _generate_native(
-        self, request: TextGenerationRequest, messages: list[dict]
-    ) -> TextGenerationResult | None:
-        """单次原生调用：构造 kwargs、发请求、解析与截断告警，瞬态错误重试。
-
-        schema 不兼容时返回 ``None``（降级信号）而不抛异常：代理可能把上游 schema 错误
-        包装成 429 等状态码，若以异常形式穿过重试装饰器，会被字符串模式误判为瞬态错误
-        白白重试。
-        """
-        kwargs: dict = {"model": self._model, "messages": messages}
+    async def _stream(self, request: TextGenerationRequest) -> AsyncGenerator[TextDelta | TextGenerationResult]:
+        kwargs: dict = {
+            "model": self.model,
+            "messages": await asyncio.to_thread(_build_messages, request),
+            "stream_options": {"include_usage": True},
+        }
         if request.max_output_tokens is not None:
             kwargs[self._max_tokens_param] = request.max_output_tokens
+        if request.response_schema is not None:
+            schema = {"name": "response", "schema": resolve_schema(request.response_schema)}
+            if self._strict:
+                schema["strict"] = True
+            kwargs["response_format"] = {"type": "json_schema", "json_schema": schema}
 
-        if request.response_schema:
-            schema = resolve_schema(request.response_schema)
-            kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "strict": True,
-                    "schema": schema,
-                },
-            }
+        while True:
+            try:
+                stream = await self._client.chat.completions.create(**kwargs, stream=True)
+                break
+            except APIStatusError as exc:
+                param = (exc.param or "").partition(".")[0]
+                if exc.status_code in {400, 422} and param == "stream_options" and "stream_options" in kwargs:
+                    del kwargs["stream_options"]
+                    continue
+                if request.response_schema is not None and (
+                    (exc.status_code in {400, 422} and param in {"", "response_format"})
+                    or (exc.status_code == 429 and param == "response_format")
+                ):
+                    raise NativeSchemaRejected() from None
+                raise
 
-        logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
+        parts: list[str] = []
+        finish_reason = None
+        usage = None
+        delivered = False
         try:
-            response = await self._client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            if request.response_schema and _is_schema_error(exc):
-                logger.warning(
-                    "原生 response_format 失败 (%s)，降级到 Instructor 路径",
-                    exc,
+            async with stream:
+                yield TextDelta("")
+                async for chunk in stream:
+                    if chunk.usage is not None:
+                        usage = chunk.usage
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    if choice.finish_reason:
+                        finish_reason = choice.finish_reason
+                    reasoning = getattr(choice.delta, "reasoning_content", None) or getattr(
+                        choice.delta, "reasoning", None
+                    )
+                    if isinstance(reasoning, str) and reasoning:
+                        yield TextDelta(reasoning, thinking=True)
+                    content = getattr(choice.delta, "content", None)
+                    if content:
+                        parts.append(content)
+                        yield TextDelta(content)
+            if finish_reason is not None:
+                result = chat_completion_result(text="".join(parts), provider=self.name, model=self.model, usage=usage)
+                result.truncated = check_truncation(
+                    finish_reason,
+                    provider=self.name,
+                    model=self.model,
+                    output_tokens=result.output_tokens,
+                    structured=False,
                 )
-                return None
-            raise
-
-        usage = response.usage
-        choice = response.choices[0]
-        output_tokens = usage.completion_tokens if usage else None
-        raw_text = choice.message.content or ""
-        text = strip_leading_think_block(raw_text)
-        if text != raw_text:
-            logger.info(
-                "%s/%s 输出开头带思考块，已剥离（%d 字符）",
-                self._provider_name,
-                self._model,
-                len(raw_text) - len(text),
-            )
-
-        truncated = check_truncation(
-            getattr(choice, "finish_reason", None),
-            provider=self._provider_name,
-            model=self._model,
-            output_tokens=output_tokens,
-            structured=bool(request.response_schema),
-        )
-        return chat_completion_result(
-            text=text, provider=self._provider_name, model=self._model, usage=usage, truncated=truncated
-        )
+                delivered = True
+                yield result
+        finally:
+            if not delivered and usage is not None and request.on_usage:
+                partial = chat_completion_result(text="", provider=self.name, model=self.model, usage=usage)
+                for tokens in partial.request_tokens():
+                    request.on_usage(tokens)
 
 
 def _build_messages(request: TextGenerationRequest) -> list[dict]:
@@ -217,53 +169,3 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
         messages.append({"role": "user", "content": request.prompt})
 
     return messages
-
-
-_SCHEMA_ERROR_KEYWORDS = (
-    "response_schema",
-    "json_schema",
-    "Unknown name",
-    "Cannot find field",
-    "Invalid JSON payload",
-)
-
-
-def _is_schema_error(exc: BaseException) -> bool:
-    """判断异常是否为 JSON Schema 不兼容导致的错误。
-
-    除了标准的 400 BadRequestError，一些 OpenAI 兼容代理（如 Gemini
-    兼容端点）会将上游 schema 错误包装成其他状态码（如 429），
-    因此也检查错误信息中是否包含 schema 相关关键字。
-    """
-    if isinstance(exc, BadRequestError):
-        return True
-    error_str = str(exc)
-    return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
-
-
-@with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-async def _instructor_fallback(
-    client: AsyncOpenAI,
-    model: str,
-    request: TextGenerationRequest,
-    messages: list[dict],
-    *,
-    provider: str = PROVIDER_OPENAI,
-    token_param: TokenParam = "max_tokens",
-) -> TextGenerationResult:
-    """Instructor 降级：当原生 response_format 不可用时的备选路径。
-
-    instructor_fallback_async 自身不做瞬态重试，这里补一层与原生调用同配置的重试；
-    范围仅覆盖降级自身，失败不会重放已成功的原生调用。
-    """
-    from lib.backends.text_backends.instructor_support import instructor_fallback_async
-
-    return await instructor_fallback_async(
-        client=client,
-        model=model,
-        messages=messages,
-        response_schema=request.response_schema,
-        provider=provider,
-        max_tokens=request.max_output_tokens,
-        token_param=token_param,
-    )

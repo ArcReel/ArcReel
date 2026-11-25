@@ -86,9 +86,6 @@ def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
 
 
 def leaked_class_docstrings(model: type[BaseModel], wire_json: str) -> list[str]:
-    """``wire_json``（发往端点的 JSON 文本）里出现的 ``model`` 类 docstring，按首行匹配。
-
-    Instructor 的工具说明只取 docstring 的首段，按首行匹配才能同时覆盖整段说明与摘取的首段。
-    """
+    """``wire_json``（发往端点的 JSON 文本）里出现的 ``model`` 类 docstring，按首行匹配。"""
     first_lines = (inspect.cleandoc(text).splitlines()[0] for text in _class_docstring_texts(model))
     return [line for line in first_lines if json.dumps(line, ensure_ascii=False)[1:-1] in wire_json]

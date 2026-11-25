@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import portalocker
-from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
     from lib.artifacts.version_manager import PaidVersionCommit
@@ -807,26 +806,6 @@ class FakeConfigResolver:
         return self.caps_for(generation_type)
 
 
-def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
-    """构造「API 调用失败」形态的 Instructor 异常，供结构化输出降级链的判据测试使用。
-
-    API 调用本身抛的异常（参数被拒、瞬态 5xx、连接错误）会中断档内重试循环、被包成
-    ``InstructorRetryException``，原异常只挂在 ``__cause__`` 上。降级链的判据要认的正是这个
-    形态，拿裸 API 异常做桩会测出生产里不存在的路径。此处 ``failed_attempts`` 为空表示这一档
-    一次都没走到解析；先解析失败若干次再折在 API 上的混合形态由测试模块自行构造。形态本身由
-    ``TestInstructorExceptionShape`` 对真实 Instructor 钉住。
-    """
-    exc = InstructorRetryException(
-        str(cause),
-        last_completion=None,
-        n_attempts=1,
-        total_usage=0,
-        failed_attempts=[],
-    )
-    exc.__cause__ = cause
-    return exc
-
-
 class _SteppingClock:
     """``AsyncClock`` 替身：每读一次 ``monotonic`` 推进 ``step`` 秒，``sleep`` 只让出事件循环。"""
 
@@ -941,19 +920,6 @@ def patched_genai_client(client: Any = None, *, error: Exception | None = None) 
         if client is not None:
             factory.return_value = client
         yield factory
-
-
-@contextmanager
-def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
-    """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
-
-    *patched* 是 ``from_openai`` 返回的 instructor 客户端；省略时返回默认替身。
-    其余关键字参数（``return_value`` / ``side_effect``）原样交给 ``patch``。
-    """
-    with patch("instructor.from_openai", **patch_kwargs) as from_openai:
-        if patched is not None:
-            from_openai.return_value = patched
-        yield from_openai
 
 
 class _BlockingFileReadGate:

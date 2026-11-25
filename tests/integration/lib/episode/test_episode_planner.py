@@ -873,7 +873,6 @@ class TestPlan:
 
         assert fake.calls == 1
         assert isinstance(exc_info.value.__cause__, StructuredOutputExhaustedError)
-        assert "InstructorRetryException" not in str(exc_info.value)
 
     async def test_plan_raises_planning_conflict_when_ledger_advances_during_call(self, tmp_path: Path):
         """请求在途时账本被另一次调用抢先提交、有效起点前移：锁内复核发现不一致，整批作废，账本与磁盘均无写入。"""

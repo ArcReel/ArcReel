@@ -1,905 +1,210 @@
-"""OpenAITextBackend 单元测试。"""
-
-from __future__ import annotations
-
-import base64
+import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 import httpx
 import pytest
-from instructor import Mode
-from openai import BadRequestError
-from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
-from pydantic import BaseModel
 
-from lib.backends.providers import PROVIDER_OPENAI
+from lib.backends.backend_assembly.loaded_config import LoadedConfig
+from lib.backends.backend_assembly.specs import get_provider_spec
 from lib.backends.text_backends.base import (
     ImageInput,
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
+    TextOutputTruncatedError,
 )
-from tests.fakes import (
-    bounded_poll_clock,
-    captured_openai_clients,
-    instructor_api_call_exhausted,
-    patched_instructor_from_openai,
-)
+from lib.backends.text_backends.openai import OpenAITextBackend
+from lib.config.registry import PROVIDER_REGISTRY
+from lib.video_runtime.builtin import build_builtin_backend
+from tests.custom_backend_support import create_custom_backend
+from tests.fakes import bounded_poll_clock
+from tests.http_capture import PathPrefixRewrite, capture_http, only_request, request_json
+
+USAGE = {
+    "prompt_tokens": 10,
+    "completion_tokens": 8,
+    "prompt_tokens_details": {"cached_tokens": 4},
+    "completion_tokens_details": {"reasoning_tokens": 3},
+}
+TOKENS = RequestTokens(input_tokens=10, output_tokens=8, cache_read_tokens=4)
+URL = "https://api.openai.com/v1/chat/completions"
 
 
-def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5, cached_tokens=None):
-    """构造 mock ChatCompletion 响应。"""
-    usage = CompletionUsage(
-        prompt_tokens=input_tokens,
-        completion_tokens=output_tokens,
-        total_tokens=input_tokens + output_tokens,
-        prompt_tokens_details=PromptTokensDetails(cached_tokens=cached_tokens),
-    )
-
-    message = MagicMock()
-    message.content = content
-
-    choice = MagicMock()
-    choice.message = message
-
-    response = MagicMock()
-    response.choices = [choice]
-    response.usage = usage
-    return response
+def frame(delta, finish=None):
+    return {"choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
 
 
-def _make_instructor_client() -> AsyncMock:
-    """instructor patched client 替身：create_with_completion 是协程，钩子注册（on）是同步调用。"""
-    return AsyncMock(on=MagicMock())
+def data(frame):
+    return f"data: {json.dumps(frame)}\n\n".encode()
 
 
-class TestOpenAITextBackend:
-    def test_name_and_model(self):
-        with captured_openai_clients() as created:
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            assert backend.name == PROVIDER_OPENAI
-            assert backend.model == "gpt-5.4-mini"
-
-        assert created == [{"api_key": "test-key", "base_url": "https://api.openai.com/v1", "max_retries": 0}]
-
-    def test_custom_model(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key", model="gpt-5.4")
-            assert backend.model == "gpt-5.4"
-
-    def test_capabilities(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            assert TextCapability.TEXT_GENERATION in backend.capabilities
-            assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
-            assert TextCapability.VISION in backend.capabilities
-
-    def test_official_openai_unregistered_model_keeps_structured_output_capability(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="openai")
-
-        assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
-
-    def test_dashscope_qwen_long_omits_structured_output_capability(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="dashscope")
-
-        assert TextCapability.STRUCTURED_OUTPUT not in backend.capabilities
-
-    def test_dashscope_structured_model_keeps_structured_output_capability(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key", model="qwen-plus", provider_name="dashscope")
-
-        assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
-
-    async def test_generate_plain_text(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Test output", 15, 8))
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(prompt="Say hello")
-            result = await backend.generate(request)
-
-        assert result.text == "Test output"
-        assert result.provider == PROVIDER_OPENAI
-        assert result.model == "gpt-5.4-mini"
-        assert result.input_tokens == 15
-        assert result.output_tokens == 8
-        assert result.cache_read_tokens is None
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["model"] == "gpt-5.4-mini"
-        assert len(call_kwargs["messages"]) == 1
-        assert call_kwargs["messages"][0]["role"] == "user"
-        assert call_kwargs["messages"][0]["content"] == "Say hello"
-
-    async def test_cache_hits_are_reported_out_of_total_input(self):
-        """prompt_tokens 是总输入，缓存命中的部分按 cached_tokens 另报。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("ok", input_tokens=1000, output_tokens=8, cached_tokens=600)
-        )
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            result = await OpenAITextBackend(api_key="test-key").generate(TextGenerationRequest(prompt="hi"))
-
-        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1000, 600, 8)
-
-    async def test_generate_with_system_prompt(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Response"))
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Do something",
-                system_prompt="You are helpful",
-            )
-            await backend.generate(request)
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["messages"][0]["role"] == "system"
-        assert call_kwargs["messages"][0]["content"] == "You are helpful"
-        assert call_kwargs["messages"][1]["role"] == "user"
-
-    async def test_generate_with_vision(self, tmp_path):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("I see a cat"))
-
-        img_path = tmp_path / "test.png"
-        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 10
-        img_path.write_bytes(png_bytes)
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="What is this?",
-                images=[ImageInput(path=img_path)],
-            )
-            result = await backend.generate(request)
-
-        assert result.text == "I see a cat"
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
-        assert call_kwargs["messages"] == [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": data_uri}},
-                    {"type": "text", "text": "What is this?"},
-                ],
-            }
-        ]
-
-    async def test_generate_structured_output(self):
-        schema_response = json.dumps({"name": "Alice", "age": 30})
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema={
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-                },
-            )
-            result = await backend.generate(request)
-
-        assert result.text == schema_response
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert "response_format" in call_kwargs
-
-    async def test_generate_usage_none_tolerant(self):
-        """usage 为 None 时不应崩溃。"""
-        response = _make_mock_response("OK")
-        response.usage = None
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=response)
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(prompt="Hi")
-            result = await backend.generate(request)
-
-        assert result.text == "OK"
-        assert result.input_tokens is None
-        assert result.output_tokens is None
-
-
-def _make_bad_request_error(message: str = "Invalid schema") -> BadRequestError:
-    """构造 OpenAI BadRequestError。"""
-    return BadRequestError(
-        message=message,
-        response=httpx.Response(400, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")),
-        body={"error": {"message": message}},
+def sse(*frames):
+    return httpx.Response(
+        200, content=b"".join(map(data, frames)) + b"data: [DONE]\n\n", headers={"content-type": "text/event-stream"}
     )
 
 
-class _PersonSchema(BaseModel):
-    name: str
-    age: int
-
-
-class TestInstructorFallback:
-    """Instructor 降级路径测试。"""
-
-    async def test_dashscope_qwen_long_skips_native_structured_output(self):
-        """未声明原生 structured_output 的 DashScope 模型应直接走 Instructor。"""
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 50
-        instructor_completion.usage.completion_tokens = 20
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response(json.dumps({"name": "Alice", "age": 30}), 100, 60)
+@pytest.mark.parametrize(
+    ("provider", "url", "strict", "vision"),
+    [
+        ("openai", URL, True, True),
+        ("custom-7", "https://relay.example/v1/chat/completions", True, True),
+        ("dashscope", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", True, True),
+        ("minimax", "https://api.minimaxi.com/v1/chat/completions", True, True),
+        ("ark", "https://ark.cn-beijing.volces.com/api/v3/chat/completions", False, True),
+        ("ark-agent-plan", "https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions", False, True),
+        ("agnes", "https://apihub.agnes-ai.com/v1/chat/completions", True, False),
+    ],
+)
+async def test_chat_channels(provider, url, strict, vision):
+    if provider == "openai":
+        backend = OpenAITextBackend(api_key="key", model="model")
+    elif provider == "custom-7":
+        backend = create_custom_backend(
+            provider=SimpleNamespace(provider_id=provider, base_url="https://relay.example", api_key="key"),
+            model_id="model",
+            endpoint="openai-chat",
         )
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
+    else:
+        config = LoadedConfig(
+            credentials={"api_key": "key"}, provider_meta=PROVIDER_REGISTRY[provider], rate_limiter=None
         )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key", model="qwen-long", provider_name="dashscope")
-            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
-
-        assert result.text == instructor_result.model_dump_json()
-        mock_client.chat.completions.create.assert_not_awaited()
-        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
-
-    async def test_native_structured_output_success_no_fallback(self):
-        """原生 response_format 成功时，不走 Instructor 降级。"""
-        schema_response = json.dumps({"name": "Alice", "age": 30})
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(schema_response))
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai() as from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
+        backend = build_builtin_backend(get_provider_spec(provider, "text"), config, "model")
+    assert (TextCapability.VISION in backend.capabilities) == vision
+    observed = []
+    progress = []
+    with capture_http() as router:
+        route = router.post(url).mock(
+            return_value=sse(
+                frame({"reasoning_content": "thought"}),
+                frame({"content": "<think>hide</think>\n```json\n{}\n```"}, "stop"),
+                {"choices": [], "usage": USAGE},
             )
-            result = await backend.generate(request)
-
-        assert result.text == schema_response
-        from_openai.assert_not_called()
-
-    async def test_think_prefixed_json_passes_native_channel(self):
-        """思考模型把 <think> 块内嵌在 content 开头、JSON 跟在其后：剥掉思考块后原生通道直接采用。"""
-        schema_json = json.dumps({"name": "Alice", "age": 30})
-        content = f"<think>\n用户要抽取人物信息，年龄是整数。\n</think>\n\n{schema_json}"
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(content, 100, 60))
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai() as from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
-
-        assert result.text == schema_json
-        assert result.input_tokens == 100
-        assert result.output_tokens == 60
-        mock_client.chat.completions.create.assert_awaited_once()
-        from_openai.assert_not_called()
-
-    async def test_think_block_stripped_from_free_text(self):
-        """自由文本同样只返回思考块之后的正文。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("<think>先想想。</think>\n\n你好！")
         )
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            result = await backend.generate(TextGenerationRequest(prompt="Hi"))
-
-        assert result.text == "你好！"
-
-    async def test_think_prefixed_non_json_still_falls_back(self, caplog):
-        """剥掉思考块后正文仍不合规：照常降级，降级日志记录的是剥离后的正文而非思考内容。"""
-        import logging
-
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 50
-        instructor_completion.usage.completion_tokens = 20
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(
-            return_value=_make_mock_response("<think>想一想。</think>\n\n主角是张三。", 100, 60)
-        )
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
-        )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-            caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.openai"),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
-
-        assert result.text == instructor_result.model_dump_json()
-        assert result.input_tokens == 150
-        assert result.output_tokens == 80
-        fallback_logs = [r.message for r in caplog.records if "降级到带校验的 Instructor 路径" in r.message]
-        assert len(fallback_logs) == 1
-        assert "主角是张三。" in fallback_logs[0]
-        assert "想一想" not in fallback_logs[0]
-
-    async def test_non_json_response_triggers_instructor_fallback_pydantic(self):
-        """原生返回 200 但内容非 JSON（OpenAI 兼容代理静默忽略 response_format），应降级到 Instructor。"""
-        markdown_text = "## 小说关键信息提取\n\n- 主角: 张三\n- 题材: 都市悬疑\n开放式续集铺垫"
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 50
-        instructor_completion.usage.completion_tokens = 20
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
-        )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched) as from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
+        result = await backend.generate(
+            TextGenerationRequest(
+                "prompt",
+                system_prompt="system",
+                images=[ImageInput(url="https://img.example/a")] if vision else None,
+                response_schema={"type": "object"},
+                max_output_tokens=42,
+                on_progress=progress.append,
+                on_usage=observed.append,
             )
-            result = await backend.generate(request)
-
-        assert result.text == instructor_result.model_dump_json()
-        assert result.provider == PROVIDER_OPENAI
-        assert result.input_tokens == 150
-        assert result.output_tokens == 80
-        mock_client.chat.completions.create.assert_awaited_once()
-        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
-        fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
-        assert fallback_kwargs["model"] == "gpt-5.4-mini"
-        assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
-        assert issubclass(fallback_kwargs["response_model"], _PersonSchema)
-
-    async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
-        """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
-        violating_json = json.dumps({"name": "Alice", "age": "三十"}, ensure_ascii=False)
-        instructor_result = _PersonSchema(name="Alice", age=30)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 80
-        instructor_completion.usage.completion_tokens = 30
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 100, 60))
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
         )
+    request = only_request(route)
+    assert request.headers["authorization"] == "Bearer key"
+    body = request_json(request)
+    assert body["stream"]
+    assert body["stream_options"] == {"include_usage": True}
+    assert body["messages"][0] == {"role": "system", "content": "system"}
+    if vision:
+        assert body["messages"][1]["content"][0]["image_url"]["url"] == "https://img.example/a"
+    assert body["response_format"]["json_schema"].get("strict") is (True if strict else None)
+    assert body["max_completion_tokens" if provider == "openai" else "max_tokens"] == 42
+    assert result.text == "{}"
+    assert result.provider == provider
+    assert result.model == "model"
+    assert observed == result.request_tokens() == [TOKENS]
+    assert any(p.thinking and p.characters == 0 for p in progress)
 
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
 
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
+@pytest.mark.parametrize("finish", ["length", None])
+async def test_structured_partial_output_records_known_usage(finish):
+    observed = []
+    with capture_http() as router:
+        route = router.post(URL).mock(
+            return_value=sse(frame({"content": "{}"}, finish), {"choices": [], "usage": USAGE})
+        )
+        with pytest.raises(TextOutputTruncatedError if finish else RuntimeError):
+            await OpenAITextBackend(api_key="k").generate(
+                TextGenerationRequest("q", response_schema={"type": "object"}, on_usage=observed.append)
             )
-            result = await backend.generate(request)
+    assert observed == [TOKENS]
+    assert route.call_count == 1
 
-        assert result.text == instructor_result.model_dump_json()
-        mock_client.chat.completions.create.assert_awaited_once()
-        assert result.input_tokens == 180
-        assert result.output_tokens == 90
-        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
-    async def test_coercible_but_non_strict_json_triggers_instructor_fallback(self):
-        """原生返回可强转但类型不严格匹配的 JSON（age 为数字字符串 "30"），严格校验下视为未强制 schema，应降级。"""
-        coercible_json = json.dumps({"name": "Alice", "age": "30"})
-        instructor_result = _PersonSchema(name="Alice", age=30)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 70
-        instructor_completion.usage.completion_tokens = 25
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(coercible_json, 100, 60))
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
+async def test_gateway_rejects_usage_option():
+    with capture_http() as router:
+        route = router.post(URL).mock(
+            side_effect=[
+                httpx.Response(400, json={"error": {"param": "stream_options", "code": "unsupported_parameter"}}),
+                sse(frame({"content": "ok"}, "stop")),
+            ]
         )
+        result = await OpenAITextBackend(api_key="k").generate(TextGenerationRequest("q"))
+    first, second = [request_json(call.request) for call in route.calls]
+    assert first.pop("stream_options") == {"include_usage": True}
+    assert first == second
+    assert "max_tokens" not in second
+    assert "max_completion_tokens" not in second
+    assert result.text == "ok"
+    assert result.request_tokens() == []
 
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
 
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
-            )
-            result = await backend.generate(request)
+async def test_cancellation_preserves_partial_usage():
+    waiting = asyncio.Event()
 
-        assert result.text == instructor_result.model_dump_json()
-        mock_client.chat.completions.create.assert_awaited_once()
-        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
-        assert result.input_tokens == 170
-        assert result.output_tokens == 85
+    class Partial(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield data({"choices": [], "usage": USAGE})
+            waiting.set()
+            await asyncio.Event().wait()
 
-    async def test_missing_required_field_json_triggers_instructor_fallback(self):
-        """原生返回缺必填字段的合法 JSON（如 age 缺失），应降级到 Instructor 而非直接放行。"""
-        violating_json = json.dumps({"name": "Bob"})
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = None
-
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json, 90, 40))
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
+    observed = []
+    backend = OpenAITextBackend(api_key="k", transport_layer=PathPrefixRewrite("/v1/", "/gateway/"))
+    with capture_http() as router:
+        route = router.post(URL.replace("/v1/", "/gateway/")).mock(
+            return_value=httpx.Response(200, stream=Partial(), headers={"content-type": "text/event-stream"})
         )
+        task = asyncio.create_task(backend.generate(TextGenerationRequest("q", on_usage=observed.append)))
+        await waiting.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert route.call_count == 1
+    assert observed == [TOKENS]
 
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
 
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
-            )
-            result = await backend.generate(request)
+async def test_snapshot_disables_native_schema():
+    from lib.custom_provider.model_facts import text_capability_snapshot
+    from lib.video_runtime.text import AssembledTextBackend
 
-        assert result.text == instructor_result.model_dump_json()
-        mock_client.chat.completions.create.assert_awaited_once()
-        assert result.input_tokens == 90
-        assert result.output_tokens == 40
-        mock_patched.chat.completions.create_with_completion.assert_awaited_once()
+    snapshot = text_capability_snapshot("model", {"structured_output": False}, entry=None, provider_id="dashscope")
+    backend = AssembledTextBackend(OpenAITextBackend(api_key="k", provider_name="dashscope"), snapshot)
+    with capture_http() as router:
+        route = router.post(URL).mock(return_value=sse(frame({"content": "{}"}, "stop")))
+        result = await backend.generate(TextGenerationRequest("q", response_schema={"type": "object"}))
+    body = request_json(only_request(route))
+    assert "response_format" not in body
+    assert "JSON Schema" in body["messages"][-1]["content"]
+    assert result.text == "{}"
+    assert result.request_tokens() == []
 
-    async def test_schema_violating_json_with_dict_schema_no_fallback(self):
-        """dict schema 无对应 Pydantic 模型，即便 JSON 违反所声明类型也沿用「仅校验合法 JSON」的既有行为，不降级。"""
-        violating_json = json.dumps({"name": "Alice", "age": "thirty"})
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json))
 
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai() as from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
+async def test_status_retries_use_only_runtime_budget():
+    from openai import RateLimitError
 
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema={
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-                },
-            )
-            result = await backend.generate(request)
+    with capture_http() as router, bounded_poll_clock(step=0.1):
+        route = router.post(URL).mock(return_value=httpx.Response(429, json={"error": {"code": "rate_limit"}}))
+        with pytest.raises(RateLimitError):
+            await OpenAITextBackend(api_key="k").generate(TextGenerationRequest("q"))
+    assert route.call_count == 3
 
-        assert result.text == violating_json
-        from_openai.assert_not_called()
 
-    async def test_bad_request_error_triggers_instructor_fallback_pydantic(self):
-        """原生 response_format 抛 BadRequestError 且 schema 为 Pydantic 类时，走 Instructor 降级。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
-
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = MagicMock()
-        instructor_completion.usage.prompt_tokens = 20
-        instructor_completion.usage.completion_tokens = 10
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
+async def test_gateway_wraps_schema_rejection_in_rate_limit():
+    with capture_http() as router, bounded_poll_clock(step=0.1):
+        route = router.post(URL).mock(
+            side_effect=[
+                httpx.Response(429, json={"error": {"param": "response_format.json_schema"}}),
+                sse(frame({"content": "{}"}, "stop")),
+            ]
         )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched) as from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema=_PersonSchema,
-            )
-            result = await backend.generate(request)
-
-        assert result.text == instructor_result.model_dump_json()
-        assert result.provider == PROVIDER_OPENAI
-        assert result.input_tokens == 20
-        assert result.output_tokens == 10
-        from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
-        fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
-        assert fallback_kwargs["model"] == "gpt-5.4-mini"
-        assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
-        assert issubclass(fallback_kwargs["response_model"], _PersonSchema)
-
-    async def test_response_format_rejected_succeeds_via_tools_mode(self):
-        """上游拒收 response_format 但支持 tools：降级链首档 TOOLS 即产出合规结构化结果。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
-
-        instructor_result = _PersonSchema(name="Dana", age=31)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = None
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
+        result = await OpenAITextBackend(api_key="k").generate(
+            TextGenerationRequest("q", response_schema={"type": "object"})
         )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched) as mock_from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
-
-        assert result.text == instructor_result.model_dump_json()
-        assert [call.kwargs["mode"] for call in mock_from_openai.call_args_list] == [Mode.TOOLS]
-
-    async def test_tools_mode_rejected_falls_back_to_md_json(self):
-        """上游连 tools 也不接受时降到 MD_JSON 档，两档都在同一次 generate 内完成。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
-
-        instructor_result = _PersonSchema(name="Erin", age=27)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = None
-
-        tools_patched = _make_instructor_client()
-        tools_patched.chat.completions.create_with_completion = AsyncMock(
-            side_effect=instructor_api_call_exhausted(_make_bad_request_error("tools is not supported"))
-        )
-        md_json_patched = _make_instructor_client()
-        md_json_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
-        )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(side_effect=[tools_patched, md_json_patched]) as mock_from_openai,
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            result = await backend.generate(TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema))
-
-        assert result.text == instructor_result.model_dump_json()
-        assert [call.kwargs["mode"] for call in mock_from_openai.call_args_list] == [Mode.TOOLS, Mode.MD_JSON]
-
-    async def test_bad_request_error_with_dict_schema_falls_back_to_plain(self):
-        """原生 response_format 抛 BadRequestError 且 schema 为 dict 时，降级为无结构化输出的普通调用。"""
-        mock_client = AsyncMock()
-        fallback_json = json.dumps({"name": "Charlie", "age": 35})
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json, 12, 6)]
-        )
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(
-                prompt="Extract info",
-                response_schema={
-                    "type": "object",
-                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
-                },
-            )
-            result = await backend.generate(request)
-
-        assert result.text == fallback_json
-        assert result.input_tokens == 12
-        assert result.output_tokens == 6
-        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
-        assert second_call_kwargs.get("response_format") == {"type": "json_object"}
-
-    async def test_bad_request_error_without_schema_propagates(self):
-        """没有 response_schema 时，BadRequestError 应原样抛出，不做降级。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(prompt="Just chat")
-            with pytest.raises(BadRequestError):
-                await backend.generate(request)
-
-    async def test_is_schema_error_recognizes_bad_request(self):
-        """_is_schema_error 正确识别 BadRequestError。"""
-        from lib.backends.text_backends.openai import _is_schema_error
-
-        assert _is_schema_error(_make_bad_request_error()) is True
-        assert _is_schema_error(ValueError("other")) is False
-        assert _is_schema_error(RuntimeError("test")) is False
-
-    async def test_fallback_transient_error_does_not_replay_native_call(self):
-        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("非 JSON 散文"))
-
-        with (
-            captured_openai_clients(mock_client),
-            patch(
-                "lib.backends.text_backends.instructor_support.instructor_fallback_async",
-                new=AsyncMock(side_effect=ConnectionError("503 service unavailable")),
-            ) as mock_instructor,
-            bounded_poll_clock(),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="test-key")
-            request = TextGenerationRequest(prompt="Extract info", response_schema=_PersonSchema)
-            with pytest.raises(ConnectionError):
-                await backend.generate(request)
-
-        mock_client.chat.completions.create.assert_awaited_once()
-        assert mock_instructor.await_count == 4
-
-
-class TestMaxOutputTokens:
-    """官方端点用 max_completion_tokens，兼容端点保守沿用 max_tokens。"""
-
-    async def test_official_plain_passes_max_completion_tokens(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k")
-            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_completion_tokens"] == 32000
-        assert "max_tokens" not in call_kwargs
-
-    async def test_official_structured_passes_max_completion_tokens(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(json.dumps({"name": "x"})))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            class MyModel(BaseModel):
-                name: str
-
-            backend = OpenAITextBackend(api_key="k")
-            await backend.generate(TextGenerationRequest(prompt="hi", response_schema=MyModel, max_output_tokens=24000))
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_completion_tokens"] == 24000
-        assert "max_tokens" not in call_kwargs
-
-    async def test_no_max_tokens_means_key_absent(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k")
-            await backend.generate(TextGenerationRequest(prompt="hi"))
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert "max_tokens" not in call_kwargs
-        assert "max_completion_tokens" not in call_kwargs
-
-    async def test_custom_base_url_uses_max_tokens(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
-            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_tokens"] == 32000
-        assert "max_completion_tokens" not in call_kwargs
-
-    async def test_explicit_official_base_url_uses_max_completion_tokens(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("ok"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k", base_url="https://api.openai.com/v1")
-            await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
-
-        call_kwargs = mock_client.chat.completions.create.call_args[1]
-        assert call_kwargs["max_completion_tokens"] == 32000
-        assert "max_tokens" not in call_kwargs
-
-    async def test_official_dict_schema_fallback_uses_max_completion_tokens(self):
-        """dict-schema 降级路径（json_object 模式）也按端点选参数。"""
-        mock_client = AsyncMock()
-        fallback_json = json.dumps({"name": "x"})
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
-        )
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k")
-            await backend.generate(
-                TextGenerationRequest(
-                    prompt="hi",
-                    response_schema={"type": "object", "properties": {"name": {"type": "string"}}},
-                    max_output_tokens=8000,
-                )
-            )
-
-        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
-        assert second_call_kwargs["max_completion_tokens"] == 8000
-        assert "max_tokens" not in second_call_kwargs
-
-    async def test_custom_base_url_dict_schema_fallback_uses_max_tokens(self):
-        mock_client = AsyncMock()
-        fallback_json = json.dumps({"name": "x"})
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json)]
-        )
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k", base_url="https://vllm.example.com/v1")
-            await backend.generate(
-                TextGenerationRequest(
-                    prompt="hi",
-                    response_schema={"type": "object", "properties": {"name": {"type": "string"}}},
-                    max_output_tokens=8000,
-                )
-            )
-
-        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
-        assert second_call_kwargs["max_tokens"] == 8000
-        assert "max_completion_tokens" not in second_call_kwargs
-
-    async def test_official_instructor_fallback_uses_max_completion_tokens(self):
-        """Pydantic instructor 降级路径端到端穿透到 create_with_completion。"""
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=_make_bad_request_error())
-
-        instructor_result = _PersonSchema(name="Bob", age=25)
-        instructor_completion = MagicMock()
-        instructor_completion.usage = None
-
-        mock_patched = _make_instructor_client()
-        mock_patched.chat.completions.create_with_completion = AsyncMock(
-            return_value=(instructor_result, instructor_completion)
-        )
-
-        with (
-            captured_openai_clients(mock_client),
-            patched_instructor_from_openai(return_value=mock_patched),
-        ):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k")
-            await backend.generate(
-                TextGenerationRequest(prompt="hi", response_schema=_PersonSchema, max_output_tokens=7000)
-            )
-
-        instructor_kwargs = mock_patched.chat.completions.create_with_completion.call_args[1]
-        assert instructor_kwargs["max_completion_tokens"] == 7000
-        assert "max_tokens" not in instructor_kwargs
-
-
-class TestTruncation:
-    """结构化输出被截断时抛 TextOutputTruncatedError；自由文本告警并在结果上标记截断（见 docs/adr/0044）。"""
-
-    async def test_structured_truncation_raises(self):
-
-        from lib.backends.text_backends.base import TextOutputTruncatedError
-
-        mock_client = AsyncMock()
-        response = _make_mock_response(json.dumps({"name": "x"}))
-        response.choices[0].finish_reason = "length"
-        mock_client.chat.completions.create = AsyncMock(return_value=response)
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            class MyModel(BaseModel):
-                name: str
-
-            backend = OpenAITextBackend(api_key="k")
-            with pytest.raises(TextOutputTruncatedError) as exc_info:
-                await backend.generate(TextGenerationRequest(prompt="hi", response_schema=MyModel))
-
-        assert exc_info.value.model == "gpt-5.4-mini"
-
-    async def test_free_text_truncation_only_warns(self, caplog):
-        import logging
-
-        response = _make_mock_response("partial")
-        response.choices[0].finish_reason = "length"
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=response)
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            backend = OpenAITextBackend(api_key="k")
-            with caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.base"):
-                result = await backend.generate(TextGenerationRequest(prompt="hi"))
-
-        assert result.text == "partial"
-        assert result.truncated is True
-        assert any("被截断" in r.message for r in caplog.records)
+    native, fallback = [request_json(call.request) for call in route.calls]
+    assert "response_format" in native
+    assert "response_format" not in fallback
+    assert result.text == "{}"

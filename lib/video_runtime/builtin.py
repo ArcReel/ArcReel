@@ -43,6 +43,30 @@ def build_builtin_text(config: LoadedConfig, model: str | None, provider_id: str
             gcs_bucket=credentials.get("gcs_bucket"),
             credentials_path=credentials.get("credentials_path"),
         )
+    if provider_id in {"ark", "ark-agent-plan"}:
+        from lib.backends.ark_shared import ark_base_url, resolve_ark_api_key
+
+        return text_backends.create_backend(
+            registry,
+            model=model or "doubao-seed-2-1-lite-260915",
+            provider_name=provider_id,
+            api_key=resolve_ark_api_key(credentials.get("api_key")),
+            base_url=ark_base_url(credentials.get("base_url") or default_base_url),
+            strict=False,
+            token_param="max_tokens",
+        )
+    if provider_id == "agnes":
+        from lib.backends.agnes_shared import agnes_base_url, resolve_agnes_api_key
+
+        return text_backends.create_backend(
+            registry,
+            model=model or "agnes-3.0-flash",
+            provider_name=provider_id,
+            api_key=resolve_agnes_api_key(credentials.get("api_key")),
+            base_url=agnes_base_url(credentials.get("base_url") or default_base_url),
+            vision=False,
+            token_param="max_tokens",
+        )
     if provider_id in {"openai", "dashscope", "minimax"}:
         user_base_url = credentials.get("base_url")
         if provider_id == "dashscope":

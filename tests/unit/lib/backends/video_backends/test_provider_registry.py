@@ -123,11 +123,12 @@ def test_ark_agent_plan_backend_registered() -> None:
     """复用现有 ark backend 类支持 ark-agent-plan provider；视频按 Seedance 端点注册，两个方舟供应商共用。"""
     from lib.backends.image_backends.ark import ArkImageBackend
     from lib.backends.image_backends.registry import _BACKEND_FACTORIES as image_reg
-    from lib.backends.text_backends.ark import ArkTextBackend
+    from lib.backends.text_backends.openai import OpenAITextBackend
     from lib.backends.text_backends.registry import _BACKEND_FACTORIES as text_reg
     from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
     from lib.backends.video_backends.registry import _BACKEND_FACTORIES as video_reg
 
     assert image_reg["ark-agent-plan"] is ArkImageBackend
     assert {name: video_reg[name] for name in SEEDANCE_BACKENDS} == dict(SEEDANCE_BACKENDS)
-    assert text_reg["ark-agent-plan"] is ArkTextBackend
+    assert text_reg["openai"] is OpenAITextBackend
+    assert {"ark", "agnes", "ark-agent-plan"}.isdisjoint(text_reg)
