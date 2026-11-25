@@ -1193,3 +1193,51 @@ async def test_shutdown_ends_first_snapshot_wait_and_late_project_stream(tmp_pat
             pending.cancel()
             await asyncio.gather(pending, return_exceptions=True)
             await service.shutdown()
+
+
+async def test_batch_item_locations_read_only_the_existing_snapshot(tmp_path, monkeypatch):
+    from server.routers import project_events
+    from tests.integration.lib.workflow.test_workflow_state import _valid_narration_segment
+
+    service = ProjectEventService(tmp_path, poll_interval=60)
+    pm = service.pm
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "", "narration")
+    for number in (1, 2):
+        filename = f"episode_{number}.json"
+        pm.save_script(
+            "demo",
+            {
+                "episode": number,
+                "title": str(number),
+                "content_mode": "narration",
+                "segments": [_valid_narration_segment(segment_id=f"E{number}S01")],
+            },
+            filename,
+        )
+        pm.sync_episode_from_script("demo", filename)
+
+    app = FastAPI()
+    app.state.project_event_service = service
+    app.include_router(project_events.router)
+    ids = {"item_ids": ["E1S01", "E2S01", "S01", "E1S99"]}
+    path = "/projects/demo/item-locations"
+    await service.start()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+            cold = (await http.post(path, json=ids)).json()["items"]
+            assert all(row["status"] == "unloaded" for row in cold)
+            async with service.stream_events("demo"):
+
+                def forbidden(*args, **kwargs):
+                    pytest.fail("batch lookup read a script")
+
+                monkeypatch.setattr(pm, "load_script_readonly", forbidden)
+                monkeypatch.setattr(pm, "load_script", forbidden)
+                result = await http.post(path, json=ids)
+                assert result.status_code == 200
+                rows = result.json()["items"]
+                assert [row["status"] for row in rows] == ["found", "found", "ambiguous", "deleted"]
+                assert [(row["episode"], row["position"]) for row in rows[:2]] == [(1, 1), (2, 1)]
+    finally:
+        await service.shutdown()

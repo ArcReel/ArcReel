@@ -45,6 +45,8 @@ def with_episode_item_refs(
                 if ref is not None:
                     ref = {**ref, **_item_facts(projects, project_name, project, item_id, scripts)}
             item = present_episode_diagnostics(dict(item), project or {}, translate)
+        if ref and isinstance(item_id, str) and _POSITIONED_ITEM_ID.match(item_id):
+            item = {**item, "episode": item_id_episode(item_id), "item_id": item_id, "position": ref["item_position"]}
         enriched.append({**item, ref_field: ref})
     return enriched
 

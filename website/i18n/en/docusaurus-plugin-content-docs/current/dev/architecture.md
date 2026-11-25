@@ -52,6 +52,10 @@ Dependencies point from `server/` to `lib/`. The core library owns domain logic 
 | Settings deep links and return targets | `frontend/src/app-routes.ts` and `components/shared/page-shell/return-to.ts` |
 | Project refresh and configuration issues | `frontend/src/stores/projects-store.ts` coalesces refreshes. Writes refresh through `components/canvas/shared/refreshAfterWrite.ts`. `frontend/src/stores/config-status-store.ts` exposes issues by settings section. |
 
+The workspace endpoint `GET /api/v1/projects/{name}/workspace` returns the project ledger, episode summaries, and asset fingerprints. Availability counts use manifest registration and file presence. Each episode reports its count of video units requiring replanning. Episode scripts and asset freshness come from their respective detail endpoints. The asset page can request `asset-sheets/status?include=derivative_references`. An incomplete scan returns `referenced: null` for derivatives without a known reference.
+
+To locate visible items, send up to 200 IDs to `POST /api/v1/projects/{name}/item-locations`, for example `{"item_ids":["E2S01","S01"]}`. The response lists `items` in request order with one-based positions and a status of `found`, `deleted`, `ambiguous`, or `unloaded`. The index updates with the project event snapshot.
+
 ### Edit units and navigation guard {#edit-unit-and-leave-guard}
 
 `components/shared/edit-unit/useEditUnit` holds saved content, unsaved changes, and the save result. `LeaveGuardProvider` handles unsaved changes on navigation. Immediate actions are independent of the edit unit's save operation.

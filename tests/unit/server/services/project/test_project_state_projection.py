@@ -269,3 +269,15 @@ def test_formal_script_plan_lifecycle_reports_lightweight_refresh_events():
         [("script_plan", "updated", "episode_1", 1, False)],
         [("script_plan", "deleted", "episode_1", 1, False)],
     ]
+
+
+def test_item_locations_use_snapshot_for_bare_ids_and_incomplete_coverage():
+    from server.services.project.project_state_projection import locate_items
+
+    project = _project(episodes=[{"episode": i, "script_file": f"scripts/{i}.json"} for i in (1, 2, 3)])
+    scripts = {f"{i}.json": _script("segments", [_item("segments", f"E{i}S01")], episode=i) for i in (1, 2)}
+    snap = build_snapshot(ProjectState(project, scripts))
+    found, ambiguous, unloaded, deleted = locate_items(snap, ["E2S01", "S01", "E3S01", "E1S09"])
+    assert found == {"episode": 2, "item_id": "E2S01", "position": 1, "status": "found"}
+    assert [r["status"] for r in (ambiguous, unloaded, deleted)] == ["ambiguous", "unloaded", "deleted"]
+    assert locate_items(None, ["S01"])[0]["status"] == "unloaded"

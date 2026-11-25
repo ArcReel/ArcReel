@@ -52,6 +52,10 @@ flowchart TB
 | 设置页深链和返回目标 | `frontend/src/app-routes.ts` 与 `components/shared/page-shell/return-to.ts` |
 | 项目刷新和配置问题 | `frontend/src/stores/projects-store.ts` 负责合并刷新，写入操作后通过 `components/canvas/shared/refreshAfterWrite.ts` 触发刷新；`frontend/src/stores/config-status-store.ts` 按设置分区提供配置问题状态。 |
 
+工作台首屏接口 `GET /api/v1/projects/{name}/workspace` 返回项目账本、逐集摘要和资产指纹。摘要按清单登记与文件在场统计可用产物，单独报告待重新规划的视频单元数。单集剧本与资产图新鲜度由相应详情接口读取。资产页可用 `asset-sheets/status?include=derivative_references` 查询衍生引用，读取不完整且未找到引用时返回 `referenced: null`。
+
+可见条目通过 `POST /api/v1/projects/{name}/item-locations` 批量定位。请求体 `{"item_ids":["E2S01","S01"]}` 最多含 200 个 ID。响应的 `items` 按请求顺序返回。位置从 1 开始，`status` 为 `found`、`deleted`、`ambiguous` 或 `unloaded`。索引随项目事件快照更新。
+
 ### 编辑单元与离开拦截 {#edit-unit-and-leave-guard}
 
 `components/shared/edit-unit/useEditUnit` 管理已保存内容、未保存修改和保存结果。离开页面时由 `LeaveGuardProvider` 统一处理未保存修改，即时操作独立于编辑单元的保存。

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import Request
 from pydantic import BaseModel
 
-from lib.episode.episode_ids import episode_display_name
+from lib.episode.episode_ids import episode_display_name, item_id_episode
 from lib.project.project_manager import get_project_manager
 
 _EPISODE_REF = re.compile(r"(?:集（id=(\d+)）|(?:episode|tập) \(id=(\d+)\))", re.IGNORECASE)
@@ -85,3 +85,24 @@ async def present_request_diagnostics(value: Any, request: Request, translate: C
     except (OSError, ValueError):
         project = {}
     return present_episode_diagnostics(value, project, translate)
+
+
+def item_location(request: Request, params: dict[str, Any]) -> dict[str, Any]:
+    item_id = params.get("item_id") or params.get("unit_id") or params.get("resource_id")
+    if not isinstance(item_id, str) or (episode := item_id_episode(item_id)) is None:
+        return {}
+    service = getattr(request.app.state, "project_event_service", None)
+    name = request.path_params.get("project_name") or request.path_params.get("name")
+    location = service.locate_items(name, [item_id])[0] if service and name else {}
+    return {"episode": episode, "item_id": item_id, "position": location.get("position")}
+
+
+def with_problem_locations(request: Request, detail: Any) -> Any:
+    if isinstance(detail, dict):
+        detail = {**detail, **item_location(request, detail)}
+        if isinstance(detail.get("problems"), list):
+            detail["problems"] = [
+                {**problem, **item_location(request, problem)} if isinstance(problem, dict) else problem
+                for problem in detail["problems"]
+            ]
+    return detail

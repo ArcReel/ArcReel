@@ -19,10 +19,12 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any
 
+from lib.episode.episode_ids import item_id_episode, item_id_within_episode
 from lib.infra.content_digest import canonical_json_digest
 from lib.project.asset_derivatives import DERIVATIVE_ID_SEPARATOR, derivative_artifact_id, derivative_table
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec
 from lib.project.project_change_hints import build_change_label
+from lib.project.project_manager import ProjectManager
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
@@ -64,6 +66,29 @@ class ProjectSnapshot:
 
     data: dict[str, Any]
     fingerprint: str
+    positions: dict[str, list[tuple[int, str, int]]]
+    missing_scripts: set[int]
+
+
+def locate_items(snapshot: ProjectSnapshot | None, item_ids: list[str]) -> list[dict[str, Any]]:
+    matches = snapshot.positions if snapshot else {}
+    missing = snapshot.missing_scripts if snapshot else set()
+    results = []
+    for key in item_ids:
+        candidates = matches.get(key, [])
+        episode = item_id_episode(key)
+        position = None
+        if len(candidates) > 1:
+            status = "ambiguous"
+        elif snapshot is None or (missing and (episode is None or episode in missing)):
+            status = "unloaded"
+        elif candidates:
+            episode, key, position = candidates[0]
+            status = "found"
+        else:
+            status = "deleted"
+        results.append({"status": status, "episode": episode, "item_id": key, "position": position})
+    return results
 
 
 def build_snapshot(state: ProjectState) -> ProjectSnapshot:
@@ -77,7 +102,24 @@ def build_snapshot(state: ProjectState) -> ProjectSnapshot:
         "scripts": {name: _script_projection(script) for name, script in sorted(state.scripts.items())},
         "script_plans": dict(sorted(state.script_plans.items())),
     }
-    return ProjectSnapshot(data=data, fingerprint=canonical_json_digest(data))
+    positions: dict[str, list[tuple[int, str, int]]] = {}
+    missing = set()
+    for entry in data["episodes"].values():
+        filename = entry.get("script_file")
+        if not isinstance(filename, str) or not filename:
+            continue
+        number = entry["episode"]
+        script = data["scripts"].get(ProjectManager.normalize_script_filename(filename))
+        if script is None:
+            missing.add(number)
+            continue
+        for key, position in script["positions"].items():
+            location = (number, key, position)
+            for alias in {key, item_id_within_episode(key)}:
+                positions.setdefault(alias, []).append(location)
+    return ProjectSnapshot(
+        data=data, fingerprint=canonical_json_digest(data), positions=positions, missing_scripts=missing
+    )
 
 
 def diff_snapshots(previous: ProjectSnapshot, current: ProjectSnapshot) -> list[dict[str, Any]]:
@@ -165,11 +207,13 @@ def _script_projection(script: Mapping[str, Any]) -> dict[str, Any]:
         raw_items = []
 
     items: dict[str, Any] = {}
-    for item in raw_items:
+    positions = {}
+    for position, item in enumerate(raw_items, 1):
         if not isinstance(item, dict):
             continue
         item_id = str(item.get(id_field) or "")
         if item_id:
+            positions[item_id] = position
             items[item_id] = item
 
     return {
@@ -177,6 +221,7 @@ def _script_projection(script: Mapping[str, Any]) -> dict[str, Any]:
         "kind": kind,
         "document": {key: value for key, value in script.items() if key not in _NON_DOCUMENT_KEYS},
         "items": items,
+        "positions": positions,
     }
 
 
@@ -301,7 +346,7 @@ def _item_change(
         important=important,
         script_file=script_file,
         episode=episode,
-    )
+    ) | {"item_id": item_id, "position": None if action == "deleted" else script["positions"][item_id]}
 
 
 def _diff_script_plans(previous: Mapping[str, str], current: Mapping[str, str]) -> list[dict[str, Any]]:
