@@ -81,7 +81,8 @@ async def test_rendered_media_history_formats_agree(tmp_path: Path) -> None:
     }
 
 
-def test_preflight_detects_history_revision_through_project_alias(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("use_alias", [False, True])
+def test_preflight_detects_history_revision(tmp_path: Path, monkeypatch, use_alias: bool) -> None:
     project = write_legacy_style_project(tmp_path, schema_version=CURRENT_PROJECT_SCHEMA_VERSION)
     manager = VersionManager(project)
     manager.versions_file.rename(manager.versions_file.with_suffix(".original"))
@@ -90,9 +91,15 @@ def test_preflight_detects_history_revision_through_project_alias(tmp_path: Path
     manager.add_version("characters", "阿离", "", sheet)
     manager.add_version("characters", "阿离", "", sheet)
     alias = tmp_path / "alias"
-    alias.symlink_to(project, target_is_directory=True)
+    if use_alias:
+        try:
+            alias.symlink_to(project, target_is_directory=True)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 1314:
+                raise
+            pytest.skip("Creating directory symlinks requires Windows symlink privileges")
     monkeypatch.chdir(tmp_path)
-    relative = Path("alias")
+    relative = alias.relative_to(tmp_path) if use_alias else project.relative_to(tmp_path)
     plan = TargetStatePlanner(relative).plan()
     assert_artifact_target_state_plan_unchanged(relative, plan)
     manager.restore_version("characters", "阿离", 1, sheet)

@@ -207,6 +207,24 @@ class RuntimePlanningContext:
     bindings: dict[int, _EpisodeBinding] | None = None
     catalog: ReferenceCatalog | None = None
 
+    asset_aliases: dict[int, dict[str, str]] = field(default_factory=dict)
+
+    def index_asset_names(self, project: Mapping[str, Any]) -> None:
+        def index(bucket: Mapping[Any, Any]) -> None:
+            for raw in bucket:
+                if isinstance(raw, str) and (normalized := asset_name_comparison_key(raw)) != raw:
+                    self.asset_aliases.setdefault(id(bucket), {}).setdefault(normalized, raw)
+
+        for spec in ASSET_SPECS.values():
+            bucket = project.get(spec.bucket_key)
+            if isinstance(bucket, Mapping):
+                index(bucket)
+                if spec.supports_derivatives:
+                    for owner in bucket.values():
+                        children = owner.get(DERIVATIVES_FIELD) if isinstance(owner, Mapping) else None
+                        if isinstance(children, Mapping):
+                            index(children)
+
 
 @dataclass(frozen=True, slots=True)
 class _EpisodeState:
@@ -654,12 +672,14 @@ class TargetStatePlanner:
             project[spec.bucket_key] = {owner: narrowed}
             self._plan_asset_derivatives(spec, owner, narrowed, observation, project)
 
-    @staticmethod
-    def _asset_by_identity(bucket: object, identity: str) -> Mapping[str, Any] | None:
+    def _asset_by_identity(self, bucket: object, identity: str) -> Mapping[str, Any] | None:
         if not isinstance(bucket, Mapping):
             return None
         entry = bucket.get(identity)
-        if entry is None:
+        if entry is None and self.runtime is not None:
+            alias = self.runtime.asset_aliases.get(id(bucket), {}).get(identity)
+            entry = bucket.get(alias) if alias is not None else None
+        elif entry is None:
             entry = next(
                 (
                     value
@@ -1675,6 +1695,8 @@ class TargetStatePlanner:
                 self._skip_blocked(key, track.file, observation.blocker)
                 continue
             if not observation.present or observation.content_digest is None:
+                if self.runtime is None and not observation.present:
+                    self.absent_paths.add(self.project_dir / observation.artifact_path)
                 self._skip(key, track.file, "uploaded BGM file is not present")
                 continue
             self._remember_dependency_digest(self.project_dir / observation.artifact_path, observation.content_digest)
@@ -1682,7 +1704,14 @@ class TargetStatePlanner:
         self._planned.add("bgm")
 
     def _bgm_sources(self, bgm: Sequence[BgmClip]) -> dict[str, BgmSource]:
-        return resolve_bgm_sources(self.project_dir, self.project, bgm_ids(bgm), self._formal_content_digest)
+        ids = bgm_ids(bgm)
+        if self.runtime is None:
+            library = read_bgm_library(self.project)
+            for bgm_id in ids:
+                track = library.get(bgm_id)
+                if track is not None:
+                    self.observe(track.file)
+        return resolve_bgm_sources(self.project_dir, self.project, ids, self._formal_content_digest)
 
     def _formal_content_digest(self, artifact_path: str) -> str:
         observation = self.adapter.inspect_artifact_content(artifact_path)

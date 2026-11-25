@@ -79,7 +79,8 @@ def test_web_video_history_switches_between_upload_and_generation(uploaded_video
     directory = vm.project_path
     endpoint = f"/api/v1/projects/demo/versions/{resource_type}/{unit_id}"
     history = vm.sqlite.resources([(resource_type, unit_id)])
-    upload, generated = history[resource_type][unit_id]["versions"]
+    by_version = {row["version"]: row for row in history[resource_type][unit_id]["versions"]}
+    upload, generated = by_version[1], by_version[2]
     generated_basis = parse_typed_media_version_target(resource_type, generated).basis
     if record_shape == "backfilled":
         upload.update(
@@ -110,7 +111,7 @@ def test_web_video_history_switches_between_upload_and_generation(uploaded_video
     assert vm.get_current_version(resource_type, unit_id) == 1
     expected_upload_basis = build_uploaded_video_basis(content_digest=hashlib.sha256(b"uploaded").hexdigest())
     assert adapter.get_entry(key).basis_digest == expected_upload_basis.digest
-    saved_upload = vm.sqlite.resources([(resource_type, unit_id)])[resource_type][unit_id]["versions"][0]
+    saved_upload = vm.sqlite.current_record((resource_type, unit_id))
     assert saved_upload == upload
 
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:

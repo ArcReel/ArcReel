@@ -121,17 +121,19 @@ class LegacyHistoryIndex:
     def __init__(self) -> None:
         self._stamp: tuple[int, ...] | None = None
         self._resources: dict[Identity, _Resource] = {}
-        self._normalized: dict[Identity, str] = {}
+        self._normalized: dict[Identity, list[str]] = {}
 
     def _index(self, stream: BinaryIO) -> None:
         reader = _Reader(stream)
         resources: dict[Identity, _Resource] = {}
-        normalized: dict[Identity, str] = {}
+        normalized: dict[Identity, list[str]] = {}
 
         def bucket(kind: str) -> None:
             def resource(name: str) -> None:
                 resources[kind, name] = _Resource.read(reader)
-                normalized[kind, normalize_asset_name(name)] = name
+                names = normalized.setdefault((kind, normalize_asset_name(name)), [])
+                if name not in names:
+                    names.append(name)
 
             if reader.peek() == "{":
                 reader.members(resource)
@@ -145,7 +147,7 @@ class LegacyHistoryIndex:
 
     def _refresh(self, stream: BinaryIO) -> None:
         stat = os.fstat(stream.fileno())
-        stamp = stat.st_dev, stat.st_ino, stat.st_size, stat.st_ctime_ns
+        stamp = stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
         if stamp != self._stamp:
             self._index(stream)
             self._stamp = stamp
@@ -164,9 +166,16 @@ class LegacyHistoryIndex:
         result: dict[str, Any] = {}
         with path.open("rb") as stream:
             self._refresh(stream)
-            for kind, name in keys:
-                if equivalent:
-                    name = self._normalized.get((kind, normalize_asset_name(name)), name)
+            targets = (
+                dict.fromkeys(
+                    (kind, candidate)
+                    for kind, name in keys
+                    for candidate in self._normalized.get((kind, normalize_asset_name(name)), (name,))
+                )
+                if equivalent
+                else dict.fromkeys(keys)
+            )
+            for kind, name in targets:
                 resource = self._resources.get((kind, name))
                 if resource is None:
                     continue

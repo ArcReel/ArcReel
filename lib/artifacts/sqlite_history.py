@@ -246,7 +246,7 @@ class SQLiteHistory:
         with self._read_connection() as source, closing(sqlite3.connect(target.path)) as destination:
             source.backup(destination)
 
-    def export_json(self, path: Path, project: Callable[[History], History] | None = None) -> None:
+    def export_json(self, path: Path, transform: Callable[[History], History] | None = None) -> None:
         with self._read_connection() as db, path.open("w", encoding="utf-8") as output:
             output.write("{")
             separator = ""
@@ -255,8 +255,8 @@ class SQLiteHistory:
                 opened = False
                 for (name,) in db.execute("SELECT name FROM resource WHERE kind=? ORDER BY id", (kind,)):
                     info = self._fetch_resource(db, (kind, name))
-                    if project is not None:
-                        info = project({kind: {name: info}}).get(kind, {}).get(name)
+                    if transform is not None:
+                        info = transform({kind: {name: info}}).get(kind, {}).get(name)
                     if info is None:
                         continue
                     output.write("," if opened else header)
@@ -264,7 +264,7 @@ class SQLiteHistory:
                     output.write(json.dumps(name) + ":")
                     json.dump(info, output, ensure_ascii=False)
                 if not opened:
-                    if project is not None and kind not in project({kind: {}}):
+                    if transform is not None and kind not in transform({kind: {}}):
                         continue
                     output.write(header)
                 output.write("}")
