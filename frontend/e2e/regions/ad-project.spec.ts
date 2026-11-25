@@ -1,43 +1,31 @@
 import type { Page } from "@playwright/test";
 import { box, clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
-import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, workspaceOverride } from "../support/workspace-override.ts";
 
 const OVERVIEW_PATH = "/app/projects/demo";
 const SETTING_PATH = "/app/projects/demo/episodes/1?view=setting";
-const PROJECT = "GET /api/v1/projects/demo";
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-interface RecordedProject {
-  project: Record<string, unknown> & { episodes: Record<string, unknown>[] };
-}
-const recordedProject = recorded<RecordedProject>("project-demo.json");
-const [firstEpisode] = recordedProject.project.episodes;
+const firstEpisode = recordedDemoEpisode();
 
 const repeat = (text: string, times: number) => Array.from({ length: times }, () => text).join("");
 
 function adProject(project: Record<string, unknown>): ApiOverrides {
   return {
     ...EVENT_STREAM,
-    [PROJECT]: {
-      status: 200,
-      body: {
-        ...recordedProject,
-        project: {
-          ...recordedProject.project,
-          content_mode: "ad",
-          target_duration: 30,
-          brief: "",
-          products: {},
-          overview: null,
-          episodes: [{ ...firstEpisode, episode: 1, title: "" }],
-          ...project,
-        },
-      },
-    },
+    ...workspaceOverride({
+      content_mode: "ad",
+      target_duration: 30,
+      brief: "",
+      products: {},
+      overview: null,
+      episodes: [{ ...firstEpisode, episode: 1, title: "" }],
+      ...project,
+    }),
   };
 }
 

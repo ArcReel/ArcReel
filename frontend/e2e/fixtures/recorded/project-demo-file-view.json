@@ -111,6 +111,13 @@
         "modified_at": "2026-01-01T08:00:00.000Z"
       },
       {
+        "name": "versions",
+        "path": "versions",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
         "name": "videos",
         "path": "videos",
         "type": "directory",

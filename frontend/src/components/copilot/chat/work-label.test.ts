@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import type { ContentBlock } from "@/types";
-import { segmentWorkBlocks, toolLabel, type EpisodeRefs } from "./work-label";
+import { extractToolItemIds, segmentWorkBlocks, toolLabel, type EpisodeRefs } from "./work-label";
 
 const t = i18n.t.bind(i18n);
 
@@ -76,6 +76,22 @@ describe("toolLabel", () => {
     expect(unknown.name).toBe("NotebookEdit");
     expect(unknown.summary.endsWith("…")).toBe(true);
     expect(unknown.summary.length).toBeLessThan(200);
+  });
+
+  it("resolves cross-episode and legacy bare item ids via locations without loaded scripts", () => {
+    const locations = new Map([
+      ["E3S01", { episode: 3, item_id: "E3S01", position: 2, status: "found" as const }],
+      ["S01", { episode: 7, item_id: "S01", position: 1, status: "found" as const }],
+    ]);
+    expect(
+      extractToolItemIds("mcp__arcreel__generate_storyboards", { segment_ids: ["E3S01", "S01"] }),
+    ).toEqual(["E3S01", "S01"]);
+    expect(
+      toolLabel("mcp__arcreel__generate_storyboards", { segment_ids: ["E3S01"] }, t, EPISODES, {}, locations).summary,
+    ).toBe("雨夜 · 2");
+    expect(
+      toolLabel("mcp__arcreel__generate_storyboards", { segment_ids: ["S01"] }, t, EPISODES, {}, locations).summary,
+    ).toBe("第 1 集 · 1");
   });
 });
 

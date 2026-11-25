@@ -5,7 +5,7 @@
   "body": {
     "blocking_issues": [],
     "soft_violations": [],
-    "revision": "sha256-v1:a2446d6e178e71de1110a98808e988a84300dcf6925e8a6a28c4fc07644590b1",
+    "revision": "sha256-v1:<script-revision>",
     "episode": 2,
     "content_mode": "narration",
     "status": "confirmed",

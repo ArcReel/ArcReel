@@ -4,9 +4,21 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 
-export function useAssetSheetStatus(projectName: string, enabled = true): AssetSheetStatusRow[] {
-  const [loaded, setLoaded] = useState<{ projectName: string; rows: AssetSheetStatusRow[] } | null>(null);
-  const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
+export function useAssetSheetStatus(
+  projectName: string,
+  enabled = true,
+  include?: "derivative_references",
+): AssetSheetStatusRow[] {
+  const [loaded, setLoaded] = useState<{
+    projectName: string;
+    include?: "derivative_references";
+    rows: AssetSheetStatusRow[];
+  } | null>(null);
+  const revision = useProjectsStore((s) =>
+    include
+      ? (s.projectSnapshotRevisions[projectName] ?? 0)
+      : (s.assetRevisions[projectName] ?? s.projectSnapshotRevisions[projectName] ?? 0),
+  );
   const activeCount =
     useActiveResourceIds("character", projectName).size +
     useActiveResourceIds("character_derivative", projectName).size +
@@ -17,20 +29,38 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
   useEffect(() => {
     if (!enabled || !projectName) return;
     const controller = new AbortController();
-    void API.getAssetSheetStatus(projectName, { signal: controller.signal })
+    void API.getAssetSheetStatus(projectName, { signal: controller.signal, include })
       .then((res) => {
-        if (!controller.signal.aborted) setLoaded({ projectName, rows: res.assets ?? [] });
+        if (!controller.signal.aborted) setLoaded({ projectName, include, rows: res.assets ?? [] });
       })
       .catch(() => {
         /* 读取失败（含被作废）保留上一次的状态 */
       });
     return () => controller.abort();
-  }, [enabled, projectName, snapshotRevision, activeCount]);
+  }, [enabled, projectName, include, revision, activeCount]);
 
-  return loaded?.projectName === projectName ? loaded.rows : NO_ROWS;
+  return loaded?.projectName === projectName && loaded.include === include ? loaded.rows : NO_ROWS;
 }
 
 const NO_ROWS: AssetSheetStatusRow[] = [];
+
+export function useDerivativeReferencesByCharacter(
+  rows: AssetSheetStatusRow[],
+): Map<string, Map<string, boolean | null>> {
+  return useMemo(() => {
+    const byCharacter = new Map<string, Map<string, boolean | null>>();
+    for (const row of rows) {
+      if (row.asset_type !== "character" || row.derivative === null || row.referenced === undefined) continue;
+      let inner = byCharacter.get(row.name);
+      if (!inner) {
+        inner = new Map<string, boolean | null>();
+        byCharacter.set(row.name, inner);
+      }
+      inner.set(row.derivative, row.referenced);
+    }
+    return byCharacter;
+  }, [rows]);
+}
 
 export function useSheetStatusByName(
   rows: AssetSheetStatusRow[],

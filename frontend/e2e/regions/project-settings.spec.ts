@@ -6,7 +6,7 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 
 const RECORDED = loadRecordedResponses();
-const PROJECT_KEY = "GET /api/v1/projects/demo";
+const PROJECT_KEY = "GET /api/v1/projects/demo/workspace";
 
 function settings(tab?: string) {
   return tab ? `/app/projects/demo/settings?tab=${tab}` : "/app/projects/demo/settings";

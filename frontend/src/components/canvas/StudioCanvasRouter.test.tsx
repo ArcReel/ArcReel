@@ -13,6 +13,7 @@ import { selectActiveResourceIds, selectHasActiveTaskForScriptFile, useTasksStor
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { episodeEditViewPath } from "@/app-routes";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
+import { makeWorkspaceResponse } from "@/test/factories";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
 vi.mock("@/components/workflow/WorkflowPanel", () => ({
@@ -1167,10 +1168,9 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": script },
     });
 
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ content_mode: "ad" }),
-      scripts: { "episode_1.json": script },
-    });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse(makeProjectData({ content_mode: "ad" })),
+    );
     const moveSpy = vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
@@ -1232,7 +1232,7 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": script },
     });
 
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
@@ -1250,7 +1250,7 @@ describe("StudioCanvasRouter", () => {
       currentProjectData: makeProjectData({ content_mode: "ad" }),
       currentScripts: { "episode_1.json": script },
     });
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
@@ -1272,7 +1272,7 @@ describe("StudioCanvasRouter", () => {
         currentProjectData: makeProjectData({ content_mode: "ad" }),
         currentScripts: { "episode_1.json": script },
       });
-      vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+      vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network down"));
       const editSpy = vi.spyOn(API, apiMethod).mockResolvedValue({ success: true } as never);
 
       renderAt("/episodes/1");
@@ -1494,10 +1494,7 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": makeScript() },
     });
 
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
-      scripts: { "episode_1.json": makeScript() },
-    });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(makeProjectData()));
     vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
@@ -1505,7 +1502,7 @@ describe("StudioCanvasRouter", () => {
     await renameEpisode("新标题");
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
-      expect(API.getProject).toHaveBeenCalled();
+      expect(API.getWorkspace).toHaveBeenCalled();
     });
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "编辑分集标题" })).not.toBeInTheDocument());
     expect(useAppStore.getState().toast).toBeNull();
@@ -1517,7 +1514,7 @@ describe("StudioCanvasRouter", () => {
       currentProjectData: makeProjectData(),
       currentScripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
@@ -1537,7 +1534,7 @@ describe("StudioCanvasRouter", () => {
         currentProjectData: makeProjectData(),
         currentScripts: { "episode_1.json": makeScript() },
       });
-      vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+      vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network down"));
 
       renderAt("/characters");
 

@@ -22,6 +22,9 @@ export interface TaskItem {
   task_type: string;
   media_type: TaskMediaType;
   resource_id: string;
+  episode?: number | null;
+  item_id?: string | null;
+  position?: number | null;
   resource_ref?: EpisodeItemRef | null;
   resource_type: string | null;
   script_file: string | null;

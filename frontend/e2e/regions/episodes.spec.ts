@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, workspaceOverride } from "../support/workspace-override.ts";
 
 const PATH = "/app/projects/demo/episodes";
 const API: ApiOverrides = {
@@ -12,14 +11,7 @@ const API: ApiOverrides = {
 
 const STANDARD_TIER_MIN_WIDTH = 1280;
 
-interface RecordedProject {
-  project: { episodes: Record<string, unknown>[] };
-}
-
-const recordedProject = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo.json"), "utf8")) as RecordedResponse
-).body as RecordedProject;
-const [firstEpisode] = recordedProject.project.episodes;
+const firstEpisode = recordedDemoEpisode();
 
 
 const PARAGRAPHS = [
@@ -169,17 +161,10 @@ const VIEW = {
 
 const POPULATED: ApiOverrides = {
   ...API,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        episodes: episodeMeta,
-        whole_source_files: files.map((file) => ({ source_file: file.source_file })),
-      },
-    },
-  },
+  ...workspaceOverride({
+    episodes: episodeMeta,
+    whole_source_files: files.map((file) => ({ source_file: file.source_file })),
+  }),
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: VIEW },
 };
 

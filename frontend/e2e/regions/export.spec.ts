@@ -1,36 +1,21 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoWorkspace, workspaceOverride } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-interface RecordedProject {
-  project: { episodes: { episode: number; title?: string }[] };
-}
-
-const recordedProject = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo.json"), "utf8")) as RecordedResponse
-).body as RecordedProject;
+const recordedWorkspace = recordedDemoWorkspace();
 const LONG_EPISODE_TITLE = "第一集：雨夜里的旧城区，主角在废弃车站等待一位从未谋面的委托人，并发现站台广播仍在重复多年前的最后一班列车";
 const LONG_EPISODE_NAME: ApiOverrides = {
   ...EVENT_STREAM,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        episodes: recordedProject.project.episodes.map((ep) => ({ ...ep, title: LONG_EPISODE_TITLE })),
-      },
-    },
-  },
+  ...workspaceOverride({
+    episodes: recordedWorkspace.project.episodes.map((ep) => ({ ...ep, title: LONG_EPISODE_TITLE })),
+  }),
 };
 
 function exportDialog(page: Page): Locator {

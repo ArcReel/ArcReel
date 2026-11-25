@@ -21,6 +21,7 @@ interface CharacterDerivativesFieldProps {
   projectName: string;
   characterName: string;
   derivatives: Record<string, CharacterDerivative>;
+  derivativeReferences?: ReadonlyMap<string, boolean | null>;
   ownerSheet?: string;
   readOnly: boolean;
   busy: boolean;
@@ -30,6 +31,7 @@ export function CharacterDerivativesField({
   projectName,
   characterName,
   derivatives,
+  derivativeReferences,
   ownerSheet,
   readOnly,
   busy,
@@ -90,6 +92,7 @@ export function CharacterDerivativesField({
                     characterName={characterName}
                     name={shown.name}
                     derivative={shown.derivative}
+                    referenced={derivativeReferences?.get(shown.name)}
                     status={statuses[shown.name]}
                     ownerHasSheet={Boolean(ownerSheet)}
                     readOnly={readOnly}

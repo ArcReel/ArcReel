@@ -4,14 +4,16 @@ import { useTranslation } from "react-i18next";
 import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { useItemLocationsStore } from "@/stores/item-locations-store";
 import { suppressedAssetSheetTaskIds, useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
 import { episodeDisplayName } from "@/utils/episode-display";
+import { findEpisodeItem, isPositionedItemId } from "@/utils/episode-item";
 import {
   episodeNumberFromTaskResource,
   parseReferenceAuthoringPartial,
 } from "@/components/canvas/reference/prompt-authoring-partial";
-import type { TaskStatus } from "@/types";
+import type { TaskItem, TaskStatus } from "@/types";
 
 export function useTaskFailureNotifications(projectName?: string | null): void {
   const { t } = useTranslation(["dashboard", "errors"]);
@@ -31,10 +33,15 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   const seededRef = useRef(false);
   const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
+  const generationRef = useRef(0);
 
   useEffect(() => {
     prevStatusRef.current = new Map();
     seededRef.current = false;
+    generationRef.current += 1;
+    return () => {
+      generationRef.current += 1;
+    };
   }, [projectName]);
 
   useEffect(() => {
@@ -47,6 +54,8 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     const prev = prevStatusRef.current;
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
+    const currentScripts = useProjectsStore.getState().currentScripts;
+    const deferredFailures: TaskItem[] = [];
     for (const tk of tasks) {
       if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
@@ -83,16 +92,29 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
         }
       }
       if (notify && tk.status === "failed") {
-        const text = describeTaskFailure(
-          tRef.current,
-          tk,
-          projectDataRef.current,
-          useProjectsStore.getState().currentScripts,
-        );
-        if (text) {
-          useAppStore.getState().pushNotification(text, "error", {
-            target: buildTaskFailureTarget(tk, projectDataRef.current),
-          });
+        const needsLookup =
+          Boolean(projectName) &&
+          typeof tk.position !== "number" &&
+          !tk.resource_ref &&
+          isPositionedItemId(tk.resource_id) &&
+          !findEpisodeItem(currentScripts, tk.resource_id) &&
+          !useItemLocationsStore.getState().getLocation(projectName, tk.resource_id);
+        if (needsLookup) {
+          deferredFailures.push(tk);
+        } else {
+          const locations = projectName ? useItemLocationsStore.getState().locations : undefined;
+          const text = describeTaskFailure(
+            tRef.current,
+            tk,
+            projectDataRef.current,
+            currentScripts,
+            locations,
+          );
+          if (text) {
+            useAppStore.getState().pushNotification(text, "error", {
+              target: buildTaskFailureTarget(tk, projectDataRef.current),
+            });
+          }
         }
       }
       next.set(tk.task_id, tk.status);
@@ -100,6 +122,31 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     prevStatusRef.current = next;
     if (!isTransitionCommit) {
       seededRef.current = true;
+    }
+    if (deferredFailures.length > 0 && projectName) {
+      const gen = generationRef.current;
+      const missingIds = deferredFailures.map((tk) => tk.resource_id);
+      void useItemLocationsStore
+        .getState()
+        .locateNow(projectName, missingIds)
+        .then((locations) => {
+          if (generationRef.current !== gen) return;
+          const latestScripts = useProjectsStore.getState().currentScripts;
+          for (const tk of deferredFailures) {
+            const text = describeTaskFailure(
+              tRef.current,
+              tk,
+              projectDataRef.current,
+              latestScripts,
+              locations,
+            );
+            if (text) {
+              useAppStore.getState().pushNotification(text, "error", {
+                target: buildTaskFailureTarget(tk, projectDataRef.current),
+              });
+            }
+          }
+        });
     }
   }, [tasks, connected, projectName]);
 }

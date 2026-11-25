@@ -1,18 +1,11 @@
 import { box, clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
-import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { workspaceOverride } from "../support/workspace-override.ts";
 
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
 const UNITS_API = "/api/v1/projects/demo/reference-videos/episodes/1/units";
-
-
-interface RecordedProject {
-  project: Record<string, unknown>;
-}
-
-const project = recorded<RecordedProject>("project-demo.json");
 
 const unitId = (n: number) => `E1U${n}`;
 const LONG_LINE =
@@ -82,10 +75,7 @@ function movedUnits(id: string, afterId: string | null) {
 
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: { ...project, project: { ...project.project, generation_mode: "reference_video" } },
-  },
+  ...workspaceOverride({ generation_mode: "reference_video" }),
   [`GET ${UNITS_API}`]: unitsResponse(UNITS),
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };

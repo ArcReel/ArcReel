@@ -9,8 +9,10 @@ import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
+import { makeWorkspaceResponse } from "@/test/factories";
+import type { ProjectData } from "@/types";
 
-type ProjectResponse = Awaited<ReturnType<typeof API.getProject>>;
+type WorkspaceResult = Awaited<ReturnType<typeof API.getWorkspace>>;
 type UpdateResponse = Awaited<ReturnType<typeof API.updateProject>>;
 
 const FAKE_CONFIG = {
@@ -65,8 +67,10 @@ function mockConfig(config: object = FAKE_CONFIG) {
 }
 
 function mockProject(project: Record<string, unknown>) {
-  const base = { title: "Demo", episodes: [], characters: {}, clues: {}, ...project };
-  vi.spyOn(API, "getProject").mockResolvedValue({ project: base, scripts: {} } as unknown as ProjectResponse);
+  const base = { title: "Demo", content_mode: "narration", style: "", episodes: [], characters: {}, clues: {}, ...project };
+  vi.spyOn(API, "getWorkspace").mockResolvedValue(
+    makeWorkspaceResponse(base as unknown as ProjectData) as unknown as WorkspaceResult,
+  );
   return vi
     .spyOn(API, "updateProject")
     .mockImplementation(async (_name, patch) => ({ success: true, project: { ...base, ...patch } }) as UpdateResponse);
@@ -318,11 +322,12 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
 
   it("已保存参考图的地址带项目详情里的资产指纹，只改其他设置的保存不换掉这个版本", async () => {
     const updateSpy = mockProject({ style_image: "style_reference.png", style_description: "水墨", aspect_ratio: "9:16" });
-    vi.mocked(API.getProject).mockResolvedValue({
-      project: { title: "Demo", episodes: [], characters: {}, clues: {}, style_image: "style_reference.png", style_description: "水墨" },
-      scripts: {},
-      asset_fingerprints: { "style_reference.png": 1712345678901 },
-    } as unknown as ProjectResponse);
+    vi.mocked(API.getWorkspace).mockResolvedValue(
+      makeWorkspaceResponse(
+        { title: "Demo", content_mode: "narration", style: "", episodes: [], characters: {}, style_image: "style_reference.png", style_description: "水墨" } as unknown as ProjectData,
+        { "style_reference.png": 1712345678901 },
+      ),
+    );
     const user = userEvent.setup();
     const { container } = renderAt("/app/projects/demo/settings?tab=style");
 
@@ -604,8 +609,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         "openai/gpt-image-2": { resolution: "1K", quality: "low" },
       },
     };
-    vi.spyOn(API, "getProject").mockImplementation(
-      async () => ({ project: persisted, scripts: {} }) as unknown as ProjectResponse,
+    vi.spyOn(API, "getWorkspace").mockImplementation(
+      async () => makeWorkspaceResponse(persisted as unknown as ProjectData) as unknown as WorkspaceResult,
     );
     const updateSpy = vi.spyOn(API, "updateProject").mockImplementation(async (_name, patch) => {
       persisted = { ...persisted, ...patch };

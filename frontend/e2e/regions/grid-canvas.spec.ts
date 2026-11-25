@@ -1,19 +1,13 @@
 import { box, clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW, recorded } from "../support/recorded.ts";
+import { FIXED_NOW } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const GRID_PATH = "/app/projects/demo/episodes/1?view=grid";
 
-
-interface RecordedProject {
-  project: Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
-
-const project = recorded<RecordedProject>("project-demo.json");
-const recordedScript = project.scripts["episode_1.json"];
+const recordedScript = recordedDemoScript().script;
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
@@ -112,14 +106,7 @@ const GRIDS = [
 
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...project,
-      project: { ...project.project, grid_storyboard: true },
-      scripts: { "episode_1.json": { ...recordedScript, segments } },
-    },
-  },
+  ...workspaceOverride({ grid_storyboard: true }, { scripts: { "episode_1.json": { ...recordedScript, segments } } }),
   "GET /api/v1/projects/demo/grids": { status: 200, body: GRIDS },
   ...Object.fromEntries(GRIDS.map((g) => [`GET /api/v1/projects/demo/grids/${g.id}`, { status: 200, body: g }])),
 };

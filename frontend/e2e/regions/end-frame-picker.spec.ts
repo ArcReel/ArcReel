@@ -1,18 +1,12 @@
 import type { Page } from "@playwright/test";
 import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
-import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const BOARD_PATH = "/app/projects/demo/episodes/1";
 
-interface RecordedProject {
-  project: Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
-
-const project = recorded<RecordedProject>("project-demo.json");
-const recordedScript = project.scripts["episode_1.json"];
+const recordedScript = recordedDemoScript().script;
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
@@ -49,14 +43,10 @@ const scenes = Array.from({ length: SHOT_COUNT }, (_, i) => ({
 
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...project,
-      project: { ...project.project, content_mode: "drama" },
-      scripts: { "episode_1.json": { ...recordedScript, content_mode: "drama", segments: undefined, scenes } },
-    },
-  },
+  ...workspaceOverride(
+    { content_mode: "drama" },
+    { scripts: { "episode_1.json": { ...recordedScript, content_mode: "drama", segments: undefined, scenes } } },
+  ),
   "GET /api/v1/projects/demo/grids": {
     status: 200,
     body: [

@@ -52,6 +52,8 @@ export interface ProjectChange {
   label_params?: Record<string, string | number>;
   script_file?: string;
   episode?: number;
+  item_id?: string | null;
+  position?: number | null;
   task_type?: string;
   status?: string;
   focus?: ProjectChangeFocus | null;

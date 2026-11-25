@@ -1,0 +1,26 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/scripts/episode_1.json",
+  "status": 200,
+  "body": {
+    "script": {
+      "title": "第一集",
+      "segments": [],
+      "episode": 1,
+      "content_mode": "narration",
+      "hook": null,
+      "next_episode_teaser": null,
+      "novel": {
+        "title": "演示项目",
+        "chapter": "第一集"
+      },
+      "metadata": {
+        "created_at": "2026-01-01T08:00:00.000Z",
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "generator": "blank",
+        "status": "draft"
+      }
+    },
+    "revision": "sha256-v1:<script-revision>"
+  }
+}

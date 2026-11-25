@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, workspaceOverride } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const CHARACTERS_PATH = "/app/projects/demo/characters";
@@ -11,31 +9,17 @@ const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-interface RecordedProject {
-  project: { episodes: Record<string, unknown>[] };
-}
-
-const recordedProject = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo.json"), "utf8")) as RecordedResponse
-).body as RecordedProject;
-const [firstEpisode] = recordedProject.project.episodes;
+const firstEpisode = recordedDemoEpisode();
 const MANY_EPISODES: ApiOverrides = {
   ...API,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        episodes: Array.from({ length: 40 }, (_, i) => ({
-          ...firstEpisode,
-          episode: i + 1,
-          title: `第 ${i + 1} 集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响`,
-          script_file: `scripts/episode_${i + 1}.json`,
-        })),
-      },
-    },
-  },
+  ...workspaceOverride({
+    episodes: Array.from({ length: 40 }, (_, i) => ({
+      ...firstEpisode,
+      episode: i + 1,
+      title: `第 ${i + 1} 集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响`,
+      script_file: `scripts/episode_${i + 1}.json`,
+    })),
+  }),
 };
 
 const STANDARD_TIER_MIN_WIDTH = 1280;

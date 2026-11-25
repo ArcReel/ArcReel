@@ -1,6 +1,6 @@
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect, useLocation, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
@@ -19,7 +19,11 @@ import {
   isDemoProject,
 } from "@/onboarding/demo-project";
 import { setApiReadOnly } from "@/api";
-import { useProjectsStore } from "@/stores/projects-store";
+import {
+  episodeHasFormalScript,
+  normalizeScriptFile,
+  useProjectsStore,
+} from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -106,10 +110,24 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 
+function parseWorkspaceEpisode(location: string): number | null {
+  const match = /^\/episodes\/(\d+)(?:\/|$)/.exec(location);
+  if (!match) return null;
+  const num = Number(match[1]);
+  return Number.isInteger(num) && num > 0 ? num : null;
+}
+
 function StudioWorkspace() {
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName ?? null;
+  const [location] = useLocation();
+  const routeEpisode = parseWorkspaceEpisode(location);
+  const routeEpisodeRef = useRef(routeEpisode);
+  useEffect(() => {
+    routeEpisodeRef.current = routeEpisode;
+  }, [routeEpisode]);
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
+  const currentProjectData = useProjectsStore((s) => s.currentProjectData);
   const { t } = useTranslation("onboarding");
   const tRef = useRef(t);
   useEffect(() => {
@@ -138,6 +156,14 @@ function StudioWorkspace() {
     setApiReadOnly(false);
     setProjectDetailLoading(true);
     setCurrentProject(projectName, null);
+    const initialEpisode = routeEpisodeRef.current;
+    if (initialEpisode !== null) {
+      void useProjectsStore
+        .getState()
+        .loadEpisodeScript(projectName, initialEpisode, `episode_${initialEpisode}.json`, {
+          speculative: true,
+        });
+    }
     void useProjectsStore
       .getState()
       .refreshProject(projectName, {
@@ -153,6 +179,39 @@ function StudioWorkspace() {
       setCurrentProject(null, null);
     };
   }, [projectName, setCurrentProject, setProjectDetailLoading]);
+
+  useEffect(() => {
+    if (!projectName || isDemoProject(projectName)) return;
+    const store = useProjectsStore.getState();
+    if (routeEpisode === null) {
+      if (store.activeEpisodeScript.episode !== null || Object.keys(store.currentScripts).length > 0) {
+        store.clearActiveEpisodeScript();
+      }
+      return;
+    }
+    if (!currentProjectData) {
+      void store.loadEpisodeScript(projectName, routeEpisode, `episode_${routeEpisode}.json`, {
+        speculative: true,
+      });
+      return;
+    }
+    const epMeta = currentProjectData.episodes.find((entry) => entry.episode === routeEpisode);
+    const boundFile = normalizeScriptFile(epMeta?.script_file);
+    if (!epMeta || !episodeHasFormalScript(epMeta) || !boundFile) {
+      if (
+        store.activeEpisodeScript.episode !== routeEpisode ||
+        store.activeEpisodeScript.status !== "missing" ||
+        Object.keys(store.currentScripts).length > 0
+      ) {
+        store.clearActiveEpisodeScript();
+      }
+      return;
+    }
+    void store.loadEpisodeScript(projectName, routeEpisode, boundFile, {
+      onError: (err) =>
+        useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
+    });
+  }, [projectName, routeEpisode, currentProjectData]);
 
   useEffect(() => {
     if (!projectName || !isDemoProject(projectName)) return;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ListChecks } from "lucide-react";
 import { useLocation } from "wouter";
@@ -30,12 +30,13 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { episodeScriptRevisionKey, useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { selectProjectTaskFingerprint, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { isResourceBusy, selectWorkflowEpisodeTaskSignal, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { ProjectData, StoryboardBatchKind } from "@/types";
 import type { EpisodeEditOverview } from "@/types/edit-timeline";
+import type { WorkflowPlan } from "@/types/workflow";
 import { errMsg } from "@/utils/async";
 import { episodeAgentRef, episodeItemAgentRef, itemPositionLabel } from "@/utils/episode-display";
 import { episodeItemKind, findEpisodeItem } from "@/utils/episode-item";
@@ -67,6 +68,46 @@ function assetRouteIn(project: ProjectData | null, name: string): string | null 
     if (table && typeof table === "object" && owner in table) return `/${route}`;
   }
   return null;
+}
+
+function addAssetAliases(set: Set<string>, raw: string): void {
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+  set.add(trimmed);
+  const slash = trimmed.indexOf("/");
+  if (slash > 0) {
+    const rest = trimmed.slice(slash + 1);
+    if (rest) set.add(rest);
+    const secondSlash = rest.indexOf("/");
+    if (secondSlash > 0) set.add(rest.slice(0, secondSlash));
+  }
+}
+
+function extractReferencedAssets(plan: WorkflowPlan | null): ReadonlySet<string> | null {
+  if (!plan) return null;
+  const sheets = plan.status.artifacts.asset_sheets;
+  const content = plan.status.content;
+  const hasExplicitSheetReport = sheets !== undefined;
+  const contentLists = content
+    ? [
+        ...content.referenced_assets_without_sheet,
+        ...content.referenced_asset_sheets_stale,
+        ...content.referenced_assets_without_description,
+      ]
+    : [];
+  if (!hasExplicitSheetReport && contentLists.length === 0) return null;
+  const names = new Set<string>();
+  for (const name of contentLists) addAssetAliases(names, name);
+  if (sheets) {
+    for (const id of [...(sheets.current_ids ?? []), ...(sheets.stale_ids ?? []), ...(sheets.missing_ids ?? [])]) {
+      addAssetAliases(names, id);
+    }
+  }
+  return names;
+}
+
+function isDocumentHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
 
 function useEditOverview(projectName: string, episodeId: number | null, refetchOn: unknown, timelineCount: number) {
@@ -129,28 +170,88 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const scripts = useProjectsStore((s) => s.currentScripts);
   const ledger = useEpisodeLedger();
 
-  const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
-  const taskFingerprint = useTasksStore((s) => selectProjectTaskFingerprint(s, projectName));
-  const settledTaskFingerprint = useDebouncedValue(taskFingerprint, PLAN_REFRESH_DEBOUNCE_MS);
-
-  useEffect(() => {
-    if (!projectName) return;
-    void refreshPlan(projectName, episode);
-  }, [
-    projectName,
-    episode,
-    snapshotRevision,
-    settledTaskFingerprint,
-    confirmedDurations,
-    refreshPlan,
-  ]);
-
-  useEffect(() => () => resetTarget(), [resetTarget]);
-
   const currentKey = `${projectName}::${episode ?? ""}`;
   const shown = planKey === currentKey ? plan : null;
   const episodeId = shown?.status.target?.episode ?? episode;
   const episodeMeta = projectData?.episodes?.find((entry) => entry.episode === episodeId);
+  const referencedAssets = useMemo(() => extractReferencedAssets(shown), [shown]);
+
+  const workspaceRevision = useProjectsStore((s) =>
+    episode != null
+      ? (s.projectWideRevisions[projectName] ?? 0) +
+        (s.episodeRevisions[episodeScriptRevisionKey(projectName, episode)] ?? 0)
+      : (s.projectSnapshotRevisions[projectName] ?? 0),
+  );
+  const taskSignal = useTasksStore((s) =>
+    selectWorkflowEpisodeTaskSignal(s, projectName, episode, {
+      referencedAssets,
+      scriptFile: episodeMeta?.script_file ?? null,
+    }),
+  );
+  const liveSignal = `${workspaceRevision}::${taskSignal}`;
+  const settledLiveSignal = useDebouncedValue(liveSignal, PLAN_REFRESH_DEBOUNCE_MS);
+  const liveSignalRef = useRef(liveSignal);
+  useEffect(() => {
+    liveSignalRef.current = liveSignal;
+  }, [liveSignal]);
+
+  const lastRequestedRef = useRef<{
+    key: string;
+    signal: string;
+    confirmedDurations: Record<string, number>;
+  } | null>(null);
+  const pendingVisibleRefreshRef = useRef(false);
+
+  useEffect(() => {
+    if (!projectName) return;
+    if (isDocumentHidden()) {
+      pendingVisibleRefreshRef.current = true;
+      return;
+    }
+    pendingVisibleRefreshRef.current = false;
+    lastRequestedRef.current = {
+      key: currentKey,
+      signal: liveSignalRef.current,
+      confirmedDurations,
+    };
+    void refreshPlan(projectName, episode);
+  }, [projectName, episode, currentKey, confirmedDurations, refreshPlan]);
+
+  useEffect(() => {
+    if (!projectName) return;
+    const prev = lastRequestedRef.current;
+    if (prev && prev.key === currentKey && prev.signal === settledLiveSignal) return;
+    if (isDocumentHidden()) {
+      pendingVisibleRefreshRef.current = true;
+      return;
+    }
+    pendingVisibleRefreshRef.current = false;
+    lastRequestedRef.current = {
+      key: currentKey,
+      signal: settledLiveSignal,
+      confirmedDurations,
+    };
+    void refreshPlan(projectName, episode);
+  }, [projectName, episode, currentKey, settledLiveSignal, confirmedDurations, refreshPlan]);
+
+  useEffect(() => {
+    if (!projectName || typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || !pendingVisibleRefreshRef.current) return;
+      pendingVisibleRefreshRef.current = false;
+      lastRequestedRef.current = {
+        key: currentKey,
+        signal: liveSignalRef.current,
+        confirmedDurations,
+      };
+      void refreshPlan(projectName, episode);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [projectName, episode, currentKey, confirmedDurations, refreshPlan]);
+
+  useEffect(() => () => resetTarget(), [resetTarget]);
+
   const episodeRef = episodeId != null ? episodeAgentRef(ledger, episodeId, t) : "";
   const timelineIds = shown?.status.artifacts.edit_timelines?.timeline_ids;
   const editOverview = useEditOverview(projectName, episodeId ?? null, shown, Array.isArray(timelineIds) ? timelineIds.length : 0);

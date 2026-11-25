@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { createDeferred } from "@/test/deferred";
-import { makeTask } from "@/test/factories";
+import { makeTask, makeWorkspaceResponse } from "@/test/factories";
 import { API } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
@@ -82,8 +82,14 @@ describe("角色详情的衍生区块", () => {
     server = makeProject();
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: structuredClone(server) });
-    vi.spyOn(API, "getProject").mockImplementation(() => Promise.resolve({ project: structuredClone(server), scripts: {} }));
-    vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({ assets: [] });
+    vi.spyOn(API, "getWorkspace").mockImplementation(() => Promise.resolve(makeWorkspaceResponse(structuredClone(server))));
+    vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({
+      assets: [
+        { unit_id: "character/林夕", asset_type: "character", name: "林夕", derivative: null, status: "current", description_missing: false, image_to_image: false },
+        { unit_id: "character/林夕/战斗装", asset_type: "character", name: "林夕", derivative: "战斗装", status: "current", description_missing: false, image_to_image: false, referenced: true },
+        { unit_id: "character/林夕/便装", asset_type: "character", name: "林夕", derivative: "便装", status: "missing", description_missing: false, image_to_image: false, referenced: false },
+      ],
+    });
     vi.spyOn(API, "getCharacterDerivativeSheets").mockImplementation((_project, character) =>
       Promise.resolve({
         success: true,
@@ -410,5 +416,40 @@ describe("角色详情的衍生区块", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "林夕/战斗装" })).not.toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "林夕" })).toBeInTheDocument();
+  });
+
+  it("reads derivative reference state including unknown (null) from asset-sheets/status independently of sheet status", async () => {
+    const user = userEvent.setup();
+    delete server.characters.林夕.derivatives!.战斗装.referenced;
+    delete server.characters.林夕.derivatives!.便装.referenced;
+    useProjectsStore.setState({ currentProjectData: structuredClone(server) });
+    vi.mocked(API.getAssetSheetStatus).mockResolvedValue({
+      assets: [
+        { unit_id: "character/林夕/战斗装", asset_type: "character", name: "林夕", derivative: "战斗装", status: "stale", description_missing: false, image_to_image: false, referenced: null },
+        { unit_id: "character/林夕/便装", asset_type: "character", name: "林夕", derivative: "便装", status: "missing", description_missing: false, image_to_image: false, referenced: true },
+      ],
+    });
+    vi.mocked(API.getCharacterDerivativeSheets).mockResolvedValue({
+      success: true,
+      derivatives: {
+        战斗装: { description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: true },
+        便装: { description: "布衣", stale: false },
+      },
+    });
+    const sheet = await openCharacter(user);
+
+    expect(API.getAssetSheetStatus).toHaveBeenCalledWith(
+      "demo",
+      expect.objectContaining({ include: "derivative_references" }),
+    );
+    const armor = rowOf(sheet, "战斗装");
+    expect(await within(armor).findByText("脚本引用状态未知")).toBeInTheDocument();
+    expect(within(armor).getByText("已过期")).toBeInTheDocument();
+    expect(within(rowOf(sheet, "便装")).getByText("脚本中已引用")).toBeInTheDocument();
+
+    await user.click(within(armor).getByRole("button", { name: "「战斗装」的更多操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "删除" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
+    expect(confirm).toHaveTextContent("暂无法确认脚本中是否仍在引用 @[林夕/战斗装]。");
   });
 });

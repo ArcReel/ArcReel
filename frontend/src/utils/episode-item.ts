@@ -52,8 +52,14 @@ function itemThumbnail(item: Item): string | null {
   return str(video) || str(storyboard) || null;
 }
 
+const BARE_ITEM_ID = /^[SU]\d+(?:_\d+)?$/;
+
 export function isPositionedItemId(itemId: string): boolean {
   return /^E\d+[SU]\d/.test(itemId);
+}
+
+export function isLocatableItemId(itemId: string): boolean {
+  return isPositionedItemId(itemId) || BARE_ITEM_ID.test(itemId);
 }
 
 export function episodeItemKind(itemId: string): EpisodeItemKind {

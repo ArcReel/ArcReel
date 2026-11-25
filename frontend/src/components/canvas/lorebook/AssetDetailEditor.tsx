@@ -74,6 +74,7 @@ export interface AssetDetailEditorProps {
   name: string;
   asset: GalleryAssetSource;
   sheetStatus: AssetSheetStatusRow | undefined;
+  derivativeReferences?: ReadonlyMap<string, boolean | null>;
   generating: boolean;
   writing?: boolean;
   readOnly: boolean;
@@ -88,6 +89,7 @@ export function AssetDetailEditor({
   name,
   asset,
   sheetStatus,
+  derivativeReferences,
   generating,
   writing = false,
   readOnly,
@@ -346,6 +348,7 @@ export function AssetDetailEditor({
                 projectName={projectName}
                 characterName={name}
                 derivatives={character.derivatives ?? {}}
+                derivativeReferences={derivativeReferences}
                 ownerSheet={character.character_sheet}
                 readOnly={readOnly}
                 busy={writingBusy}

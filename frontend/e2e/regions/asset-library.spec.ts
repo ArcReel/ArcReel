@@ -79,8 +79,8 @@ const SHEET_SVG = `data:image/svg+xml,${encodeURIComponent(
 )}`;
 
 function projectWithCharacter() {
-  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo"));
-  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo");
+  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo/workspace"));
+  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo/workspace");
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   body.project.characters = {
     林夕: {
@@ -197,7 +197,7 @@ defineRegionScenarios("资产库", [
     path: GALLERY_PATH,
     api: {
       ...EVENT_STREAM,
-      "GET /api/v1/projects/demo": projectWithCharacter(),
+      "GET /api/v1/projects/demo/workspace": projectWithCharacter(),
     },
     ready: galleryReady,
     act: async (page) => {

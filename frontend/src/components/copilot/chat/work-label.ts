@@ -18,8 +18,9 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import type { ContentBlock, EpisodeMeta, TodoItem } from "@/types";
+import type { ContentBlock, EpisodeMeta, ItemLocation, TodoItem } from "@/types";
 import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/utils/episode-display";
+import { isLocatableItemId } from "@/utils/episode-item";
 import { ARCREEL_TOOL_SUMMARIES } from "./arcreel-tool-summaries";
 
 
@@ -97,7 +98,12 @@ export interface SummaryFormat {
   join: (...parts: string[]) => string;
 }
 
-export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts: ProjectScripts = {}): SummaryFormat {
+export function createSummaryFormat(
+  t: TFunction,
+  episodes: EpisodeRefs,
+  scripts: ProjectScripts = {},
+  locations?: ReadonlyMap<string, ItemLocation>,
+): SummaryFormat {
   const list = (value: unknown): string => {
     const names = strings(value);
     if (names.length === 0) return "";
@@ -122,12 +128,12 @@ export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts
     },
     item: (value) => {
       const id = str(value);
-      return id ? episodeItemLabel(id, scripts, episodes, t) : "";
+      return id ? episodeItemLabel(id, scripts, episodes, t, locations) : "";
     },
     items: (value) => {
       const ids = strings(value);
       if (ids.length === 0) return "";
-      const labels = ids.map((id) => episodeItemLabel(id, scripts, episodes, t));
+      const labels = ids.map((id) => episodeItemLabel(id, scripts, episodes, t, locations));
       const prefixes = new Set(labels.map((label) => label.split(SUMMARY_JOINER)[0]));
       if (prefixes.size === 1 && labels.every((label) => label.includes(SUMMARY_JOINER))) {
         const [prefix] = prefixes;
@@ -227,15 +233,58 @@ export interface WorkLabel {
   icon: LucideIcon;
 }
 
+export function extractToolItemIds(name: string, input: ToolInput | undefined): string[] {
+  if (!input) return [];
+  const arcreel = ARCREEL_TOOL_PREFIX.exec(name);
+  if (!arcreel) return [];
+  const summarize = ARCREEL_TOOL_SUMMARIES[arcreel[1]];
+  if (!summarize) return [];
+  const collected = new Set<string>();
+  const addId = (id: string) => {
+    if (isLocatableItemId(id)) collected.add(id);
+  };
+  const record = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const collector: SummaryFormat = {
+    text: () => "",
+    path: () => "",
+    episode: () => "",
+    script: () => "",
+    item: (value) => {
+      const id = str(value);
+      if (id) addId(id);
+      return "";
+    },
+    items: (value) => {
+      for (const id of strings(value)) addId(id);
+      return "";
+    },
+    list: () => "",
+    assetType: () => "",
+    quote: () => "",
+    arrow: () => "",
+    revision: () => "",
+    version: () => "",
+    count: () => "",
+    projectFields: () => "",
+    record,
+    field: (value, key) => (Array.isArray(value) ? value.map((entry) => record(entry)[key]) : []),
+    join: () => "",
+  };
+  summarize(input, collector);
+  return [...collected];
+}
+
 export function toolLabel(
   name: string,
   input: ToolInput | undefined,
   t: TFunction,
   episodes: EpisodeRefs,
   scripts: ProjectScripts = {},
+  locations?: ReadonlyMap<string, ItemLocation>,
 ): WorkLabel {
   const args = input ?? {};
-  const f = createSummaryFormat(t, episodes, scripts);
+  const f = createSummaryFormat(t, episodes, scripts, locations);
 
   const arcreel = ARCREEL_TOOL_PREFIX.exec(name);
   if (arcreel) {

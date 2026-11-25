@@ -1,19 +1,12 @@
 import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
-import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const BOARD_PATH = "/app/projects/demo/episodes/1";
 
-
-interface RecordedProject {
-  project: Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
-
-const project = recorded<RecordedProject>("project-demo.json");
-const recordedScript = project.scripts["episode_1.json"];
+const recordedScript = recordedDemoScript().script;
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
@@ -92,24 +85,21 @@ const scenes = Array.from({ length: SHOT_COUNT }, (_, i) => {
 
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...project,
-      project: {
-        ...project.project,
-        content_mode: "drama",
-        characters: Object.fromEntries(
-          CHARACTERS.map((name, i) => [name, { description: `${name}的设定`, character_sheet: refSvg(i * 50) }]),
-        ),
-        scenes: { [SCENE]: { description: "茶馆二楼", scene_sheet: refSvg(200) } },
-        props: Object.fromEntries(PROPS.map((name, i) => [name, { description: name, prop_sheet: refSvg(260 + i * 40) }])),
-      },
+  ...workspaceOverride(
+    {
+      content_mode: "drama",
+      characters: Object.fromEntries(
+        CHARACTERS.map((name, i) => [name, { description: `${name}的设定`, character_sheet: refSvg(i * 50) }]),
+      ),
+      scenes: { [SCENE]: { description: "茶馆二楼", scene_sheet: refSvg(200) } },
+      props: Object.fromEntries(PROPS.map((name, i) => [name, { description: name, prop_sheet: refSvg(260 + i * 40) }])),
+    },
+    {
       scripts: {
         "episode_1.json": { ...recordedScript, content_mode: "drama", segments: undefined, scenes },
       },
     },
-  },
+  ),
   "GET /api/v1/projects/demo/versions/storyboards/E1S01": {
     status: 200,
     body: {
@@ -358,16 +348,19 @@ defineViewportContracts("分镜详情", [
     path: BOARD_PATH,
     api: {
       ...API,
-      "GET /api/v1/projects/demo": {
-        status: 200,
-        body: {
-          ...project,
-          project: { ...project.project, content_mode: "drama" },
-          scripts: { "episode_1.json": { ...recordedScript, content_mode: "drama", segments: undefined,
-            scenes: Array.from({ length: 500 }, (_, i) => ({ ...scenes[1], scene_id: shotId(i + 1) })),
-          } },
+      ...workspaceOverride(
+        { content_mode: "drama" },
+        {
+          scripts: {
+            "episode_1.json": {
+              ...recordedScript,
+              content_mode: "drama",
+              segments: undefined,
+              scenes: Array.from({ length: 500 }, (_, i) => ({ ...scenes[1], scene_id: shotId(i + 1) })),
+            },
+          },
         },
-      },
+      ),
       "POST /api/v1/projects/demo/script-items/E1S500/move": { status: 200, body: { success: true } },
     },
     ready: boardReady,

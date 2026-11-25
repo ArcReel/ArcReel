@@ -5,9 +5,11 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useItemLocations } from "@/stores/item-locations-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { findEpisodeItem } from "@/utils/episode-item";
 import { TERMINAL_SESSION_STATUSES } from "./utils";
-import { toolLabel, type EpisodeRefs, type WorkLabel, type WorkStatus } from "./work-label";
+import { extractToolItemIds, toolLabel, type EpisodeRefs, type WorkLabel, type WorkStatus } from "./work-label";
 
 
 const NO_EPISODES: EpisodeRefs = [];
@@ -19,9 +21,18 @@ export function useSessionDone(): boolean {
 
 export function useToolLabel(name: string, input: Record<string, unknown> | undefined): WorkLabel {
   const { t } = useTranslation("dashboard");
+  const projectName = useProjectsStore((s) => s.currentProjectName);
   const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
   const scripts = useProjectsStore((s) => s.currentScripts);
-  return useMemo(() => toolLabel(name, input, t, episodes, scripts), [name, input, t, episodes, scripts]);
+  const unresolvedIds = useMemo(
+    () => extractToolItemIds(name, input).filter((id) => !findEpisodeItem(scripts, id)),
+    [name, input, scripts],
+  );
+  const locations = useItemLocations(projectName, unresolvedIds);
+  return useMemo(
+    () => toolLabel(name, input, t, episodes, scripts, locations),
+    [name, input, t, episodes, scripts, locations],
+  );
 }
 
 interface WorkRowProps {

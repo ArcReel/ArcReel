@@ -47,8 +47,8 @@ const PRODUCTS: Record<string, Asset> = {
 };
 
 function projectWith(fields: Record<string, unknown>) {
-  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo"));
-  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo");
+  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo/workspace"));
+  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo/workspace");
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   Object.assign(body.project, fields);
   return { status: recorded.status, body };
@@ -101,15 +101,15 @@ const NO_TASKS = { status: 200, body: { items: [], total: 0, page: 1, page_size:
 
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": projectWith({ characters: CHARACTERS }),
-  "GET /api/v1/projects/demo/asset-sheets/status": statusRows("character", Object.keys(CHARACTERS)),
+  "GET /api/v1/projects/demo/workspace": projectWith({ characters: CHARACTERS }),
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": statusRows("character", Object.keys(CHARACTERS)),
   "GET /api/v1/tasks?page_size=200&project_name=demo": NO_TASKS,
   "GET /api/v1/projects/demo/characters/林夕/derivatives": derivativeSheets(CHARACTERS.林夕.derivatives as Record<string, Asset>),
 };
 
 const DERIVATIVES_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith({
+  "GET /api/v1/projects/demo/workspace": projectWith({
     characters: { ...CHARACTERS, 林夕: { ...CHARACTERS.林夕, derivatives: MANY_DERIVATIVES } },
   }),
   "GET /api/v1/projects/demo/characters/林夕/derivatives": derivativeSheets(MANY_DERIVATIVES, ["外观 3"]),
@@ -117,13 +117,13 @@ const DERIVATIVES_API: ApiOverrides = {
 
 const PRODUCT_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith({ products: PRODUCTS }),
+  "GET /api/v1/projects/demo/workspace": projectWith({ products: PRODUCTS }),
   "GET /api/v1/projects/demo/asset-sheets/status": statusRows("product", Object.keys(PRODUCTS)),
 };
 
 const LONG_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith({
+  "GET /api/v1/projects/demo/workspace": projectWith({
     character_voice_binding: "reference_audio",
     characters: {
       [LONG_NAME]: {
@@ -136,12 +136,12 @@ const LONG_API: ApiOverrides = {
       沈砚: CHARACTERS.沈砚,
     },
   }),
-  "GET /api/v1/projects/demo/asset-sheets/status": statusRows("character", [LONG_NAME, "沈砚"]),
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": statusRows("character", [LONG_NAME, "沈砚"]),
 };
 
 const STALE_IMPACT_FAILED_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo/asset-sheets/status": {
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": {
     status: 200,
     body: {
       assets: statusRows("character", Object.keys(CHARACTERS)).body.assets.map((row) =>

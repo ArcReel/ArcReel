@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { makeWorkspaceResponse } from "@/test/factories";
 import type { EpisodeMeta, ProjectData, UnregisteredSourceFile } from "@/types";
 
 import { UnregisteredFilesBanner } from "./UnregisteredFiles";
@@ -42,7 +43,7 @@ describe("UnregisteredFilesBanner", () => {
     vi.restoreAllMocks();
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
-    vi.spyOn(API, "getProject").mockResolvedValue({ project: REFRESHED_PROJECT, scripts: {} });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(REFRESHED_PROJECT));
   });
 
   it("names the files in a banner and sums up the rest", () => {
@@ -70,7 +71,11 @@ describe("UnregisteredFilesBanner", () => {
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(adopt).toHaveBeenCalledWith("demo", "旧稿.txt", { target: "whole_source" });
-    expect(useProjectsStore.getState().currentProjectData).toEqual(REFRESHED_PROJECT);
+    expect(useProjectsStore.getState().currentProjectData).toMatchObject({
+      title: REFRESHED_PROJECT.title,
+      content_mode: REFRESHED_PROJECT.content_mode,
+      style: REFRESHED_PROJECT.style,
+    });
   });
 
   it("offers a new episode or an episode without source as the target", async () => {
@@ -104,7 +109,7 @@ describe("UnregisteredFilesBanner", () => {
   });
 
   it("warns when the project data fails to refresh after a file was handled", async () => {
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     vi.spyOn(API, "adoptSourceFile").mockResolvedValue({ success: true, target: "whole_source" });
     const { onChanged } = renderBanner();
     const dialog = openDialog();

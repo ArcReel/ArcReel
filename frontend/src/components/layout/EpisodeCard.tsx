@@ -54,7 +54,7 @@ export function EpisodeCard({
   const progress = videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
   const showProgress = videoTotal > 0 && (active || progress > 0);
 
-  const staleCount = (ep.storyboards?.stale ?? 0) + (ep.videos?.stale ?? 0);
+  const needsReplanCount = ep.needs_replan ?? 0;
 
   const episodeCost = useCostStore((s) => s.getEpisodeCost(ep.episode));
   const spentBreakdown = episodeCost ? totalBreakdown(episodeCost.totals.actual) : null;
@@ -111,11 +111,11 @@ export function EpisodeCard({
               {durLabel ? ` · ${durLabel}` : ""}
             </span>
           )}
-          {staleCount > 0 && (
+          {needsReplanCount > 0 && (
             <span className="num inline-flex items-center gap-1 text-warn">
               <span aria-hidden className="size-1.5 rounded-full bg-warn" />
-              <span aria-hidden>{staleCount}</span>
-              <span className="sr-only">{t("episode_stale_artifacts", { count: staleCount })}</span>
+              <span aria-hidden>{needsReplanCount}</span>
+              <span className="sr-only">{t("episode_needs_replan_units", { count: needsReplanCount })}</span>
             </span>
           )}
         </span>

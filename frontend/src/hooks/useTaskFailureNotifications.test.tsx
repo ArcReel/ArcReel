@@ -1,9 +1,11 @@
 import { seedTaskState } from "@/test/task-state";
 import { act, render, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { useTaskFailureNotifications } from "@/hooks/useTaskFailureNotifications";
 import { useTasksStore } from "@/stores/tasks-store";
+import { API } from "@/api";
+import { useItemLocationsStore } from "@/stores/item-locations-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import type { ProjectData, TaskItem } from "@/types";
@@ -295,5 +297,65 @@ describe("useTaskFailureNotifications", () => {
       id: "E1U2",
       route: "/episodes/1",
     });
+  });
+
+  it("formats failed task directly from top-level position without currentScripts or locateItems", async () => {
+    useItemLocationsStore.getState().reset(null);
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "Demo",
+        content_mode: "narration",
+        style: "",
+        characters: {},
+        episodes: [{ episode: 2, title: "雨夜", script_file: "scripts/episode_2.json" }],
+      },
+      currentScripts: {},
+    });
+    const locateSpy = vi.spyOn(API, "locateItems");
+    seedTaskState({
+      tasks: [task({ task_id: "pos-1", task_type: "storyboard", resource_id: "E2S03", episode: 2, item_id: "E2S03", position: 3, status: "running" })],
+    });
+    render(<Harness project="demo" />);
+    act(() => {
+      seedTaskState({
+        tasks: [task({ task_id: "pos-1", task_type: "storyboard", resource_id: "E2S03", episode: 2, item_id: "E2S03", position: 3, status: "failed", error_message: "boom" })],
+      });
+    });
+
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0].text).toContain("雨夜 · 3");
+    expect(locateSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to locateItems for legacy failed tasks lacking position and resource_ref", async () => {
+    useItemLocationsStore.getState().reset(null);
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "Demo",
+        content_mode: "narration",
+        style: "",
+        characters: {},
+        episodes: [{ episode: 2, title: "雨夜", script_file: "scripts/episode_2.json" }],
+      },
+      currentScripts: {},
+    });
+    const locateSpy = vi.spyOn(API, "locateItems").mockResolvedValue({
+      items: [{ episode: 2, item_id: "E2S04", position: 4, status: "found" }],
+    });
+    seedTaskState({
+      tasks: [task({ task_id: "leg-1", task_type: "storyboard", resource_id: "E2S04", status: "running" })],
+    });
+    render(<Harness project="demo" />);
+    act(() => {
+      seedTaskState({
+        tasks: [task({ task_id: "leg-1", task_type: "storyboard", resource_id: "E2S04", status: "failed", error_message: "boom" })],
+      });
+    });
+
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(locateSpy).toHaveBeenCalledWith("demo", ["E2S04"], expect.anything());
+    expect(useAppStore.getState().workspaceNotifications[0].text).toContain("雨夜 · 4");
   });
 });
