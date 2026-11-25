@@ -18,7 +18,7 @@ _EXPECTED_TYPE_NAMES: Mapping[str, str] = {
     "reference_audio_mode": "none | direct",
     "max_reference_audio_total_seconds": "float | None",
     "max_prompt_chars": "int | None",
-    "max_output_tokens": "int",
+    "max_output_tokens": "int > 0",
     "max_reference_images": "int",
     "max_reference_audio_count": "int",
 }

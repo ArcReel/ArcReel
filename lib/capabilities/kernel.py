@@ -293,6 +293,9 @@ class Endpoint:
         return result
 
 
+TEXT_ENDPOINT = Endpoint("text")
+
+
 def _compose(endpoint: Endpoint, facts: Values, overrides: Values, slots: frozenset[str]) -> dict[str, Any]:
     values = dict(endpoint.defaults)
     values.update({k: v for k, v in facts.items() if k in OVERRIDE_KEYS[endpoint.media] and v is not None})

@@ -18,9 +18,12 @@ from lib.backends.text_backends.base import (
     TextOutputTruncatedError,
     TextTaskType,
 )
-from lib.backends.text_backends.factory import create_text_backend_for_task, text_model_output_limit
 from lib.billing.ledger import Ledger
 from lib.db.base import DEFAULT_USER_ID
+from lib.video_runtime.text import create_text_backend_for_task as _default_create_text_backend
+from lib.video_runtime.text import resolve_and_assemble_text
+
+create_text_backend_for_task = _default_create_text_backend
 
 if TYPE_CHECKING:
     from lib.backends.text_backends.base import TextBackend
@@ -86,8 +89,25 @@ class TextGenerator:
         ``purpose`` 是必填的：文本调用没有任务可回指，来源只能由调用点声明，
         同一个 ``task_type`` 会服务多种来源（剧本生成与分集规划都走 SCRIPT）。
         """
+        if create_text_backend_for_task is _default_create_text_backend:
+            backend, target = await resolve_and_assemble_text(task_type, project_name)
+            return cls(
+                backend,
+                Ledger(),
+                target.provider_id,
+                purpose=purpose,
+                user_id=user_id,
+                registered_max_output_tokens=target.max_output_tokens,
+                custom_model=target.is_custom,
+            )
+        from lib.backends.backend_assembly.assembler import output_limit_facts
+        from lib.config.resolver import ConfigResolver
+        from lib.db import async_session_factory
+
         backend, provider_id = await create_text_backend_for_task(task_type, project_name)
-        limit = await text_model_output_limit(provider_id, backend.model)
+        limit = await output_limit_facts(
+            provider_id=provider_id, model_id=backend.model, resolver=ConfigResolver(async_session_factory)
+        )
         return cls(
             backend,
             Ledger(),

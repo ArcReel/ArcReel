@@ -77,9 +77,27 @@ def use_video_assembler(monkeypatch, assemble):
     monkeypatch.setattr(generation_context, "assemble_video", assemble_spec)
 
 
+def use_audio_assembler(monkeypatch, assemble):
+    async def assemble_spec(spec):
+        return await assemble(
+            provider_id=spec.provider_id,
+            model_id=spec.model_id,
+            media_type="audio",
+            builtin_endpoint=spec.endpoint,
+            resolver=None,
+        )
+
+    monkeypatch.setattr(generation_context, "assemble_audio", assemble_spec)
+
+
 def _registry_video_model(provider_id: str) -> str:
     """从目录取该 provider 的任一视频 model id，避免硬编码供应商数据。"""
     return next(mid for mid, mi in catalog.list_models(provider_id).items() if mi.media_type == "video")
+
+
+def _registry_audio_model(provider_id: str) -> str:
+    """从目录取该 provider 的任一音频 model id，避免硬编码供应商数据。"""
+    return next(mid for mid, mi in catalog.list_models(provider_id).items() if mi.media_type == "audio")
 
 
 def _backend_video_caps(provider_id: str, model_id: str) -> VideoCapabilities:
@@ -149,6 +167,7 @@ def fake_assemble(monkeypatch):
 
     use_backend_assembler(monkeypatch, _assemble)
     use_video_assembler(monkeypatch, _assemble)
+    use_audio_assembler(monkeypatch, _assemble)
     return calls
 
 
@@ -244,10 +263,11 @@ class TestLaneDeclaration:
 
         monkeypatch.setattr(generation_context.asyncio, "to_thread", _unexpected_to_thread)
 
+        audio_model = _registry_audio_model("dashscope")
         ctx = await resolve_generation_context(
             "demo",
             None,
-            project={"audio_backend": "dashscope/tts-model-x"},
+            project={"audio_backend": f"dashscope/{audio_model}"},
             project_path=project_path,
             audio=AudioLaneRequest(),
         )
@@ -266,10 +286,11 @@ class TestLaneDeclaration:
 
     async def test_all_three_lanes(self, patched_session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
+        audio_model = _registry_audio_model("dashscope")
         project = {
             "image_provider_t2i": "ark/img-model-x",
             "video_backend": f"ark/{video_model}",
-            "audio_backend": "dashscope/tts-model-x",
+            "audio_backend": f"dashscope/{audio_model}",
         }
         ctx = await resolve_generation_context(
             "demo",
@@ -281,7 +302,7 @@ class TestLaneDeclaration:
         )
         assert sorted(media for _, media, _ in fake_assemble) == ["audio", "image", "video"]
         assert ctx.video.provider_model == ProviderModel("ark", video_model)
-        assert ctx.audio.provider_model == ProviderModel("dashscope", "tts-model-x")
+        assert ctx.audio.provider_model == ProviderModel("dashscope", audio_model)
 
 
 class TestVideoLane:
@@ -594,14 +615,15 @@ class TestVideoRequestFacts:
 
 class TestAudioLane:
     async def test_backend_follows_project_tts_snapshot(self, patched_session_factory, project_env, fake_assemble):
+        audio_model = _registry_audio_model("dashscope")
         project = {
-            "audio_backend": "dashscope/tts-model-x",
+            "audio_backend": f"dashscope/{audio_model}",
             "narration_voice": "Cherry",
             "narration_speed": 1.25,
         }
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
         assert ctx.audio.backend_name == "dashscope"
-        assert ctx.audio.backend_model == "tts-model-x"
+        assert ctx.audio.backend_model == audio_model
 
     async def test_voice_catalog_snapshot_passed_through(self, patched_session_factory, project_env, monkeypatch):
         """ctx.audio.voices 须是 backend.list_voices() 的真实快照，而非默认的空元组——
@@ -623,8 +645,9 @@ class TestAudioLane:
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
             )
 
-        use_backend_assembler(monkeypatch, _assemble)
-        project = {"audio_backend": "dashscope/tts-model-x"}
+        use_audio_assembler(monkeypatch, _assemble)
+        audio_model = _registry_audio_model("dashscope")
+        project = {"audio_backend": f"dashscope/{audio_model}"}
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
         assert tuple(v.id for v in ctx.audio.voices) == ("Cherry",)
 

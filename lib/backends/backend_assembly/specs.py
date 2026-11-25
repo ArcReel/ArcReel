@@ -35,7 +35,7 @@ from lib.backends.video_capabilities import (
 from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_capabilities
 from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
-from lib.video_runtime.builtin import build_legacy_video
+from lib.video_runtime.builtin import build_legacy_audio, build_legacy_text, build_legacy_video
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
@@ -57,17 +57,9 @@ class ProviderSpec:
 
 
 def _media_create_backend(media_type: str) -> Callable[..., Any]:
-    """按 media_type 取对应 registry 的 create_backend（运行时取，便于测试 patch 模块属性）。
-
-    text 与 image/video/audio 四条 media_type 共用同一构造缝，文本 backend 注册在
-    独立的 lib.backends.text_backends.registry，故在此分流。
-    """
+    """按 media_type 取对应 registry 的 create_backend（运行时取，便于测试 patch 模块属性）。"""
     if media_type == "image":
         from lib.backends.image_backends.registry import create_backend
-    elif media_type == "audio":
-        from lib.backends.audio_backends.registry import create_backend
-    elif media_type == "text":
-        from lib.backends.text_backends.registry import create_backend
     else:
         raise ValueError(f"unknown media_type: {media_type!r}")
     return create_backend
@@ -112,18 +104,6 @@ def _build_simple(
             kwargs[key] = value
     kwargs.update(extra_kwargs or {})
     return _media_create_backend(media_type)(registry_backend, **kwargs)
-
-
-def _build_ark_agent_plan_tts(config: LoadedConfig, model_id: str | None) -> Any:
-    """方舟 Agent Plan 语音合成：只取 api_key 与 model。
-
-    语音合成的上游主机与 ``/api/plan/v3`` 不同，地址是后端常量；简单族会把这个默认地址当作 base_url 传入，所以单列构造。
-    """
-    kwargs: dict[str, Any] = {"model": model_id}
-    api_key = config.credentials.get("api_key")
-    if api_key:
-        kwargs["api_key"] = api_key
-    return _media_create_backend("audio")("ark-agent-plan", **kwargs)
 
 
 def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
@@ -184,21 +164,10 @@ def _build_gemini_image(config: LoadedConfig, model_id: str | None, *, backend_t
     )
 
 
-def _build_gemini_audio(config: LoadedConfig, model_id: str | None, *, backend_type: str) -> Any:
-    return _media_create_backend("audio")(
-        _GEMINI_REGISTRY_BACKEND,
-        backend_type=backend_type,
-        api_key=config.credentials.get("api_key"),
-        base_url=config.credentials.get("base_url"),
-        model=model_id,
-        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
-    )
+_GEMINI_BUILDS = {"image": _build_gemini_image}
 
 
-_GEMINI_BUILDS = {"image": _build_gemini_image, "audio": _build_gemini_audio}
-
-
-_GEMINI_ENDPOINTS = {"image": "gemini-image", "audio": "gemini-tts"}
+_GEMINI_ENDPOINTS = {"image": "gemini-image"}
 
 
 _GEMINI_VIDEO_ENDPOINTS: Mapping[str, Mapping[str, str]] = {
@@ -225,6 +194,28 @@ def _video_spec(provider_id: str, endpoint: str, registry_backend: str | None = 
         "video",
         registry,
         partial(build_legacy_video, provider_id=provider_id, registry=registry, endpoint=endpoint),
+        endpoint,
+    )
+
+
+def _audio_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
+    registry = registry_backend or provider_id
+    return ProviderSpec(
+        provider_id,
+        "audio",
+        registry,
+        partial(build_legacy_audio, provider_id=provider_id, registry=registry),
+        endpoint,
+    )
+
+
+def _text_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
+    registry = registry_backend or provider_id
+    return ProviderSpec(
+        provider_id,
+        "text",
+        registry,
+        partial(build_legacy_text, provider_id=provider_id, registry=registry),
         endpoint,
     )
 
@@ -267,133 +258,11 @@ def _kling_spec(media_type: str, *, endpoint: str | None = None) -> ProviderSpec
     )
 
 
-def _build_text_simple(config: LoadedConfig, model_id: str | None, *, registry_backend: str) -> Any:
-    """简单文本族：model + api_key（无条件透传）+ base_url（user > registry default，仅非空才传）。
-
-    api_key 无条件透传（含 None）保留迁移前命令式分支语义（db_config.get("api_key") 直写 kwargs）；
-    base_url 仅非空才写入，对称媒体简单族 —— ark/ark-agent-plan 有 registry default 回落，grok 无 default
-    且用户未配时省略该参数。
-    """
-    kwargs: dict[str, Any] = {"model": model_id, "api_key": config.credentials.get("api_key")}
-    base_url = _resolve_base_url(config)
-    if base_url:
-        kwargs["base_url"] = base_url
-    return _media_create_backend("text")(registry_backend, **kwargs)
-
-
-def _text_simple_spec(provider_id: str, endpoint: str) -> ProviderSpec:
-    """登记一条简单文本 spec：registry_backend 即 provider_id 自身（文本侧无别名映射）。"""
-    return ProviderSpec(
-        provider_id=provider_id,
-        media_type="text",
-        registry_backend=provider_id,
-        build_backend=partial(_build_text_simple, registry_backend=provider_id),
-        endpoint=endpoint,
-    )
-
-
-_TEXT_GEMINI_REGISTRY_BACKEND = "gemini"
-
-
-def _build_text_gemini_aistudio(config: LoadedConfig, model_id: str | None) -> Any:
-    return _media_create_backend("text")(
-        _TEXT_GEMINI_REGISTRY_BACKEND,
-        model=model_id,
-        api_key=config.credentials.get("api_key"),
-        base_url=config.credentials.get("base_url"),
-    )
-
-
-def _build_text_gemini_vertex(config: LoadedConfig, model_id: str | None) -> Any:
-    return _media_create_backend("text")(
-        _TEXT_GEMINI_REGISTRY_BACKEND,
-        model=model_id,
-        backend="vertex",
-        gcs_bucket=config.credentials.get("gcs_bucket"),
-        credentials_path=config.credentials.get("credentials_path"),
-    )
-
-
-def _text_gemini_spec(provider_id: str, *, build: Callable[[LoadedConfig, str | None], Any]) -> ProviderSpec:
-    return ProviderSpec(
-        provider_id=provider_id,
-        media_type="text",
-        registry_backend=_TEXT_GEMINI_REGISTRY_BACKEND,
-        build_backend=build,
-        endpoint="gemini-generate",
-    )
-
-
-_TEXT_OPENAI_COMPAT_REGISTRY_BACKEND = "openai"
-_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND = "openai-responses"
-
-
-def _dashscope_text_base_url(configured: str | None) -> str:
-    from lib.backends.dashscope_shared import dashscope_text_base_url
-
-    return dashscope_text_base_url(configured)
-
-
-def _minimax_text_base_url(configured: str | None) -> str:
-    from lib.backends.minimax_shared import minimax_text_base_url
-
-    return minimax_text_base_url(configured)
-
-
-def _build_text_openai_compat(
-    config: LoadedConfig,
-    model_id: str | None,
-    *,
-    derive_base_url: Callable[[str | None], str] | None,
-    provider_name: str | None,
-    registry_backend: str = _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND,
-) -> Any:
-    """OpenAI 协议文本构造：dashscope / minimax 走 Chat Completions（OpenAITextBackend），
-    openai 走 Responses（OpenAIResponsesTextBackend），二者构造参数同形，由 registry_backend 区分。
-
-    derive_base_url=None（openai）：直传用户 base_url（无条件，含 None，由 backend 决定 endpoint）。
-    derive_base_url 非空（dashscope/minimax）：由 helper 从用户 host 派生 OpenAI 兼容 base，并透传
-    provider_name 给 backend，确保 usage 记账与计费查表命中自身 CNY 费率而非 OpenAI USD。
-    """
-    user_base_url = config.credentials.get("base_url")
-    kwargs: dict[str, Any] = {
-        "model": model_id,
-        "api_key": config.credentials.get("api_key"),
-        "base_url": derive_base_url(user_base_url) if derive_base_url else user_base_url,
-    }
-    if provider_name:
-        kwargs["provider_name"] = provider_name
-    return _media_create_backend("text")(registry_backend, **kwargs)
-
-
-def _text_openai_compat_spec(
-    provider_id: str,
-    *,
-    derive_base_url: Callable[[str | None], str] | None,
-    provider_name: str | None,
-    registry_backend: str = _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND,
-) -> ProviderSpec:
-    return ProviderSpec(
-        provider_id=provider_id,
-        media_type="text",
-        registry_backend=registry_backend,
-        build_backend=partial(
-            _build_text_openai_compat,
-            derive_base_url=derive_base_url,
-            provider_name=provider_name,
-            registry_backend=registry_backend,
-        ),
-        endpoint="openai-responses" if registry_backend == _TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND else "openai-chat",
-    )
-
-
 _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("grok", "image"): "grok-image",
     ("openai", "image"): "openai-images",
     ("vidu", "image"): "vidu-image",
     ("minimax", "image"): "minimax-image",
-    ("minimax", "audio"): "minimax-tts",
-    ("grok", "audio"): "grok-tts",
 }
 
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
@@ -422,20 +291,16 @@ _specs += [
     for endpoint in endpoints
 ]
 _DASHSCOPE_AUDIO_ENDPOINTS = ("dashscope-tts", "dashscope-speech-synthesizer")
+_specs += [_audio_spec("dashscope", endpoint, endpoint) for endpoint in _DASHSCOPE_AUDIO_ENDPOINTS]
 _specs += [
-    ProviderSpec(
-        provider_id="dashscope",
-        media_type="audio",
-        registry_backend=endpoint,
-        build_backend=partial(_build_simple, media_type="audio", registry_backend=endpoint),
-        endpoint=endpoint,
-    )
-    for endpoint in _DASHSCOPE_AUDIO_ENDPOINTS
+    _audio_spec("minimax", "minimax-tts"),
+    _audio_spec("grok", "grok-tts"),
+    _audio_spec("ark-agent-plan", "ark-agent-plan-tts"),
+    *(_audio_spec(provider_id, "gemini-tts", _GEMINI_REGISTRY_BACKEND) for provider_id in _GEMINI_BACKEND_TYPES),
 ]
 _specs += [
-    _gemini_spec(provider_id, media_type, backend_type=backend_type)
+    _gemini_spec(provider_id, "image", backend_type=backend_type)
     for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
-    for media_type in ("image", "audio")
 ]
 _specs.append(_video_spec("openai", "openai-video", "openai"))
 _specs += [
@@ -459,15 +324,6 @@ _specs += [
     for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))
     for endpoint in endpoints
 ]
-_specs.append(
-    ProviderSpec(
-        provider_id="ark-agent-plan",
-        media_type="audio",
-        registry_backend="ark-agent-plan",
-        build_backend=_build_ark_agent_plan_tts,
-        endpoint="ark-agent-plan-tts",
-    )
-)
 _specs += [
     _video_spec(ark_provider, endpoint)
     for ark_provider in ("ark", "ark-agent-plan")
@@ -490,17 +346,15 @@ for _provider, _endpoints in (
         _specs.append(_video_spec(_provider, _endpoint))
 _specs += [_video_spec("minimax", endpoint, "declarative") for endpoint in _MINIMAX_VIDEO_ENDPOINTS]
 _specs += [
-    _text_simple_spec("ark", "ark-chat"),
-    _text_simple_spec("ark-agent-plan", "ark-chat"),
-    _text_simple_spec("grok", "grok-chat"),
-    _text_simple_spec("agnes", "agnes-chat"),
-    _text_gemini_spec("gemini-aistudio", build=_build_text_gemini_aistudio),
-    _text_gemini_spec("gemini-vertex", build=_build_text_gemini_vertex),
-    _text_openai_compat_spec(
-        "openai", derive_base_url=None, provider_name=None, registry_backend=_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND
-    ),
-    _text_openai_compat_spec("dashscope", derive_base_url=_dashscope_text_base_url, provider_name="dashscope"),
-    _text_openai_compat_spec("minimax", derive_base_url=_minimax_text_base_url, provider_name="minimax"),
+    _text_spec("ark", "ark-chat"),
+    _text_spec("ark-agent-plan", "ark-chat"),
+    _text_spec("grok", "grok-chat"),
+    _text_spec("agnes", "agnes-chat"),
+    _text_spec("gemini-aistudio", "gemini-generate", _GEMINI_REGISTRY_BACKEND),
+    _text_spec("gemini-vertex", "gemini-generate", _GEMINI_REGISTRY_BACKEND),
+    _text_spec("openai", "openai-responses", "openai-responses"),
+    _text_spec("dashscope", "openai-chat", "openai"),
+    _text_spec("minimax", "openai-chat", "openai"),
 ]
 
 PROVIDER_ENDPOINT_SPECS: dict[tuple[str, str], ProviderSpec] = {

@@ -42,6 +42,7 @@ from lib.custom_provider.capability_view import (
     OverrideRejected,
     custom_capability_view,
     overridable_keys,
+    validate_text_overrides,
     validate_video_overrides,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
@@ -60,6 +61,7 @@ from lib.custom_provider.model_facts import (
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
+    text_capability_snapshot,
 )
 from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
@@ -362,6 +364,8 @@ def _effective_overrides_for_response(
         )
     if endpoint_spec.kind == COMFYUI_KIND:
         return None
+    if media_type == "text":
+        return text_capability_snapshot(model_id, overrides, entry_binding=entry_binding).override_dict() or None
     filtered: dict[str, object] = {}
     implemented = endpoint_spec.image_capabilities
     for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
@@ -650,6 +654,19 @@ def _check_capability_overrides(
                     capability=str(exc),
                 ),
             ) from exc
+    if media_type == "text" and resolved_spec.kind != COMFYUI_KIND:
+        try:
+            snapshot = text_capability_snapshot(model_id, entry_binding=entry_binding, pending=pending)
+            return validate_text_overrides(
+                snapshot,
+                overrides,
+                model_id=model_id,
+                endpoint=endpoint,
+                carried=carried,
+                explicit=explicit,
+            )
+        except OverrideRejected as exc:
+            raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
     if carried:
         valid = _effective_overrides_for_response(endpoint, model_id, overrides, resolved_spec, entry_binding) or {}
         overrides = {
@@ -1130,7 +1147,7 @@ async def custom_model_settings(session: AsyncSession, row: CustomProviderModel)
             spec=spec,
             raw_overrides=row.capability_overrides,
             applied_overrides=None
-            if spec.media_type == "video"
+            if spec.media_type in ("video", "text")
             else _effective_overrides_for_response(
                 row.endpoint, row.model_id, row.capability_overrides, spec, row.entry_binding
             ),

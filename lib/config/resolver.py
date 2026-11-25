@@ -652,9 +652,11 @@ def video_bucket_reference_unavailable(
 def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
     """校验解析出的内置模型支持图像输入；不满足直接报错，不静默换模型。
 
-    只按模型目录判定，不在目录中的模型放行；自定义供应商的模型见 ``ConfigResolver._ensure_text_model_vision_capable``。"""
-    model_info = catalog.get_model(provider_id, model_id)
-    if model_info is not None and "vision" not in model_info.capabilities:
+    经纯能力内核按目录判定，不在目录中的模型放行；自定义供应商的模型见 ``ConfigResolver._ensure_text_model_vision_capable``。"""
+    from lib.custom_provider.model_facts import builtin_text_snapshot
+
+    snapshot = builtin_text_snapshot(provider_id, model_id)
+    if snapshot.effective.get("image_input") is False:
         raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
 
@@ -1175,6 +1177,26 @@ class ConfigResolver:
             pair = await self._configured_backend_pair(svc, project, keys, require_fallback_allowed=True)
             return ProviderModel(*pair) if pair else None
 
+    async def configured_text_identity(
+        self, task_type: TextTaskType, project_name: str | None = None
+    ) -> ProviderModel | None:
+        project = await _load_project_snapshot(project_name)
+        keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, keys, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
+
+    async def configured_audio_identity(self, project: dict | None, payload: dict | None) -> ProviderModel | None:
+        if payload:
+            provider_id = _trusted_payload_provider(payload.get("audio_provider"))
+            if provider_id is not None:
+                model = _payload_model(payload.get("audio_model"))
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, _AUDIO_LAYERED_KEYS, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
+
     async def _resolve_video_provider_model(
         self,
         svc: ConfigService,
@@ -1661,7 +1683,7 @@ class ConfigResolver:
         if not is_custom_provider(provider_id):
             _ensure_text_model_vision_capable(task_type, provider_id, model_id)
             return
-        from lib.custom_provider.model_facts import text_model_facts
+        from lib.custom_provider.model_facts import text_capability_snapshot
 
         try:
             db_pid = parse_provider_id(provider_id)
@@ -1670,7 +1692,9 @@ class ConfigResolver:
         model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
         if (
             model is not None
-            and text_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).image_input
+            and text_capability_snapshot(
+                model_id, model.capability_overrides, entry_binding=model.entry_binding, provider_id=provider_id
+            ).effective.get("image_input")
             is False
         ):
             raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
