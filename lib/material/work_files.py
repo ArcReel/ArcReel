@@ -306,7 +306,10 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
     from lib.artifacts.version_manager import VersionManager
 
     project = _load_project_json(project_path)
-    with VersionManager(project_path).locked_rows(remote_only=True) as data:
+    manager = VersionManager(project_path)
+    if manager.sqlite.is_enabled():
+        return _work_files_from_rows(manager.sqlite.rows(remote_only=True), project)
+    with manager.locked_rows(remote_only=True) as data:
         return _work_files_from_rows(data, project)
 
 
@@ -546,6 +549,11 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
     from lib.artifacts.version_manager import VersionManager
 
     target = project_path / work_file.path
+    try:
+        if in_use_or_recent(target, target.stat(), idle_before):
+            return 0, 0, 1
+    except FileNotFoundError:
+        return 0, 0, 0
     with VersionManager(project_path).locked_rows(remote_only=True) as data:
         try:
             stat_result = target.stat()

@@ -16,6 +16,7 @@ from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.episode.episode_paths import episode_drafts_dir
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.path_safety import try_safe_join
+from lib.infra.project_write_journal import has_sqlite_history
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
     ProjectMigrationError,
@@ -64,7 +65,12 @@ from lib.project.project_migrations.v17_to_v18_timeline_agent_turn import (
 )
 from lib.project.project_migrations.v18_to_v19_item_id_high_water import migrate_v18_to_v19
 from lib.project.project_migrations.v19_to_v20_bare_provider_models import BareProviderModels, migrate_v19_to_v20
-from lib.project.project_migrations.v20_to_v21_retired_drafts import migrate_v20_to_v21
+from lib.project.project_migrations.v20_to_v21_retired_drafts import (
+    activate_current_history,
+    finish_history_upgrade,
+    migrate_v20_to_v21,
+    prepare_legacy_history,
+)
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -74,7 +80,7 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
 MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14, 20})
 
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
@@ -162,6 +168,10 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
         logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
 
 
+def _current_history_needs_activation(project_dir: Path) -> bool:
+    return not has_sqlite_history(project_dir) or (project_dir / "versions/versions.json").exists()
+
+
 def migrate_project_dir(
     project_dir: Path,
     *,
@@ -182,8 +192,11 @@ def migrate_project_dir(
     if version < 0:
         return False
     if version >= CURRENT_SCHEMA_VERSION:
+        changed = False
+        if version == 21 and not restoring_snapshot and _current_history_needs_activation(project_dir):
+            changed = activate_current_history(project_dir)
         _finish_unfinished_report(project_dir)
-        return False
+        return changed
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
     carried = load_migration_report(project_dir)
@@ -194,13 +207,16 @@ def migrate_project_dir(
         adjusted = []
     normalized = False
     try:
+        initial_version = version
         while version < CURRENT_SCHEMA_VERSION:
-            if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
-                normalize_legacy_shapes(project_dir, schema_version=version, record=adjusted)
-                normalized = True
             preflight = _MIGRATOR_PREFLIGHTS.get(version)
             if preflight:
                 preflight(project_dir)
+            if version == initial_version:
+                prepare_legacy_history(project_dir, version, adjusted)
+            if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
+                normalize_legacy_shapes(project_dir, schema_version=version, record=adjusted)
+                normalized = True
             if version not in _MIGRATORS_WITH_OWNED_BACKUP:
                 _backup_project_json(project_dir, version)
             if version == 0:
@@ -246,6 +262,7 @@ def migrate_project_dir(
                     adjusted=adjusted,
                 ),
             )
+        finish_history_upgrade(project_dir)
     except BaseException:
         finished = outcome if version >= CURRENT_SCHEMA_VERSION else None
         if adjusted or finished is not None:
@@ -262,6 +279,7 @@ def _finish_unfinished_report(project_dir: Path) -> None:
     """
 
     try:
+        finish_history_upgrade(project_dir)
         complete_migration_report(project_dir, to_schema_version=CURRENT_SCHEMA_VERSION)
     except OSError as exc:
         logger.warning("无法补写未完成的迁移报告：%s（%s）", project_dir, exc)
@@ -347,7 +365,7 @@ def run_project_migrations(
         if version < 0:
             continue
         try:
-            if version >= CURRENT_SCHEMA_VERSION:
+            if version >= CURRENT_SCHEMA_VERSION and not (version == 21 and _current_history_needs_activation(child)):
                 clear_migration_failure(child)
                 _finish_unfinished_report(child)
                 summary.skipped.append(child.name)
@@ -377,7 +395,10 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
         )
         sources = (
             (project_dir / "project.json", project_backup_versions),
-            (project_dir / "versions" / "versions.json", project_backup_versions),
+            (
+                project_dir / "versions" / "versions.json",
+                (*project_backup_versions, 21) if schema_version == 21 else project_backup_versions,
+            ),
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
             *((source, project_backup_versions) for source in timeline_backup_sources(project_dir)),

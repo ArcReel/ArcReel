@@ -2510,6 +2510,7 @@ export default {
   'migration_report_skipped': '未能带入',
   'migration_report_skipped_hint': '这些文件留在原处，但项目不再识别它们，会显示为缺失。需要时重新生成或上传。',
   'migration_report_backup': '备份：{{path}}',
+  'migration_adjustment_history_conflict_preserved': '已保留冲突的版本历史副本。',
   'migration_adjustment_retired_draft_trashed': '{{episode}}的旧隔离草稿 {{file}} 已移入项目回收站，可在 30 天内恢复。',
   'migration_adjustment_draft_name_conflict_resolved': '{{episode}}的脚本规划草稿有新旧两个文件名的两份，保留新的一份，旧的一份另存为备份。',
   'migration_adjustment_duplicate_episode_entry_removed': '{{episode}}在集列表里登记了两次，已去掉重复的一条；它的剧本 {{file}} 留在原处。',

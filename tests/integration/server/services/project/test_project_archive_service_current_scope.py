@@ -22,6 +22,7 @@ from lib.project.resource_paths import (
 from server.routers import versions as versions_router
 from server.services.project.project_archive import CURRENT_EXPORT_VERSION_RETENTION, ProjectArchiveService
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
+from tests.legacy_project_shapes import read_version_history, use_legacy_history
 
 _DERIVATIVE_ID = "Hero/Armor"
 _PRODUCT_ID = "Cup"
@@ -239,6 +240,8 @@ def test_current_package_drops_a_malformed_selected_bucket_and_stays_importable(
     project_dir = _project(pm)
     _generate_versions(project_dir, "videos", "E1S01", 2)
     versions_path = project_dir / "versions" / "versions.json"
+    use_legacy_history(project_dir)
+    pm.update_project("demo", lambda project: project.update(schema_version=20))
     payload = json.loads(versions_path.read_text(encoding="utf-8"))
     payload["audio"] = []
     versions_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -249,6 +252,6 @@ def test_current_package_drops_a_malformed_selected_bucket_and_stays_importable(
     shutil.rmtree(project_dir)
     service.import_project_archive(archive_path, uploaded_filename="demo.zip")
 
-    imported = json.loads((pm.get_project_path("demo") / "versions" / "versions.json").read_text(encoding="utf-8"))
+    imported = read_version_history(pm.get_project_path("demo"))
     assert "audio" not in imported
     assert "videos" in imported

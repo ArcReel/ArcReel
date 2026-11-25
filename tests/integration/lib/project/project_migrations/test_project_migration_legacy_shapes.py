@@ -53,6 +53,7 @@ from tests.legacy_project_shapes import (
     break_script_item_ids,
     cross_bind_episode_scripts,
     duplicate_legacy_ad_ids,
+    read_version_history,
     refer_to_asset_in_episode,
     repoint_registered_asset_sheet,
     reuse_item_id_across_episodes,
@@ -1292,7 +1293,7 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
     assert hat_claim is not None
     assert entries[derivative_artifact_key("Alice", "Hat")] == replace(hat_claim, artifact_path=kept_hat_sheet)
     assert coat_key not in entries
-    derivative_history = _read_json(versions_path)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
+    derivative_history = read_version_history(project_dir)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
     assert f"{variant}/Hat" not in derivative_history
     assert f"{variant}/Coat" not in derivative_history
     assert derivative_history["Alice/Hat"] == hat_history
@@ -1723,7 +1724,7 @@ def test_a_schema_8_reference_draft_the_process_cannot_open_is_left_as_is(tmp_pa
 )
 def test_a_video_whose_selected_snapshot_cannot_be_opened_is_reported(tmp_path: Path) -> None:
     project_dir = _write_storyboard_project_with_a_video(tmp_path)
-    versions = _read_json(project_dir / "versions" / "versions.json")
+    versions = read_version_history(project_dir)
     snapshot = project_dir / versions["videos"]["E1S1"]["versions"][0]["file"]
     snapshot.chmod(0)
     try:

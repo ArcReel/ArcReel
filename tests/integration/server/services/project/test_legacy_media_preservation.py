@@ -20,6 +20,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     encode_artifact_manifest_payload,
 )
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.path_safety import try_safe_join
 from lib.project.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.project.project_manager import ProjectManager
@@ -258,7 +259,7 @@ def _assert_released_tts_delivery(project_dir: Path, *, has_timeline_exports: bo
     audio = workflow.get_status(project_dir.name, 1).artifacts["audio"]
     assert audio["current_ids"] == ["E1S2"]
     assert audio["stale_ids"] == ["E1S1"]
-    versions = _read_json(project_dir / "versions/versions.json")["audio"]["E1S1"]
+    versions = VersionManager(project_dir).get_versions("audio", "E1S1")
     assert all(record["artifact_audio_basis"]["kind_version"] == 2 for record in versions["versions"])
     assert versions["current_version"] == 2
     historical, selected = sorted(versions["versions"], key=lambda record: record["version"])
@@ -325,9 +326,7 @@ def test_audio_upgrade_retries_after_versions_write_before_manifest_commit(
 
     def interrupt(*args, **kwargs):
         assert (
-            _read_json(root / "versions/versions.json")["audio"]["E1S2"]["versions"][0]["artifact_audio_basis"][
-                "kind_version"
-            ]
+            VersionManager(root).get_versions("audio", "E1S2")["versions"][0]["artifact_audio_basis"]["kind_version"]
             == 2
         )
         raise RuntimeError("interrupted manifest commit")
@@ -344,7 +343,6 @@ def test_audio_upgrade_retries_after_versions_write_before_manifest_commit(
 
 
 def test_explicitly_restoring_stale_pre_upgrade_audio_uses_text_currency(tmp_path: Path) -> None:
-    from lib.artifacts.version_manager import VersionManager
     from server.services.currency.artifact_version_restore import restore_typed_media_version
 
     root = LEGACY_PROJECT_SHAPES["v20-tts-exports"](tmp_path / "projects")

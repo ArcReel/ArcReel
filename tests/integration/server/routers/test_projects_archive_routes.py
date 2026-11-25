@@ -19,6 +19,7 @@ from server.auth import CurrentUserInfo, create_download_token, create_token, ge
 from server.routers import projects
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import use_project_manager
+from tests.legacy_project_shapes import use_legacy_history
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -172,6 +173,7 @@ class TestProjectArchiveRoutes:
         script["segments"][0]["scenes"] = ["雨巷"]
         _write_json(script_path, script)
         archive_path = tmp_path / "manual.zip"
+        use_legacy_history(project_dir)
         with zipfile.ZipFile(archive_path, "w") as archive:
             for path in sorted(project_dir.rglob("*")):
                 if path.is_file() and not path.name.startswith("."):

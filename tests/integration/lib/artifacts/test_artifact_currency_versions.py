@@ -13,6 +13,7 @@ from lib.project.resource_paths import resource_relative_path
 from tests.integration.lib.episode_media_support import episodes_with_media
 from tests.integration.lib.manifest_parse_support import count_versions_parses
 from tests.integration.lib.workflow.test_workflow_state import _make_project
+from tests.legacy_project_shapes import use_legacy_history
 
 
 def _compare_video(resolver: ArtifactCurrencyResolver, episode: int) -> ArtifactStatus:
@@ -27,6 +28,7 @@ def _compare_video(resolver: ArtifactCurrencyResolver, episode: int) -> Artifact
 def two_episode_project(tmp_path: Path) -> Path:
     pm, project_path = _make_project(tmp_path, "narration")
     episodes_with_media(pm, project_path, 2)
+    use_legacy_history(project_path)
     return project_path
 
 

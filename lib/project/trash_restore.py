@@ -34,6 +34,7 @@ from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.api_errors import BadRequestError, ConflictError
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import atomic_write_json
+from lib.infra.project_write_journal import is_history_database_name
 from lib.project import project_trash
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_trash import RestoredFile, RestoreResult, TrashRecord
@@ -217,6 +218,7 @@ def _non_structure_files(staged: Path) -> list[str]:
             rel = path.relative_to(staged).as_posix()
             if (
                 (top and name.startswith("."))
+                or (path.parent == staged / "versions" and is_history_database_name(name))
                 or _MIGRATION_COPY_RE.search(name)
                 or path.is_symlink()
                 or not path.is_file()

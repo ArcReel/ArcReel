@@ -763,8 +763,7 @@ class TestConfirmMaterializesScript:
         current = project_path / resource_relative_path("storyboards", "E1S01")
         current.parent.mkdir(parents=True, exist_ok=True)
         current.write_bytes(b"old")
-        (project_path / "versions").mkdir(exist_ok=True)
-        (project_path / "versions" / "versions.json").write_text("{broken", encoding="utf-8")
+        (project_path / "versions" / "history.sqlite3").write_bytes(b"broken history")
         before = (project_path / "scripts" / "episode_1.json").read_bytes()
 
         with pytest.raises(ScriptReviewError):

@@ -23,6 +23,10 @@ def is_versioned_backup_name(name: str) -> bool:
     return _BACKUP_RE.search(name) is not None
 
 
+def is_kept_copy_name(name: str) -> bool:
+    return re.search(r"\.kept\.v\d+-\d+$", name) is not None
+
+
 def versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
     """例如 project.json → project.json.bak.v0-1712345678。"""
 
@@ -96,6 +100,7 @@ def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = Fals
 
 __all__ = [
     "ensure_versioned_backup",
+    "is_kept_copy_name",
     "is_versioned_backup_name",
     "kept_copy_name",
     "set_aside_as_kept_copy",

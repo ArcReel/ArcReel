@@ -578,6 +578,7 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
 
     for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, CURRENT_SCHEMA_VERSION - 1):
         MIGRATORS[version](project_dir)
+    VersionManager(project_dir).enable_sqlite_history()
 
     def _pause_before_schema(project_dir_arg: Path, project: Mapping[str, Any]) -> None:
         activation_ready.set()
