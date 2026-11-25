@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 
+from lib.backends.http_status_errors import TextWaitTimeout
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
 from lib.catalog.errors import ModelNotInCatalogError
@@ -1155,6 +1156,8 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         raise BadRequestError("text_default_model_not_set").with_diagnostic(
             {"code": "text_default_model_not_set"}
         ) from exc
+    except TextWaitTimeout as exc:
+        raise ApiError(exc.code, status_code=504).with_diagnostic({"code": exc.code}) from exc
     except VisionCapabilityError as e:
         raise BadRequestError(
             "vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value

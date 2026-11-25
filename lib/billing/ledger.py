@@ -35,6 +35,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import datetime
 from typing import Any, assert_never
 
@@ -42,7 +43,7 @@ from arcreel_catalog_core import CJK_DOUBLE_METER
 from lib.agent.credential_tiers import AgentPricing
 from lib.backends.providers import CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
-from lib.billing.metering import Usage, token_usage
+from lib.billing.metering import RequestTokens, Usage, token_usage
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, UsageRepository
@@ -123,27 +124,27 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
             usage=(usage,) if usage is not None else (),
         )
     if call_type == "text":
-        return SettlementInput(
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            cache_read_tokens=result.cache_read_tokens,
-            cache_write_5m_tokens=result.cache_write_5m_tokens,
-            cache_write_1h_tokens=result.cache_write_1h_tokens,
-            usage=tuple(
-                Usage(
-                    quantities=token_usage(
-                        input_tokens=request.input_tokens,
-                        output_tokens=request.output_tokens,
-                        cache_read_tokens=request.cache_read_tokens,
-                        cache_write_5m_tokens=request.cache_write_5m_tokens,
-                        cache_write_1h_tokens=request.cache_write_1h_tokens,
-                    )
-                )
-                for request in result.request_tokens()
-            )
-            or (Usage(),),
-        )
+        return _text_settlement(result.request_tokens())
     assert_never(call_type)
+
+
+def _text_settlement(requests: Sequence[RequestTokens]) -> SettlementInput:
+    totals: dict[str, int] = {}
+    usage = []
+    for request in requests:
+        values = asdict(request)
+        usage.append(Usage(quantities=token_usage(**values)))
+        for name, value in values.items():
+            if value is not None:
+                totals[name] = totals.get(name, 0) + value
+    return SettlementInput(
+        input_tokens=totals.get("input_tokens"),
+        output_tokens=totals.get("output_tokens"),
+        cache_read_tokens=totals.get("cache_read_tokens"),
+        cache_write_5m_tokens=totals.get("cache_write_5m_tokens"),
+        cache_write_1h_tokens=totals.get("cache_write_1h_tokens"),
+        usage=tuple(usage) or (Usage(),),
+    )
 
 
 class LedgerCall:
@@ -152,7 +153,11 @@ class LedgerCall:
     def __init__(self, call_id: int, *, call_type: CallType) -> None:
         self.call_id = call_id
         self._call_type: CallType = call_type
+        self._text_requests: list[RequestTokens] = []
         self._settlement: SettlementInput | None = None
+
+    def record_request(self, tokens: RequestTokens) -> None:
+        self._text_requests.append(tokens)
 
     def success(self, result: Any, *, usage: Usage | None = None) -> None:
         """声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。
@@ -233,7 +238,7 @@ class Ledger:
                 self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
             raise
         except Exception as exc:
-            if await self._finish_failed(call_id, exc):
+            if await self._finish_failed(call_id, exc, call._text_requests):
                 self._emit_recorded(project_name, call_id, CallStatus.FAILED)
             raise
         else:
@@ -245,7 +250,7 @@ class Ledger:
                 self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
                 raise
             except Exception as exc:
-                if await self._finish_failed(call_id, exc):
+                if await self._finish_failed(call_id, exc, call._text_requests):
                     self._emit_recorded(project_name, call_id, CallStatus.FAILED)
                 raise
             self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
@@ -391,7 +396,7 @@ class Ledger:
                 call_id, status=CallStatus.SUCCESS, settlement=settlement, output_path=output_path
             )
 
-    async def _finish_failed(self, call_id: int, exc: BaseException) -> bool:
+    async def _finish_failed(self, call_id: int, exc: BaseException, requests: Sequence[RequestTokens]) -> bool:
         """翻 failed；返回是否真的写进去了（写失败时不发事件）。
 
         记账失败不吞原异常：写入失败仅记日志，原异常继续冒泡。分类也在 try 内：它读的是异常
@@ -399,18 +404,20 @@ class Ledger:
         """
         try:
             failure = classify_call_failure(exc)
-            await self._settle(self._write_failed(call_id, failure))
+            await self._settle(
+                self._write_failed(call_id, failure, _text_settlement(requests) if requests else SettlementInput())
+            )
         except Exception:
             logger.exception("ledger 失败分支记账写入自身失败 call_id=%s（原异常照常重抛）", call_id)
             return False
         return True
 
-    async def _write_failed(self, call_id: int, failure: CallFailure) -> None:
+    async def _write_failed(self, call_id: int, failure: CallFailure, settlement: SettlementInput) -> None:
         async with self._session_factory() as session:
             await UsageRepository(session).finish_call(
                 call_id,
                 status=CallStatus.FAILED,
-                settlement=SettlementInput(),
+                settlement=settlement,
                 error_message=failure.error_message,
                 error_code=failure.error_code,
                 error_params=failure.error_params,

@@ -124,6 +124,7 @@ PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
 )
 
 FAILURE_CODE_KEYS: dict[str, str] = {
+    "text_wait_timeout": "text_wait_timeout",
     "text_default_model_not_set": "text_default_model_not_set",
     "audio_default_model_not_set": "audio_default_model_not_set",
     "image_default_model_not_set": "image_default_model_not_set",

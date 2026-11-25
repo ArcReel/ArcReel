@@ -272,6 +272,7 @@ MESSAGES = {
     "episode_planning_refused": "分集规划未能提交：{reason}",
     "episode_planning_no_cut_point": "这一段原文里找不到剧情弧完整的切分点。可以先手工切出这一段，再继续 AI 规划",
     "episode_planning_failed": "出现错误，请重试；反复失败时，可以交给 Agent 排查",
+    "text_wait_timeout": "本地已停止等待，但上游请求仍可能继续完成并计费。",
     "text_output_truncated": "文本模型 {model} 的输出超出了最大输出长度，内容不完整",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
     "script_review_duration_off_tier": "脚本规划里视频单元 {position} 的时长 {duration_seconds} 秒不在当前视频模型支持的档位内（可选 {tiers} 秒），本次确认未完成。请把这个单元的时长改到可选档位后重新确认",

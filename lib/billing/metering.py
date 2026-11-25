@@ -65,6 +65,17 @@ class Usage:
     text: str | None = None
 
 
+@dataclass(frozen=True)
+class RequestTokens:
+    """一次供应商请求的 token 计量。"""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
+
+
 def token_usage(
     *,
     input_tokens: int | None,

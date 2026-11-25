@@ -226,6 +226,8 @@ Consider:
 
 High-reasoning models are not necessarily suitable for every task. Complex content analysis and routine structured transformations can use different models.
 
+When generating text through an Anthropic Messages endpoint, ArcReel stops waiting after 180 seconds without new text or thinking content, or after 900 seconds for the whole generation. The provider may still complete the request and charge for it. If structured output fallback or truncation causes the task to fail, Usage Records retains the reported usage and its reference cost.
+
 ## 8. TTS Configuration {#tts-providers}
 
 ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Grok TTS, Volcengine Ark Agent Plan's Doubao Speech Synthesis Model 2.0, or a compatible TTS interface.

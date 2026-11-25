@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from lib.backends.providers import CallPurpose, require_provider_pair
 from lib.backends.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
+    RequestTokens,
     TextGenerationRequest,
     TextGenerationResult,
     TextOutputTruncatedError,
@@ -124,11 +125,25 @@ class TextGenerator:
             user_id=self._user_id,
             purpose=self._purpose,
         ) as call:
+            requests_recorded = False
+
+            def record_request(tokens: RequestTokens) -> None:
+                nonlocal requests_recorded
+                requests_recorded = True
+                call.record_request(tokens)
+                if request.on_usage:
+                    request.on_usage(tokens)
+
             try:
-                result = await self.backend.generate(request)
+                result = await self.backend.generate(
+                    replace(request, on_usage=record_request, task_type=request.task_type or self._purpose)
+                )
             except TextOutputTruncatedError as exc:
                 raise self._truncation(exc.provider, exc.output_tokens) from exc
             if result.truncated and require_complete:
+                if not requests_recorded:
+                    for tokens in result.request_tokens():
+                        call.record_request(tokens)
                 raise self._truncation(result.provider, result.output_tokens)
             call.success(result)
             return result

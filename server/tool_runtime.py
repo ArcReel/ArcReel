@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
+from lib.backends.http_status_errors import TextWaitTimeout
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
@@ -667,6 +668,8 @@ async def _run_text_generation(
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
     except OperationNotAdmittedError as exc:
         return ToolOutcome(problem=_not_admitted_problem(exc))
+    except TextWaitTimeout as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
     except VideoRequestFactsUnavailableError as exc:
@@ -2727,6 +2730,8 @@ async def _execute_plan_episodes(
                 )
         except TextOutputTruncatedError as exc:
             outcome: ToolOutcome[Any] = ToolOutcome(problem=truncation_problem(exc))
+        except TextWaitTimeout as exc:
+            outcome = ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
         except NoAvailableProviderError as exc:
             outcome = ToolOutcome(problem=no_available_provider_problem(exc))
         except ModelNotInCatalogError as exc:
@@ -3022,6 +3027,8 @@ async def _draft_replan_window(
             )
         except TextOutputTruncatedError as exc:
             outcome: ToolOutcome[Any] = ToolOutcome(problem=truncation_problem(exc))
+        except TextWaitTimeout as exc:
+            outcome = ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
         except NoAvailableProviderError as exc:
             outcome = ToolOutcome(problem=no_available_provider_problem(exc))
         except ModelNotInCatalogError as exc:

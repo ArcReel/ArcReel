@@ -1833,9 +1833,11 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
 
     executor = _TASK_EXECUTORS.get(task_type)
     if task_type.startswith("text_"):
+        from lib.backends.text_backends.streaming import TextTaskContext, bind_text_task
         from server.tool_runtime import execute_queued_text_task
 
-        return await execute_queued_text_task(task)
+        with bind_text_task(TextTaskContext(str(queue_task_id), task_type)):
+            return await execute_queued_text_task(task)
     if is_render_task_type(task_type):
         return await execute_render_task(task)
     if executor is None:

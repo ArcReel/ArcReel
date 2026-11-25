@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 from openai import APITimeoutError
 
-from lib.backends.http_status_errors import ArtifactDownloadError
+from lib.backends.http_status_errors import ArtifactDownloadError, TextWaitTimeout
 from lib.infra.api_errors import ApiError
 from lib.infra.error_params import (
     FAILURE_MESSAGE_LIMIT,
@@ -85,6 +85,8 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
     if isinstance(exc, str):
         return CallFailure(exc)
     message = str(exc)
+    if isinstance(exc, TextWaitTimeout):
+        return CallFailure(message, exc.code, exc.params)
     if _provider_error_code(exc) == _ARTIFACT_DOWNLOAD_FAILED_CODE:
         return CallFailure(message, CallErrorCode.DOWNLOAD_FAILED, _download_params(exc))
     for candidate in _cause_chain(exc):

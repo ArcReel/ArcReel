@@ -9,6 +9,16 @@ from __future__ import annotations
 
 import httpx
 
+from lib.infra.retry import NonRetryableError
+
+
+class TextWaitTimeout(NonRetryableError):
+    code = "text_wait_timeout"
+
+    def __init__(self):
+        self.params: dict[str, str] = {}
+        super().__init__("本地已停止等待，但上游请求仍可能继续完成并计费。")
+
 
 class ProviderRejectedError(httpx.HTTPStatusError):
     """上游确定性 4xx 拒绝，可另带脱敏截断后的拒因摘要。

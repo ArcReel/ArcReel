@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 from lib.agent.agent_session_store import default_sdk_config_dir
 from lib.agent.profile_manifest import ContentMode
+from lib.backends.http_status_errors import TextWaitTimeout
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
@@ -1907,6 +1908,9 @@ async def set_project_source(
                 with project_change_source("webui"):
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
+            except TextWaitTimeout as exc:
+                result["overview"] = None
+                result["overview_error"] = _t(exc.code)
             except ModelNotInCatalogError as ov_err:
                 logger.warning("上传后概览生成失败：模型不在清单中 (%s)", ov_err)
                 result["overview"] = None
@@ -1972,6 +1976,8 @@ async def generate_overview(name: str, _t: Translator):
     except PydanticValidationError as exc:
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
+    except TextWaitTimeout as exc:
+        raise ApiError(exc.code, status_code=504).with_diagnostic({"code": exc.code}) from exc
     except TextOutputTruncatedError as exc:
         logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
         raise UnprocessableError(

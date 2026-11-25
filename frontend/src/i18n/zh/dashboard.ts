@@ -847,6 +847,7 @@ export default {
   'usage_media_audio': '音频',
   'usage_error_rate_limited': '限流',
   'usage_error_content_policy': '内容策略',
+  'text_wait_timeout': '本地已停止等待，但上游请求仍可能继续完成并计费。',
   'usage_error_timeout': '超时',
   'usage_error_download_failed': '下载失败',
   'usage_error_interrupted': '已中断',
