@@ -103,6 +103,13 @@ export function selectActiveTasks(s: TaskRows): TaskItem[] {
   return Array.from(s.activeTaskIds, (id) => s.rowsById.get(id)!);
 }
 
+export function useActiveEpisodePlan(projectName: string): TaskItem | undefined {
+  return useTasksStore((s) => {
+    const plans = selectActiveTasks(s).filter((row) => row.project_name === projectName && row.task_type === "text_episode_plan");
+    return plans.find((row) => row.status === "running") ?? plans[0];
+  });
+}
+
 export function selectProjectTaskFingerprint(s: TaskRows, projectName: string): string {
   const seen = new Set<string>();
   const parts: string[] = [];
@@ -221,6 +228,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
   let markSeq = 0;
   let connectedOnce = false;
   let writeRevisions = new Map<string, number>();
+  let snapshotEvents: Map<string, TaskProgress> | null = null;
   let flight: Promise<void> | null = null;
   let waiters: Array<() => void> = [];
   let requestAbort: AbortController | undefined;
@@ -292,6 +300,8 @@ export const useTasksStore = create<TasksState>((set, get) => {
     requestAbort = controller;
     const { signal } = controller;
     const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
+    const events = new Map<string, TaskProgress>();
+    snapshotEvents = events;
     let observedActive: TaskItem[] = [];
     try {
       const [active, recent, stats] = await Promise.all([
@@ -310,6 +320,9 @@ export const useTasksStore = create<TasksState>((set, get) => {
         recent.items.filter(notDeletedLocally),
         protectedIds,
       );
+      for (const progress of events.values()) {
+        if (acceptsProgress(next, progress)) next.progressById.set(progress.task_id, progress);
+      }
       const invalidate = connectedOnce && selectRecentTasks(next).some((row) =>
         hasNewReferenceOutput(row, prev.rowsById.get(row.task_id)),
       );
@@ -324,6 +337,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
       clearTimeout(timeout);
       if (requestAbort === controller) requestAbort = undefined;
     }
+    if (snapshotEvents === events) snapshotEvents = null;
     if (generation === epoch) await lookupPending(projectName, observedActive, epoch);
   }
 
@@ -359,6 +373,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
     setRefreshScope(scope) {
       if (scope && get().refreshScope?.projectName === scope.projectName) return;
       generation++;
+      snapshotEvents = null;
       connectedOnce = false;
       waiters.forEach((resolve) => resolve());
       waiters = [];
@@ -369,7 +384,14 @@ export const useTasksStore = create<TasksState>((set, get) => {
     },
     receiveProgress(progress) {
       const state = get();
-      if (!acceptsProgress(state, progress)) return;
+      if (!acceptsProgress(state, progress)) {
+        const row = state.rowsById.get(progress.task_id);
+        if (snapshotEvents && (!row || row.status === "queued") &&
+            progress.seq > (snapshotEvents.get(progress.task_id)?.seq ?? 0)) {
+          snapshotEvents.set(progress.task_id, progress);
+        }
+        return;
+      }
       writeRevisions.set(progress.task_id, ++revision);
       set({ progressById: new Map(state.progressById).set(progress.task_id, progress) });
     },

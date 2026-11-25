@@ -13,9 +13,11 @@ from lib.project.project_manager import ProjectManager
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
     from tests.fakes import use_project_manager
+    from tests.unit.server.app_lifespan_support import stub_lifespan_dependencies
 
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     use_project_manager(monkeypatch, ProjectManager(tmp_path))
+    stub_lifespan_dependencies(monkeypatch)
     with (
         patch(
             "server.app.migrate_local_transcripts_to_store",
@@ -29,20 +31,10 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
         patch("server.app.cleanup_stale_backups"),
         patch("server.app.startup_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.shutdown_http_client", new=AsyncMock(return_value=None)),
-        patch("server.app.create_generation_worker") as worker_factory,
         patch("server.app.assistant.assistant_service") as svc_mock,
         patch("server.app.ProjectEventService") as pes_factory,
         patch("server.app.close_db", new=AsyncMock(return_value=None)),
     ):
-        worker_factory.return_value = type(
-            "W",
-            (),
-            {
-                "start": AsyncMock(),
-                "stop": AsyncMock(),
-                "stop_admission": lambda self: None,
-            },
-        )()
         svc_mock.startup = AsyncMock()
         svc_mock.shutdown = AsyncMock()
         svc_mock.session_manager = type(
@@ -63,6 +55,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
                 "start": AsyncMock(),
                 "shutdown": AsyncMock(),
                 "stop_streams": lambda self: None,
+                "publish_task_progress": lambda self, project_name, progress: None,
                 "publish_assistant_session_resumed": lambda self, project_name, session_id: None,
             },
         )()

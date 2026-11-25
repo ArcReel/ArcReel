@@ -541,7 +541,7 @@ describe("EpisodesView", () => {
             model: "Claude",
           }),
         );
-        expect(popover.getByText("正在等待 Claude 响应")).toBeInTheDocument();
+        expect(popover.getByText("正在等待 Claude 响应…")).toBeInTheDocument();
 
         act(() =>
           useTasksStore.getState().receiveProgress({
@@ -552,7 +552,7 @@ describe("EpisodesView", () => {
             characters: 0,
           }),
         );
-        expect(popover.getByText("模型思考中")).toBeInTheDocument();
+        expect(popover.getByText("模型思考中…")).toBeInTheDocument();
 
         act(() =>
           useTasksStore.getState().receiveProgress({
@@ -563,7 +563,7 @@ describe("EpisodesView", () => {
             characters: 412,
           }),
         );
-        expect(popover.getByText("正在接收生成内容 · 已接收约 412 字")).toBeInTheDocument();
+        expect(popover.getByText("正在接收生成内容 · 已接收约 412 字…")).toBeInTheDocument();
 
         act(() =>
           useTasksStore.getState().receiveProgress({
@@ -575,7 +575,7 @@ describe("EpisodesView", () => {
             error: "503",
           }),
         );
-        expect(popover.getByText("正在重试（第 2/3 次尝试）")).toBeInTheDocument();
+        expect(popover.getByText("正在重试（第 2/3 次尝试）…")).toBeInTheDocument();
 
         act(() => vi.advanceTimersByTime(5_000));
         expect(popover.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();

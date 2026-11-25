@@ -1,0 +1,48 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/progress-demo/tasks/active",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "task_id": "00000000000040008000000000000003",
+        "batch_id": null,
+        "project_name": "progress-demo",
+        "task_type": "text_episode_script",
+        "media_type": "text",
+        "resource_id": "episode-1",
+        "resource_type": null,
+        "script_file": null,
+        "payload": {
+          "episode": 1
+        },
+        "status": "running",
+        "result": {},
+        "error_message": null,
+        "source": "webui",
+        "dependency_task_id": null,
+        "dependency_group": null,
+        "dependency_index": null,
+        "cancelled_by": null,
+        "provider_id": null,
+        "provider_job_id": null,
+        "provider_endpoint": null,
+        "submitted_base_url": null,
+        "queued_at": "2026-01-01T08:00:00.000Z",
+        "started_at": "2026-01-01T08:00:00.000Z",
+        "finished_at": null,
+        "updated_at": "2026-01-01T08:00:00.000Z",
+        "user_id": "default",
+        "model": null,
+        "progress": {
+          "phase": "waiting",
+          "task_id": "00000000000040008000000000000003",
+          "seq": 1,
+          "model": "claude-sonnet-4"
+        },
+        "resource_ref": null
+      }
+    ],
+    "truncated": false
+  }
+}

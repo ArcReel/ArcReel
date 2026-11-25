@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAppStore } from "@/stores/app-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { selectActiveTasks, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useActiveEpisodePlan, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, ReplanAdoptionImpact, ReplanSummary, SourcePoint } from "@/types";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { errMsg } from "@/utils/async";
@@ -45,12 +45,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   const [discarding, setDiscarding] = useState(false);
   const [adoption, setAdoption] = useState<PendingAdoption | null>(null);
   const tasks = useTasksStore(useShallow(selectRecentTasks));
-  const activeTask = useTasksStore((s) => {
-    const activePlans = selectActiveTasks(s).filter(
-      (row) => row.project_name === projectName && row.task_type === "text_episode_plan",
-    );
-    return activePlans.find((row) => row.status === "running") ?? activePlans[0];
-  });
+  const activeTask = useActiveEpisodePlan(projectName);
   const deleteRetiredId = useId();
   if (!generating && stopRequested) setStopRequested(false);
 
@@ -144,7 +139,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           {t("dashboard:replan_generating", { count: replan.new_count })}
         </h2>
         {activeTask ? (
-          <div role="status" className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <TextTaskProgress task={activeTask} showIcon={false} showLongWaitHint={false} />
             <TextTaskLongWaitHint task={activeTask} />
           </div>

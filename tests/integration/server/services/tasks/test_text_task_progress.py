@@ -30,8 +30,8 @@ class _Script(BaseModel):
 
 def _response(content):
     frames = [
-        {"choices": [{"index": 0, "delta": {"reasoning_content": "thinking"}}]},
-        {"choices": [{"index": 0, "delta": {"content": content}, "finish_reason": "stop"}]},
+        {"choices": [{"index": 0, "delta": {"content": "<think>hidden</thi"}}]},
+        {"choices": [{"index": 0, "delta": {"content": "nk>" + content}, "finish_reason": "stop"}]},
         {"choices": [], "usage": {"prompt_tokens": 100, "completion_tokens": 30}},
     ]
     return httpx.Response(
@@ -160,6 +160,7 @@ async def test_worker_stream_snapshot_and_partial_settlement(file_db_factory, mo
     async with file_db_factory() as session:
         failure = (await session.scalars(select(ApiCall).where(ApiCall.status == "failed"))).one()
         assert (failure.input_tokens, failure.output_tokens) == (100, 30)
+        assert failure.task_id == ids["structured"]
         assert failure.cost_amount > 0
     assert "text_generation" in caplog.text
     assert "text_task" in caplog.text

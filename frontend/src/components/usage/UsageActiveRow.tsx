@@ -4,12 +4,12 @@ import { cn } from "cn";
 
 import type { TaskItem } from "@/types";
 import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
-import { TextTaskLongWaitHint } from "@/components/shared/TextTaskProgress";
+import { TextTaskLongWaitHint, TextTaskPhaseLabel } from "@/components/shared/TextTaskProgress";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
 import { useTasksStore } from "@/stores/tasks-store";
-import { formatTextTaskProgress, isTextTask } from "@/utils/text-task-progress";
+import { isTextTask } from "@/utils/text-task-progress";
 import { TargetLabel } from "./RecordRow";
 import { MEDIA_META, elapsedSince } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
@@ -47,10 +47,7 @@ export function UsageActiveRow({
   const cancellable = task?.status === "queued";
   const textTask = task !== null && isTextTask(task);
   const statusText = task
-    ? (task.error_message ??
-      (running && progress
-        ? formatTextTaskProgress(progress, t)
-        : t(TASK_STATUS_KEYS[task.status])))
+    ? (task.error_message ?? t(TASK_STATUS_KEYS[task.status]))
     : t("usage_status_pending");
 
   return (
@@ -90,7 +87,11 @@ export function UsageActiveRow({
         </div>
         {textTask && (
           <>
-            <p className="text-xs wrap-break-word text-subtle-foreground">{statusText}</p>
+            <TextTaskPhaseLabel
+              progress={running && task.error_message == null ? progress : undefined}
+              fallback={statusText}
+              className="text-xs wrap-break-word text-subtle-foreground"
+            />
             <TextTaskLongWaitHint task={task} />
           </>
         )}

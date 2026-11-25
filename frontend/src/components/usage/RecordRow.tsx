@@ -5,14 +5,13 @@ import { cn } from "cn";
 
 import { EpisodeItemRefView } from "@/components/shared/episode-item/EpisodeItemRef";
 import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
-import { TextTaskLongWaitHint } from "@/components/shared/TextTaskProgress";
+import { TextTaskLongWaitHint, TextTaskPhaseLabel } from "@/components/shared/TextTaskProgress";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
 import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
-import { formatTextTaskProgress } from "@/utils/text-task-progress";
 import {
   MEDIA_META,
   STATUS_DOT_CLASSES,
@@ -61,13 +60,7 @@ export function TargetLabel({ record, focusable = true }: { record: UsageRecordV
   );
 }
 
-function ActiveTextStatusLabel({
-  taskId,
-  focusable = true,
-}: {
-  taskId: string;
-  focusable?: boolean;
-}) {
+function ActiveTextStatusLabel({ taskId }: { taskId: string }) {
   const { t } = useTranslation("dashboard");
   const task = useTasksStore((s) => s.rowsById.get(taskId));
   const progress = useTasksStore((s) => s.progressById.get(taskId));
@@ -81,15 +74,15 @@ function ActiveTextStatusLabel({
       </span>
     );
   }
-  const label =
-    task.status === "running" && progress
-      ? formatTextTaskProgress(progress, t)
-      : t(task.status === "queued" ? "queued_status" : "generating_status");
   return (
     <span className="flex min-w-0 flex-col gap-0.5">
       <span className="flex min-w-0 items-center gap-1.5">
         <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-primary" />
-        <TruncatedText text={label} focusable={focusable} className="text-primary" />
+        <TextTaskPhaseLabel
+          progress={task.status === "running" ? progress : undefined}
+          fallback={t(task.status === "queued" ? "queued_status" : "generating_status")}
+          className="wrap-anywhere text-primary"
+        />
       </span>
       <TextTaskLongWaitHint task={task} />
     </span>
@@ -107,7 +100,7 @@ function StatusLabel({
 }) {
   const { t } = useTranslation("dashboard");
   if (record.status === "pending" && record.mediaType === "text" && record.taskId !== null) {
-    return <ActiveTextStatusLabel taskId={record.taskId} focusable={focusable} />;
+    return <ActiveTextStatusLabel taskId={record.taskId} />;
   }
   const phraseKey = record.status === "failed" && showPhrase ? failurePhraseKey(record.errorCode) : null;
   return (

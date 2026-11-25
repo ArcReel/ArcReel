@@ -14,7 +14,7 @@ import { PopoverDescription, PopoverTitle } from "@/components/ui/popover";
 import { withInstruction } from "@/components/layout/project-guide";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { selectActiveTasks, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useActiveEpisodePlan, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodesView } from "@/types";
 import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
@@ -38,12 +38,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const [finishingWindow, setFinishingWindow] = useState(false);
   const instructionId = useId();
   const tasks = useTasksStore(useShallow(selectRecentTasks));
-  const activeTask = useTasksStore((s) => {
-    const activePlans = selectActiveTasks(s).filter(
-      (row) => row.project_name === projectName && row.task_type === "text_episode_plan",
-    );
-    return activePlans.find((row) => row.status === "running") ?? activePlans[0];
-  });
+  const activeTask = useActiveEpisodePlan(projectName);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
   if (!active && (stopRequested || finishingWindow)) {
@@ -99,7 +94,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
           <PopoverTitle>{t("dashboard:episode_planning_running", { percent })}</PopoverTitle>
         </div>
         {activeTask ? (
-          <div role="status" className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <TextTaskProgress task={activeTask} showIcon={false} showLongWaitHint={false} />
             <TextTaskLongWaitHint task={activeTask} />
           </div>

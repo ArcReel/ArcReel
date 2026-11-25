@@ -219,7 +219,6 @@ export function AdScriptProgress({ projectName, episode, noScript, className = "
   if (busy) {
     return (
       <div
-        role="status"
         className={cn(STATUS_CLS, "flex-col gap-1", className)}
       >
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

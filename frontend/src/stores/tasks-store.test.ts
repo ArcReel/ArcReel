@@ -362,6 +362,17 @@ describe("active snapshot reconciliation", () => {
     vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
   });
 
+  it("applies progress that overtakes the first active snapshot only after running is confirmed", async () => {
+    const progress = { task_id: row.task_id, seq: 1, phase: "waiting" as const, model: "m" };
+    vi.mocked(API.getActiveTasks).mockResolvedValueOnce(active([{ ...row, progress }]));
+    const refreshed = state().refreshTasks();
+    state().receiveProgress({ ...progress, seq: 3 });
+    state().receiveProgress({ ...progress, seq: 2 });
+    expect(state().progressById.size).toBe(0);
+    await refreshed;
+    expect(state().progressById.get(row.task_id)?.seq).toBe(3);
+  });
+
   it("releases a stalled snapshot refresh and lets the next refresh reconnect", async () => {
     await state().refreshTasks();
     expect(state().connected).toBe(true);

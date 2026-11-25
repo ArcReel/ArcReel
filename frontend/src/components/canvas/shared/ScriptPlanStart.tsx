@@ -1,9 +1,8 @@
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Bot, LoaderCircle, Sparkles } from "lucide-react";
-import { Link } from "wouter";
+import { Bot, LoaderCircle, Sparkles } from "lucide-react";
 
-import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
+import { EpisodeSourceLengthHint, SavedEpisodeSourceLengthHint } from "./EpisodeSourceLengthHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { TextTaskLongWaitHint, TextTaskProgress } from "@/components/shared/TextTaskProgress";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,6 @@ import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useScriptPlanSubmit } from "@/hooks/useScriptPlanSubmit";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { isActiveStatus } from "@/stores/tasks-store";
-import { LONG_EPISODE_SOURCE_THRESHOLD } from "@/utils/text-task-progress";
 
 interface ScriptPlanStartProps {
   projectName: string;
@@ -28,7 +26,7 @@ export function ScriptPlanStart(props: ScriptPlanStartProps) {
 }
 
 function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCharCount, prepare }: ScriptPlanStartProps) {
-  const { t, i18n } = useTranslation("dashboard");
+  const { t } = useTranslation("dashboard");
   const titleId = useId();
   const fieldId = useId();
   const reasonId = useId();
@@ -57,7 +55,6 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
   };
 
   const activeTask = latestTask && isActiveStatus(latestTask.status) ? latestTask : undefined;
-  const longSource = sourceCharCount !== undefined && sourceCharCount > LONG_EPISODE_SOURCE_THRESHOLD;
   const disabled = submitting || preparing || refusedReason !== null;
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
@@ -68,10 +65,10 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
         <p className="text-sm text-muted-foreground">{t("script_plan_desc")}</p>
       </div>
       {busy ? (
-        <div role="status" className="flex flex-col gap-1 rounded-lg bg-primary/10 px-3 py-2 text-sm text-foreground">
+        <div className="flex flex-col gap-1 rounded-lg bg-primary/10 px-3 py-2 text-sm text-foreground">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <LoaderCircle aria-hidden className="size-3.5 shrink-0 animate-spin text-primary" />
-            <span>
+            <span role={activeTask ? undefined : "status"}>
               {activeTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
             </span>
             {activeTask && (
@@ -100,20 +97,9 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
               className="max-h-40"
             />
           </div>
-          {longSource && (
-            <div className="flex items-start gap-2 rounded-lg bg-warn/10 px-3 py-2 text-xs text-subtle-foreground">
-              <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
-              <p className="min-w-0 wrap-break-word">
-                {t("script_plan_long_source_hint", { count: sourceCharCount.toLocaleString(i18n.language) })}{" "}
-                <Link
-                  href={episodesViewPath({ episode })}
-                  className="focus-ring rounded-sm text-primary underline underline-offset-2"
-                >
-                  {t("episode_workspace_source_go_episodes")}
-                </Link>
-              </p>
-            </div>
-          )}
+          {sourceCharCount === undefined
+            ? <SavedEpisodeSourceLengthHint projectName={projectName} episode={episode} />
+            : <EpisodeSourceLengthHint episode={episode} count={sourceCharCount} />}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"

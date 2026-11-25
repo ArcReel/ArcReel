@@ -19,9 +19,9 @@ it("shows the live phase and elapsed time for this episode", () => {
     expect(screen.getByRole("button", { name: "编写提示词" })).toBeDisabled();
     expect(screen.getByLabelText(/已运行.*8/)).toBeInTheDocument();
     update({ task_id, seq: 1, phase: "waiting", model: "Demo" });
-    expect(screen.getByText("正在等待 Demo 响应")).toBeInTheDocument();
+    expect(screen.getByText("正在等待 Demo 响应…")).toBeInTheDocument();
     update({ task_id, seq: 2, phase: "receiving", thinking: true, characters: 0 });
-    expect(screen.getByText("模型思考中")).toBeInTheDocument();
+    expect(screen.getByText("模型思考中…")).toBeInTheDocument();
     update({ task_id, seq: 3, phase: "receiving", thinking: false, characters: 63 });
     expect(screen.getByText(/已接收约 63 字/)).toBeInTheDocument();
     update({ task_id, seq: 4, phase: "retrying", attempt: 2, max_attempts: 3, error: "RateLimitError" });

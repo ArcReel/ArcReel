@@ -32,31 +32,20 @@ const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
+const runningText = recorded<{ items: [{ task_id: string; progress: { phase: "waiting"; model: string; seq: number } }] }>(
+  "running-text-task.json",
+).items[0];
+
 function makeTextTask(overrides: Record<string, unknown>) {
+  const { progress, ...row } = runningText;
   return {
+    ...row,
     task_id: "task-text-1",
     project_name: "demo",
-    task_type: "text_episode_script",
-    media_type: "text",
-    resource_id: "episode-1",
-    resource_type: null,
-    script_file: null,
-    payload: {},
-    status: "running",
-    result: null,
-    error_message: null,
-    error_code: null,
-    error_params: null,
-    error_detail: null,
-    cancelled_by: null,
     provider_id: "anthropic",
-    model: "claude-sonnet-4",
-    provider_job_id: null,
-    source: "webui",
+    model: progress.model,
     queued_at: STARTED_16S_AGO,
     started_at: STARTED_16S_AGO,
-    finished_at: null,
-    updated_at: FIXED_NOW,
     ...overrides,
   };
 }
@@ -138,7 +127,7 @@ const PROMPT_AUTHORING_TASK = makeTextTask({
   task_id: "task-prompt-1",
   task_type: "text_episode_script",
   resource_id: "episode-1",
-  progress: { task_id: "task-prompt-1", seq: 1, phase: "waiting", model: "claude-sonnet-4" },
+  progress: { ...runningText.progress, task_id: "task-prompt-1" },
 });
 
 const PROMPT_AUTHORING_RUNNING: ApiOverrides = {
@@ -183,7 +172,7 @@ const SCRIPT_PLAN_TASK = makeTextTask({
   task_id: "task-script-plan-live",
   task_type: "text_drama_script_plan",
   resource_id: "episode-1",
-  progress: { task_id: "task-script-plan-live", seq: 1, phase: "waiting", model: "claude-sonnet-4" },
+  progress: { ...runningText.progress, task_id: "task-script-plan-live" },
 });
 
 const SCRIPT_PLAN_RUNNING: ApiOverrides = {
@@ -235,23 +224,17 @@ const LONG_SOURCE_EPISODE: ApiOverrides = {
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: EXACT_15000_SOURCE },
   "PUT /api/v1/projects/demo/episodes/1/source": {
     status: 200,
-    body: {
-      success: true,
-      episode: 1,
-      source_origin: "own",
-      applied: true,
-      needs_confirmation: false,
-      affected_episodes: [],
-    },
+    body: recorded("episode-source-save.json"),
   },
   "POST /api/v1/projects/demo/episodes/1/script-plan": {
     status: 200,
-    body: { batch: { batch_id: "batch-long", members: [{ unit_id: "episode-1", task_id: "task-long-1" }] } },
+    body: recorded("episode-script-plan.json"),
   },
 };
 
+const episodesView = recorded<{ episodes: Record<string, unknown>[] }>("project-demo-episodes-view.json");
 const EPISODES_VIEW_WITH_SOURCE = {
-  unit: "chars",
+  ...episodesView,
   units: 1200,
   cut_units: 400,
   files: [
@@ -293,7 +276,7 @@ const EPISODES_VIEW_WITH_SOURCE = {
   ],
   episodes: [
     {
-      episode: 1,
+      ...episodesView.episodes[0],
       origin: "whole_source",
       placed: true,
       source_file: "source/book.txt",
@@ -305,9 +288,6 @@ const EPISODES_VIEW_WITH_SOURCE = {
       source_kind: null,
     },
   ],
-  unregistered: [],
-  replan: null,
-  external_changes: [],
 };
 
 const EPISODE_PLAN_TASK = makeTextTask({
@@ -421,6 +401,7 @@ defineRegionScenarios("长文本等待反馈与超长原文引导", [
       const usagePopover = page.getByRole("dialog", { name: "使用记录" });
       await waitForEntrance(usagePopover);
       await expect(usagePopover.getByText("正在接收生成内容 · 已接收约 640 字")).toBeVisible();
+      await expect(usagePopover.getByRole("status").filter({ hasText: /^正在接收生成内容…$/ })).toBeVisible();
       await expect(usagePopover.getByText(LONG_WAIT_HINT)).toBeVisible();
       await usagePopover.getByRole("button", { name: "关闭使用记录" }).click();
       await expect(usagePopover).toBeHidden();
@@ -459,10 +440,11 @@ defineRegionScenarios("长文本等待反馈与超长原文引导", [
         },
       );
       await clearAgentOverlay(page);
-      const status = page.getByRole("tabpanel", { name: "脚本规划" }).getByRole("status");
-      await expect(status).toContainText("AI 正在规划脚本。");
-      await expect(status).toContainText("正在接收生成内容 · 已接收约 1280 字");
-      await expect(status).toContainText(LONG_WAIT_HINT);
+      const panel = page.getByRole("tabpanel", { name: "脚本规划" });
+      await expect(panel.getByRole("status")).toHaveText("正在接收生成内容…");
+      await expect(panel).toContainText("AI 正在规划脚本。");
+      await expect(panel).toContainText("正在接收生成内容 · 已接收约 1280 字");
+      await expect(panel).toContainText(LONG_WAIT_HINT);
     },
   },
   {
@@ -501,13 +483,16 @@ defineRegionScenarios("长文本等待反馈与超长原文引导", [
       await expect(planPanel.getByText(/本集原文约 15,001 字，超过 15,000 字/)).toBeVisible();
       await expect(planPanel.getByRole("link", { name: "去分集" })).toBeVisible();
 
-      const planRequest = page.waitForRequest(
-        (req) => req.method() === "POST" && req.url().endsWith("/api/v1/projects/demo/episodes/1/script-plan"),
+      const planResponse = page.waitForResponse(
+        (res) => res.request().method() === "POST" && res.url().endsWith("/api/v1/projects/demo/episodes/1/script-plan"),
       );
       const aiButton = planPanel.getByRole("button", { name: "AI 规划" });
       await expect(aiButton).toBeEnabled();
       await aiButton.click();
-      await planRequest;
+      const response = await planResponse;
+      expect(response.ok()).toBe(true);
+      expect(await response.finished()).toBeNull();
+      await expect(planPanel.getByText("AI 规划脚本正在排队。", { exact: true })).toBeVisible();
     },
   },
   {
@@ -552,7 +537,10 @@ defineRegionScenarios("长文本等待反馈与超长原文引导", [
     act: async (page) => {
       await expect(page.getByText("demo")).toBeVisible();
       await expect(page.getByText("other-project")).toBeVisible();
-      await expect(page.getByText("正在接收生成内容 · 已接收约 920 字")).toBeVisible();
+      const receiving = page.getByText("正在接收生成内容 · 已接收约 920 字");
+      await expect(receiving).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: /^正在接收生成内容…$/ })).toBeVisible();
+      expect(await receiving.evaluate((label) => label.scrollWidth - label.clientWidth)).toBeLessThanOrEqual(1);
       await expect(page.getByText("模型思考中")).toBeVisible();
       await expect(page.getByText(LONG_WAIT_HINT).first()).toBeVisible();
     },
