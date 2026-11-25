@@ -49,6 +49,7 @@ def _ensure(a: argparse.Namespace) -> None:
         video_ratio=a.video_ratio,
         rebuild=a.rebuild,
         distribution=a.distribution,
+        wait_racy_window=not a.no_racy_wait,
     )
 
 
@@ -620,6 +621,7 @@ def main() -> None:
     common.add_argument("--sheet-kb", type=int, default=512)
     common.add_argument("--video-ratio", type=float, default=0.9)
     common.add_argument("--rebuild", action="store_true")
+    common.add_argument("--no-racy-wait", action="store_true", help="构建完成后跳过内容指纹 racy 窗口等待（仅测试用）")
     common.add_argument("--ep", type=int, default=45, help="单元列表等按集请求使用的集号")
     common.add_argument("--only", nargs="+", choices=ENDPOINTS)
     common.add_argument("--tag", default="default", help="输出文件名后缀")

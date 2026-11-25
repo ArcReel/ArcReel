@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import portalocker
 
 from lib.infra.json_io import atomic_write_bytes
-from lib.infra.project_write_journal import active_journal, project_operation, track_write
+from lib.infra.project_write_journal import (
+    active_journal,
+    has_sqlite_history,
+    is_history_database_path,
+    project_operation,
+    track_write,
+)
 from lib.project.task_project_claim import ensure_task_project_claim
 
 
@@ -92,17 +98,19 @@ def formal_write_transaction(*paths: Path) -> Generator[None]:
 
     snapshots: list[_FileSnapshot] = []
     seen: set[Path] = set()
+    sqlite_projects: list[Path] = []
+    seen_sqlite: set[Path] = set()
     for raw_path in paths:
         path = Path(raw_path)
-        if path.parent.name == "versions":
-            if path.name in {
-                "history.sqlite3",
-                "history.sqlite3-wal",
-                "history.sqlite3-shm",
-                "history.sqlite3-journal",
-            }:
-                raise ValueError("cannot snapshot live history database")
-            if path.name == "versions.json" and (path.parent / "history.sqlite3").is_file():
+        if is_history_database_path(path):
+            raise ValueError("cannot snapshot live history database")
+        if path.parent.name == "versions" and path.name == "versions.json":
+            project_dir = path.parent.parent
+            if has_sqlite_history(project_dir):
+                resolved_project = project_dir.resolve(strict=False)
+                if resolved_project not in seen_sqlite:
+                    seen_sqlite.add(resolved_project)
+                    sqlite_projects.append(project_dir)
                 continue
         identity = path.parent.resolve(strict=False) / path.name
         if identity in seen:
@@ -111,15 +119,21 @@ def formal_write_transaction(*paths: Path) -> Generator[None]:
         seen.add(identity)
         snapshots.append(_snapshot_file(path))
 
-    try:
-        yield
-    except BaseException as failure:
+    with ExitStack() as stack:
+        if sqlite_projects:
+            from lib.artifacts.sqlite_history import SQLiteHistory
+
+            for project_dir in sqlite_projects:
+                stack.enter_context(SQLiteHistory(project_dir).rollback_scope())
         try:
-            _restore_snapshots(tuple(snapshots))
-        except RuntimeError as rollback_error:
-            rollback_error.__cause__ = failure
-            raise RuntimeError("formal write failed and durable rollback was incomplete") from rollback_error
-        raise
+            yield
+        except BaseException as failure:
+            try:
+                _restore_snapshots(tuple(snapshots))
+            except RuntimeError as rollback_error:
+                rollback_error.__cause__ = failure
+                raise RuntimeError("formal write failed and durable rollback was incomplete") from rollback_error
+            raise
 
 
 __all__ = ["formal_write_transaction", "project_metadata_lock"]

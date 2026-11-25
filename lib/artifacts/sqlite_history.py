@@ -6,16 +6,20 @@ import json
 import os
 import sqlite3
 import tempfile
+import threading
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from contextlib import closing, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from lib.infra.project_write_journal import HISTORY_DB_RELATIVE_PATH
 from lib.project.asset_types import normalize_asset_name
 
 type Identity = tuple[str, str]
 type History = dict[str, dict[str, Any]]
+
+_rollback_local = threading.local()
 
 _SCHEMA = """
 CREATE TABLE history_state(revision BLOB NOT NULL);
@@ -51,24 +55,103 @@ class ResourceBatch(dict):
         self.original = deepcopy(data)
 
 
+def _rollback_stacks() -> dict[Path, list[dict[Identity, dict[str, Any] | None]]]:
+    stacks = getattr(_rollback_local, "stacks", None)
+    if stacks is None:
+        stacks = {}
+        _rollback_local.stacks = stacks
+    return stacks
+
+
 class SQLiteHistory:
     def __init__(self, project: Path):
-        self.path = project / "versions/history.sqlite3"
+        self.project = Path(project)
+        self.path = self.project / HISTORY_DB_RELATIVE_PATH
+
+    def is_enabled(self) -> bool:
+        return self.path.is_file()
+
+    def _root_key(self) -> Path:
+        return self.project.resolve(strict=False)
+
+    def _check_symlinks(self) -> None:
+        if self.path.parent.is_symlink() or self.path.is_symlink():
+            raise ValueError("unexpected history database symlink")
+
+    @contextmanager
+    def _read_connection(self) -> Generator[sqlite3.Connection]:
+        self._check_symlinks()
+        with closing(sqlite3.connect(self.path.absolute().as_uri() + "?mode=rw", uri=True, timeout=30.0)) as db:
+            db.execute("PRAGMA busy_timeout=5000")
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")
+            try:
+                yield db
+            finally:
+                if db.in_transaction:
+                    db.rollback()
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection]:
-        if self.path.parent.is_symlink() or self.path.is_symlink():
-            raise ValueError("unexpected history database symlink")
+        self._check_symlinks()
         from lib.artifacts.formal_write import project_metadata_lock
 
         with (
-            project_metadata_lock(self.path.parent.parent),
-            closing(sqlite3.connect(self.path.absolute().as_uri() + "?mode=rw", uri=True)) as db,
+            project_metadata_lock(self.project),
+            closing(sqlite3.connect(self.path.absolute().as_uri() + "?mode=rw", uri=True, timeout=30.0)) as db,
             db,
         ):
+            db.execute("PRAGMA busy_timeout=5000")
             db.execute("PRAGMA foreign_keys=ON")
-            db.execute("BEGIN")
+            db.execute("BEGIN IMMEDIATE")
             yield db
+
+    @contextmanager
+    def rollback_scope(self) -> Generator[None]:
+        """Record touched identities' pre-scope states and restore them on in-process failure."""
+
+        if not self.is_enabled():
+            yield
+            return
+        stacks = _rollback_stacks()
+        root_key = self._root_key()
+        stack = stacks.setdefault(root_key, [])
+        frame: dict[Identity, dict[str, Any] | None] = {}
+        stack.append(frame)
+        try:
+            yield
+        except BaseException:
+            stack.pop()
+            if not stack:
+                stacks.pop(root_key, None)
+            if frame:
+                self._restore_scope(frame)
+            raise
+        else:
+            stack.pop()
+            if not stack:
+                stacks.pop(root_key, None)
+
+    def _capture_for_scopes(self, db: sqlite3.Connection, keys: Iterable[Identity]) -> None:
+        stack = _rollback_stacks().get(self._root_key())
+        if not stack:
+            return
+        for key in keys:
+            missing = [frame for frame in stack if key not in frame]
+            if not missing:
+                continue
+            snapshot = self._fetch_resource(db, key)
+            for frame in missing:
+                frame[key] = deepcopy(snapshot)
+
+    def _restore_scope(self, frame: Mapping[Identity, dict[str, Any] | None]) -> None:
+        with self.connection() as db:
+            self._journal_changes(db)
+            db.execute("UPDATE history_state SET revision=randomblob(16)")
+            for key, before in frame.items():
+                current = self._fetch_resource(db, key)
+                if current != before:
+                    self._update(db, key, current, before)
 
     def create(self, records: History) -> None:
         if self.path.parent.is_symlink():
@@ -77,28 +160,32 @@ class SQLiteHistory:
         fd, temp = tempfile.mkstemp(dir=self.path.parent)
         os.close(fd)
         try:
-            with closing(sqlite3.connect(temp)) as db, db:
-                db.executescript(_SCHEMA)
-                for kind, bucket in records.items():
-                    for name, history in bucket.items():
-                        self._update(db, (kind, name), None, history)
+            with closing(sqlite3.connect(temp)) as db:
+                db.execute("PRAGMA journal_mode=WAL")
+                db.execute("PRAGMA synchronous=FULL")
+                db.execute("PRAGMA foreign_keys=ON")
+                with db:
+                    db.executescript(_SCHEMA)
+                    for kind, bucket in records.items():
+                        for name, history in bucket.items():
+                            self._update(db, (kind, name), None, history)
             os.link(temp, self.path)
         finally:
             Path(temp).unlink(missing_ok=True)  # hard-delete: temp -- unpublished database candidate
 
     def revision(self) -> bytes:
-        with self.connection() as db:
+        with self._read_connection() as db:
             return db.execute("SELECT revision FROM history_state").fetchone()[0]
 
     def resource_keys(self, kind: str | None = None) -> Iterator[Identity]:
-        with self.connection() as db:
+        with self._read_connection() as db:
             if kind is None:
                 yield from db.execute("SELECT kind,name FROM resource ORDER BY id")
             else:
                 yield from db.execute("SELECT kind,name FROM resource WHERE kind=? ORDER BY id", (kind,))
 
     def equivalent_keys(self, kind: str, *names: str) -> Iterator[Identity]:
-        with self.connection() as db:
+        with self._read_connection() as db:
             for name in dict.fromkeys(map(normalize_asset_name, names)):
                 yield from db.execute(
                     "SELECT kind,name FROM resource WHERE kind=? AND normalized=? ORDER BY id", (kind, name)
@@ -106,7 +193,7 @@ class SQLiteHistory:
 
     def rows(self, *, remote_only: bool = False):
         condition = "WHERE json_type(payload,'$.storage')='object'" if remote_only else ""
-        with self.connection() as db:
+        with self._read_connection() as db:
             for kind, name, current, payload in db.execute(
                 "SELECT kind,name,json_extract(attributes,'$.current_version'),payload FROM resource "
                 f"JOIN version_record ON resource.id=version_record.resource {condition} ORDER BY resource.id,position"
@@ -115,7 +202,7 @@ class SQLiteHistory:
 
     def lookup(self, *, file: str | None = None, content_id: str | None = None) -> list[Identity]:
         field, value = ("file", file) if file is not None else ("content_id", content_id)
-        with self.connection() as db:
+        with self._read_connection() as db:
             return list(
                 db.execute(
                     f"SELECT DISTINCT kind,name FROM version_record JOIN resource "
@@ -124,25 +211,32 @@ class SQLiteHistory:
                 )
             )
 
+    @staticmethod
+    def _fetch_resource(db: sqlite3.Connection, key: Identity) -> dict[str, Any] | None:
+        row = db.execute("SELECT id,attributes FROM resource WHERE kind=? AND name=?", key).fetchone()
+        if row is None:
+            return None
+        attrs = json.loads(row[1])
+        attrs["versions"] = [
+            json.loads(payload)
+            for (payload,) in db.execute(
+                "SELECT payload FROM version_record WHERE resource=? ORDER BY position", (row[0],)
+            )
+        ]
+        return attrs
+
     def resources(self, keys: Iterable[Identity]) -> ResourceBatch:
         data: History = {}
-        with self.connection() as db:
+        with self._read_connection() as db:
             for kind, name in keys:
-                row = db.execute("SELECT id,attributes FROM resource WHERE kind=? AND name=?", (kind, name)).fetchone()
-                if row is None:
+                attrs = self._fetch_resource(db, (kind, name))
+                if attrs is None:
                     continue
-                attrs = json.loads(row[1])
-                attrs["versions"] = [
-                    json.loads(payload)
-                    for (payload,) in db.execute(
-                        "SELECT payload FROM version_record WHERE resource=? ORDER BY position", (row[0],)
-                    )
-                ]
                 data.setdefault(kind, {})[name] = attrs
         return ResourceBatch(data)
 
     def allocation(self, key: Identity) -> tuple[int, int]:
-        with self.connection() as db:
+        with self._read_connection() as db:
             row = db.execute(
                 "SELECT current_version,(SELECT max(number) FROM version_record WHERE resource=r.id) "
                 "FROM resource r WHERE kind=? AND name=?",
@@ -153,7 +247,7 @@ class SQLiteHistory:
             return row[0] if type(row[0]) is int else 0, (row[1] or 0) + 1
 
     def current_record(self, key: Identity) -> dict | None:
-        with self.connection() as db:
+        with self._read_connection() as db:
             row = db.execute(
                 "SELECT payload FROM resource r JOIN version_record v ON v.resource=r.id "
                 "AND v.number=r.current_version WHERE r.kind=? AND r.name=?",
@@ -163,6 +257,7 @@ class SQLiteHistory:
 
     def append_selected(self, key: Identity, record: dict) -> None:
         with self.connection() as db:
+            self._capture_for_scopes(db, (key,))
             self._journal_changes(db)
             db.execute("UPDATE history_state SET revision=randomblob(16)")
             number = record["version"]
@@ -181,7 +276,7 @@ class SQLiteHistory:
     def _journal_changes(self, db: sqlite3.Connection) -> None:
         from lib.infra.project_write_journal import active_journal
 
-        journal = active_journal(self.path.parent.parent)
+        journal = active_journal(self.project)
         if journal is None:
             return
         journal.begin()
@@ -195,25 +290,34 @@ class SQLiteHistory:
                 fields += ["NULL" if event == "INSERT" else f"OLD.{v}" for v in values]
                 timing = "AFTER" if event == "INSERT" else "BEFORE"
                 db.execute(
-                    f"CREATE TEMP TRIGGER log_{table}_{event} {timing} {event} ON {table} BEGIN "
+                    f"CREATE TEMP TRIGGER IF NOT EXISTS log_{table}_{event} {timing} {event} ON {table} BEGIN "
                     f"INSERT INTO {undo} VALUES ({','.join(fields)}) ON CONFLICT DO NOTHING; END"
                 )
 
     def save(self, batch: ResourceBatch, *, durable_snapshots: list[Path] | None = None) -> None:
+        changed = [
+            ((kind, name), old.get(name), new.get(name))
+            for kind in dict.fromkeys((*batch.original, *batch))
+            for old, new in ((batch.original.get(kind, {}), batch.get(kind, {})),)
+            for name in dict.fromkeys((*old, *new))
+            if old.get(name) != new.get(name)
+        ]
         with self.connection() as db:
             if durable_snapshots is None:
+                self._capture_for_scopes(db, (key for key, _old, _new in changed))
                 self._journal_changes(db)
             else:
+                root_key = self._root_key()
                 db.executemany(
                     "DELETE FROM undo_file WHERE path=?",
-                    ((p.relative_to(self.path.parent.parent).as_posix(),) for p in durable_snapshots),
+                    (
+                        ((p.parent.resolve(strict=False) / p.name).relative_to(root_key).as_posix(),)
+                        for p in durable_snapshots
+                    ),
                 )
             db.execute("UPDATE history_state SET revision=randomblob(16)")
-            for kind in dict.fromkeys((*batch.original, *batch)):
-                old, new = batch.original.get(kind, {}), batch.get(kind, {})
-                for name in dict.fromkeys((*old, *new)):
-                    if old.get(name) != new.get(name):
-                        self._update(db, (kind, name), old.get(name), new.get(name))
+            for key, old_val, new_val in changed:
+                self._update(db, key, old_val, new_val)
         batch.original = deepcopy(dict(batch))
 
     @staticmethod

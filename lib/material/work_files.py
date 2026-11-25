@@ -208,19 +208,18 @@ def _file_version(path: Path) -> tuple[object, ...] | None:
 def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
     """项目中远端内容版本的全部工作文件（项目内相对路径 → 记录的内容摘要），不论本地是否在场。
 
-    不取版本锁：版本历史与 project.json 都经原子替换写入，各自读到的是完整的一版；两者任一被替换
-    （stat 标识变化）就重新解析。读取方以此把缓存缺失与正式素材缺失分开，结论在提交前仍由各自的
-    稳定性复核把关。
+    缓存随 SQLite 历史修订号或版本 JSON 文件标识更新。替换 project.json 也会使缓存失效。
     """
     project_path = Path(project_path)
     from lib.artifacts.sqlite_history import SQLiteHistory
 
     store = SQLiteHistory(project_path)
-    if store.path.is_file():
-        files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
-        return {item.path: item.digest for item in files}
+    sqlite = store.path.is_file()
     versions_file = project_path / "versions" / "versions.json"
-    version = (_file_version(versions_file), _file_version(project_path / "project.json"))
+    version = (
+        store.revision() if sqlite else _file_version(versions_file),
+        _file_version(project_path / "project.json"),
+    )
     if version[0] is None:
         return {}
     key = os.path.abspath(project_path)
@@ -228,18 +227,22 @@ def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
         cached = _INDEX_CACHE.get(key)
     if cached is not None and cached[0] == version:
         return cached[1]
-    try:
-        raw = versions_file.read_bytes()
-    except OSError:
-        return {}
-    index: dict[str, str] = {}
-    if b'"storage"' in raw:
+    if sqlite:
+        files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
+        index = {item.path: item.digest for item in files}
+    else:
+        index = {}
         try:
-            data = json.loads(raw)
-        except ValueError:
-            data = None
-        for item in _work_files(data, _load_project_json(project_path)):
-            index[item.path] = item.digest
+            raw = versions_file.read_bytes()
+        except OSError:
+            return {}
+        if b'"storage"' in raw:
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                data = None
+            for item in _work_files(data, _load_project_json(project_path)):
+                index[item.path] = item.digest
     with _INDEX_GUARD:
         _INDEX_CACHE[key] = (version, index)
     return index

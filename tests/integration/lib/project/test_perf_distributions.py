@@ -32,6 +32,7 @@ def test_perf_project_distribution(tmp_path: Path, distribution: str):
             "1",
             "--distribution",
             distribution,
+            "--no-racy-wait",
         ],
         check=True,
     )

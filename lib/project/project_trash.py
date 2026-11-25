@@ -262,14 +262,25 @@ def record_deletion(
     return record
 
 
+def _track_tree(project_dir: Path, directory: Path) -> None:
+    if active_journal(project_dir) is None or not directory.is_dir():
+        return
+    for path in directory.rglob("*"):
+        if path.is_file():
+            track_write(path)
+
+
 def withdraw(project_dir: Path, record_id: str) -> None:
     """撤回同一临界区里刚建立的删除记录：被删文件搬回原处，记录消失。删除提交失败时补偿用；调用方持有项目锁。"""
     record = require_record(project_dir, record_id)
     record_dir = trash_dir(project_dir) / record.id
     for rel in record.files:
+        source = record_dir / FILES_DIRNAME / rel
         target = project_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(record_dir / FILES_DIRNAME / rel, target)
+        track_write(source, target)
+        os.replace(source, target)
+    _track_tree(project_dir, record_dir)
     shutil.rmtree(record_dir)
     _notify(project_dir)
 
@@ -346,10 +357,14 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
         download_only=True,
     )
     atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **kept.to_dict()})
-    shutil.rmtree(record_dir / SNAPSHOT_DIRNAME, ignore_errors=True)
+    snapshot_dir = record_dir / SNAPSHOT_DIRNAME
+    _track_tree(project_dir, snapshot_dir)
+    shutil.rmtree(snapshot_dir, ignore_errors=True)
     for rel in record.files:
         if rel not in kept.files:
-            (stored / rel).unlink(missing_ok=True)
+            removed = stored / rel
+            track_write(removed)
+            removed.unlink(missing_ok=True)
 
 
 def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[BinaryIO, os.stat_result]:
@@ -368,10 +383,7 @@ def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[Binar
 def consume(project_dir: Path, record_id: str) -> None:
     """恢复流水线落地成功后删去记录；调用方持有项目锁。记录已被并发的恢复或清理拿走时抛 ``trash_record_not_found``。"""
     directory = trash_dir(project_dir) / require_record(project_dir, record_id).id
-    if active_journal(project_dir) is not None:
-        for path in directory.rglob("*"):
-            if path.is_file():
-                track_write(path)
+    _track_tree(project_dir, directory)
     shutil.rmtree(directory)
 
 

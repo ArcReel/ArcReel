@@ -127,11 +127,9 @@ def is_infrastructure_path(rel: str) -> bool:
     parts = PurePosixPath(rel).parts
     if not parts:
         return False
-    if (
-        len(parts) == 2
-        and parts[0] == "versions"
-        and (parts[1] == "history.sqlite3" or parts[1].startswith("history.sqlite3-"))
-    ):
+    from lib.infra.project_write_journal import is_history_database_name
+
+    if len(parts) == 2 and parts[0] == "versions" and is_history_database_name(parts[1]):
         return True
     if parts[0] == ".claude":
         return False
@@ -377,10 +375,11 @@ class ReferenceIndex:
 
     def _index_versions(self, project_dir: Path) -> None:
         from lib.artifacts.sqlite_history import SQLiteHistory
+        from lib.infra.project_write_journal import HISTORY_DB_RELATIVE_PATH
 
         store = SQLiteHistory(project_dir)
-        if store.path.is_file():
-            self._mark("versions/history.sqlite3", FileRole.STRUCTURE)
+        if store.is_enabled():
+            self._mark(HISTORY_DB_RELATIVE_PATH, FileRole.STRUCTURE)
             for kind, name, current, record in store.rows():
                 self._mark(
                     record.get("file"),
