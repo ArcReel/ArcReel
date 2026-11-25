@@ -1435,8 +1435,7 @@ class ProjectManager:
     def _canonical_episode_scripts(self, project_name: str) -> list[str]:
         """``scripts/`` 下文件名为规范名的剧本，排序后返回：批量引用改写的候选集。
 
-        归属只看文件名（见 ``canonical_script_episode``），取锁前后是同一份判据，无需在锁内
-        重算：非规范名的 JSON 不属于任何一集，改写它既无依据，也会在写盘的集号一致性校验处抛
+        归属只看文件名（见 ``canonical_script_episode``）：非规范名的 JSON 不属于任何一集，改写它既无依据，也会在写盘的集号一致性校验处抛
         ``ValueError`` 中断整次改名。
         """
         return sorted(
@@ -2850,23 +2849,26 @@ class ProjectManager:
     def _asset_cascade_locks(self, project_name: str) -> Generator[tuple[list[str], list[Path]]]:
         """持有级联改写全部剧本与草稿所需的锁，产出 ``(剧本文件名, 草稿路径)``。
 
-        锁序为「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」，与 ``locked_episode_script`` 的
-        脚本锁 → 项目锁 一致，避免 ABBA 死锁。重命名、衍生改名与合并共用。
+        锁序为规划文件（按路径排序）→ 剧本（按文件名排序）→ 项目。持规划锁后才枚举剧本，
+        以纳入并发确认新建的正式剧本。若取锁期间文件集合变化，释放全部锁后重新取锁。
         """
-        script_files = self._canonical_episode_scripts(project_name)
         drafts_root = self.get_project_path(project_name) / "drafts"
-        draft_files = (
-            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
-            if drafts_root.is_dir()
-            else []
-        )
-        with ExitStack() as stack:
-            for filename in script_files:
-                stack.enter_context(self._script_lock(project_name, filename))
-            for path in draft_files:
-                stack.enter_context(self.file_lock(path))
-            stack.enter_context(self._project_lock(project_name))
-            yield script_files, draft_files
+
+        def plan_files() -> list[Path]:
+            return sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
+
+        while True:
+            with ExitStack() as stack:
+                draft_files = plan_files()
+                for path in draft_files:
+                    stack.enter_context(self.file_lock(path))
+                script_files = self._canonical_episode_scripts(project_name)
+                for filename in script_files:
+                    stack.enter_context(self._script_lock(project_name, filename))
+                stack.enter_context(self._project_lock(project_name))
+                if draft_files == plan_files() and script_files == self._canonical_episode_scripts(project_name):
+                    yield script_files, draft_files
+                    return
 
     @staticmethod
     def _artifact_manifest_adapter(project_dir: Path):
@@ -2936,7 +2938,7 @@ class ProjectManager:
     ) -> AssetRenameReport:
         """资产级联重命名的单一事务入口（UI 与 Agent 共用，见 docs/adr/0057）。
 
-        在「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」内一次完成：扫描全部剧集
+        在「规划文件锁 → 剧本锁 → 项目锁」内一次完成：扫描全部剧集
         剧本与 script_plan 草稿的名称引用、规划关联文件迁移、对 project.json 变更做「不更坏」
         结构校验；``dry_run=True`` 时到此为止只返回影响报告（预览与执行共用同一套扫描，
         数字必然一致），否则按 剧本 → 草稿 → 关联文件 → 版本历史 → project.json →

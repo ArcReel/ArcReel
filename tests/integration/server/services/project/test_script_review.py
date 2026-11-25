@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import pytest
@@ -426,6 +428,46 @@ def _entry_claims(entry_id: str) -> dict[ArtifactKey, ArtifactManifestEntry]:
 
 
 class TestConfirmMaterializesScript:
+    @pytest.mark.parametrize("existing_script", [False, True], ids=["create", "overwrite"])
+    async def test_rename_in_progress_rewrites_concurrently_confirmed_script(
+        self, tmp_path, video_request_facts, monkeypatch, existing_script
+    ):
+        pm = _make_project(tmp_path, "narration")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+        if existing_script:
+            _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+
+        rename_at_plan = Event()
+        confirmation_finished = Event()
+        file_lock = pm.file_lock
+
+        @contextmanager
+        def synchronize_plan_lock(path):
+            if path == plan and not rename_at_plan.is_set():
+                rename_at_plan.set()
+                assert confirmation_finished.wait(5), "确认在改名等待规划锁时被阻塞"
+            with file_lock(path):
+                yield
+
+        monkeypatch.setattr(pm, "file_lock", synchronize_plan_lock)
+        rename = asyncio.create_task(asyncio.to_thread(pm.rename_asset, "demo", "characters", "裴与", "裴将军"))
+        try:
+            assert await asyncio.to_thread(rename_at_plan.wait, 5)
+            if existing_script:
+                await _confirm_over_existing_script(pm)
+            else:
+                await _service(pm).confirm("demo", 1)
+        finally:
+            confirmation_finished.set()
+            await rename
+
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "confirmed"
+        for content in (json.loads(plan.read_text(encoding="utf-8")), _formal_script(pm)):
+            assert content["segments"][0]["characters_in_segment"] == ["裴将军"]
+
     async def test_drama_confirm_writes_every_plan_entry_pending_authoring(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")
         plan = _admitted_drama_script_plan()
