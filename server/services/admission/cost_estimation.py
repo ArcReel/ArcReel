@@ -453,7 +453,7 @@ class CostEstimationService:
                 video_identity[generation_type] = bucket_provider, bucket_model
 
             try:
-                tts_settings = await r.resolve_tts_synthesis_settings(project_data)
+                tts_settings = await r.resolve_tts_synthesis_settings(project_data, validate_profile=False)
             except ValueError:
                 tts_settings = None
             audio_provider, audio_model = (

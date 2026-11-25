@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline.store import read_timeline_document
 from lib.episode.episode_ledger import discover_product_episode_nums, has_downstream_products
 from lib.infra.data_root_layout import DataRootLayout
@@ -23,10 +24,12 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.workflow.workflow_state import WorkflowStateService
 from server.error_handlers import register_error_handlers
 from server.routers import project_trash as trash_router
+from server.routers import versions as versions_router
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.auth_deps import override_auth
-from tests.fakes import use_project_manager
+from tests.fakes import failing_manifest_replace, use_project_manager
 from tests.legacy_project_shapes import (
+    LEGACY_PROJECT_SHAPES,
     write_legacy_quarantine_project,
     write_legacy_storyboard_project,
     write_legacy_timeline_agent_turn_project,
@@ -50,6 +53,7 @@ def cross_version_client(projects_dir: Path, monkeypatch: pytest.MonkeyPatch) ->
     use_project_manager(monkeypatch, manager)
     app = FastAPI()
     app.include_router(trash_router.router, prefix="/api/v1")
+    app.include_router(versions_router.router, prefix="/api/v1")
     register_error_handlers(app)
     override_auth(app)
     return TestClient(app)
@@ -271,3 +275,46 @@ def test_legacy_quarantine_files_survive_upgrade_and_public_restore(
     assert after.content == before.content
     assert after.next_action == before.next_action
     assert not migrate_project_dir(project_dir)
+
+
+def test_deleted_narration_take_survives_interrupted_upgrade_and_public_restore(
+    cross_version_client: TestClient, projects_dir: Path
+) -> None:
+    root = LEGACY_PROJECT_SHAPES["v20-tts-exports"](projects_dir)
+    vm = VersionManager(root)
+    old = next(v for v in vm.get_versions("audio", "E1S1")["versions"] if v["version"] == 1)
+    audio = (root / old["file"]).read_bytes()
+    record = vm.delete_history_version(old["file"])
+    path = project_trash.trash_dir(root) / record.id / "record.json"
+    data = json.loads(path.read_bytes())
+    data["schema_version"] = 20
+    original = json.dumps(data).encode()
+    path.write_bytes(original)
+
+    with (
+        failing_manifest_replace(RuntimeError("interrupted manifest commit")),
+        pytest.raises(RuntimeError, match="interrupted manifest commit"),
+    ):
+        migrate_project_dir(root)
+    upgraded = path.read_bytes()
+    assert json.loads(upgraded)["object"]["metadata"]["artifact_audio_basis"]["kind_version"] == 2
+    assert migrate_project_dir(root)
+    assert not migrate_project_dir(root)
+    assert path.read_bytes() == upgraded
+    assert [backup.read_bytes() for backup in path.parent.glob("record.json.bak.v20-*")] == [original]
+
+    base = f"/api/v1/projects/{root.name}"
+    response = cross_version_client.post(f"{base}/trash/{record.id}/restore")
+    assert response.status_code == 200, response.text
+    [landed] = response.json()["restored"]
+    versions = f"{base}/versions/audio/E1S1"
+    history = cross_version_client.get(versions).json()
+    restored = next(v for v in history["versions"] if v["file"] == landed["path"])
+    assert restored["restorable"] is True
+    assert restored["artifact_audio_basis"]["kind_version"] == 2
+    assert restored["tts_voice"] == old["tts_voice"]
+    assert restored["prompt"] == old["prompt"]
+    selected = cross_version_client.post(f"{versions}/restore/{restored['version']}")
+    assert selected.status_code == 200, selected.text
+    assert cross_version_client.get(versions).json()["current_version"] == restored["version"]
+    assert (root / "audio/segment_E1S1.wav").read_bytes() == audio

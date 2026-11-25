@@ -8,6 +8,7 @@ current later.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -221,7 +222,8 @@ def _validated_audio_basis(
         or not text
         or isinstance(duration, bool)
         or not isinstance(duration, (int, float))
-        or parse_tts_speed(duration) is None
+        or not math.isfinite(duration)
+        or duration <= 0
     ):
         raise ValueError("version does not contain complete typed artifact metadata")
     expected = ArtifactBasisDescriptor.from_basis(basis_for(text, settings))

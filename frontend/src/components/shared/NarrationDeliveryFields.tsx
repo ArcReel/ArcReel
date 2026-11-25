@@ -78,7 +78,7 @@ function NarrationSettingsSource({ value, defaults, onChange }: Pick<Props, "val
     <>
       {value.delivery === "use_tts" && (
         <fieldset className="flex gap-2.5">
-          <legend className="sr-only">{t("project_tts_model_label")}</legend>
+          <legend className="sr-only">{t("project_tts_source_label")}</legend>
           {([false, true] as const).map((override) => (
             <label key={String(override)} className={deliveryCardClass(value.override === override)}>
               <input

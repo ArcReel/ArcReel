@@ -6,6 +6,7 @@ import pytest
 
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.speech.narration_config import NarrationConfigError
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 
@@ -40,17 +41,27 @@ async def test_tts_project_inherits_without_copying_global_defaults(db_factory):
 
 async def test_explicit_values_win_and_explicit_null_speed_is_kept(db_factory):
     await _set_globals(db_factory, narration_speed="1.2")
+    async with db_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="Voice relay",
+            discovery_format="openai",
+            base_url="https://relay.example.com/v1",
+            api_key="",
+            models=[{"model_id": "tts-1", "display_name": "TTS", "endpoint": "openai-tts"}],
+        )
+        backend = f"{provider.provider_id}/tts-1"
+        await session.commit()
     fields = await new_project_narration_fields(
         NarrationSettingsInput(
             delivery="use_tts",
-            audio_backend="custom-3/tts-1",
+            audio_backend=backend,
             narration_voice=" alloy ",
             narration_speed=None,
             provided=frozenset({"audio_backend", "narration_voice", "narration_speed"}),
         ),
         resolver=ConfigResolver(db_factory),
     )
-    assert fields == {"narration_delivery": "use_tts", "audio_backend": "custom-3/tts-1", "narration_voice": "alloy"}
+    assert fields == {"narration_delivery": "use_tts", "audio_backend": backend, "narration_voice": "alloy"}
 
 
 @pytest.mark.parametrize("backend", ["dashscope", "unknown-vendor/model"])

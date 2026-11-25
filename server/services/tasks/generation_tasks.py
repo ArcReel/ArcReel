@@ -636,7 +636,7 @@ async def execute_tts_task(
     settings = (
         require_project_tts_generation({**frozen, "narration_delivery": project_narration_delivery(project)})
         if isinstance(frozen, dict)
-        else await ConfigResolver(async_session_factory).resolve_tts_synthesis_settings(project)
+        else await ConfigResolver(async_session_factory).resolve_tts_synthesis_settings(project, validate_profile=False)
     )
     voice = settings.voice
     speed = settings.speed
