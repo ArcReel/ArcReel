@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, workspaceOverride } from "../support/workspace-override.ts";
 
 const PATH = "/app/projects/demo/files";
 const LISTING = "GET /api/v1/projects/demo/file-view";
@@ -22,7 +23,7 @@ interface TrashListing {
 
 const root = recorded<Listing>("project-demo-file-view.json");
 const trash = recorded<TrashListing>("project-demo-trash.json");
-const project = recorded<{ project: { episodes: Record<string, unknown>[] } }>("project-demo.json");
+const firstEpisode = recordedDemoEpisode();
 const scripts = recorded<Listing>("project-demo-file-view-scripts.json");
 const scriptFile = scripts.entries[0];
 
@@ -217,10 +218,7 @@ defineRegionScenarios("文件视图", [
     path: PATH,
     api: {
       ...EVENT_STREAM,
-      "GET /api/v1/projects/demo": {
-        status: 200,
-        body: { ...project, project: { ...project.project, episodes: [{ ...project.project.episodes[0], title: LONG_EPISODE_TITLE }] } },
-      },
+      ...workspaceOverride({ episodes: [{ ...firstEpisode, title: LONG_EPISODE_TITLE }] }),
       "GET /api/v1/projects/demo/trash": {
         status: 200,
         body: {

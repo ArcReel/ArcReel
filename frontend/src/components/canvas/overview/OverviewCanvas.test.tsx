@@ -7,6 +7,7 @@ import { memoryLocation } from "wouter/memory-location";
 
 import { API } from "@/api";
 import { ApiRequestError } from "@/api/errors";
+import { makeWorkspaceResponse } from "@/test/factories";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -89,7 +90,7 @@ describe("OverviewCanvas", () => {
     useCostStore.setState(useCostStore.getInitialState(), true);
     useOverviewGenerateStore.setState(useOverviewGenerateStore.getInitialState(), true);
     vi.restoreAllMocks();
-    vi.spyOn(API, "getProject").mockResolvedValue({ project: makeProjectData(), scripts: {} });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(makeProjectData()));
   });
 
   it("summarizes mode, aspect ratio, episode count and script length in the header", () => {
@@ -113,7 +114,7 @@ describe("OverviewCanvas", () => {
     expect(screen.getByText("剧情演绎 · 竖屏 9:16 · 2 集 · 脚本时长 2:00")).toBeInTheDocument();
   });
 
-  it("links each asset kind to its gallery and appends the outdated count", () => {
+  it("links each asset kind to its gallery with available/total counts and no unverified stale badge", () => {
     renderOverview({
       projectData: makeProjectData({
         status: {
@@ -131,7 +132,8 @@ describe("OverviewCanvas", () => {
       }),
     });
 
-    expect(screen.getByRole("link", { name: "角色 11/11 · 2 过期" })).toHaveAttribute("href", "/characters");
+    expect(screen.getByRole("link", { name: "角色 11/11" })).toHaveAttribute("href", "/characters");
+    expect(screen.queryByText(/过期/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "场景 9/16" })).toHaveAttribute("href", "/scenes");
     expect(screen.getByRole("link", { name: "道具 13/13" })).toHaveAttribute("href", "/props");
     expect(screen.queryByRole("link", { name: /商品/ })).not.toBeInTheDocument();
@@ -335,7 +337,7 @@ describe("OverviewCanvas", () => {
     );
     const source = { whole_source_files: [{ source_file: "source/novel.txt" }] };
     useProjectsStore.getState().setCurrentProject("demo", makeProjectData({ ...EMPTY_PROJECT, ...source }));
-    vi.spyOn(API, "getProject").mockResolvedValue({ project: makeProjectData(source), scripts: {} });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(makeProjectData(source)));
     const first = render(withRouter(<StoreOverview />));
 
     await user.click(screen.getByRole("button", { name: "从原文生成" }));
@@ -374,7 +376,7 @@ describe("OverviewCanvas", () => {
   it("says the story setting was generated when only the follow-up refresh fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "generateOverview").mockResolvedValue({ success: true, overview: {} as never });
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     renderOverview({
       projectData: makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }),
     });
@@ -389,7 +391,7 @@ describe("OverviewCanvas", () => {
   it("drops the refresh warning once the project data loads again", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "generateOverview").mockResolvedValue({ success: true, overview: {} as never });
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     useProjectsStore
       .getState()
       .setCurrentProject("demo", makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }));
@@ -435,15 +437,13 @@ describe("OverviewCanvas", () => {
           }),
       );
       useProjectsStore.getState().setCurrentProject("demo", makeProjectData(EMPTY_PROJECT));
-      vi.spyOn(API, "getProject")
-        .mockResolvedValueOnce({
-          project: makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }),
-          scripts: {},
-        })
-        .mockResolvedValueOnce({
-          project: makeProjectData({ episodes: [], whole_source_files: [{ source_file: "source/novel.txt" }] }),
-          scripts: {},
-        });
+      vi.spyOn(API, "getWorkspace")
+        .mockResolvedValueOnce(
+          makeWorkspaceResponse(makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] })),
+        )
+        .mockResolvedValueOnce(
+          makeWorkspaceResponse(makeProjectData({ episodes: [], whole_source_files: [{ source_file: "source/novel.txt" }] })),
+        );
       render(withRouter(<StoreOverview />));
 
       fireEvent.drop(screen.getByRole("button", { name: /拖入原文/ }), {
@@ -662,7 +662,7 @@ describe("OverviewCanvas", () => {
 
     it("warns that the brief was saved when refreshing the project afterwards fails", async () => {
       vi.spyOn(API, "updateProject").mockResolvedValue({ success: true, project: {} as ProjectData });
-      vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+      vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
       renderOverview({ projectName: "ad-demo", projectData: makeProjectData({ ...AD_PROJECT, brief: "旧灵感" }) });
       const card = screen.getByRole("region", { name: "创作灵感" });
 

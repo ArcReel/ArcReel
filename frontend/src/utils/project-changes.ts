@@ -1,7 +1,12 @@
 import type { TFunction } from "i18next";
 
 import type { EpisodeMeta, ProjectChange } from "@/types";
-import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/utils/episode-display";
+import {
+  episodeDisplayName,
+  episodeItemLabel,
+  formatEpisodeItemLocation,
+  type ProjectScripts,
+} from "@/utils/episode-display";
 
 const GROUP_NAME_LIMIT = 5;
 
@@ -57,13 +62,36 @@ export function groupChangesByType(
 
 const EPISODE_ITEM_ENTITY_TYPES = new Set(["segment", "drama_scene", "shot", "reference_unit", "grid"]);
 
+function changeItemLabel(
+  itemId: string,
+  change: ProjectChange,
+  t: EventsT,
+  episodes: EpisodeLedger,
+  scripts: ProjectScripts,
+): string {
+  if (change.position !== undefined) {
+    return formatEpisodeItemLocation(
+      itemId,
+      {
+        episode: change.episode ?? null,
+        item_id: change.item_id ?? itemId,
+        position: change.position,
+        status: change.position === null ? "deleted" : "found",
+      },
+      episodes,
+      t,
+    );
+  }
+  return episodeItemLabel(itemId, scripts, episodes, t);
+}
+
 function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger, scripts: ProjectScripts): string {
   if (!change.label_key) {
     return change.label;
   }
   const params: Record<string, unknown> = { ...change.label_params };
   if (typeof params.id === "string" && EPISODE_ITEM_ENTITY_TYPES.has(change.entity_type)) {
-    params.id = episodeItemLabel(params.id, scripts, episodes, t);
+    params.id = changeItemLabel(params.id, change, t, episodes, scripts);
   }
   if (typeof params.episode === "number") {
     params.episode_name = episodeDisplayName(episodes, params.episode, t);
@@ -110,7 +138,7 @@ function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: Episode
     change.entity_type === "shot" ||
     change.entity_type === "reference_unit"
   ) {
-    return episodeItemLabel(change.entity_id, scripts, episodes, t);
+    return changeItemLabel(change.item_id ?? change.entity_id, change, t, episodes, scripts);
   }
   return resolveChangeLabel(change, t, episodes, scripts);
 }

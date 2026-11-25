@@ -22,6 +22,7 @@ export interface AssetEditorSheetProps {
   onTargetChange: (target: AssetEditorTarget | null) => void;
   order?: readonly string[];
   statusByName: ReadonlyMap<string, AssetSheetStatusRow>;
+  derivativeReferencesByCharacter?: ReadonlyMap<string, ReadonlyMap<string, boolean | null>>;
   generatingNames?: ReadonlySet<string>;
   writingNames?: ReadonlySet<string>;
   readOnly: boolean;
@@ -36,6 +37,7 @@ export function AssetEditorSheet({
   onTargetChange,
   order,
   statusByName,
+  derivativeReferencesByCharacter,
   generatingNames,
   writingNames,
   readOnly,
@@ -148,6 +150,7 @@ export function AssetEditorSheet({
                   name={shown.name}
                   asset={shown.asset}
                   sheetStatus={statusByName.get(shown.name)}
+                  derivativeReferences={derivativeReferencesByCharacter?.get(shown.name)}
                   generating={hasActiveAssetName(generatingNames, shown.name)}
                   writing={writingNames?.has(shown.name) ?? false}
                   readOnly={readOnly}

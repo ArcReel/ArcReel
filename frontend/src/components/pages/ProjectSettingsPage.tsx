@@ -95,7 +95,7 @@ interface LoadedSettings {
 async function loadSettings(projectName: string, signal: AbortSignal): Promise<LoadedSettings> {
   const [configRes, projectRes, providers, customProviders, narrationDefaults, auto] = await Promise.all([
     API.getSystemConfig({ signal }),
-    API.getProject(projectName, { signal }),
+    API.getWorkspace(projectName, { signal }),
     getProviderModels({ signal }).catch(() => [] as ProviderInfo[]),
     getCustomProviderModels({ signal }).catch(() => [] as CustomProviderInfo[]),
     API.getNarrationDefaults({ signal }).catch(() => null),

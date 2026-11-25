@@ -512,7 +512,7 @@ it("names shot, unit and end frame records by their position and text when delet
   expect(screen.queryByText(/E1S07|E1S09|E1U3/)).not.toBeInTheDocument();
 });
 
-it("uses the current position after restoring a shot under a new ID", async () => {
+it("uses the current position after restoring a shot under a new ID without loaded scripts", async () => {
   const toasts = collectToasts();
   const shot = { kind: "script_entry", id: "E1S03", episode: 1, item_kind: "segments" };
   const project: ProjectData = {
@@ -524,9 +524,10 @@ it("uses the current position after restoring a shot under a new ID", async () =
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     if (init?.method === "POST") {
-      return Promise.resolve(Response.json(restoreResult({ ...shot, id: "E1S04" }, [
-        { original: "storyboards/scene_E1S03.png", path: "storyboards/scene_E1S04.png", as_history: false },
-      ])));
+      return Promise.resolve(Response.json(restoreResult(
+        { ...shot, id: "E1S04", item_id: "E1S04", position: 2 },
+        [{ original: "storyboards/scene_E1S03.png", path: "storyboards/scene_E1S04.png", as_history: false }],
+      )));
     }
     if (url.pathname.endsWith("/trash")) {
       const records = [
@@ -539,13 +540,29 @@ it("uses the current position after restoring a shot under a new ID", async () =
       ];
       return Promise.resolve(Response.json({ records, total_size: 20, retention_days: 30 }));
     }
-    if (url.pathname.endsWith("/projects/demo")) {
+    if (url.pathname.endsWith("/projects/demo/workspace")) {
       return Promise.resolve(Response.json({
         project,
-        scripts: { "episode_1.json": {
-          episode: 1,
-          segments: [{ segment_id: "E1S01" }, { segment_id: "E1S04" }, { segment_id: "E1S02" }],
-        } },
+        summary: {
+          currency: "registered",
+          needs_repair: false,
+          repair_reason: null,
+          assets: {},
+          episodes_summary: { total: 1, scripted: 1, in_production: 0, completed: 0 },
+          source_remaining: false,
+          episodes: [
+            {
+              episode: 1,
+              script_status: "generated",
+              status: "scripted",
+              item_count: 3,
+              duration_seconds: 12,
+              needs_replan: 0,
+              videos: { total: 0, available: 0 },
+              storyboards: { total: 0, available: 0 },
+            },
+          ],
+        },
         asset_fingerprints: {},
       }));
     }
@@ -560,4 +577,5 @@ it("uses the current position after restoring a shot under a new ID", async () =
   await user.click(screen.getAllByRole("button", { name: "恢复" })[0]);
 
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("雨夜 · 2 已恢复"));
+  expect(useProjectsStore.getState().currentScripts).toEqual({});
 });

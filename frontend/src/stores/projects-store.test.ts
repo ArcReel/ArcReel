@@ -1,12 +1,13 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { episodeScriptRevisionKey, useProjectsStore } from "@/stores/projects-store";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { ProjectData } from "@/types";
 import { createDeferred } from "@/test/deferred";
+import { makeWorkspaceResponse } from "@/test/factories";
 
-type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
+type GetWorkspaceResult = Awaited<ReturnType<typeof API.getWorkspace>>;
 
 function makeProject(title: string): ProjectData {
   return {
@@ -20,8 +21,8 @@ function makeProject(title: string): ProjectData {
   };
 }
 
-function makeResult(title: string, fingerprints: Record<string, number> = {}): GetProjectResult {
-  return { project: makeProject(title), scripts: {}, asset_fingerprints: fingerprints };
+function makeResult(title: string, fingerprints: Record<string, number> = {}): GetWorkspaceResult {
+  return makeWorkspaceResponse(makeProject(title), fingerprints);
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -37,14 +38,14 @@ describe("projects-store refreshProject", () => {
   });
 
   it("空 name 直接返回 cancelled，不发请求", async () => {
-    const spy = vi.spyOn(API, "getProject");
+    const spy = vi.spyOn(API, "getWorkspace");
     const result = await useProjectsStore.getState().refreshProject("");
     expect(result).toBe("cancelled");
     expect(spy).not.toHaveBeenCalled();
   });
 
   it("成功时写入 currentProject 并返回 success", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue(makeResult("Demo", { "a.png": 1 }));
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeResult("Demo", { "a.png": 1 }));
     const result = await useProjectsStore.getState().refreshProject("demo");
     expect(result).toBe("success");
     const s = useProjectsStore.getState();
@@ -68,7 +69,7 @@ describe("projects-store refreshProject", () => {
   });
 
   it("成功后按 invalidateKeys 失效实体版本", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue(makeResult("Demo"));
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeResult("Demo"));
     const result = await useProjectsStore
       .getState()
       .refreshProject("demo", { invalidateKeys: ["segment:S1", "character:hero"] });
@@ -81,7 +82,7 @@ describe("projects-store refreshProject", () => {
   it("失败留旧：不覆盖 currentProjectData，返回 failed，onError 收到错误", async () => {
     useProjectsStore.getState().setCurrentProject("demo", makeProject("旧"), {}, {});
     const err = new Error("boom");
-    vi.spyOn(API, "getProject").mockRejectedValue(err);
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(err);
     const onError = vi.fn();
     const result = await useProjectsStore.getState().refreshProject("demo", { onError });
     expect(result).toBe("failed");
@@ -90,10 +91,10 @@ describe("projects-store refreshProject", () => {
   });
 
   it("在途合并：在途期间的多次请求只多触发一次 getProject，最终反映最新一轮", async () => {
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
     const spy = vi
-      .spyOn(API, "getProject")
+      .spyOn(API, "getWorkspace")
       .mockReturnValueOnce(d1.promise)
       .mockReturnValueOnce(d2.promise);
 
@@ -116,9 +117,9 @@ describe("projects-store refreshProject", () => {
 
   it("首轮失败、排队轮成功时用新值替换旧值；各调用方返回自己那一轮的结果", async () => {
     useProjectsStore.getState().setCurrentProject("demo", makeProject("旧"), {}, {});
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
     const p1 = store.refreshProject("demo");
@@ -136,9 +137,9 @@ describe("projects-store refreshProject", () => {
   });
 
   it("首轮成功、排队轮失败时，首轮调用方仍返回 success（不被无关的后续轮次拖累）", async () => {
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
     const pMoveShot = store.refreshProject("demo");
@@ -156,9 +157,9 @@ describe("projects-store refreshProject", () => {
   });
 
   it("排队期间被更晚的不同项目请求取代：被取代的调用方立即收到 cancelled，不与新项目的结果混同", async () => {
-    const dA = createDeferred<GetProjectResult>();
-    const dC = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
+    const dA = createDeferred<GetWorkspaceResult>();
+    const dC = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
 
     const store = useProjectsStore.getState();
     const pA = store.refreshProject("A");
@@ -167,12 +168,12 @@ describe("projects-store refreshProject", () => {
 
     const okB = await pB;
     expect(okB).toBe("cancelled");
-    expect(API.getProject).toHaveBeenCalledTimes(1);
+    expect(API.getWorkspace).toHaveBeenCalledTimes(1);
 
     dA.resolve(makeResult("A-数据"));
     await flush();
     expect(useProjectsStore.getState().currentProjectData?.title).not.toBe("A-数据");
-    expect(API.getProject).toHaveBeenCalledTimes(2);
+    expect(API.getWorkspace).toHaveBeenCalledTimes(2);
 
     dC.resolve(makeResult("C-数据"));
     const [okA, okC] = await Promise.all([pA, pC]);
@@ -184,9 +185,9 @@ describe("projects-store refreshProject", () => {
 
   it("跨项目合并：A 在途时排队刷新 B，A 的响应不写入 store（避免覆盖排队中的 B）", async () => {
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-旧"), {}, {});
-    const dA = createDeferred<GetProjectResult>();
-    const dB = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+    const dA = createDeferred<GetWorkspaceResult>();
+    const dB = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
 
     const store = useProjectsStore.getState();
     const pA = store.refreshProject("A");
@@ -206,9 +207,9 @@ describe("projects-store refreshProject", () => {
   });
 
   it("排队轮 onError：首轮无回调、排队轮有回调且失败时通知排队轮回调", async () => {
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
     const onError2 = vi.fn();
 
     const store = useProjectsStore.getState();
@@ -224,9 +225,9 @@ describe("projects-store refreshProject", () => {
   });
 
   it("合并期间累积 invalidateKeys：排队轮成功后一并失效", async () => {
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
     const p1 = store.refreshProject("demo", { invalidateKeys: ["segment:S1"] });
@@ -243,8 +244,8 @@ describe("projects-store refreshProject", () => {
   });
 
   it("真实项目的刷新在只读演示项目接管当前视图后落定：不覆盖回真实项目", async () => {
-    const d = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d.promise);
+    const d = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d.promise);
 
     const store = useProjectsStore.getState();
     const p = store.refreshProject("real-project");
@@ -261,8 +262,8 @@ describe("projects-store refreshProject", () => {
 
   it("项目切换后 A 的迟到响应落定：不覆盖已接管的 B", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dA = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+    const dA = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dA.promise);
 
     const store = useProjectsStore.getState();
     const pA = store.refreshProject("A");
@@ -282,8 +283,8 @@ describe("projects-store refreshProject", () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     useProjectsStore.getState().setCurrentProject(null, null);
 
-    const dA = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+    const dA = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dA.promise);
 
     const pA = useProjectsStore.getState().refreshProject("A");
     dA.resolve(makeResult("A-迟到数据"));
@@ -304,8 +305,8 @@ describe("projects-store refreshProject", () => {
     store.setCurrentProject("A", makeProject("A-数据"), {}, {});
     store.setCurrentProject(null, null);
 
-    const dC = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dC.promise);
+    const dC = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dC.promise);
 
     const pC = useProjectsStore.getState().refreshProject("C");
     dC.resolve(makeResult("C-迟到数据"));
@@ -323,8 +324,8 @@ describe("projects-store refreshProject", () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
 
-    const dA = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+    const dA = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(dA.promise);
 
     const pA = useProjectsStore.getState().refreshProject("A");
     dA.resolve(makeResult("A-迟到数据"));
@@ -337,9 +338,9 @@ describe("projects-store refreshProject", () => {
 
   it("A 在途时排队同项目再刷一轮，期间切到 B：排队轮响应不写回（同名不豁免当前项目核对）", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-旧"), {}, {});
-    const d1 = createDeferred<GetProjectResult>();
-    const d2 = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+    const d1 = createDeferred<GetWorkspaceResult>();
+    const d2 = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
     const p1 = store.refreshProject("A");
@@ -360,9 +361,9 @@ describe("projects-store refreshProject", () => {
   it("项目切换 abort 在途请求：请求被取消，且不按刷新失败提示", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     let abortedSignal: AbortSignal | undefined;
-    vi.spyOn(API, "getProject").mockImplementation(
+    vi.spyOn(API, "getWorkspace").mockImplementation(
       (_name, options) =>
-        new Promise<GetProjectResult>((_resolve, reject) => {
+        new Promise<GetWorkspaceResult>((_resolve, reject) => {
           abortedSignal = options?.signal;
           options?.signal?.addEventListener("abort", () => {
             reject(new DOMException("Aborted", "AbortError"));
@@ -386,8 +387,8 @@ describe("projects-store refreshProject", () => {
 
   it("切换项目后新项目的刷新照常生效（取消域轮换不会长期作废后续刷新）", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dA = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject")
+    const dA = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace")
       .mockReturnValueOnce(dA.promise)
       .mockResolvedValue(makeResult("B-新数据"));
 
@@ -406,9 +407,9 @@ describe("projects-store refreshProject", () => {
 
   it("在途轮是当前项目、排队的却是旧项目名：在途轮照常写入，不为排队者让位", async () => {
     useProjectsStore.getState().setCurrentProject("B", null);
-    const dB = createDeferred<GetProjectResult>();
-    const dStale = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockImplementation((name) =>
+    const dB = createDeferred<GetWorkspaceResult>();
+    const dStale = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockImplementation((name) =>
       name === "B" ? dB.promise : dStale.promise,
     );
 
@@ -428,9 +429,9 @@ describe("projects-store refreshProject", () => {
 
   it("当前项目的刷新在排队时，持旧项目名的调用方不夺走唯一的排队名额", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    const dSseA = createDeferred<GetProjectResult>();
-    const dB = createDeferred<GetProjectResult>();
-    vi.spyOn(API, "getProject").mockImplementation((name) =>
+    const dSseA = createDeferred<GetWorkspaceResult>();
+    const dB = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockImplementation((name) =>
       name === "B" ? dB.promise : dSseA.promise,
     );
 
@@ -449,5 +450,42 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
     expect(await pSseA).toBe("cancelled");
     expect(await pStaleA).toBe("cancelled");
+  });
+
+  it("按集加载剧本：绑定变更时丢弃旧脚本并拉取新绑定，作用域刷新仅推进对应集修订", async () => {
+    const projectV1: ProjectData = {
+      ...makeProject("Demo"),
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+    };
+    const projectV2: ProjectData = {
+      ...projectV1,
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1_v2.json", script_status: "generated" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+    };
+    useProjectsStore.getState().setCurrentProject("demo", projectV1, {}, {});
+    const getScriptSpy = vi.spyOn(API, "getScript").mockImplementation((_proj, file) =>
+      Promise.resolve({ script: { episode: 1, segments: [], file } as never, revision: `rev:${file}` }),
+    );
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(projectV2));
+
+    expect(await useProjectsStore.getState().loadEpisodeScript("demo", 1, "episode_1.json")).toBe("success");
+    expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_1.json"]);
+
+    const beforeWide = useProjectsStore.getState().projectWideRevisions.demo ?? 0;
+    const beforeEp2 = useProjectsStore.getState().episodeRevisions[episodeScriptRevisionKey("demo", 2)] ?? 0;
+    expect(await useProjectsStore.getState().refreshProject("demo", { scope: { episodes: [1] } })).toBe("success");
+
+    expect(useProjectsStore.getState().projectWideRevisions.demo ?? 0).toBe(beforeWide);
+    expect(useProjectsStore.getState().episodeRevisions[episodeScriptRevisionKey("demo", 2)] ?? 0).toBe(beforeEp2);
+    expect(useProjectsStore.getState().episodeRevisions[episodeScriptRevisionKey("demo", 1)]).toBe(1);
+    await vi.waitFor(() => {
+      expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_1_v2.json", { signal: expect.any(AbortSignal) });
+    });
+    expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_1_v2.json"]);
   });
 });

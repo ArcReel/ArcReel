@@ -5,7 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { createDeferred } from "@/test/deferred";
-import { makeTask } from "@/test/factories";
+import { makeTask, makeWorkspaceResponse } from "@/test/factories";
 import type { CharacterDerivativeStatus, ProjectData, ProviderAssetImportResult } from "@/types";
 import { CharacterDerivativeRow, type CharacterDerivativeRowProps } from "./CharacterDerivativeRow";
 
@@ -82,7 +82,7 @@ describe("CharacterDerivativeRow", () => {
       props: {},
     });
     useProjectsStore.getState().setCurrentProject("demo", project());
-    const getProject = vi.spyOn(API, "getProject").mockResolvedValue({ project: project(SHEET_PATH), scripts: {} });
+    const getWorkspace = vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(project(SHEET_PATH)));
     const onSheetsChanged = vi.fn();
     renderRow({ description: "换上黑色重甲", character_sheet: "", stale: false }, { onSheetsChanged });
     const file = new File(["png"], "armor.png", { type: "image/png" });
@@ -91,7 +91,7 @@ describe("CharacterDerivativeRow", () => {
 
     await waitFor(() => expect(onSheetsChanged).toHaveBeenCalled());
     expect(upload).toHaveBeenCalledWith("demo", "阿岚", "战斗装", file);
-    expect(getProject).toHaveBeenCalledWith("demo", expect.anything());
+    expect(getWorkspace).toHaveBeenCalledWith("demo", expect.anything());
     const state = useProjectsStore.getState();
     expect(state.currentProjectData?.characters["阿岚"].derivatives?.["战斗装"].character_sheet).toBe(SHEET_PATH);
     expect(state.assetFingerprints[SHEET_PATH]).toBe(42);
@@ -207,18 +207,15 @@ describe("CharacterDerivativeRow", () => {
     });
     const pending = createDeferred<ProviderAssetImportResult>();
     const importAsset = vi.spyOn(API, "importProviderAsset").mockReturnValue(pending.promise);
-    const getProject = vi.spyOn(API, "getProject").mockResolvedValue({
-      project: {
-        title: "Demo",
-        content_mode: "narration",
-        style: "Anime",
-        episodes: [],
-        characters: { 阿岚: { description: "", derivatives: { 战斗装: { description: "换上黑色重甲", character_sheet: SHEET_PATH } } } },
-        scenes: {},
-        props: {},
-      },
-      scripts: {},
-    });
+    const getWorkspace = vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse({
+      title: "Demo",
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [],
+      characters: { 阿岚: { description: "", derivatives: { 战斗装: { description: "换上黑色重甲", character_sheet: SHEET_PATH } } } },
+      scenes: {},
+      props: {},
+    }));
     const onSheetsChanged = vi.fn();
     renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false }, { onSheetsChanged });
 
@@ -263,7 +260,7 @@ describe("CharacterDerivativeRow", () => {
     );
 
     await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已导入为第 2 版"));
-    expect(getProject).toHaveBeenCalledWith("demo", expect.anything());
+    expect(getWorkspace).toHaveBeenCalledWith("demo", expect.anything());
     expect(onSheetsChanged).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "重新生成" })).toBeEnabled();
   });

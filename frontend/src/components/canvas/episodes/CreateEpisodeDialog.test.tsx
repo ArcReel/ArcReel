@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { makeWorkspaceResponse } from "@/test/factories";
 import type { ProjectData } from "@/types";
 
 import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
@@ -27,7 +28,7 @@ describe("CreateEpisodeDialog", () => {
   });
 
   it("reports the new episode once the project data has refreshed", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue({ project: PROJECT, scripts: {} });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse(PROJECT));
     vi.spyOn(API, "createEpisode").mockResolvedValue({ episode: 2 });
     const onCreated = vi.fn();
     render(<CreateEpisodeDialog projectName="demo" onClose={() => {}} onCreated={onCreated} />);
@@ -38,7 +39,7 @@ describe("CreateEpisodeDialog", () => {
   });
 
   it("warns and does not point at the new episode when the project data fails to refresh", async () => {
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     vi.spyOn(API, "createEpisode").mockResolvedValue({ episode: 2 });
     const onCreated = vi.fn();
     render(<CreateEpisodeDialog projectName="demo" onClose={() => {}} onCreated={onCreated} />);

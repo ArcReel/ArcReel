@@ -173,6 +173,6 @@ export function withInstruction(t: TFunction, prefill: string, instruction: stri
   return text ? `${prefill}\n${t("dashboard:guide_prefill_instruction", { instruction: text })}` : prefill;
 }
 
-export function episodeNeedsUpdate(episode: Pick<EpisodeMeta, "storyboards" | "videos">): boolean {
-  return (episode.storyboards?.stale ?? 0) + (episode.videos?.stale ?? 0) > 0;
+export function episodeNeedsReplan(episode: Pick<EpisodeMeta, "needs_replan">): boolean {
+  return (episode.needs_replan ?? 0) > 0;
 }

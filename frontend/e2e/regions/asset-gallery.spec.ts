@@ -50,8 +50,8 @@ function statusRows(names: string[], stale: Set<string>, missing: Set<string>) {
 }
 
 function projectWith(characters: Record<string, Character>, episodeTitles?: string[]) {
-  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo"));
-  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo");
+  const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo/workspace"));
+  if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo/workspace");
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   body.project.characters = characters;
   if (episodeTitles) {
@@ -100,8 +100,8 @@ const RUNNING_TASKS = {
 
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": projectWith(CHARACTERS),
-  "GET /api/v1/projects/demo/asset-sheets/status": statusRows(
+  "GET /api/v1/projects/demo/workspace": projectWith(CHARACTERS),
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": statusRows(
     Object.keys(CHARACTERS),
     new Set(["沈砚"]),
     new Set(["阿岚", "小满"]),
@@ -141,15 +141,15 @@ const MANY: Record<string, Character> = Object.fromEntries(
 );
 const MANY_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith(MANY),
-  "GET /api/v1/projects/demo/asset-sheets/status": { status: 200, body: { assets: [] } },
+  "GET /api/v1/projects/demo/workspace": projectWith(MANY),
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": { status: 200, body: { assets: [] } },
   "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: [], truncated: false } },
 };
 
 const DELETE_PREVIEW_KEY = "DELETE /api/v1/projects/demo/characters/林夕?dry_run=true";
 const DELETE_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith(CHARACTERS, ["茶馆开张", "夜访账房", "说书先生"]),
+  "GET /api/v1/projects/demo/workspace": projectWith(CHARACTERS, ["茶馆开张", "夜访账房", "说书先生"]),
   [DELETE_PREVIEW_KEY]: {
     status: 200,
     body: {
@@ -168,7 +168,7 @@ const DELETE_API: ApiOverrides = {
 const MANY_EPISODES = Array.from({ length: 30 }, (_, i) => `${LONG_NAME}的第 ${i + 1} 段故事`);
 const DELETE_MANY_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith(CHARACTERS, MANY_EPISODES),
+  "GET /api/v1/projects/demo/workspace": projectWith(CHARACTERS, MANY_EPISODES),
   [DELETE_PREVIEW_KEY]: {
     status: 200,
     body: {
@@ -217,8 +217,8 @@ const VIEWER_API: ApiOverrides = {
 };
 const VIEWER_MANY_API: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": projectWith({ [LONG_NAME]: { description: LONG_DESCRIPTION, character_sheet: sheetSvg(200) }, ...CHARACTERS }),
-  "GET /api/v1/projects/demo/asset-sheets/status": { status: 200, body: { assets: [] } },
+  "GET /api/v1/projects/demo/workspace": projectWith({ [LONG_NAME]: { description: LONG_DESCRIPTION, character_sheet: sheetSvg(200) }, ...CHARACTERS }),
+  "GET /api/v1/projects/demo/asset-sheets/status?include=derivative_references": { status: 200, body: { assets: [] } },
   [`GET /api/v1/projects/demo/versions/characters/${LONG_NAME}`]: versionsOf(LONG_NAME, 60),
 };
 

@@ -10,6 +10,8 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { createDeferred } from "@/test/deferred";
+import { makeWorkspaceResponse } from "@/test/factories";
 import { AppRoutes } from "@/router";
 
 vi.mock("@/components/layout", () => ({
@@ -80,29 +82,29 @@ describe("AppRoutes", () => {
   it.each(["/app/projects/demo/lorebook", "/app/projects/demo/clues", "/app/projects/demo/unknown/"])(
     "keeps the workspace shell for the unregistered workspace path %s",
     async (path) => {
-      vi.spyOn(API, "getProject").mockResolvedValue({
-        project: { title: "Demo", content_mode: "narration", style: "Anime", episodes: [], characters: {}, scenes: {}, props: {} },
-        scripts: {},
-      });
+      vi.spyOn(API, "getWorkspace").mockResolvedValue(
+        makeWorkspaceResponse({ title: "Demo", content_mode: "narration", style: "Anime", episodes: [], characters: {}, scenes: {}, props: {} }),
+      );
       renderAt(path);
       expect(await screen.findByTestId("studio-canvas-router")).toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: "页面未找到" })).not.toBeInTheDocument();
     },
   );
 
-  it("loads project workspace and resets assistant state", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: {
+  it("loads project workspace and resets assistant state without fetching scripts", async () => {
+    const getScriptSpy = vi.spyOn(API, "getScript");
+    const getProjectSpy = vi.spyOn(API, "getProject");
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({
         title: "Demo Project",
         content_mode: "narration",
         style: "Anime",
-        episodes: [],
+        episodes: [{ episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" }],
         characters: {},
         scenes: {},
         props: {},
-      },
-      scripts: {},
-    });
+      }),
+    );
 
     useAssistantStore.setState({
       sessions: [
@@ -127,8 +129,10 @@ describe("AppRoutes", () => {
     expect(await screen.findByTestId("studio-layout")).toBeInTheDocument();
     expect(await screen.findByTestId("studio-canvas-router")).toBeInTheDocument();
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      expect(API.getWorkspace).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
     });
+    expect(getProjectSpy).not.toHaveBeenCalled();
+    expect(getScriptSpy).not.toHaveBeenCalled();
 
     const assistant = useAssistantStore.getState();
     expect(assistant.sessions).toEqual([]);
@@ -150,14 +154,70 @@ describe("AppRoutes", () => {
     expect(useProjectsStore.getState().currentProjectData).toBeNull();
   });
 
+  it("直达单集页时并行拉取 workspace 与当前集剧本，快速切集丢弃过期响应", async () => {
+    const ws = makeWorkspaceResponse({
+      title: "Demo",
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+      characters: {},
+      scenes: {},
+      props: {},
+    });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(ws);
+    const ep1Deferred = createDeferred<Awaited<ReturnType<typeof API.getScript>>>();
+    const ep2Deferred = createDeferred<Awaited<ReturnType<typeof API.getScript>>>();
+    let ep1Signal: AbortSignal | undefined;
+    const getScriptSpy = vi.spyOn(API, "getScript").mockImplementation((_proj, file, options) => {
+      if (file === "episode_1.json") {
+        ep1Signal = options?.signal;
+        return ep1Deferred.promise;
+      }
+      return ep2Deferred.promise;
+    });
+
+    const { hook, navigate } = memoryLocation({ path: "/app/projects/demo/episodes/1" });
+    render(
+      <Router hook={hook}>
+        <AppRoutes />
+      </Router>,
+    );
+
+    await waitFor(() => {
+      expect(API.getWorkspace).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_1.json", { signal: expect.any(AbortSignal) });
+    });
+
+    act(() => navigate("/app/projects/demo/episodes/2"));
+    await waitFor(() => {
+      expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_2.json", { signal: expect.any(AbortSignal) });
+    });
+    expect(ep1Signal?.aborted).toBe(true);
+
+    await act(async () => {
+      ep1Deferred.resolve({ script: { episode: 1, segments: [] }, revision: "r1" } as never);
+      ep2Deferred.resolve({ script: { episode: 2, segments: [] }, revision: "r2" } as never);
+    });
+
+    await waitFor(() => {
+      expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_2.json"]);
+      expect(useProjectsStore.getState().activeEpisodeScript.episode).toBe(2);
+    });
+  });
+
   it("切换界面语言不重跑真实项目的加载", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: {
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({
         title: "Demo Project",
         content_mode: "narration",
-      } as never,
-      scripts: {},
-    });
+        style: "",
+        episodes: [],
+        characters: {},
+      }),
+    );
 
     renderAt("/app/projects/demo");
     await waitFor(() => {
@@ -168,7 +228,7 @@ describe("AppRoutes", () => {
       await i18n.changeLanguage("en");
     });
 
-    expect(API.getProject).toHaveBeenCalledTimes(1);
+    expect(API.getWorkspace).toHaveBeenCalledTimes(1);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo Project");
 
     await act(async () => {
@@ -177,14 +237,16 @@ describe("AppRoutes", () => {
   });
 
   it("演示项目不发请求，数据随界面语言重灌", async () => {
-    vi.spyOn(API, "getProject").mockResolvedValue({ project: {} as never, scripts: {} });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({ title: "", content_mode: "narration", style: "", episodes: [], characters: {} }),
+    );
 
     const view = renderAt(`/app/projects/${DEMO_PROJECT_NAME}`);
     await waitFor(() => {
       expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
       expect(useProjectsStore.getState().currentProjectData).not.toBeNull();
     });
-    expect(API.getProject).not.toHaveBeenCalled();
+    expect(API.getWorkspace).not.toHaveBeenCalled();
 
     const zhTitle = useProjectsStore.getState().currentProjectData?.title;
     await act(async () => {
@@ -202,7 +264,7 @@ describe("AppRoutes", () => {
 
   it("离开项目会中止在途的详情请求", async () => {
     let capturedSignal: AbortSignal | undefined;
-    vi.spyOn(API, "getProject").mockImplementation(
+    vi.spyOn(API, "getWorkspace").mockImplementation(
       (_name, options) =>
         new Promise((_resolve, reject) => {
           capturedSignal = options?.signal;
@@ -222,14 +284,16 @@ describe("AppRoutes", () => {
   });
 
   it("快速切换项目：旧项目的迟到响应不覆盖新项目的首屏数据", async () => {
-    let resolveA!: (value: Awaited<ReturnType<typeof API.getProject>>) => void;
-    const pendingA = new Promise<Awaited<ReturnType<typeof API.getProject>>>((res) => {
+    let resolveA!: (value: Awaited<ReturnType<typeof API.getWorkspace>>) => void;
+    const pendingA = new Promise<Awaited<ReturnType<typeof API.getWorkspace>>>((res) => {
       resolveA = res;
     });
-    vi.spyOn(API, "getProject").mockImplementation((name) =>
+    vi.spyOn(API, "getWorkspace").mockImplementation((name) =>
       name === "A"
         ? pendingA
-        : Promise.resolve({ project: { title: "B-数据" } as never, scripts: {} }),
+        : Promise.resolve(
+            makeWorkspaceResponse({ title: "B-数据", content_mode: "narration", style: "", episodes: [], characters: {} }),
+          ),
     );
 
     const seenTitles: Array<string | undefined> = [];
@@ -244,12 +308,14 @@ describe("AppRoutes", () => {
       </Router>,
     );
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("A", { signal: expect.any(AbortSignal) });
+      expect(API.getWorkspace).toHaveBeenCalledWith("A", { signal: expect.any(AbortSignal) });
     });
 
     act(() => navigate("/app/projects/B"));
     await act(async () => {
-      resolveA({ project: { title: "A-迟到数据" } as never, scripts: {} });
+      resolveA(
+        makeWorkspaceResponse({ title: "A-迟到数据", content_mode: "narration", style: "", episodes: [], characters: {} }),
+      );
       await pendingA;
     });
 
@@ -264,7 +330,7 @@ describe("AppRoutes", () => {
   });
 
   it("keeps project name when loading project details fails", async () => {
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("network"));
 
     renderAt("/app/projects/fail-demo");
 

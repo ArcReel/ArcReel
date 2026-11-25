@@ -5,6 +5,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const CHARACTERS_PATH = "/app/projects/demo/characters";
 const EVENT_STREAM: ApiOverrides = {
@@ -15,25 +16,18 @@ function recorded<T>(file: string): T {
   return (JSON.parse(readFileSync(join(RECORDED_DIR, `${file}.json`), "utf8")) as RecordedResponse).body as T;
 }
 
-interface RecordedProject {
-  project: { title: string; episodes: Record<string, unknown>[] } & Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
 interface RecordedProjects {
   projects: ({ name: string; title: string } & Record<string, unknown>)[];
 }
 
 const LONG_TITLE = "雾港来信：一座海边小城里，邮差在三十年后收到了寄给自己的信，于是沿着信里的地址一路找回童年";
-const recordedProject = recorded<RecordedProject>("project-demo");
 const [firstProject] = recorded<RecordedProjects>("projects").projects;
-const [firstEpisode] = recordedProject.project.episodes;
+const firstEpisode = recordedDemoEpisode();
+const recordedScript = recordedDemoScript().script;
 
 const MANY_PROJECTS: ApiOverrides = {
   ...EVENT_STREAM,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: { ...recordedProject, project: { ...recordedProject.project, title: LONG_TITLE } },
-  },
+  ...workspaceOverride({ title: LONG_TITLE }),
   "GET /api/v1/projects": {
     status: 200,
     body: {
@@ -52,21 +46,14 @@ const MANY_PROJECTS: ApiOverrides = {
 const EPISODE_TITLE = (i: number) => `第 ${i} 集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过`;
 const MANY_EPISODES: ApiOverrides = {
   ...EVENT_STREAM,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        episodes: Array.from({ length: 12 }, (_, i) => ({
-          ...firstEpisode,
-          episode: i + 1,
-          title: EPISODE_TITLE(i + 1),
-          script_file: `scripts/episode_${i + 1}.json`,
-        })),
-      },
-    },
-  },
+  ...workspaceOverride({
+    episodes: Array.from({ length: 12 }, (_, i) => ({
+      ...firstEpisode,
+      episode: i + 1,
+      title: EPISODE_TITLE(i + 1),
+      script_file: `scripts/episode_${i + 1}.json`,
+    })),
+  }),
   "POST /api/v1/projects/demo/episodes/2/move": { status: 200, body: { success: true } },
 };
 
@@ -101,6 +88,8 @@ const NOTICE_EVENTS = [
         entity_type: "drama_scene",
         action: "created",
         entity_id: NOTICE_SHOT,
+        item_id: NOTICE_SHOT,
+        position: 5,
         label_key: "skeleton_scenes",
         label_params: { id: NOTICE_SHOT },
         script_file: "scripts/episode_1.json",
@@ -122,18 +111,15 @@ const NOTICE_EVENTS = [
 ].join("\n");
 const NOTICE_TARGETS: ApiOverrides = {
   ...EVENT_STREAM,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        content_mode: "drama",
-        characters: Object.fromEntries(NOTICE_CHARACTERS.map((name) => [name, { description: `${name}的设定` }])),
-      },
+  ...workspaceOverride(
+    {
+      content_mode: "drama",
+      characters: Object.fromEntries(NOTICE_CHARACTERS.map((name) => [name, { description: `${name}的设定` }])),
+    },
+    {
       scripts: {
         "episode_1.json": {
-          ...recordedProject.scripts["episode_1.json"],
+          ...recordedScript,
           content_mode: "drama",
           segments: undefined,
           scenes: Array.from({ length: 8 }, (_, i) => ({
@@ -151,7 +137,7 @@ const NOTICE_TARGETS: ApiOverrides = {
         },
       },
     },
-  },
+  ),
 };
 
 /**

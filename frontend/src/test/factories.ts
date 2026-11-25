@@ -1,4 +1,12 @@
-import type { NarrationSegment, ScriptOverwrite, ScriptOverwriteEntry, TaskItem } from "@/types";
+import type {
+  NarrationSegment,
+  ProjectData,
+  ScriptOverwrite,
+  ScriptOverwriteEntry,
+  TaskItem,
+  WorkspaceEpisodeSummary,
+  WorkspaceResponse,
+} from "@/types";
 import type { ReferenceUnitCapability } from "@/types/reference-video";
 import type {
   WorkflowContent,
@@ -174,5 +182,40 @@ export function makeScriptOverwrite(overrides: Partial<ScriptOverwrite> = {}): S
     grid_count: 0,
     text: "",
     ...overrides,
+  };
+}
+
+export function makeWorkspaceResponse(
+  project: ProjectData,
+  asset_fingerprints?: Record<string, number>,
+): WorkspaceResponse {
+  const status = project.status;
+  const episodes: WorkspaceEpisodeSummary[] = (project.episodes ?? []).map((ep) => ({
+    episode: ep.episode,
+    script_status: ep.script_status ?? "none",
+    status: ep.status ?? "draft",
+    item_count: ep.item_count ?? 0,
+    duration_seconds: ep.duration_seconds ?? 0,
+    needs_replan: ep.needs_replan ?? 0,
+    videos: ep.videos ?? { total: 0, available: 0 },
+    storyboards: ep.storyboards ?? { total: 0, available: 0 },
+  }));
+  return {
+    project,
+    summary: {
+      currency: "registered",
+      needs_repair: status?.needs_repair ?? false,
+      repair_reason: status?.repair_reason ?? null,
+      assets: status?.assets ?? {},
+      episodes_summary: status?.episodes_summary ?? {
+        total: episodes.length,
+        scripted: episodes.filter((e) => e.script_status !== "none").length,
+        in_production: episodes.filter((e) => e.status === "in_production").length,
+        completed: episodes.filter((e) => e.status === "completed").length,
+      },
+      source_remaining: status?.source_remaining ?? false,
+      episodes,
+    },
+    ...(asset_fingerprints !== undefined ? { asset_fingerprints } : {}),
   };
 }

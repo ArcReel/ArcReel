@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -9,10 +9,11 @@ import { ApiRequestError } from "@/api/errors";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { seedTasks } from "@/test/task-state";
 import type { EpisodeMeta, ProjectData, ProjectStatus } from "@/types/project";
 import type { WorkflowNextAction, WorkflowStatus } from "@/types/workflow";
 
-import { makeContent } from "@/test/factories";
+import { makeContent, makeTask, makeWorkspaceResponse } from "@/test/factories";
 
 import { ProjectStatusBar } from "./ProjectStatusBar";
 
@@ -26,7 +27,7 @@ const SUMMARY: ProjectStatus = {
 
 const EPISODES: Partial<EpisodeMeta>[] = [
   { episode: 4, title: "旧账", status: "completed" },
-  { episode: 7, title: "雨夜", status: "in_production", videos: { total: 2, available: 1, stale: 1 } },
+  { episode: 7, title: "雨夜", status: "in_production", needs_replan: 1, videos: { total: 2, available: 1, stale: 1 } },
   { episode: 2, title: "", status: "draft" },
 ];
 
@@ -79,6 +80,7 @@ describe("ProjectStatusBar", () => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState({ input: "", sending: false });
+    seedTasks([]);
   });
 
   it("shows episode progress and continues the first unfinished episode", async () => {
@@ -90,7 +92,7 @@ describe("ProjectStatusBar", () => {
     const user = userEvent.setup();
 
     expect(screen.getByText("1/3 集")).toBeInTheDocument();
-    expect(screen.getByLabelText("1 集有产物需要更新")).toHaveTextContent("1");
+    expect(screen.getByLabelText("1 集需要重新规划")).toHaveTextContent("1");
     await user.click(await screen.findByRole("button", { name: /继续第 2 集/ }));
 
     expect(screen.getByText("「雨夜」的下一步：补充提示词。")).toBeInTheDocument();
@@ -210,25 +212,98 @@ describe("ProjectStatusBar", () => {
     expect(location.history?.at(-1)).toBe("/episodes/7");
   });
 
-  it("shows the stale annotation for episode 33 from the next page", async () => {
-    const episodes = Array.from({ length: 33 }, (_, i) => ({ episode: i + 1, status: "draft" as const }));
-    setProject({ ...SUMMARY, episodes_summary: { total: 33, scripted: 0, in_production: 0, completed: 0 } }, episodes);
+  it("loads only the visible uncompleted window on open and loads more on scroll without fetching completed rows", async () => {
+    const episodes = Array.from({ length: 33 }, (_, i) => ({
+      episode: i + 1,
+      status: i === 0 ? ("completed" as const) : ("draft" as const),
+    }));
+    setProject({ ...SUMMARY, episodes_summary: { total: 33, scripted: 1, in_production: 0, completed: 1 } }, episodes);
     vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(workflowStatus(action("none")));
-    const pages = vi.spyOn(API, "getEpisodeNextSteps")
-      .mockResolvedValueOnce({
-        episodes: episodes.slice(0, 32).map(({ episode }) => ({
-          episode, plan_stale: false, episode_complete: true, next_action: null,
+    const pages = vi.spyOn(API, "getEpisodeNextSteps").mockImplementation((_name, opts) => {
+      const requested = opts?.episodes ?? [];
+      return Promise.resolve({
+        episodes: requested.map((episode) => ({
+          episode,
+          plan_stale: episode === 33,
+          episode_complete: false,
+          next_action: null,
         })),
-        next_cursor: "page-2",
-      })
-      .mockResolvedValueOnce({
-        episodes: [{ episode: 33, plan_stale: true, episode_complete: false, next_action: null }],
         next_cursor: null,
       });
+    });
     renderBar();
-    await userEvent.setup().click(screen.getByRole("button", { name: /0\/33 集/ }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /1\/33 集/ }));
+
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(pages).toHaveBeenCalledTimes(1);
+    const firstBatch = pages.mock.calls[0][1]?.episodes ?? [];
+    expect(firstBatch).not.toContain(1);
+    expect(firstBatch).not.toContain(33);
+    expect(firstBatch.length).toBeLessThanOrEqual(32);
+
+    const list = screen.getByRole("list");
+    Object.defineProperty(list, "scrollHeight", { value: 1200, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 240, configurable: true });
+    Object.defineProperty(list, "scrollTop", { value: 960, configurable: true });
+    fireEvent.scroll(list);
+
     expect(await screen.findByText("原文已重新规划")).toBeInTheDocument();
-    expect(pages).toHaveBeenNthCalledWith(2, "demo", expect.objectContaining({ cursor: "page-2" }));
+    expect(pages).toHaveBeenCalledTimes(2);
+    expect(pages.mock.calls[1][1]?.episodes).toContain(33);
+  });
+
+  it("omits global stale badge when episodes have stale counts but no needs_replan", async () => {
+    setProject(SUMMARY, [
+      { episode: 1, title: "雨夜", status: "in_production", needs_replan: 0, videos: { total: 2, available: 1, stale: 2 } },
+    ]);
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(workflowStatus(action("none")));
+    renderBar();
+    await screen.findByText("1/3 集");
+    expect(screen.queryByLabelText(/需要更新|需要重新规划/)).not.toBeInTheDocument();
+  });
+
+  it("does not refetch workflow-status on queued->running transitions or unrelated tasks while yielding to panel", async () => {
+    vi.useFakeTimers();
+    try {
+      setProject();
+      const getStatus = vi
+        .spyOn(API, "getWorkflowStatus")
+        .mockResolvedValue(workflowStatus(action("author_prompts", { episode_id: 7 })));
+      renderBar("/episodes/7");
+      await vi.waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        seedTasks([
+          makeTask({ project_name: "demo", task_id: "t-1", task_type: "video", resource_id: "E7S01", status: "queued" }),
+        ]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      const afterQueued = getStatus.mock.calls.length;
+
+      act(() => {
+        seedTasks([
+          makeTask({ project_name: "demo", task_id: "t-1", task_type: "video", resource_id: "E7S01", status: "running" }),
+        ]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(getStatus).toHaveBeenCalledTimes(afterQueued);
+
+      act(() => {
+        seedTasks([
+          makeTask({ project_name: "demo", task_id: "t-1", task_type: "video", resource_id: "E7S01", status: "succeeded" }),
+        ]);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(getStatus).toHaveBeenCalledTimes(afterQueued);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("hands episode planning to the agent with the additional requirements", async () => {
@@ -314,10 +389,9 @@ describe("ProjectStatusBar", () => {
         new ApiRequestError("数据升级仍未完成", { reason: "scripts/episode_4.json 读取失败", details: [] }, 422),
       )
       .mockResolvedValueOnce({ success: true });
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: { content_mode: "narration", status: SUMMARY, episodes: EPISODES } as unknown as ProjectData,
-      scripts: {},
-    });
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({ content_mode: "narration", status: SUMMARY, episodes: EPISODES } as unknown as ProjectData),
+    );
     renderBar();
     const user = userEvent.setup();
 
@@ -342,7 +416,7 @@ describe("ProjectStatusBar", () => {
     setProject({ ...SUMMARY, needs_repair: true, repair_reason: "step 0014 failed" });
     vi.spyOn(API, "getWorkflowStatus").mockReturnValue(new Promise(() => {}));
     vi.spyOn(API, "retryProjectMigration").mockResolvedValue({ success: true });
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
     renderBar();
     const user = userEvent.setup();

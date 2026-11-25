@@ -74,6 +74,7 @@ export interface CharacterDerivativeRowProps {
   characterName: string;
   name: string;
   derivative: CharacterDerivative;
+  referenced?: boolean | null;
   status: CharacterDerivativeStatus | undefined;
   ownerHasSheet: boolean;
   readOnly: boolean;
@@ -88,6 +89,7 @@ export function CharacterDerivativeRow({
   characterName,
   name,
   derivative,
+  referenced: referencedOverride,
   status,
   ownerHasSheet,
   readOnly,
@@ -151,6 +153,8 @@ export function CharacterDerivativeRow({
   };
   useEffect(() => () => importSettled.current?.(), []);
 
+  const effectiveReferenced =
+    referencedOverride !== undefined ? referencedOverride : derivative.referenced;
   const artifactStatus = status
     ? (status.artifact_status ?? (status.stale ? "stale" : status.character_sheet ? "current" : "missing"))
     : derivative.character_sheet
@@ -419,9 +423,15 @@ export function CharacterDerivativeRow({
             </code>
             <CopyButton text={token} label={t("assets:derivative_copy_token", { token })} />
           </div>
-          {derivative.referenced === undefined ? null : (
+          {effectiveReferenced === undefined ? null : (
             <p className="text-xs text-muted-foreground">
-              {t(derivative.referenced ? "assets:derivative_referenced" : "assets:derivative_unreferenced")}
+              {t(
+                effectiveReferenced === null
+                  ? "assets:derivative_reference_unknown"
+                  : effectiveReferenced
+                    ? "assets:derivative_referenced"
+                    : "assets:derivative_unreferenced",
+              )}
             </p>
           )}
         </div>
@@ -543,9 +553,11 @@ export function CharacterDerivativeRow({
               <AlertDialogBody tabIndex={0} role="region" aria-label={t("assets:derivative_delete_title", { name })}>
                 <AlertDialogDescription>
                   {t(
-                    derivative.referenced
+                    effectiveReferenced === true
                       ? "assets:derivative_delete_description_referenced"
-                      : "assets:derivative_delete_description",
+                      : effectiveReferenced === null
+                        ? "assets:derivative_delete_description_unknown"
+                        : "assets:derivative_delete_description",
                     { token },
                   )}
                 </AlertDialogDescription>

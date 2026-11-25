@@ -21,7 +21,12 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { episodeDisplayName, episodeItemLabel, type EpisodeLedger } from "@/utils/episode-display";
+import {
+  episodeDisplayName,
+  episodeItemLabel,
+  formatEpisodeItemLocation,
+  type EpisodeLedger,
+} from "@/utils/episode-display";
 import type { RestoreResult, TrashListing, TrashRecord } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -105,7 +110,19 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
   }
   if (record.object.kind === "episode") return t("trash_restored_episode", { name });
   if (record.object.kind === "script_entry") {
-    const label = episodeItemLabel(String(result.object.id), currentScripts, episodes, t);
+    const rawItemId = result.object.item_id ?? result.object.id;
+    const itemId = typeof rawItemId === "string" ? rawItemId : "";
+    const episode =
+      typeof result.object.episode === "number"
+        ? result.object.episode
+        : typeof record.object.episode === "number"
+          ? record.object.episode
+          : null;
+    const position = typeof result.object.position === "number" ? result.object.position : null;
+    const label =
+      position !== null
+        ? formatEpisodeItemLocation(itemId, { episode, item_id: itemId, position, status: "found" }, episodes, t)
+        : episodeItemLabel(itemId, currentScripts, episodes, t);
     return t("trash_restored_object", { name: label });
   }
   if (record.has_snapshot && typeof record.object.name === "string") {

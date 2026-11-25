@@ -33,21 +33,30 @@ describe("EpisodeCard", () => {
     expect(screen.getByText(/3\/4/)).toBeInTheDocument();
   });
 
-  it("counts stale artifacts across storyboards and videos without deducting them from available", () => {
+  it("shows needs_replan count without showing unverified stale badges", () => {
     renderCard(
       makeEpisode({
+        needs_replan: 2,
         storyboards: { total: 4, available: 4, stale: 2 },
         videos: { total: 4, available: 4, stale: 1 },
       }),
     );
 
     expect(screen.getByText(/4\/4/)).toBeInTheDocument();
-    expect(screen.getByText("3 件产物比当前内容旧")).toBeInTheDocument();
+    expect(screen.getByText("2 处需要重新规划")).toBeInTheDocument();
+    expect(screen.queryByText(/比当前内容旧/)).not.toBeInTheDocument();
   });
 
-  it("says nothing about staleness when every artifact matches the current content", () => {
-    renderCard(makeEpisode());
+  it("omits replan badge when needs_replan is zero even if stale fields are present", () => {
+    renderCard(
+      makeEpisode({
+        needs_replan: 0,
+        storyboards: { total: 4, available: 4, stale: 2 },
+        videos: { total: 4, available: 4, stale: 1 },
+      }),
+    );
 
+    expect(screen.queryByText(/需要重新规划/)).not.toBeInTheDocument();
     expect(screen.queryByText(/比当前内容旧/)).not.toBeInTheDocument();
   });
 

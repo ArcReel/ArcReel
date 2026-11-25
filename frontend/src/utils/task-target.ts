@@ -5,8 +5,15 @@ import {
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
-import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
-import { episodeDisplayName, episodeItemLabel, itemIdsInEpisodeText, type ProjectScripts } from "@/utils/episode-display";
+import type { ItemLocation, ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
+import {
+  episodeDisplayName,
+  episodeItemLabel,
+  episodeItemRefLabel,
+  formatEpisodeItemLocation,
+  itemIdsInEpisodeText,
+  type ProjectScripts,
+} from "@/utils/episode-display";
 
 
 const ASSET_ROUTES: Record<"character" | "scene" | "prop" | "product", string> = {
@@ -48,11 +55,30 @@ function failureTarget(
   projectData: ProjectData | null,
   scripts: ProjectScripts,
   t: TFunction,
+  locations?: ReadonlyMap<string, ItemLocation>,
 ): string {
   const episodes = projectData?.episodes ?? [];
-  if (idParam !== "episode") return episodeItemLabel(task.resource_id, scripts, episodes, t);
-  const match = EPISODE_RESOURCE_ID.exec(task.resource_id);
-  return match ? episodeDisplayName(episodes, Number(match[1]), t) : task.resource_id;
+  if (idParam === "episode") {
+    const match = EPISODE_RESOURCE_ID.exec(task.resource_id);
+    return match ? episodeDisplayName(episodes, Number(match[1]), t) : task.resource_id;
+  }
+  if (typeof task.position === "number") {
+    return formatEpisodeItemLocation(
+      task.item_id ?? task.resource_id,
+      {
+        episode: task.episode ?? null,
+        item_id: task.item_id ?? task.resource_id,
+        position: task.position,
+        status: "found",
+      },
+      episodes,
+      t,
+    );
+  }
+  if (task.resource_ref) {
+    return episodeItemRefLabel(task.resource_id, task.resource_ref, t, episodes);
+  }
+  return episodeItemLabel(task.resource_id, scripts, episodes, t, locations);
 }
 
 export function stripScriptsPrefix(path: string): string {
@@ -150,6 +176,7 @@ export function describeTaskFailure(
   task: TaskItem,
   projectData: ProjectData | null = null,
   scripts: ProjectScripts = {},
+  locations?: ReadonlyMap<string, ItemLocation>,
 ): string | null {
   const reason =
     task.error_code === "text_wait_timeout"
@@ -157,7 +184,7 @@ export function describeTaskFailure(
       : (task.error_message ?? t("reference_status_failed"));
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
-  const target = failureTarget(config.idParam, task, projectData, scripts, t);
+  const target = failureTarget(config.idParam, task, projectData, scripts, t, locations);
   const message = t(config.key, { [config.idParam]: target, reason });
   const providerReason = providerReasonOf(task);
   if (!providerReason) return message;

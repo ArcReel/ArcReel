@@ -16,6 +16,7 @@ export interface AssetSheetStatusRow extends AssetSheetRef {
   status: AssetSheetStatus;
   description_missing: boolean;
   image_to_image: boolean;
+  referenced?: boolean | null;
 }
 
 export type AssetSheetBatchScope = { asset_type: AssetSheetType } | { episode_id: number };

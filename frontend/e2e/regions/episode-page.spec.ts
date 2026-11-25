@@ -3,17 +3,13 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoEpisode, recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-
-interface RecordedProject {
-  project: { episodes: Record<string, unknown>[] } & Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
 interface RecordedPlan {
   status: { artifacts: Record<string, Record<string, unknown>> } & Record<string, unknown>;
   steps: ({ id: string } & Record<string, unknown>)[];
@@ -22,7 +18,8 @@ interface RecordedCost {
   episodes: Record<string, unknown>[];
 }
 
-const project = recorded<RecordedProject>("project-demo.json");
+const firstEpisode = recordedDemoEpisode();
+const recordedScript = recordedDemoScript().script;
 const plan = recorded<RecordedPlan>("project-demo-workflow-plan.json");
 const cost = recorded<RecordedCost>("project-demo-cost-estimate.json");
 
@@ -54,27 +51,22 @@ function runningTask(resourceId: string) {
   };
 }
 
+const STRESS_PROJECT_PATCH = {
+  narration_delivery: "use_tts",
+  episodes: [
+    {
+      ...firstEpisode,
+      title: "第一集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响",
+      item_count: 148,
+      duration_seconds: 1234,
+      videos: { total: 148, available: 112 },
+    },
+  ],
+};
+
 const STRESS: ApiOverrides = {
   ...API,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...project,
-      project: {
-        ...project.project,
-        narration_delivery: "use_tts",
-        episodes: [
-          {
-            ...project.project.episodes[0],
-            title: "第一集：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响",
-            item_count: 148,
-            duration_seconds: 1234,
-            videos: { total: 148, available: 112, stale: 3 },
-          },
-        ],
-      },
-    },
-  },
+  ...workspaceOverride(STRESS_PROJECT_PATCH),
   "POST /api/v1/projects/demo/workflow-plan": {
     status: 200,
     body: {
@@ -116,30 +108,25 @@ const LONG_MESSAGE =
   "这个单元的参考图里有两位角色共用同一个名字，模型无法区分说话的人；请在分镜详情里给其中一位改名，或者删掉多余的参考图后再生成";
 const BLOCKED_VIDEOS = ids(40).slice(4);
 
-const stressProject = (STRESS["GET /api/v1/projects/demo"] as { body: RecordedProject }).body;
 const PROGRESS_STRESS: ApiOverrides = {
   ...STRESS,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...stressProject,
-      scripts: {
-        "episode_1.json": {
-          ...project.scripts["episode_1.json"],
-          segments: ids(40).map((segmentId, index) => ({
-            segment_id: segmentId,
-            episode: 1,
-            duration_seconds: 6,
-            segment_break: false,
-            novel_text: `第 ${index + 1} 段原文。`,
-            characters_in_segment: [],
-            image_prompt: null,
-            video_prompt: null,
-          })),
-        },
+  ...workspaceOverride(STRESS_PROJECT_PATCH, {
+    scripts: {
+      "episode_1.json": {
+        ...recordedScript,
+        segments: ids(40).map((segmentId, index) => ({
+          segment_id: segmentId,
+          episode: 1,
+          duration_seconds: 6,
+          segment_break: false,
+          novel_text: `第 ${index + 1} 段原文。`,
+          characters_in_segment: [],
+          image_prompt: null,
+          video_prompt: null,
+        })),
       },
     },
-  },
+  }),
   "POST /api/v1/projects/demo/workflow-plan": {
     status: 200,
     body: {
@@ -230,13 +217,7 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
 const LONG_SOURCE = `${"夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过。\n".repeat(120)}${"无空格长串".repeat(120)}`;
 const OWN_SOURCE: ApiOverrides = {
   ...API,
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: {
-      ...project,
-      project: { ...project.project, episodes: [{ ...project.project.episodes[0], source_origin: "own" }] },
-    },
-  },
+  ...workspaceOverride({ episodes: [{ ...firstEpisode, source_origin: "own" }] }),
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: LONG_SOURCE },
 };
 

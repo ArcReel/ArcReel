@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
+import { useItemLocationsStore } from "@/stores/item-locations-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import {
   defaultTaskStats,
   selectActiveResourceIds,
@@ -127,6 +129,30 @@ describe("enqueueStoryboard", () => {
 
     expect(occupied("demo", "storyboard", "seg-1")).toBe(false);
     expect(markCounts().resource).toBe(0);
+  });
+
+  it("跨集条目在未加载该集剧本时通过 item-locations 展示人类可读位置", async () => {
+    useItemLocationsStore.getState().reset(null);
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "Demo",
+        content_mode: "narration",
+        style: "",
+        characters: {},
+        episodes: [{ episode: 2, title: "雨夜", script_file: "scripts/episode_2.json" }],
+      },
+      currentScripts: {},
+    });
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue(SINGLE_OK);
+    const locateSpy = vi.spyOn(API, "locateItems").mockResolvedValue({
+      items: [{ episode: 2, item_id: "E2S03", position: 3, status: "found" }],
+    });
+
+    await enqueueStoryboard("demo", "E2S03", "img prompt", "episode_2.json");
+
+    expect(locateSpy).toHaveBeenCalledWith("demo", ["E2S03"], expect.anything());
+    expect(useAppStore.getState().toast?.text).toContain("雨夜 · 3");
   });
 });
 

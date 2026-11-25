@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/asset-sheets/status?include=derivative_references",
+  "status": 200,
+  "body": {
+    "assets": []
+  }
+}

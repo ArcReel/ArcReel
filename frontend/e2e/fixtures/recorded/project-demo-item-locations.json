@@ -1,0 +1,8 @@
+{
+  "method": "POST",
+  "path": "/api/v1/projects/demo/item-locations",
+  "status": 200,
+  "body": {
+    "items": []
+  }
+}

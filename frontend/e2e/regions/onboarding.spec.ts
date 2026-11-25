@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_ACCESS_TOKEN, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { RECORDED_ACCESS_TOKEN } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
+import { buildWorkspaceBody, workspaceOverride } from "../support/workspace-override.ts";
 
 
 const LOBBY_PATH = "/app/projects";
@@ -60,10 +59,6 @@ async function advance(page: Page, steps: number) {
   for (let i = 0; i < steps; i++) await next(page);
 }
 
-const PROJECT = "GET /api/v1/projects/demo";
-const recordedProject = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo.json"), "utf8")) as RecordedResponse
-).body as { project: Record<string, unknown> };
 const OVERVIEW = {
   synopsis: "灯塔守夜人在雾季收到一封三十年前寄出的信，循着邮戳找回失踪的邮差。",
   genre: "悬疑",
@@ -72,13 +67,7 @@ const OVERVIEW = {
 };
 const SOURCE_ONLY: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  [PROJECT]: {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: { ...recordedProject.project, overview: undefined, whole_source_files: [{ source_file: "source/novel.txt" }] },
-    },
-  },
+  ...workspaceOverride({ overview: undefined, whole_source_files: [{ source_file: "source/novel.txt" }] }),
 };
 
 defineRegionScenarios("新手引导", [
@@ -182,7 +171,9 @@ defineRegionScenarios("新手引导", [
       await page.route("**/api/v1/projects/demo/generate-overview", (route) =>
         route.fulfill({ json: { success: true, overview: OVERVIEW } }),
       );
-      await page.route("**/api/v1/projects/demo", (route) => route.fulfill({ json: { ...recordedProject, project: { ...recordedProject.project, overview: OVERVIEW } } }));
+      await page.route("**/api/v1/projects/demo/workspace", (route) =>
+        route.fulfill({ json: buildWorkspaceBody({ overview: OVERVIEW }) }),
+      );
       await clearAgentOverlay(page);
       await page.getByRole("button", { name: "从原文生成" }).click();
       const tip = page.getByRole("status").filter({ hasText: "故事设定已提炼完成" });

@@ -1,22 +1,16 @@
 import type { Page } from "@playwright/test";
 import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
-import { FIXED_NOW, recorded } from "../support/recorded.ts";
+import { FIXED_NOW } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const PLAN_PATH = `${EPISODE_PATH}?view=plan`;
-const PROJECT = "GET /api/v1/projects/demo";
 const SCRIPT_REVIEW = "GET /api/v1/projects/demo/episodes/1/script-review";
 const TASKS = "GET /api/v1/tasks?page_size=200&project_name=demo";
 
-interface RecordedProject {
-  project: Record<string, unknown> & { episodes: Record<string, unknown>[] };
-  scripts: Record<string, Record<string, unknown>>;
-}
-
-const recordedProject = recorded<RecordedProject>("project-demo.json");
-const recordedScript = recordedProject.scripts["episode_1.json"];
+const recordedScript = recordedDemoScript().script;
 
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
@@ -59,13 +53,7 @@ const segments = Array.from({ length: SHOT_COUNT }, (_, i) => ({
 
 const SCRIPTED: ApiOverrides = {
   ...BASE,
-  [PROJECT]: {
-    status: 200,
-    body: {
-      ...recordedProject,
-      scripts: { "episode_1.json": { ...recordedScript, segments } },
-    },
-  },
+  ...workspaceOverride({}, { scripts: { "episode_1.json": { ...recordedScript, segments } } }),
 };
 
 function task(overrides: Record<string, unknown>) {
@@ -213,21 +201,16 @@ const NEW_ASSETS: ApiOverrides = {
 
 const AD_PROJECT: ApiOverrides = {
   ...BASE,
-  [PROJECT]: {
-    status: 200,
-    body: {
-      ...recordedProject,
-      project: {
-        ...recordedProject.project,
-        content_mode: "ad",
-        target_duration: 30,
-        brief: "面向通勤年轻人的气泡水，调性轻快，结尾引导到小程序领券。",
-        products: {},
-        overview: null,
-      },
-      scripts: { "episode_1.json": { ...recordedScript, content_mode: "ad", segments } },
+  ...workspaceOverride(
+    {
+      content_mode: "ad",
+      target_duration: 30,
+      brief: "面向通勤年轻人的气泡水，调性轻快，结尾引导到小程序领券。",
+      products: {},
+      overview: null,
     },
-  },
+    { scripts: { "episode_1.json": { ...recordedScript, content_mode: "ad", segments } } },
+  ),
 };
 
 const reviewBar = (page: Page) => page.locator("header").filter({ hasText: "确认阻断项" });

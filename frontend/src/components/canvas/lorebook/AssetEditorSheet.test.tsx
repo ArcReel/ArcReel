@@ -11,7 +11,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { createDeferred } from "@/test/deferred";
-import { makeTask } from "@/test/factories";
+import { makeTask, makeWorkspaceResponse } from "@/test/factories";
 import type { AssetSheetStatusRow, AssetSheetType, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
 import type { GalleryAssetSource } from "./gallery-model";
@@ -101,8 +101,8 @@ describe("资产详情 Sheet", () => {
     server = makeProject();
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: structuredClone(server) });
-    vi.spyOn(API, "getProject").mockImplementation(() =>
-      Promise.resolve({ project: structuredClone(server), scripts: {} }),
+    vi.spyOn(API, "getWorkspace").mockImplementation(() =>
+      Promise.resolve(makeWorkspaceResponse(structuredClone(server))),
     );
     vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({
       assets: [row("character", "林夕"), row("character", "苏白")],
@@ -354,7 +354,7 @@ describe("资产详情 Sheet", () => {
     renderGallery();
     const sheet = await openAsset(user, "林夕");
     await user.type(within(sheet).getByRole("textbox", { name: "描述" }), "，佩剑");
-    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    vi.mocked(API.getWorkspace).mockRejectedValue(new Error("网络错误"));
 
     await user.click(within(sheet).getByRole("button", { name: "保存" }));
 
@@ -508,7 +508,7 @@ describe("资产详情 Sheet", () => {
     await user.type(within(form).getByRole("textbox", { name: "名称" }), "阿青");
     await user.click(within(form).getByRole("button", { name: "创建" }));
     await waitFor(() => expect(useAppStore.getState().toast?.action).toBeDefined());
-    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    vi.mocked(API.getWorkspace).mockRejectedValue(new Error("网络错误"));
     useAppStore.getState().toast?.action?.onClick();
 
     await waitFor(() =>
@@ -522,7 +522,7 @@ describe("资产详情 Sheet", () => {
   it("says the asset was created when refreshing the project afterwards fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
-    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    vi.mocked(API.getWorkspace).mockRejectedValue(new Error("网络错误"));
     renderGallery();
 
     await user.click(screen.getByRole("button", { name: "添加角色" }));
@@ -712,7 +712,7 @@ describe("资产详情 Sheet", () => {
     vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true });
     renderGallery();
     const sheet = await openAsset(user, "苏白");
-    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    vi.mocked(API.getWorkspace).mockRejectedValue(new Error("网络错误"));
 
     await user.upload(within(sheet).getByLabelText("上传原图"), new File(["png"], "ref.png", { type: "image/png" }));
 
@@ -724,12 +724,12 @@ describe("资产详情 Sheet", () => {
     vi.spyOn(API, "uploadFile").mockRejectedValue(new Error("文件过大"));
     renderGallery();
     const sheet = await openAsset(user, "苏白");
-    vi.mocked(API.getProject).mockClear();
+    vi.mocked(API.getWorkspace).mockClear();
 
     await user.upload(within(sheet).getByLabelText("上传原图"), new File(["png"], "ref.png", { type: "image/png" }));
 
     await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({ text: "文件过大", tone: "error" }));
-    expect(API.getProject).not.toHaveBeenCalled();
+    expect(API.getWorkspace).not.toHaveBeenCalled();
   });
 
   it("collapses reference audio while the project binds voices by prompt", async () => {

@@ -24,7 +24,11 @@ import {
   type GalleryAssetSource,
   type GalleryFilter,
 } from "./gallery-model";
-import { useAssetSheetStatus, useSheetStatusByName } from "./useAssetSheetStatus";
+import {
+  useAssetSheetStatus,
+  useDerivativeReferencesByCharacter,
+  useSheetStatusByName,
+} from "./useAssetSheetStatus";
 
 export interface AssetGalleryProps<T extends GalleryAssetSource> {
   projectName: string;
@@ -53,8 +57,13 @@ export function AssetGallery<T extends GalleryAssetSource>({
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
   const demo = useDemoWorkbench();
-  const rows = useAssetSheetStatus(projectName, !demo);
+  const rows = useAssetSheetStatus(
+    projectName,
+    !demo,
+    assetType === "character" ? "derivative_references" : undefined,
+  );
   const statusByName = useSheetStatusByName(rows, assetType);
+  const derivativeReferencesByCharacter = useDerivativeReferencesByCharacter(rows);
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [editorTarget, setEditorTarget] = useState<AssetEditorTarget | null>(null);
   const [viewName, setViewName] = useState<string | null>(null);
@@ -188,6 +197,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
         onTargetChange={setEditorTarget}
         order={shownNames}
         statusByName={statusByName}
+        derivativeReferencesByCharacter={derivativeReferencesByCharacter}
         generatingNames={generatingNames}
         writingNames={writingNames}
         readOnly={readOnly}

@@ -47,6 +47,9 @@ const RECORDINGS: Recording[] = [
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "deleted-projects", method: "GET", path: "/api/v1/deleted-projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
+  { file: "project-demo-workspace", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workspace` },
+  { file: "project-demo-script-episode-1", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/scripts/episode_1.json` },
+  { file: "project-demo-item-locations", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/item-locations`, json: { item_ids: [] } },
   // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
   { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
   { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
@@ -112,6 +115,11 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-audio-backend-voices", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/audio-backend/voices` },
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
+  {
+    file: "project-demo-asset-sheets-status-derivative-refs",
+    method: "GET",
+    path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status?include=derivative_references`,
+  },
   { file: "assets-character-by-name-lin-xi", method: "GET", path: `/api/v1/assets/by-name?type=character&name=${encodeURIComponent("林夕")}` },
   { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
   { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
@@ -170,6 +178,9 @@ function createNormalizer(dataDir: string): (value: unknown) => unknown {
         Object.entries(value).map(([key, item]) => {
           if (parentKey === "script_overwrite" && key === "revision" && typeof item === "string") {
             return [key, "sha256-v1:<script-overwrite-revision>"];
+          }
+          if (parentKey === undefined && key === "revision" && typeof item === "string" && item.startsWith("sha256-v1:")) {
+            return [key, "sha256-v1:<script-revision>"];
           }
           const fixed = FIXED_VALUES.get(key);
           if (fixed !== undefined) return [key, fixed];

@@ -14,7 +14,7 @@ export interface ProjectOverview {
 export interface CharacterDerivative {
   description: string;
   character_sheet?: string;
-  referenced?: boolean;
+  referenced?: boolean | null;
 }
 
 export interface CharacterDerivativeStatus extends CharacterDerivative {
@@ -72,15 +72,51 @@ export interface EpisodesSummary {
 export interface ArtifactCount {
   total: number;
   available: number;
-  stale: number;
+  stale?: number;
 }
 
 export interface ProjectStatus {
+  currency?: "registered" | "verified";
   needs_repair: boolean;
   repair_reason: string | null;
   assets: Record<string, ArtifactCount>;
   episodes_summary: EpisodesSummary;
   source_remaining: boolean;
+}
+
+export interface WorkspaceEpisodeSummary {
+  episode: number;
+  script_status: "none" | "segmented" | "generated";
+  status: "draft" | "scripted" | "in_production" | "completed" | "missing";
+  item_count: number;
+  duration_seconds: number;
+  needs_replan: number;
+  videos: ArtifactCount;
+  storyboards: ArtifactCount;
+}
+
+export interface WorkspaceSummary extends ProjectStatus {
+  currency: "registered";
+  episodes: WorkspaceEpisodeSummary[];
+}
+
+export interface WorkspaceResponse {
+  project: ProjectData;
+  summary: WorkspaceSummary;
+  asset_fingerprints?: Record<string, number>;
+}
+
+export type ItemLocationStatus = "found" | "deleted" | "ambiguous" | "unloaded";
+
+export interface ItemLocation {
+  episode: number | null;
+  item_id: string;
+  position: number | null;
+  status: ItemLocationStatus;
+}
+
+export interface ItemLocationsResponse {
+  items: ItemLocation[];
 }
 
 export interface EpisodeItemRef {
@@ -108,6 +144,7 @@ export interface EpisodeMeta {
   script_status?: "none" | "segmented" | "generated";
   status?: "draft" | "scripted" | "in_production" | "completed" | "missing";
   duration_seconds?: number;
+  needs_replan?: number;
   storyboards?: ArtifactCount;
   videos?: ArtifactCount;
 }

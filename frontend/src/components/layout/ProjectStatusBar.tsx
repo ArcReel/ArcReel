@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
 import { AlertTriangle, Bot, ChevronDown, Loader2 } from "lucide-react";
@@ -16,18 +16,23 @@ import type { StepAct } from "@/components/workflow/step-list";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { episodeScriptRevisionKey, useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { selectProjectTaskFingerprint, isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import {
+  isResourceBusy,
+  selectStatusBarTaskSignal,
+  useActiveResourceIds,
+  useTasksStore,
+} from "@/stores/tasks-store";
 import type { EpisodeMeta } from "@/types";
-import type { EpisodeNextStep, WorkflowStatus } from "@/types/workflow";
+import type { EpisodeNextStep, WorkflowNextAction, WorkflowStatus } from "@/types/workflow";
 import { errMsg } from "@/utils/async";
 import { cn } from "cn";
 import { episodeDisplayName } from "@/utils/episode-display";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 import {
   actionPhrase,
-  episodeNeedsUpdate,
+  episodeNeedsReplan,
   projectNextGuide,
   withInstruction,
   type GuideButton,
@@ -36,6 +41,9 @@ import {
 import { MigrationReportNotice } from "./MigrationReportNotice";
 
 const STATUS_REFRESH_DEBOUNCE_MS = 250;
+const EPISODE_LIST_WINDOW_SIZE = 32;
+const EPISODE_LIST_ESTIMATED_ROW_HEIGHT = 28;
+const EPISODE_LIST_OVERSCAN = 8;
 
 const SHELL = "inline-flex h-7 items-center overflow-hidden rounded-full border";
 const SHELL_FLAT = cn(SHELL, "border-border bg-card");
@@ -45,28 +53,131 @@ const SEGMENT =
 
 type Open = "episodes" | "next" | null;
 
+function isDocumentHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
 function useCurrentEpisodeId(): number | null {
   const [location] = useLocation();
   const match = /^\/episodes\/(\d+)/.exec(location);
   return match ? Number(match[1]) : null;
 }
 
-function useProjectWorkflowStatus(projectName: string, enabled: boolean): WorkflowStatus | null {
-  const [status, setStatus] = useState<WorkflowStatus | null>(null);
-  const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
-  const taskFingerprint = useTasksStore((s) => selectProjectTaskFingerprint(s, projectName));
-  const settledTaskFingerprint = useDebouncedValue(taskFingerprint, STATUS_REFRESH_DEBOUNCE_MS);
+function episodeIdFromAction(action: WorkflowNextAction | undefined): number | null {
+  const value = action?.args?.episode_id;
+  return typeof value === "number" ? value : null;
+}
+
+function useProjectWorkflowStatus(
+  projectName: string,
+  enabled: boolean,
+  currentEpisode: number | null,
+  episodes: readonly EpisodeMeta[],
+): WorkflowStatus | null {
+  const [loaded, setLoaded] = useState<{ projectName: string; status: WorkflowStatus | null }>({
+    projectName,
+    status: null,
+  });
+  const status = loaded.projectName === projectName ? loaded.status : null;
+  const targetEpisode = status?.target?.episode ?? episodeIdFromAction(status?.next_action);
+  const yieldToPanel =
+    targetEpisode !== null && currentEpisode !== null && targetEpisode === currentEpisode;
+  const currentEpisodeCompleted =
+    currentEpisode !== null &&
+    episodes.some((ep) => ep.episode === currentEpisode && ep.status === "completed");
+
+  const projectWideRevision = useProjectsStore((s) => s.projectWideRevisions[projectName] ?? 0);
+  const targetEpisodeRevision = useProjectsStore((s) =>
+    targetEpisode !== null
+      ? (s.episodeRevisions[episodeScriptRevisionKey(projectName, targetEpisode)] ?? 0)
+      : (s.projectSnapshotRevisions[projectName] ?? 0),
+  );
+  const taskSignal = useTasksStore((s) =>
+    selectStatusBarTaskSignal(s, projectName, targetEpisode, yieldToPanel),
+  );
+
+  const liveSignal = yieldToPanel
+    ? `yielded::${projectWideRevision}::${currentEpisodeCompleted ? "done" : "open"}`
+    : `active::${projectWideRevision}::${targetEpisodeRevision}::${taskSignal}`;
+  const settledLiveSignal = useDebouncedValue(liveSignal, STATUS_REFRESH_DEBOUNCE_MS);
+  const liveSignalRef = useRef(liveSignal);
+  useEffect(() => {
+    liveSignalRef.current = liveSignal;
+  }, [liveSignal]);
+
+  const controllerRef = useRef<AbortController | null>(null);
+  const lastFetchedRef = useRef<{ projectName: string; signal: string } | null>(null);
+  const prevYieldedRef = useRef(yieldToPanel);
+  const pendingVisibleRefreshRef = useRef(false);
+
+  const fetchStatus = useCallback(
+    (signalSnapshot: string) => {
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      lastFetchedRef.current = { projectName, signal: signalSnapshot };
+      API.getWorkflowStatus(projectName, { signal: controller.signal })
+        .then((next) => {
+          if (!controller.signal.aborted) setLoaded({ projectName, status: next });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setLoaded({ projectName, status: null });
+        });
+    },
+    [projectName],
+  );
 
   useEffect(() => {
+    if (!enabled) {
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+      lastFetchedRef.current = null;
+      pendingVisibleRefreshRef.current = false;
+      return;
+    }
+    if (isDocumentHidden()) {
+      pendingVisibleRefreshRef.current = true;
+      return () => {
+        controllerRef.current?.abort();
+      };
+    }
+    pendingVisibleRefreshRef.current = false;
+    fetchStatus(liveSignalRef.current);
+    return () => {
+      controllerRef.current?.abort();
+    };
+  }, [enabled, projectName, fetchStatus]);
+
+  useEffect(() => {
+    const wasYielded = prevYieldedRef.current;
+    prevYieldedRef.current = yieldToPanel;
     if (!enabled) return;
-    const controller = new AbortController();
-    API.getWorkflowStatus(projectName, { signal: controller.signal })
-      .then(setStatus)
-      .catch(() => {
-        if (!controller.signal.aborted) setStatus(null);
-      });
-    return () => controller.abort();
-  }, [projectName, enabled, snapshotRevision, settledTaskFingerprint]);
+    if (!wasYielded && yieldToPanel) {
+      if (lastFetchedRef.current?.projectName === projectName) {
+        lastFetchedRef.current = { projectName, signal: liveSignalRef.current };
+      }
+      return;
+    }
+    const prev = lastFetchedRef.current;
+    if (prev && prev.projectName === projectName && prev.signal === settledLiveSignal) return;
+    if (isDocumentHidden()) {
+      pendingVisibleRefreshRef.current = true;
+      return;
+    }
+    pendingVisibleRefreshRef.current = false;
+    fetchStatus(settledLiveSignal);
+  }, [enabled, projectName, settledLiveSignal, yieldToPanel, fetchStatus]);
+
+  useEffect(() => {
+    if (!enabled || typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || !pendingVisibleRefreshRef.current) return;
+      pendingVisibleRefreshRef.current = false;
+      fetchStatus(liveSignalRef.current);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [enabled, fetchStatus]);
 
   return enabled ? status : null;
 }
@@ -99,7 +210,7 @@ function Ring({ done, total }: { done: number; total: number }) {
 
 function episodeDotClass(episode: EpisodeMeta): string {
   if (episode.status === "completed") return "bg-good";
-  if (episodeNeedsUpdate(episode)) return "bg-warn";
+  if (episodeNeedsReplan(episode)) return "bg-warn";
   if (episode.status === "in_production") return "bg-primary";
   return "bg-muted-foreground";
 }
@@ -219,40 +330,137 @@ function EpisodeList({
   onNavigate: (to: string) => void;
 }) {
   const { t } = useTranslation();
-  const [steps, setSteps] = useState<Map<number, EpisodeNextStep> | null>(null);
+  const listRef = useRef<HTMLOListElement | null>(null);
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
+  const scopeKey = `${projectName}::${snapshotRevision}`;
+
+  const [windowRange, setWindowRange] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: EPISODE_LIST_WINDOW_SIZE,
+  });
+  const [cache, setCache] = useState<{
+    scopeKey: string;
+    steps: Map<number, EpisodeNextStep>;
+    failed: Set<number>;
+  }>({
+    scopeKey,
+    steps: new Map(),
+    failed: new Set(),
+  });
+
+  const controllerRef = useRef<AbortController | null>(null);
+  const requestedRef = useRef<{ scopeKey: string; ids: Set<number> }>({ scopeKey, ids: new Set() });
 
   useEffect(() => {
     const controller = new AbortController();
-    async function loadSteps() {
-      let cursor: string | undefined;
-      const loaded = new Map<number, EpisodeNextStep>();
-      do {
-        const page = await API.getEpisodeNextSteps(projectName, { signal: controller.signal, cursor });
-        if (controller.signal.aborted) return;
-        for (const step of page.episodes) loaded.set(step.episode, step);
-        cursor = page.next_cursor ?? undefined;
-      } while (cursor);
-      setSteps(loaded);
+    controllerRef.current = controller;
+    requestedRef.current = { scopeKey, ids: new Set() };
+    return () => {
+      controller.abort();
+      if (controllerRef.current === controller) controllerRef.current = null;
+    };
+  }, [scopeKey]);
+
+  const activeSteps = cache.scopeKey === scopeKey ? cache.steps : null;
+
+  const missingInWindow = useMemo(() => {
+    const start = Math.max(0, Math.min(windowRange.start, episodes.length));
+    const end = Math.max(start, Math.min(windowRange.end, episodes.length));
+    const ids: number[] = [];
+    for (let index = start; index < end && ids.length < EPISODE_LIST_WINDOW_SIZE; index += 1) {
+      const ep = episodes[index];
+      if (!ep || ep.status === "completed") continue;
+      if (activeSteps?.has(ep.episode)) continue;
+      if (cache.scopeKey === scopeKey && cache.failed.has(ep.episode)) continue;
+      ids.push(ep.episode);
     }
-    void loadSteps().catch(() => {
-      if (!controller.signal.aborted) setSteps(new Map());
-    });
-    return () => controller.abort();
-  }, [projectName, snapshotRevision]);
+    return ids;
+  }, [episodes, windowRange, activeSteps, cache.scopeKey, cache.failed, scopeKey]);
+
+  const missingInWindowSet = useMemo(() => new Set(missingInWindow), [missingInWindow]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (!controller || controller.signal.aborted || missingInWindow.length === 0) return;
+    if (requestedRef.current.scopeKey !== scopeKey) {
+      requestedRef.current = { scopeKey, ids: new Set() };
+    }
+    const batch = missingInWindow.filter((id) => !requestedRef.current.ids.has(id));
+    if (batch.length === 0) return;
+    for (const id of batch) requestedRef.current.ids.add(id);
+
+    API.getEpisodeNextSteps(projectName, {
+      signal: controller.signal,
+      episodes: batch,
+    })
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        setCache((prev) => {
+          const base =
+            prev.scopeKey === scopeKey
+              ? prev
+              : { scopeKey, steps: new Map<number, EpisodeNextStep>(), failed: new Set<number>() };
+          const steps = new Map(base.steps);
+          const failed = new Set(base.failed);
+          const returned = new Set<number>();
+          for (const step of page.episodes) {
+            steps.set(step.episode, step);
+            returned.add(step.episode);
+          }
+          for (const id of batch) {
+            if (!returned.has(id)) failed.add(id);
+          }
+          return { scopeKey, steps, failed };
+        });
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setCache((prev) => {
+          const base =
+            prev.scopeKey === scopeKey
+              ? prev
+              : { scopeKey, steps: new Map<number, EpisodeNextStep>(), failed: new Set<number>() };
+          const failed = new Set(base.failed);
+          for (const id of batch) failed.add(id);
+          return { ...base, failed };
+        });
+      });
+  }, [projectName, scopeKey, missingInWindow]);
+
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const firstRow = el.firstElementChild as HTMLElement | null;
+    const rowHeight = Math.max(firstRow?.offsetHeight || EPISODE_LIST_ESTIMATED_ROW_HEIGHT, 16);
+    const visibleCount = Math.max(
+      Math.ceil((el.clientHeight || rowHeight * 12) / rowHeight),
+      EPISODE_LIST_WINDOW_SIZE - EPISODE_LIST_OVERSCAN * 2,
+    );
+    const firstVisible = Math.floor(el.scrollTop / rowHeight);
+    const start = Math.max(0, firstVisible - EPISODE_LIST_OVERSCAN);
+    const end = Math.min(episodes.length, Math.max(start + EPISODE_LIST_WINDOW_SIZE, firstVisible + visibleCount + EPISODE_LIST_OVERSCAN));
+    setWindowRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }, [episodes.length]);
 
   const rowNote = (episode: EpisodeMeta): string => {
     if (episode.status === "completed") return t("dashboard:guide_episode_completed");
-    const step = steps?.get(episode.episode);
-    if (!step) return steps === null ? "…" : "";
-    if (step.plan_stale) return t("dashboard:guide_episode_plan_stale");
-    if (step.episode_complete) return t("dashboard:guide_episode_completed");
-    if (!step.next_action || step.next_action.type === "none") return t("workflow:action_none");
-    return t("dashboard:guide_episode_next", { step: actionPhrase(t, step.next_action.type) });
+    const step = activeSteps?.get(episode.episode);
+    if (step) {
+      if (step.plan_stale) return t("dashboard:guide_episode_plan_stale");
+      if (step.episode_complete) return t("dashboard:guide_episode_completed");
+      if (!step.next_action || step.next_action.type === "none") return t("workflow:action_none");
+      return t("dashboard:guide_episode_next", { step: actionPhrase(t, step.next_action.type) });
+    }
+    if (missingInWindowSet.has(episode.episode)) return "…";
+    return "";
   };
 
   return (
-    <ol className="relative flex max-h-90 flex-col gap-0.5 overflow-y-auto">
+    <ol
+      ref={listRef}
+      onScroll={handleScroll}
+      className="relative flex max-h-90 flex-col gap-0.5 overflow-y-auto"
+    >
       {episodes.map((episode, index) => (
         <li key={episode.episode}>
           <button
@@ -362,8 +570,13 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
 
   const summary = project?.status;
   const needsRepair = summary?.needs_repair === true;
-  const workflowStatus = useProjectWorkflowStatus(projectName, !demoMode && !needsRepair && Boolean(summary));
   const episodes = useMemo(() => project?.episodes ?? [], [project?.episodes]);
+  const workflowStatus = useProjectWorkflowStatus(
+    projectName,
+    !demoMode && !needsRepair && Boolean(summary),
+    currentEpisode,
+    episodes,
+  );
   const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
   const planningActive = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
   const guide = useMemo(
@@ -382,7 +595,7 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   };
   const total = summary.episodes_summary.total;
   const done = summary.episodes_summary.completed;
-  const staleEpisodes = episodes.filter(episodeNeedsUpdate).length;
+  const replanEpisodes = episodes.filter(episodeNeedsReplan).length;
   const isAd = project.content_mode === "ad";
   const progressText =
     total === 0
@@ -405,11 +618,14 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
         >
           <Ring done={done} total={total} />
           <span className="num text-subtle-foreground">{progressText}</span>
-          {staleEpisodes > 0 && (
-            <span className="inline-flex items-center gap-1 text-warn" title={t("guide_stale_episodes", { count: staleEpisodes })}>
+          {replanEpisodes > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-warn"
+              title={t("guide_needs_replan_episodes", { count: replanEpisodes })}
+            >
               <span aria-hidden className="size-1.5 rounded-full bg-warn" />
-              <span className="num" aria-label={t("guide_stale_episodes", { count: staleEpisodes })}>
-                {staleEpisodes}
+              <span className="num" aria-label={t("guide_needs_replan_episodes", { count: replanEpisodes })}>
+                {replanEpisodes}
               </span>
             </span>
           )}

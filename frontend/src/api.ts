@@ -1,8 +1,10 @@
 
 import type {
   CharacterDerivativeStatus,
+  ItemLocationsResponse,
   ProjectData,
   ProjectSummary,
+  WorkspaceResponse,
   ImportConflictPolicy,
   ImportProjectResponse,
   ExportDiagnostics,
@@ -526,6 +528,13 @@ class API {
     });
   }
 
+  static async getWorkspace(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<WorkspaceResponse> {
+    return this.request(`/projects/${encodeURIComponent(name)}/workspace`, { signal: options.signal });
+  }
+
   static async getProject(
     name: string,
     options: { signal?: AbortSignal } = {}
@@ -535,6 +544,18 @@ class API {
     asset_fingerprints?: Record<string, number>;
   }> {
     return this.request(`/projects/${encodeURIComponent(name)}`, { signal: options.signal });
+  }
+
+  static async locateItems(
+    projectName: string,
+    itemIds: string[],
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ItemLocationsResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/item-locations`, {
+      method: "POST",
+      body: JSON.stringify({ item_ids: itemIds }),
+      signal: options.signal,
+    });
   }
 
   static async updateProject(
@@ -1094,9 +1115,10 @@ class API {
 
   static async getAssetSheetStatus(
     projectName: string,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; include?: "derivative_references" }
   ): Promise<{ assets: AssetSheetStatusRow[] }> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/status`, {
+    const query = options?.include ? `?include=${encodeURIComponent(options.include)}` : "";
+    return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/status${query}`, {
       signal: options?.signal,
     });
   }
@@ -1326,10 +1348,13 @@ class API {
 
   static async getScript(
     projectName: string,
-    scriptFile: string
+    scriptFile: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<EpisodeScriptSnapshot> {
+    const normalized = scriptFile.replace(/^scripts\//, "");
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/scripts/${encodeURIComponent(scriptFile)}`
+      `/projects/${encodeURIComponent(projectName)}/scripts/${encodeURIComponent(normalized)}`,
+      { signal: options.signal }
     );
   }
 

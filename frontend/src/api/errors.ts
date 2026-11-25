@@ -27,6 +27,9 @@ export interface SpeechAdmissionLocation {
 export interface SpeechAdmissionProblem {
   code: "mixed_speech" | "needs_replan" | "parse_failed" | "empty_speaker";
   unit_id: string;
+  episode?: number | null;
+  item_id?: string | null;
+  position?: number | null;
   locations: SpeechAdmissionLocation[];
   reason: string;
   action: string;
@@ -35,6 +38,9 @@ export interface SpeechAdmissionProblem {
 export interface SpeechAdmission {
   allowed: false;
   unit_id: string;
+  episode?: number | null;
+  item_id?: string | null;
+  position?: number | null;
   mode: null;
   problems: SpeechAdmissionProblem[];
 }
@@ -43,6 +49,9 @@ export interface ScriptEditProblem {
   code: string;
   operation_index: number | null;
   unit_id: string | null;
+  episode?: number | null;
+  item_id?: string | null;
+  position?: number | null;
   locations: SpeechAdmissionLocation[];
   reason: string;
   next_action: string;
@@ -258,7 +267,12 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
     parse_failed: "speech_admission_parse_failed",
     empty_speaker: "speech_admission_empty_speaker",
   }[problem.code];
-  const position = findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
+  const position =
+    typeof problem.position === "number"
+      ? problem.position
+      : typeof admission.position === "number" && (admission.item_id ?? admission.unit_id) === problem.unit_id
+        ? admission.position
+        : findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
   return i18n.t(`dashboard:${key}`, { position: position ?? i18n.t("common:deleted"), location });
 }
 
@@ -280,11 +294,22 @@ function formatScriptEditResult(result: ScriptEditResult): string {
       .map((problem) => ({
         code: problem.code as SpeechAdmissionProblem["code"],
         unit_id: problem.unit_id ?? unitId,
+        episode: problem.episode,
+        item_id: problem.item_id,
+        position: problem.position,
         locations: problem.locations,
         reason: problem.reason,
         action: problem.next_action,
       }));
-    return formatSpeechAdmission({ allowed: false, unit_id: unitId, mode: null, problems });
+    return formatSpeechAdmission({
+      allowed: false,
+      unit_id: unitId,
+      episode: first.episode,
+      item_id: first.item_id,
+      position: first.position,
+      mode: null,
+      problems,
+    });
   }
   const key = {
     revision_conflict: "script_edit_revision_conflict",

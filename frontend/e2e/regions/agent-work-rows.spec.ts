@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
-import { recorded } from "../support/recorded.ts";
+import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSION_ID = "session-work-rows";
@@ -131,11 +131,7 @@ const SESSION = {
   updated_at: "2026-01-01T07:00:00.000Z",
 };
 
-interface RecordedProject {
-  project: Record<string, unknown>;
-  scripts: Record<string, Record<string, unknown>>;
-}
-const project = recorded<RecordedProject>("project-demo.json");
+const recordedScript = recordedDemoScript().script;
 
 const segments = Array.from({ length: 6 }, (_, i) => ({
   segment_id: `E1S0${i + 1}`,
@@ -150,10 +146,7 @@ const segments = Array.from({ length: 6 }, (_, i) => ({
 
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
-  "GET /api/v1/projects/demo": {
-    status: 200,
-    body: { ...project, scripts: { "episode_1.json": { ...project.scripts["episode_1.json"], segments } } },
-  },
+  ...workspaceOverride({}, { scripts: { "episode_1.json": { ...recordedScript, segments } } }),
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [SESSION] } },
   [`GET ${SESSIONS_PATH}/${SESSION_ID}`]: { status: 200, body: { session: SESSION } },
   ...idleSessionApi(SESSIONS_PATH, SESSION_ID, buildEntries()),

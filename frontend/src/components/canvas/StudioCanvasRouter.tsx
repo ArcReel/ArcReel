@@ -83,8 +83,13 @@ function resolveSegmentPrompt(
 
 export function StudioCanvasRouter() {
   const { t } = useTranslation("dashboard");
-  const { currentProjectData, currentProjectName, currentScripts, projectDetailLoading } =
-    useProjectsStore();
+  const {
+    currentProjectData,
+    currentProjectName,
+    currentScripts,
+    activeEpisodeScript,
+    projectDetailLoading,
+  } = useProjectsStore();
   const demoMode = useDemoWorkbench();
 
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
@@ -452,6 +457,22 @@ export function StudioCanvasRouter() {
           const episode = currentProjectData?.episodes?.find((e) => e.episode === epNum);
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
+          const scriptLoading =
+            !demoMode &&
+            !script &&
+            Boolean(scriptFile) &&
+            episode?.script_status !== "none" &&
+            episode?.script_status !== "segmented" &&
+            activeEpisodeScript.projectName === currentProjectName &&
+            ((activeEpisodeScript.episode === epNum && activeEpisodeScript.status === "loading") ||
+              (episode?.script_status === "generated" && activeEpisodeScript.episode !== epNum));
+          if (scriptLoading) {
+            return (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                {t("loading_placeholder")}
+              </div>
+            );
+          }
           const route = normalizeRoute(currentProjectData?.generation_mode);
           const durationOptions = capabilities.supportedDurations ?? undefined;
           const planDurationOptions = capabilities.planningDurations ?? undefined;
