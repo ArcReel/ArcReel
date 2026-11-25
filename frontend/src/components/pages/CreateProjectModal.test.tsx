@@ -227,41 +227,22 @@ describe("CreateProjectModal", () => {
     expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
   });
 
-  it("prefills TTS narration with the global defaults and submits that snapshot", async () => {
+  it("shows the global group and omits all three fields when creating an inheriting project", async () => {
     render(<CreateProjectModal />);
     fillBasics();
     clickNext();
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
-
-    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Cherry");
-    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.1);
+    expect(screen.getByRole("radio", { name: "跟随全局" })).toBeChecked();
+    expect(screen.getByText("Cherry")).toBeVisible();
+    expect(screen.getByText("1.1")).toBeVisible();
     clickNext();
     fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
-
-    await waitFor(() =>
-      expect(API.createProject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          narration_delivery: "use_tts",
-          audio_backend: "dashscope/qwen3-tts-flash",
-          narration_voice: "Cherry",
-          narration_speed: 1.1,
-        }),
-      ),
-    );
-  });
-
-  it("requires a TTS model before leaving step 2 with TTS narration", async () => {
-    vi.spyOn(API, "getNarrationDefaults").mockRejectedValue(new Error("boom"));
-    render(<CreateProjectModal />);
-    fillBasics();
-    clickNext();
-    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
-
-    expect(nextButton()).toBeDisabled();
-    expect(nextButton()).toHaveAccessibleDescription("还需要：TTS 模型");
-
-    fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
-    expect(nextButton()).toBeEnabled();
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const [request] = vi.mocked(API.createProject).mock.calls[0];
+    expect(request.narration_delivery).toBe("use_tts");
+    for (const key of ["audio_backend", "narration_voice", "narration_speed"]) {
+      expect(request).not.toHaveProperty(key);
+    }
   });
 
   it("lets step 2 continue with global defaults when the model catalog cannot be read", async () => {

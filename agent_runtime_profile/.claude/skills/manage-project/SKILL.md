@@ -34,7 +34,7 @@ mcp__arcreel__patch_project({"table": "props", "entries": {"道具名": {"descri
 mcp__arcreel__patch_project({"settings": {"episode_target_units": 1000}})
 mcp__arcreel__patch_project({"settings": {"episode_target_duration": 90}})
 mcp__arcreel__patch_project({"settings": {"source_language": "en"}})
-mcp__arcreel__patch_project({"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}})
+mcp__arcreel__patch_project({"settings": {"audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Ethan"}})
 mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与救赎"}})
 ```
 
@@ -50,8 +50,9 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `episode_target_duration`：`10`–`600` 的整数秒设置 / `null` 清除。单集成片目标时长，脚本规划据它决定本集拆多少个分镜 / 视频单元；未设 `episode_target_units` 时分集规划也按它折算每集塞多少原文（`episode_target_units` 显式设置时以后者为准）。软目标（可被内容需要覆盖，超出只提示不阻断），仅非广告/短片项目可写，ad 项目写入会被拒（整集体量已由 `target_duration` 预算表达）
 - `source_language`：`"zh" / "en" / "vi"` 设置 / `null` 清除。优先级：**用户显式配置 > 自动推断**——用户明确指定语言时即可写入（不限于 overview 跳过或失败的场景）；无用户显式确认时不要自行猜测写入，正常路径由 overview 生成自动落盘。发现显式配置与自动推断 / 源文实际语言不一致时，提醒用户（WARN）并按显式配置继续，不阻塞流程
 - `brief`：字符串设置 / `null` 清除。创作诉求短文本，仅广告/短片项目（`content_mode=ad`）可写，其他项目类型写入会被拒
-- `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目 TTS 快照里的旁白音色，只影响当前项目；TTS 配音项目必须有音色，清除会被拒
-- `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目 TTS 快照里的配音语速，只影响当前项目；清除表示不向供应商传语速
+- `narration_delivery`：`use_tts` 使用 TTS 配音，`post_production` 使用后期配音。切换交付方式会保留项目配音设置。
+- `audio_backend`：建项时省略全部配音字段即跟随全局。传入 `provider/model` 建立项目覆盖，换模型时采用新模型首个建议音色并清空语速。没有建议音色时，同次提交非空 `narration_voice`。单独传 `audio_backend: null` 恢复跟随全局。
+- 已有覆盖可单独更新 `narration_voice` 或 `narration_speed`。语速传 `null` 表示使用供应商默认语速。
 - `character_voice_binding`：`"prompt" / "reference_audio"` 设置 / `null` 清除回默认（`prompt`）。角色声音靠什么约束：`prompt` 把角色 `voice_style` 写进提示词做软约束，`reference_audio` 才把角色已设的参考音频随请求挂给视频模型换取原生音色一致。要原生一致须两件事同时成立：本项设为 `reference_audio` 且该角色配了参考音频
 
 `generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作，并告知开关只影响后续生成——已生成的分镜图不会自动失效，要按新装配方式出图须显式重新生成对应分镜。

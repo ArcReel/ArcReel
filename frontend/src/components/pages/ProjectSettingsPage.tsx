@@ -301,11 +301,13 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
       if (basicsInvalid(value, facts)) {
         throw new Error(t("project_settings_invalid_fields", { tab: t("project_settings_tab_basics") }));
       }
-      const narrationProblem = narrationDeliveryProblem(value.narration);
+      const patch = buildProjectPatch(value, saved, facts, globals);
+      const changesTts = "audio_backend" in patch || "narration_voice" in patch || "narration_speed" in patch;
+      const narrationProblem = changesTts ? narrationDeliveryProblem(value.narration) : null;
       if (narrationProblem) {
         throw new Error(t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"));
       }
-      const res = await API.updateProject(projectName, buildProjectPatch(value, saved, facts, globals));
+      const res = await API.updateProject(projectName, patch);
       useCapabilitiesStore.getState().invalidate();
       const next = keepSavedStylePreview(deriveForm(res.project, projectName, globals, null), saved);
       const file = pendingStyleUpload(value, saved);

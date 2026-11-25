@@ -195,6 +195,7 @@ export function deriveForm(
       generateAudio: typeof project.video_generate_audio === "boolean" ? project.video_generate_audio : null,
     },
     narration: {
+      override: Boolean(project.audio_backend),
       delivery: (project.narration_delivery === "use_tts" ? "use_tts" : "post_production") satisfies NarrationDelivery,
       audioBackend: str(project.audio_backend),
       narrationVoice: str(project.narration_voice),
@@ -303,6 +304,15 @@ export function buildProjectPatch(
         ? sameModelSettings(next.model_settings ?? {}, base.model_settings ?? {})
         : next[key] === base[key];
     if (!same) Object.assign(patch, { [key]: next[key] });
+  }
+  if (value.narration.override && (value.narration.audioBackend !== saved.narration.audioBackend || !saved.narration.override)) {
+    patch.audio_backend = value.narration.audioBackend;
+    patch.narration_voice = value.narration.narrationVoice.trim();
+    patch.narration_speed = value.narration.narrationSpeed;
+  } else if (!value.narration.override && saved.narration.override) {
+    patch.audio_backend = null;
+    delete patch.narration_voice;
+    delete patch.narration_speed;
   }
   return patch;
 }

@@ -439,7 +439,7 @@ class API {
   static async getNarrationDefaults(
     options: { signal?: AbortSignal } = {},
   ): Promise<NarrationDefaultsResponse> {
-    return this.request("/system/narration-defaults", { signal: options.signal });
+    return this.request("/system/global-narration-settings", { signal: options.signal });
   }
 
   static async getTtsModelCapabilities(

@@ -55,7 +55,7 @@ async def test_session_entry_tools_share_the_session_projects_root(tmp_path: Pat
     assert (projects.get_project_path("demo") / "source" / "novel.txt").read_text(encoding="utf-8") == "hello"
 
 
-async def test_create_project_writes_tts_snapshot(tmp_path: Path) -> None:
+async def test_create_project_inherits_or_writes_complete_tts_override(tmp_path: Path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]
 
@@ -70,6 +70,10 @@ async def test_create_project_writes_tts_snapshot(tmp_path: Path) -> None:
             "narration_speed": None,
         },
     )
+    inherited = await _call(server, "create_project", {"name": "inherit", "narration_delivery": "use_tts"})
+    assert not inherited.isError
+    assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(projects.load_project("inherit"))
+
     rejected = await _call(
         server,
         "create_project",

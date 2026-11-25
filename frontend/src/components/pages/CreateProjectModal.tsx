@@ -54,6 +54,7 @@ async function loadGenerationData(signal: AbortSignal) {
   ]);
   const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
   const data: WizardGenerationData = {
+    narrationDefaults,
     options: {
       video: sysConfig.options.video_backends,
       image: sysConfig.options.image_backends,
@@ -77,7 +78,7 @@ async function loadGenerationData(signal: AbortSignal) {
       auto,
     },
   };
-  return { data, narrationDefaults };
+  return data;
 }
 
 export function CreateProjectModal() {
@@ -103,12 +104,12 @@ export function CreateProjectModal() {
   });
   const [models, setModels] = useState<ModelConfigValue>(EMPTY_MODELS);
   const [narration, setNarration] = useState<NarrationDeliveryValue>({
+    override: false,
     delivery: "post_production",
     audioBackend: "",
     narrationVoice: "",
     narrationSpeed: null,
   });
-  const narrationPrefilled = useRef(false);
   const [style, setStyle] = useState<StylePickerValue>({
     mode: "template",
     templateId: DEFAULT_TEMPLATE_ID,
@@ -126,17 +127,8 @@ export function CreateProjectModal() {
     const controller = new AbortController();
     voidCall((async () => {
       try {
-        const { data, narrationDefaults } = await loadGenerationData(controller.signal);
+        const data = await loadGenerationData(controller.signal);
         if (controller.signal.aborted) return;
-        if (!narrationPrefilled.current && narrationDefaults) {
-          narrationPrefilled.current = true;
-          setNarration((prev) => ({
-            ...prev,
-            audioBackend: narrationDefaults.audio_backend ?? "",
-            narrationVoice: narrationDefaults.narration_voice,
-            narrationSpeed: narrationDefaults.narration_speed,
-          }));
-        }
         setGenerationData(data);
         setGenerationError(null);
       } catch (err) {
@@ -254,7 +246,7 @@ export function CreateProjectModal() {
         text_backend_complex: models.textBackendComplex || null,
         ...(Object.keys(modelSettings).length > 0 ? { model_settings: modelSettings } : {}),
         narration_delivery: narration.delivery,
-        ...(narration.delivery === "use_tts"
+        ...(narration.override
           ? {
               audio_backend: narration.audioBackend,
               narration_voice: narration.narrationVoice.trim(),

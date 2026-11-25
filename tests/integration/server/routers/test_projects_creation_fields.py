@@ -337,7 +337,7 @@ class TestProjectCreationNarrationDelivery:
         assert data["narration_delivery"] == "post_production"
         assert "audio_backend" not in data
 
-    def test_tts_prefills_snapshot_from_global_defaults(self, tmp_path, monkeypatch, db_factory):
+    def test_tts_inherits_complete_global_group(self, tmp_path, monkeypatch, db_factory):
         async def _seed():
             async with db_factory() as session:
                 svc = ConfigService(session)
@@ -349,13 +349,11 @@ class TestProjectCreationNarrationDelivery:
         asyncio.run(_seed())
         fake_pm = _FakePM(tmp_path)
         with build_projects_client(monkeypatch, fake_pm, session_factory=db_factory) as client:
-            resp = self._create(client, narration_delivery="use_tts", narration_voice="Cherry")
+            resp = self._create(client, narration_delivery="use_tts")
             assert resp.status_code == 200
         data = fake_pm.project_data["n-1"]
         assert data["narration_delivery"] == "use_tts"
-        assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
-        assert data["narration_voice"] == "Cherry"
-        assert data["narration_speed"] == 1.1
+        assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(data)
 
     def test_tts_without_model_is_rejected(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)

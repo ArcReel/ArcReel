@@ -541,7 +541,7 @@ export function MediaModelSection() {
         {recommendationNotice("text")}
       </ChannelCard>
 
-      <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
+      <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_inheritance_hint")}>
         {audioBackends.length > 0 ? (
           <div className="flex flex-col gap-3">
             <ProviderModelSelect

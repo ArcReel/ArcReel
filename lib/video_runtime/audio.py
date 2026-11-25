@@ -200,10 +200,7 @@ async def assemble_audio(spec: AudioAssemblySpec) -> AudioBackend:
 
 
 async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel, str, float | None]:
-    """新建 TTS 项目的预填值：全局默认音频 (provider, model)、旁白音色与配音语速。
-
-    未配置任何音频供应商时抛 ValueError。项目创建后不再读取这些全局值（docs/adr/0089）。
-    """
+    """读取当前全局旁白配音组。"""
     async with resolver.session(snapshot_settings=True) as r:
         identity = await AudioRuntime(r).read_identity(None)
         voice, speed = await r.narration_defaults()

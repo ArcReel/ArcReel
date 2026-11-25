@@ -1489,14 +1489,14 @@ class CreateProjectToolRequest(BaseModel):
     )
     audio_backend: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="TTS 模型，形如 provider/model；仅 use_tts 使用，省略时取全局默认音频模型",
+        description="TTS 模型，形如 provider/model；省略配音三项时整组跟随全局",
     )
     narration_voice: str | SkipJsonSchema[None] = Field(
-        default=None, description="旁白音色 id；仅 use_tts 使用，省略时取全局默认音色"
+        default=None, description="旁白音色 id；选择模型后可指定音色，省略取该模型首个建议音色"
     )
     narration_speed: float | None = Field(
         default=None,
-        description="配音语速倍率（正数）；仅 use_tts 使用，省略时取全局默认，null 表示不向供应商传语速",
+        description="配音语速倍率（正数）；项目覆盖中省略或传 null 表示使用供应商默认语速",
     )
 
     @model_validator(mode="after")
@@ -1572,7 +1572,7 @@ async def list_projects(
 
 
 _NARRATION_CONFIG_PROBLEMS = {
-    "narration_tts_model_required": "use_tts 需要 TTS 模型：传 audio_backend（provider/model），或先让用户配置音频供应商",
+    "narration_tts_model_required": "设置项目配音覆盖时，请先传 audio_backend（provider/model）",
     "narration_tts_model_invalid": "audio_backend 不是可用的 TTS 模型，需为音频供应商下的 provider/model",
     "narration_tts_voice_required": "use_tts 需要非空的 narration_voice",
     "narration_tts_speed_invalid": "narration_speed 必须是正的有限数值或 null",
@@ -1597,7 +1597,13 @@ async def create_project(
             resolver=services.capabilities,
         )
     except NarrationConfigError as exc:
-        return ToolOutcome(problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS[exc.code]))
+        return ToolOutcome(
+            problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS.get(exc.code, i18n_message(exc.code)))
+        )
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
+    except UnprocessableError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", _zh(exc.key, **exc.params)))
 
     def _create() -> dict[str, Any]:
         name = services.projects.normalize_project_name(value.name)
@@ -2306,6 +2312,8 @@ PROJECT_SETTINGS = (
     EPISODE_TARGET_DURATION_FIELD,
     "source_language",
     "brief",
+    "audio_backend",
+    "narration_delivery",
     "narration_voice",
     "narration_speed",
     "character_voice_binding",
@@ -2393,7 +2401,11 @@ class PatchProjectRequest(BaseModel):
     )
     settings: dict[str, Any] | None = Field(
         default=None,
-        description=f"（settings 写入分支）顶层字段映射，键须在白名单 {list(PROJECT_SETTINGS)} 内，值为 null 时清除该字段",
+        description=(
+            f"（settings 写入分支）顶层字段映射，可写字段 {list(PROJECT_SETTINGS)}。"
+            "narration_delivery 可独立切换。audio_backend 创建或切换项目配音覆盖，"
+            "可同时传 narration_voice 与 narration_speed。单独传 audio_backend: null 恢复跟随全局。"
+        ),
     )
     overview: dict[str, Any] | None = Field(
         default=None,
@@ -3318,8 +3330,16 @@ def _coerce_setting_value(key: str, value: Any) -> Any:
                 f"character_voice_binding 必须是 {sorted(VALID_CHARACTER_VOICE_BINDINGS)} 之一或 null,收到 {value!r}"
             )
         return value
+    if key == "narration_delivery":
+        if value not in ("post_production", "use_tts"):
+            raise ValueError("narration_delivery 必须是 post_production 或 use_tts")
+        return value
+    if key == "audio_backend":
+        if value is not None and not isinstance(value, str):
+            raise ValueError("audio_backend 必须是 provider/model 或 null")
+        return value
     if key == "narration_voice":
-        if value is not None and (not isinstance(value, str) or not value.strip()):
+        if value is not None and not isinstance(value, str):
             raise ValueError(f"narration_voice 必须是非空字符串或 null,收到 {value!r}")
         return value
     if key == "narration_speed":
@@ -3471,9 +3491,13 @@ def _patch_project_sync(
             value=PatchProjectResult(message=_format_upsert(value.table, changes), operation="assets", changes=changes)
         )
     except NarrationConfigError as exc:
-        return ToolOutcome(problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS.get(exc.code, exc.code)))
+        return ToolOutcome(
+            problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS.get(exc.code, i18n_message(exc.code)))
+        )
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except UnprocessableError as exc:
-        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+        return ToolOutcome(problem=ToolProblem("invalid_request", _zh(exc.key, **exc.params)))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("patch_project", exc))
 

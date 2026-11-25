@@ -7,22 +7,31 @@
 
 from __future__ import annotations
 
+import io
+import wave
 from collections.abc import Generator
 
+import httpx
 import pytest
+import respx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.artifacts.version_manager import VersionManager
 from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from lib.config.tts import patch_global_tts
 from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project.project_manager import ProjectManager
 from server.routers import custom_providers, provider_models
+from server.services.tasks.generation_tasks import execute_tts_task
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.fakes import use_project_manager
+from tests.fakes import bind_session_factory, use_project_manager
 
 VIDEO_BUCKET_KEYS = ("video_provider_i2v", "video_provider_r2v")
 CLEARED_ON_DELETE = tuple(k for k in PROJECT_MODEL_SETTING_KEYS if k not in VIDEO_BUCKET_KEYS)
@@ -274,3 +283,106 @@ async def test_delete_provider_clears_model_settings_of_its_models(model_refs_cl
 
     assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(model_refs_pm.load_project("pd"))
     assert _model_settings_keys(model_refs_pm, "pd") == ["other/keep"]
+
+
+def _sample_wav(level: int) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as audio:
+        audio.setparams((1, 2, 16000, 0, "NONE", ""))
+        audio.writeframes(level.to_bytes(2, "little") * 16000)
+    return buffer.getvalue()
+
+
+@pytest.mark.parametrize("whole_provider", [False, True], ids=["model", "provider"])
+async def test_deleted_tts_override_inherits_and_synthesizes_again(
+    model_refs_client, model_refs_pm, db_factory, monkeypatch, whole_provider
+):
+    manager = model_refs_pm
+    bind_session_factory(monkeypatch, db_factory)
+    pid = await _provider(db_factory, [{**_model("relay", default=True), "endpoint": "openai-tts"}, _model("keep")])
+    backend = f"{pid}/relay"
+    await _set_globals(db_factory, backend)
+    manager.create_project("demo")
+    manager.create_project_metadata("demo", narration={"narration_delivery": "use_tts"})
+    script = {
+        "episode": 1,
+        "title": "旁白",
+        "summary": "",
+        "content_mode": "narration",
+        "novel": {"title": "旁白", "chapter": "1"},
+        "segments": [
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "novel_text": "一路向前。",
+                "characters_in_segment": [],
+                "image_prompt": None,
+                "video_prompt": None,
+            }
+        ],
+    }
+    manager.save_script("demo", script, "episode_1.json")
+    override = {"audio_backend": backend, "narration_voice": "voice-clone", "narration_speed": 1.25}
+    _project(manager, "switched", backend)
+    root = manager.get_project_path("demo")
+    relative = "audio/segment_E1S01.wav"
+    payload = {"script_file": "episode_1.json"}
+    with respx.mock as upstream:
+        upstream.post("https://relay.example.com/v1/audio/speech").mock(
+            return_value=httpx.Response(200, content=_sample_wav(1), headers={"Content-Type": "audio/wav"})
+        )
+        await execute_tts_task("demo", "E1S01", payload)
+    assert (root / relative).read_bytes() == _sample_wav(1)
+
+    manager.update_project("demo", lambda project: project.update(override))
+    next_model = "minimax/speech-2.8-hd"
+    switched = {"audio_backend": next_model, "narration_voice": "male-qn-qingse", "narration_speed": 1.1}
+    list_projects = manager.list_projects
+
+    def switch_before_cleanup():
+        projects = list_projects()
+        manager.update_project("switched", lambda project: project.update(switched))
+        return projects
+
+    with monkeypatch.context() as cleanup:
+        cleanup.setattr(manager, "list_projects", switch_before_cleanup)
+        url = (
+            f"/api/v1/custom-providers/{pid.removeprefix('custom-')}"
+            if whole_provider
+            else f"/api/v1/providers/{pid}/models/relay"
+        )
+        response = model_refs_client.delete(url)
+    assert response.status_code == 204, response.text
+    assert override.keys().isdisjoint(manager.load_project("demo"))
+    assert {k: manager.load_project("switched")[k] for k in switched} == switched
+    async with db_factory() as session:
+        svc = ConfigService(session)
+        saved = await svc.get_all_settings()
+        assert not any(saved[key] for key in ("default_audio_backend", "narration_voice", "narration_speed"))
+        await patch_global_tts(svc, session, {"default_audio_backend": next_model})
+        group = await svc.get_all_settings()
+        assert group["narration_voice"] == "male-qn-qingse"
+        assert not group["narration_speed"]
+        await svc.set_provider_config("minimax", "api_key", "test")
+        await session.commit()
+    key = ArtifactKey.episode_audio(1, "E1S01")
+    assert ArtifactCurrencyResolver(root).compare(key, artifact_path=relative).status is ArtifactStatus.CURRENT
+    with respx.mock as upstream:
+        upstream.post("https://api.minimaxi.com/v1/t2a_v2").mock(
+            return_value=httpx.Response(
+                200, json={"base_resp": {"status_code": 0}, "data": {"audio": _sample_wav(2).hex()}}
+            )
+        )
+        await execute_tts_task("demo", "E1S01", payload)
+    assert (root / relative).read_bytes() == _sample_wav(2)
+    history = VersionManager(root).get_versions("audio", "E1S01")
+    first, second = history["versions"]
+    assert history["current_version"] == second["version"]
+    assert (root / first["file"]).read_bytes() == _sample_wav(1)
+    assert (second["tts_provider_id"], second["tts_model_id"], second["tts_voice"], second["tts_speed"]) == (
+        "minimax",
+        "speech-2.8-hd",
+        "male-qn-qingse",
+        None,
+    )
+    assert second["tts_actual_duration_seconds"] == pytest.approx(1.0)

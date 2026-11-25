@@ -108,7 +108,7 @@ const RECORDINGS: Recording[] = [
   { file: "asset-library-bindings", method: "GET", path: "/api/v1/asset-library/bindings" },
   { file: "market-sources", method: "GET", path: "/api/v1/market/sources" },
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
-  { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
+  { file: "global-narration-settings", method: "GET", path: "/api/v1/system/global-narration-settings" },
   { file: "project-demo-audio-backend-voices", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/audio-backend/voices` },
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },

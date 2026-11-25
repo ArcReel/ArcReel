@@ -2426,8 +2426,7 @@ class ProjectManager:
         `episode_target_duration` 为单集目标时长（秒），取值区间见
         `lib.episode.episode_target_duration`；软偏好，只注入脚本规划提示词与审核面板对比，不做阻断。
 
-        `narration` 是旁白交付配置字段（交付方式与 TTS 快照，见 `lib.speech.narration_config`），
-        缺省为后期配音；TTS 配音必须带完整快照。
+        `narration` 是旁白交付配置字段（交付方式与可选的项目配音覆盖，见 `lib.speech.narration_config`）。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
