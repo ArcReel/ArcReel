@@ -945,16 +945,15 @@ async def execute_character_voice_sample_task(
     )
 
     audio_rel = resource_relative_path("audio", sample_id)
-    audio_abs = get_project_manager().get_project_path(project_name) / audio_rel
 
     def _read_bytes() -> bytes:
-        return audio_abs.read_bytes()
+        return (get_project_manager().get_project_path(project_name) / audio_rel).read_bytes()
 
     content = await asyncio.to_thread(_read_bytes)
     if len(content) > AUDIO_REFERENCE_MAX_BYTES:
         raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
 
-    duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
+    duration = await probe_audio_duration_seconds(content, Path(audio_rel).suffix)
     if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
         raise ValueError(
             f"生成的语音样本时长 {duration:.1f}s 超出 "

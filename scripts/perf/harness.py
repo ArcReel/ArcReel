@@ -382,6 +382,7 @@ def ensure_project(
     video_ratio: float,
     rebuild: bool,
     distribution: str = "mixed",
+    wait_racy_window: bool = True,
 ) -> None:
     """参数与上次构建一致就复用已有项目，否则清掉重建。"""
 
@@ -422,7 +423,8 @@ def ensure_project(
             raise ValueError(f"expected {declared} videos with content facts, found {migration}")
         marker.write_text("ok")
         # 刚写完的文件落在内容指纹缓存的 racy 窗口里不入缓存，等窗口过去再测，热态才是真热态。
-        time.sleep(FILE_DIGEST_RACY_WINDOW_S)
+        if wait_racy_window:
+            time.sleep(FILE_DIGEST_RACY_WINDOW_S)
         print(f"built project in {time.perf_counter() - t:.0f}s", flush=True)
     videos = sum(1 for p in project_path().rglob("*.mp4") if not p.name.startswith("."))
     print(f"project={project_path()} mp4 files (formal + version snapshots)={videos}", flush=True)

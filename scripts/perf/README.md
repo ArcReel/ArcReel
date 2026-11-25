@@ -34,18 +34,18 @@ uv run python -m scripts.perf.bench all --help
 
 ## 重放 #4045 合成基线
 
-在 Linux 上运行。90 集默认每集 28 个单元、30 张资产图。指定 300 或 686 集时默认每集 19 个单元、400 张资产图。大项目在每条已选版本记录中写入提示词，使历史 JSON 接近 29 MB。各版本快照与正式文件独立存放。
+在 Linux 上运行。90 集默认每集 28 个单元、30 张资产图。指定 300 或 686 集时默认每集 19 个单元、400 张资产图。大项目在每条已选版本记录中写入提示词，使历史 JSON 接近 29 MB。各版本快照与正式文件独立存放。以下两份冻结报告使用测试参数 `--no-racy-wait`，在构建完成后跳过内容指纹等待窗口。
 
 ```bash
-uv run python -m scripts.perf.bench all --episodes 300 --distribution mixed --rebuild --data-root /tmp/perf-300
-uv run python -m scripts.perf.bench all --episodes 686 --distribution tail --rebuild --data-root /tmp/perf-686
+uv run python -m scripts.perf.bench all --episodes 300 --distribution mixed --duration 8 --reps 1 --video-kb 1 --sheet-kb 1 --no-racy-wait --rebuild --data-root /tmp/perf-300
+uv run python -m scripts.perf.bench all --episodes 686 --distribution tail --ep 686 --only units --duration 8 --reps 1 --video-kb 1 --sheet-kb 1 --no-racy-wait --rebuild --data-root /tmp/perf-686
 ```
 
 `mixed` 在大项目中每五集有一集按 `--video-ratio` 出片，其余集出齐视频并创建剪辑时间线。`complete` 完成全部集。`tail` 仅缺尾集最后一个单元。`stale` 在补录后修改偶数集首个正式视频，保留原快照。
 
 每个接口另起进程记录请求前 RSS、10 ms 采样峰值与进程高水位（KiB）。`--tracemalloc` 增加独立轮次，记录 Python 分配峰值（字节）。采样轮次独立于首开和空闲延迟统计。JSON 读次数按项目、脚本和历史文件的只读打开次数计。版本写锁累计等待统计模拟视频提交持锁入口。生产观测及部署环境见 [Spec #4044](https://github.com/ArcReel/ArcReel/issues/4044)。
 
-行为样本位于 [tests/fixtures/perf_before](../../tests/fixtures/perf_before)。运行 `uv run python -m pytest tests/integration/lib/project/test_perf_before.py` 可检查工作流 v2 输出、旧项目升级、两种归档的导入及版本号分配。
+行为样本位于 [tests/fixtures/perf_before](../../tests/fixtures/perf_before)。运行 `uv run python -m pytest tests/integration/lib/project/test_perf_before.py tests/unit/lib/artifacts/test_json_history.py tests/integration/lib/artifacts/test_sqlite_history.py` 可检查工作流 v2 输出、旧项目升级、两种归档的导入及版本号分配。
 
 [before 报告](before/)内的 `argv` 给出复跑命令。90 集使用默认的 240 秒高峰。300 集混合分布和 686 集尾集未完成分布使用 1 KiB 媒体、1 次热读和 8 秒高峰；前者覆盖五个接口，后者测量第 686 集单元列表，写入后的高峰重拉仍按写入集取数。300 集全完成与 stale 混合报告单测无参 `workflow-status`。各轮共用一台 4 核 Linux 主机，部分构建和测量时段重叠。比较时需同时查看请求数与排空时间，单样本 p95 等于本次耗时。
 

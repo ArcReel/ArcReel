@@ -583,7 +583,7 @@ def assert_artifact_target_state_plan_unchanged(
     )
     from lib.artifacts.sqlite_history import SQLiteHistory
 
-    history = SQLiteHistory(project_dir)
+    history = SQLiteHistory(project_dir.resolve(strict=True))
     for path, expected in plan.dependency_bytes.items():
         try:
             current = history.revision() if path == history.path else path.read_bytes()

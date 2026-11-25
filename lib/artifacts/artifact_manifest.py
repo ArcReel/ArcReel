@@ -40,7 +40,7 @@ from lib.infra.content_digest import (
     prefixed,
     remember_file_digest,
 )
-from lib.infra.project_write_journal import track_write
+from lib.infra.project_write_journal import has_sqlite_history, track_write
 from lib.infra.schema_guards import is_str
 from lib.material.work_files import absent_work_file_digest
 from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key
@@ -1486,7 +1486,7 @@ class ProjectArtifactManifestAdapter:
 
         project_lock = (
             project_metadata_lock(self._project_dir)
-            if (self._project_dir / "versions/history.sqlite3").is_file()
+            if has_sqlite_history(self._project_dir)
             else contextlib.nullcontext()
         )
         with project_lock, self._manifest_lock() as root_fd:
