@@ -72,6 +72,7 @@ from lib.infra.content_digest import canonical_json_digest
 from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.project_write_journal import track_write
 from lib.infra.schema_guards import is_int, is_shape, is_str
 from lib.infra.validation_messages import ValidationResult, default_translate
 from lib.project.asset_rename import (
@@ -661,6 +662,9 @@ class ProjectManager:
             raise ValueError(f"非法项目名称: '{name}'") from exc
         if not project_dir.exists():
             raise FileNotFoundError(f"项目 '{name}' 不存在")
+        if (project_dir / "versions/.history-undo").is_dir():
+            with project_metadata_lock(project_dir):
+                pass
         return project_dir
 
     @staticmethod
@@ -3120,6 +3124,7 @@ class ProjectManager:
             )
             for src, dst in moves:
                 if src.exists():
+                    track_write(src, dst)
                     os.replace(src, dst)
             version_manager.rename_resource(spec.bucket_key, old_key, new_clean)
             derivatives.relocate()

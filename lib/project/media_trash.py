@@ -66,7 +66,11 @@ def trash_grid(project_dir: Path, grid_id: str, episode: int | None) -> project_
     ]
     files = [rel for rel in dict.fromkeys(candidates) if _is_plain_file(project_dir / rel)]
     record = project_trash.record_deletion(
-        project_dir, {"kind": GRID_KIND, "id": grid_id, "episode": episode}, files, snapshot=True
+        project_dir,
+        {"kind": GRID_KIND, "id": grid_id, "episode": episode},
+        files,
+        snapshot=True,
+        histories=versions.resource_records(resource),
     )
     try:
         with formal_write_transaction(versions.versions_file):

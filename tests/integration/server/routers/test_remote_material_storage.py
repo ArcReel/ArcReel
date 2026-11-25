@@ -244,7 +244,10 @@ def _upload(api: TestClient, content: bytes, project_name: str = "demo"):
 
 
 def _history(project: ProjectManager, project_name: str = "demo") -> dict[str, Any]:
-    path = project.get_project_path(project_name) / "versions" / "versions.json"
+    manager = VersionManager(project.get_project_path(project_name))
+    if manager.sqlite.path.is_file():
+        return manager.resource_records([("characters", "Alice")])["characters"]["Alice"]
+    path = manager.versions_file
     return json.loads(path.read_text(encoding="utf-8"))["characters"]["Alice"]
 
 
@@ -1207,8 +1210,13 @@ async def test_switching_local_and_remote_versions_keeps_content_versions_and_th
     assert _identities(project) == identities
 
 
-async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purged(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purged(
+    api, sessions, project, bucket, sqlite
+):
     """删除远端历史版本：回收站持有引用，恢复回同一内容版本与对象；彻底删除后回收对象，删除失败可重试。"""
+    if sqlite:
+        VersionManager(project.get_project_path("demo")).enable_sqlite_history()
     await _remote(sessions)
     image_b = solid_png_bytes((10, 120, 10), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
@@ -1257,8 +1265,11 @@ def _file_view_entries(api: TestClient, path: str) -> dict[str, dict[str, Any]]:
     return {entry["path"]: entry for entry in resp.json()["entries"]}
 
 
-async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket, sqlite):
     """清理缓存后：文件视图按版本记录列出远端版本且不下载；删除历史版本先取回内容再移进回收站，对象按引用保留。"""
+    if sqlite:
+        VersionManager(project.get_project_path("demo")).enable_sqlite_history()
     image_a = solid_png_bytes((30, 30, 200), size=(64, 64))
     assert _upload(api, image_a).status_code == 200
     await _remote(sessions)
@@ -1395,8 +1406,11 @@ async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_vie
     assert record_c in _history(project)["versions"]
 
 
-async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket, sqlite):
     """工作文件清理后删除资产：回收站记录保留对象引用，恢复后预览从对象存储取回。"""
+    if sqlite:
+        VersionManager(project.get_project_path("demo")).enable_sqlite_history()
     await _remote(sessions)
     image = solid_png_bytes((60, 160, 200), size=(64, 64))
     assert _upload(api, image).status_code == 200

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Collection, Generator, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -54,6 +54,7 @@ from lib.artifacts.media_artifact_currency import (
     VideoDurationOverride,
     build_current_video_artifact_basis,
 )
+from lib.artifacts.sqlite_history import SQLiteHistory
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
@@ -289,6 +290,8 @@ class TargetStatePlanner:
         shared_observations: dict[str, ArtifactObservation] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
+        store = SQLiteHistory(self.project_dir)
+        self.history_store = store if store.path.is_file() else None
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
         self.pending_renames = dict(pending_renames or {})
@@ -589,7 +592,8 @@ class TargetStatePlanner:
         ``_selected_upload_digest``。
         """
 
-        bucket = self._load_versions().get(resource_type)
+        keys = self.history_store.equivalent_keys(resource_type, resource_id) if self.history_store else ()
+        bucket = self._load_versions(keys).get(resource_type)
         if not isinstance(bucket, Mapping):
             return None
         history_key = resolve_asset_key(bucket, resource_id)
@@ -794,7 +798,7 @@ class TargetStatePlanner:
         if not isinstance(style, str) or not isinstance(style_description, str):
             raise ValueError("project storyboard style and style description must be strings")
         observation = _PlannerInputObservation(self)
-        raw_histories = self._load_versions().get("storyboards")
+        raw_histories = self._load_versions(self._episode_resources(("storyboards",))).get("storyboards")
         storyboard_histories: Mapping[str, Any] = raw_histories if isinstance(raw_histories, Mapping) else {}
         for episode in self.episodes:
             storyboard_items, id_field, *_ = get_storyboard_items(episode.script)
@@ -1059,7 +1063,7 @@ class TargetStatePlanner:
     def _plan_typed_media(self) -> None:
         if "typed-media" in self._planned:
             return
-        versions = self._load_versions()
+        versions = self._load_versions(self._episode_resources(("audio", "videos", "reference_videos")))
         for episode in self.episodes:
             for item in episode.items:
                 video_only = False
@@ -1485,7 +1489,7 @@ class TargetStatePlanner:
         if variant.consumes_unit_materials:
             self._plan_persisted_presentations()
             items = {str(item[episode.id_field]): item for item in episode.items}
-            history = self._load_versions()
+            history = self._load_versions(("audio", name) for name in items)
             inputs = replace(
                 inputs,
                 units=tuple(
@@ -1550,7 +1554,7 @@ class TargetStatePlanner:
         self._plan_persisted_presentations()
         resource_type = "reference_videos" if episode.kind == "video_units" else "videos"
         items = {str(item[episode.id_field]): item for item in episode.items}
-        versions = self._load_versions()
+        versions = self._load_versions((kind, name) for name in items for kind in ("audio", resource_type))
         units = [
             self._draft_unit_basis(
                 episode=episode,
@@ -1764,7 +1768,7 @@ class TargetStatePlanner:
         canonical = resource_relative_path(resource_type, resource_id)
         if (require_current_basis and planned is None) or (planned is not None and planned.artifact_path != canonical):
             return None
-        versions = self._load_versions()
+        versions = self._load_versions([(resource_type, resource_id)])
         bucket = versions.get(resource_type)
         resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
         selected_version = resource.get("current_version") if isinstance(resource, Mapping) else None
@@ -1900,7 +1904,19 @@ class TargetStatePlanner:
         self.dependencies[path] = raw
         return cast(Mapping[str, Any], parsed)
 
-    def _load_versions(self) -> Mapping[str, Any]:
+    def _episode_resources(self, kinds: tuple[str, ...]):
+        for episode in self.episodes:
+            for item in episode.items:
+                for kind in kinds:
+                    yield kind, str(item[episode.id_field])
+
+    def _load_versions(self, keys: Iterable[tuple[str, str]]) -> Mapping[str, Any]:
+        if self.history_store is not None:
+            store = self.history_store
+            revision = store.revision()
+            if self.dependencies.setdefault(store.path, revision) != revision:
+                raise ArtifactManifestError("version history changed during planning")
+            return store.resources(keys)
         if self._versions is not None:
             return self._versions
         relative = "versions/versions.json"

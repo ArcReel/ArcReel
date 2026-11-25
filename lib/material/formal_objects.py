@@ -399,7 +399,7 @@ async def _settle_attempt(
                 data = _enter_project(stack, project_path)
                 if data is None:
                     continue
-                _add_uses(uses, data, REF_ACTIVE)
+                _add_active_rows(uses, data)
                 _trash_uses(project_path, uses)
             return bridge.run(_resolve_pending(session_factory, attempt_id, uses))
 
@@ -409,7 +409,7 @@ async def _settle_attempt(
     )
 
 
-def _enter_project(stack: ExitStack, project_path: Path) -> dict[str, Any] | None:
+def _enter_project(stack: ExitStack, project_path: Path):
     """在 ``stack`` 里取项目锁与版本锁并返回版本历史；目录不在或项目已在任务执行期间删除时返回 ``None``。"""
     from lib.artifacts.formal_write import project_metadata_lock
     from lib.artifacts.version_manager import VersionManager
@@ -421,7 +421,7 @@ def _enter_project(stack: ExitStack, project_path: Path) -> dict[str, Any] | Non
         stack.enter_context(project_metadata_lock(project_path))
     except (FileNotFoundError, ProjectDeletedDuringTaskError):
         return None
-    return stack.enter_context(VersionManager(project_path).locked_history())
+    return stack.enter_context(VersionManager(project_path).locked_rows(remote_only=True))
 
 
 async def _resolve_pending(
@@ -632,6 +632,11 @@ _VERSIONS_FILE = "versions/versions.json"
 type _Uses = dict[tuple[int, str, str], set[tuple[str, str]]]
 
 
+def _add_active_rows(uses: _Uses, rows) -> None:
+    for _kind, _name, _current, record in rows:
+        _add_use(uses, record, REF_ACTIVE)
+
+
 def _add_uses(uses: _Uses, data: object, state: str) -> None:
     for _resource_type, _resource_id, record in iter_version_records(data):
         _add_use(uses, record, state)
@@ -738,9 +743,9 @@ async def reconcile_project_references(
     def _locked() -> set[int]:
         if not (project_path / "project.json").is_file():
             raise FileNotFoundError(project_path)
-        with project_metadata_lock(project_path), VersionManager(project_path).locked_history() as data:
+        with project_metadata_lock(project_path), VersionManager(project_path).locked_rows(remote_only=True) as data:
             uses: _Uses = {}
-            _add_uses(uses, data, REF_ACTIVE)
+            _add_active_rows(uses, data)
             _trash_uses(project_path, uses)
             return bridge.run(_replace_holder_uses(session_factory, project_name, uses, _HELD_STATES))
 
@@ -770,7 +775,7 @@ async def retiring_project_references(
             if data is None:
                 return
             uses: _Uses = {}
-            _add_uses(uses, data, REF_ACTIVE)
+            _add_active_rows(uses, data)
             try:
                 _trash_uses(project_path, uses)
             except Exception:

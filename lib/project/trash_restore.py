@@ -66,6 +66,9 @@ class Landing:
     def place(self, staged: Path, rel: str, *, original: str) -> None:
         """把临时项目里的 ``staged`` 移到当前项目的 ``rel``；``rel`` 必须空闲。"""
         target = self._target(rel)
+        from lib.infra.project_write_journal import track_write
+
+        track_write(target)
         os.replace(staged, target)
         self._done(target, rel, original)
 
