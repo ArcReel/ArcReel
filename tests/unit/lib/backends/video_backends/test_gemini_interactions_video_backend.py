@@ -320,16 +320,16 @@ class TestVertex:
         from dataclasses import replace
 
         from arcreel_catalog_core import BuiltinProviderModel, parse_entry
-        from lib.backends.backend_assembly import assemble_backend
         from lib.catalog import query as catalog
-        from lib.config.resolver import ConfigResolver
+        from lib.config.resolver import ConfigResolver, ProviderModel
         from lib.config.service import ConfigService
         from lib.generation.video_request_facts import (
             VideoRequestFacts,
             end_frame_duration_failure,
         )
+        from lib.video_runtime.assembly import assemble_video
         from lib.video_runtime.builtin import builtin_video_metered_usage
-        from lib.video_runtime.resolution import read_video_request_facts
+        from lib.video_runtime.resolution import VideoRuntime, read_video_request_facts
         from tests.catalog_support import install_catalog
 
         provider = "gemini-vertex"
@@ -392,9 +392,8 @@ class TestVertex:
             load.return_value.token = "test-token"
             load.return_value.valid = True
             load.return_value.quota_project_id = None
-            backend = await assemble_backend(
-                provider_id=provider, media_type="video", model_id=model, resolver=resolver
-            )
+            target = await VideoRuntime(resolver).materialized(ProviderModel(provider, model))
+            backend = await assemble_video(target.spec)
 
         assert isinstance(backend, VertexInteractionsVideoBackend)
         facts = await read_video_request_facts(

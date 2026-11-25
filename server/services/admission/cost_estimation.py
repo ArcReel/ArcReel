@@ -424,7 +424,9 @@ class CostEstimationService:
             else:
                 storyboard_facts = None
             try:
-                resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
+                from lib.video_runtime.image_resolution import ImageRuntime
+
+                resolved_image, _ = await ImageRuntime(r).read_identity(project_data, "t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except (ValueError, SQLAlchemyError):
                 image_provider, image_model = "unknown", "unknown"
@@ -443,9 +445,9 @@ class CostEstimationService:
                     bucket_model = bucket_facts.model_id
                 else:
                     try:
-                        resolved_video = await r.resolve_video_backend(
-                            project_data, None, generation_type=generation_type
-                        )
+                        from lib.video_runtime.resolution import VideoRuntime
+
+                        resolved_video = (await VideoRuntime(r).read_bucket(project_data, generation_type)).snapshot
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
                     except (ValueError, SQLAlchemyError):
                         bucket_provider, bucket_model = "unknown", "unknown"
@@ -1030,13 +1032,13 @@ async def _quote_image_lane(
     """一条生图通道上每张图的预估单价；通道解析不出、读库失败或未定价时返回 ``None``。"""
 
     try:
+        from lib.config.resolver import project_resolution
+        from lib.video_runtime.image_resolution import ImageRuntime
+
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            resolved, default_resolution = await ImageRuntime(r).read_identity(project, lane)
             provider, model = resolved.provider_id, resolved.model_id or ""
-            try:
-                resolution = await r.resolve_resolution(project, provider, model)
-            except (ValueError, SQLAlchemyError):
-                resolution = None
+            resolution = project_resolution(project, provider, model) or default_resolution
         async with session_factory() as session:
             return _quote_image(
                 provider,

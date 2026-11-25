@@ -90,7 +90,9 @@ async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel
 
     未配置任何音频供应商时抛 ValueError。
     """
-    backend, voice, speed = await resolver.default_narration_tts()
+    from lib.video_runtime.audio import default_narration_tts as resolve_default_narration_tts
+
+    backend, voice, speed = await resolve_default_narration_tts(resolver)
     return backend, await _voice_for_backend(resolver, backend.provider_id, backend.model_id, voice), speed
 
 
@@ -100,6 +102,7 @@ async def new_project_narration_fields(
     resolver: ConfigResolver,
 ) -> dict[str, object]:
     """算出新项目要写入 project.json 的旁白配置字段。"""
+    from lib.video_runtime.audio import default_narration_tts as resolve_default_narration_tts
 
     fields: dict[str, object] = {NARRATION_DELIVERY_FIELD: value.delivery}
     backend = value.audio_backend if TTS_BACKEND_FIELD in value.provided else None
@@ -110,7 +113,7 @@ async def new_project_narration_fields(
         omitted = {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD} - value.provided
         if omitted:
             try:
-                default_backend, default_voice, default_speed = await resolver.default_narration_tts()
+                default_backend, default_voice, default_speed = await resolve_default_narration_tts(resolver)
             except ValueError:
                 default_backend, default_voice, default_speed = None, None, None
             if TTS_BACKEND_FIELD in omitted and default_backend is not None:

@@ -11,7 +11,6 @@ from typing import Any, Literal
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
-from lib.backends.backend_assembly import assemble_backend as assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import (
     effective_image_quality,
@@ -24,6 +23,7 @@ from lib.config.resolver import (
     VideoGenerationType,
     payload_video_pinned_pair,
     project_image_quality,
+    project_resolution,
     video_bucket_for_generation_mode,
 )
 from lib.db.base import DEFAULT_USER_ID
@@ -370,7 +370,10 @@ async def resolve_generation_context(
             image_snapshot = image_target.snapshot
             image_backend = await _image_backend_for(image_target)
             image_provider_model = ProviderModel(image_snapshot.provider_id, image_snapshot.model_id)
-            image_resolution = await r.resolve_resolution(project, image_snapshot.provider_id, image_backend.model)
+            image_resolution = (
+                project_resolution(project, image_snapshot.provider_id, image_backend.model)
+                or image_snapshot.default_resolution
+            )
             image_quality = effective_image_quality(
                 project_image_quality(project, image_snapshot.provider_id, image_backend.model),
                 tuple(image_snapshot.effective["qualities"]),

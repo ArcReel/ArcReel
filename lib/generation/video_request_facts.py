@@ -24,9 +24,9 @@ from lib.config.resolver import (
     caps_generation_mode,
     derive_voice_consistency,
     duration_endpoint_fixed_reason,
-    project_episode_target_duration,
     project_resolution,
 )
+from lib.episode.episode_target_duration import project_episode_target_duration
 from lib.speech.character_voice import character_voice_binding
 
 VideoRoute = Literal["storyboard", "reference_video"]

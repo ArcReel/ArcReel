@@ -15,10 +15,9 @@ provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashsc
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, builtin_model_endpoint, select_provider_endpoint
 from lib.backends.providers import video_audio_always_billed
@@ -34,24 +33,21 @@ from lib.backends.video_capabilities import (
 from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_capabilities
 from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
-from lib.video_runtime.builtin import build_legacy_audio, build_legacy_image, build_legacy_text, build_legacy_video
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
     from arcreel_market_core.video_backend_contract import (
         VideoCapabilities,
     )
-    from lib.backends.backend_assembly.loaded_config import LoadedConfig
 
 
 @dataclass(frozen=True)
 class ProviderSpec:
-    """内置供应商经一个内置调用端点调用时的 backend 构造规格：供应商给凭证，端点决定请求。"""
+    """内置供应商经一个内置调用端点调用时的元数据规格：端点与注册表键。"""
 
     provider_id: str
     media_type: str
     registry_backend: str
-    build_backend: Callable[[LoadedConfig, str | None], Any]
     endpoint: str
 
 
@@ -94,47 +90,19 @@ _GEMINI_VIDEO_ENDPOINTS: Mapping[str, Mapping[str, str]] = {
 
 
 def _image_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
-    registry = registry_backend or endpoint
-    return ProviderSpec(
-        provider_id,
-        "image",
-        registry,
-        partial(build_legacy_image, provider_id=provider_id, registry=registry),
-        endpoint,
-    )
+    return ProviderSpec(provider_id, "image", registry_backend or endpoint, endpoint)
 
 
 def _video_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
-    registry = registry_backend or endpoint
-    return ProviderSpec(
-        provider_id,
-        "video",
-        registry,
-        partial(build_legacy_video, provider_id=provider_id, registry=registry, endpoint=endpoint),
-        endpoint,
-    )
+    return ProviderSpec(provider_id, "video", registry_backend or endpoint, endpoint)
 
 
 def _audio_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
-    registry = registry_backend or provider_id
-    return ProviderSpec(
-        provider_id,
-        "audio",
-        registry,
-        partial(build_legacy_audio, provider_id=provider_id, registry=registry),
-        endpoint,
-    )
+    return ProviderSpec(provider_id, "audio", registry_backend or provider_id, endpoint)
 
 
 def _text_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
-    registry = registry_backend or provider_id
-    return ProviderSpec(
-        provider_id,
-        "text",
-        registry,
-        partial(build_legacy_text, provider_id=provider_id, registry=registry),
-        endpoint,
-    )
+    return ProviderSpec(provider_id, "text", registry_backend or provider_id, endpoint)
 
 
 _SIMPLE_IMAGE_ENDPOINTS: Mapping[str, str] = {
@@ -232,8 +200,6 @@ def _validate_provider_specs() -> None:
     for key, spec in PROVIDER_ENDPOINT_SPECS.items():
         if key != (spec.provider_id, spec.endpoint):
             raise ValueError(f"ProviderSpec key {key!r} does not match spec fields")
-        if not callable(spec.build_backend):
-            raise ValueError(f"ProviderSpec {key!r} declares non-callable build_backend: {spec.build_backend!r}")
         declared = PROVIDER_ENDPOINTS.get((spec.provider_id, spec.media_type))
         if declared is None or spec.endpoint not in declared.endpoints:
             raise ValueError(f"ProviderSpec {key!r} has no {spec.media_type} endpoint declaration")
@@ -406,19 +372,3 @@ def builtin_request_video_capabilities(
         request=conditions,
     )
     return projected_video_capabilities(snapshot)
-
-
-def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str, *, endpoint: str | None = None) -> bool:
-    spec = _builtin_video_spec(provider_id, model_id, endpoint)
-    if spec.registry_backend == "declarative":
-        from arcreel_market_core.video_backend_contract import VideoAudioMode
-
-        return (
-            builtin_video_capabilities_for_model(provider_id, model_id, endpoint=endpoint).audio_track
-            is not VideoAudioMode.ALWAYS_OFF
-        )
-    from lib.backends.video_backends.registry import effective_generate_audio_for_model
-
-    return effective_generate_audio_for_model(
-        spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
-    )

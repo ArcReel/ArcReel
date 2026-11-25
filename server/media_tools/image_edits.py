@@ -71,8 +71,10 @@ async def _i2i_unavailable_problem(
     批量编辑只需要一次项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     引用的模型已不在供应商清单中时，问题带「重新选择模型」指引，而非「换支持 i2i 的供应商」。
     """
+    from lib.video_runtime.image_resolution import ImageRuntime
+
     try:
-        await config_resolver.resolve_image_backend(project, None, generation_type="i2i")
+        await ImageRuntime(config_resolver).read_identity(project, "i2i")
     except ModelNotInCatalogError as exc:
         return GenerationProblem(
             code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)

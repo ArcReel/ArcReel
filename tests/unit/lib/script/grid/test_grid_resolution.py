@@ -1,6 +1,7 @@
 """宫格 4K 门控的分辨率取档。"""
 
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -9,48 +10,41 @@ from lib.script.grid.grid_resolution import grid_image_size, resolve_image_resol
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed
 
 
-class _FakeResolver:
-    """只实现门控用到的两个方法；记录被问到的能力槽与身份。"""
+def _patch_image_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    default_resolution: str | None = None,
+    raises: bool = False,
+) -> list[str]:
+    asked: list[str] = []
 
-    def __init__(self, resolution: str | None = None, raises: bool = False):
-        self._resolution = resolution
-        self._raises = raises
-        self.asked_generation_type: str | None = None
-        self.asked_identity: tuple[str, str] | None = None
-
-    async def resolve_image_backend(self, project: dict, payload: Any, *, generation_type: str):
-        if self._raises:
+    async def _read_identity(self, project: dict | None, bucket: str, *, payload: Any = None):
+        del self, project, payload
+        if raises:
             raise RuntimeError("no image provider configured")
-        self.asked_generation_type = generation_type
-        return type("Resolved", (), {"provider_id": "gemini", "model_id": "img-model"})()
+        asked.append(bucket)
+        return SimpleNamespace(provider_id="gemini-aistudio", model_id="img-model"), default_resolution
 
-    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
-        self.asked_identity = (provider_id, model_id)
-        return self._resolution
-
-
-def _as_resolver(fake: _FakeResolver) -> ConfigResolver:
-    """测试边界的一次显式转换：替身只实现门控用到的两个方法，其余接口不参与本模块。"""
-    return cast(ConfigResolver, fake)
+    monkeypatch.setattr("lib.script.grid.grid_resolution.ImageRuntime.read_identity", _read_identity)
+    return asked
 
 
-async def test_reads_resolution_of_the_t2i_slot():
-    resolver = _FakeResolver("4K")
-    assert await resolve_image_resolution(_as_resolver(resolver), {}) == "4K"
-    assert resolver.asked_generation_type == "t2i"
-    assert resolver.asked_identity == ("gemini", "img-model")
+async def test_reads_resolution_of_the_t2i_slot(monkeypatch: pytest.MonkeyPatch):
+    asked = _patch_image_runtime(monkeypatch, default_resolution="4K")
+    assert await resolve_image_resolution(ConfigResolver(None), {}) == "4K"
+    assert asked == ["t2i"]
 
 
 @pytest.mark.parametrize("resolution", ["4K", "2K", None])
-async def test_resolution_drives_the_gate(resolution: str | None):
-    resolver = _FakeResolver(resolution)
-    resolved = await resolve_image_resolution(_as_resolver(resolver), {})
+async def test_resolution_drives_the_gate(monkeypatch: pytest.MonkeyPatch, resolution: str | None):
+    _patch_image_runtime(monkeypatch, default_resolution=resolution)
+    resolved = await resolve_image_resolution(ConfigResolver(None), {})
     assert large_grid_allowed(resolved) is (resolution == "4K")
 
 
-async def test_resolution_failure_blocks_large_grid():
-    resolver = _FakeResolver(raises=True)
-    resolved = await resolve_image_resolution(_as_resolver(resolver), {})
+async def test_resolution_failure_blocks_large_grid(monkeypatch: pytest.MonkeyPatch):
+    _patch_image_runtime(monkeypatch, raises=True)
+    resolved = await resolve_image_resolution(ConfigResolver(None), {})
     assert resolved is None
     assert large_grid_allowed(resolved) is False
 

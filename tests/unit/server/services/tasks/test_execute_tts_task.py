@@ -11,8 +11,7 @@ import math
 import re
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -24,7 +23,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.version_manager import PaidVersionCommit
-from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.config.resolver import ProviderModel
 from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_editor import resolve_items
@@ -35,11 +34,10 @@ from lib.speech.narration_delivery import (
     register_narration_audio_transactionally,
 )
 from lib.speech.speech_composition import admit_script_unit
-from server.services.tasks import generation_context, generation_tasks
+from server.services.tasks import generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
 from tests.fakes import (
     persist_fake_script,
-    use_backend_assembler,
     use_generation_context,
     use_project_manager,
     write_backend_output,
@@ -808,113 +806,6 @@ class TestExecuteTtsTask:
     def test_tts_registered_as_a_skeleton_driven_task(self):
         assert generation_tasks._TASK_EXECUTORS["tts"] is generation_tasks.execute_tts_task
         assert generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS["tts"] == "tts_ready"
-
-
-class TestGetOrCreateAudioBackend:
-    """audio backend 构造统一委托 assemble_backend；缓存留在调用方编排层。"""
-
-    @pytest.fixture(autouse=True)
-    def _clear_backend_cache(self):
-        """backend 缓存是模块级进程内状态，公开失效入口即用例间的隔离手段。"""
-        generation_context.invalidate_backend_cache()
-        yield
-        generation_context.invalidate_backend_cache()
-
-    async def test_custom_provider_routes_through_assemble(self, monkeypatch, db_factory):
-        from lib.custom_provider import make_provider_id
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-        async with db_factory() as session:
-            provider = await CustomProviderRepository(session).create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[{"model_id": "tts-1", "display_name": "tts-1", "endpoint": "openai-tts", "is_enabled": True}],
-            )
-            await session.commit()
-            provider_id = make_provider_id(provider.id)
-        sentinel = object()
-        calls = []
-
-        async def _fake_assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            calls.append((provider_id, media_type, model_id))
-            return sentinel
-
-        use_backend_assembler(monkeypatch, _fake_assemble)
-
-        resolver = ConfigResolver(db_factory)
-        b1 = await generation_context._get_or_create_audio_backend(provider_id, {"model": "tts-1"}, resolver)
-        b2 = await generation_context._get_or_create_audio_backend(provider_id, {"model": "tts-1"}, resolver)
-
-        assert b1 is sentinel
-        assert b2 is sentinel
-        assert calls == [(provider_id, "audio", "tts-1")], "第二次调用须命中缓存，不再重建 backend"
-
-    async def test_builtin_created_and_cached(self, monkeypatch):
-        created = []
-        sentinel = object()
-
-        async def _fake_assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            created.append((provider_id, media_type, model_id))
-            return sentinel
-
-        use_backend_assembler(monkeypatch, _fake_assemble)
-
-        resolver = cast(ConfigResolver, None)
-        b1 = await generation_context._get_or_create_audio_backend(
-            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
-        )
-        b2 = await generation_context._get_or_create_audio_backend(
-            "dashscope", {}, resolver, default_audio_model="qwen3-tts-flash"
-        )
-        assert b1 is sentinel
-        assert b2 is sentinel
-        assert created == [("dashscope", "audio", "qwen3-tts-flash")], "第二次调用须命中缓存，不再重建 backend"
-
-    async def test_payload_model_overrides_default(self, monkeypatch):
-        async def _fake_assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return SimpleNamespace(provider_id=provider_id, media_type=media_type, model_id=model_id)
-
-        use_backend_assembler(monkeypatch, _fake_assemble)
-
-        backend = await generation_context._get_or_create_audio_backend(
-            "dashscope",
-            {"model": "explicit-model"},
-            cast(ConfigResolver, None),
-            default_audio_model="fallback-model",
-        )
-        assert backend.model_id == "explicit-model"
 
 
 class TestComputeAffectedFingerprintsTts:

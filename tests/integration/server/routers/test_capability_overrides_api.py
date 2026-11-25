@@ -778,13 +778,17 @@ class TestResolverReturnsEffectiveCapabilities:
     @staticmethod
     async def _resolve(db_session: AsyncSession, provider_id: str, model_id: str = VIDEO_MODEL) -> dict:
         from lib.config.resolver import ConfigResolver
-        from lib.config.service import ConfigService
+        from lib.video_runtime.resolution import VideoRuntime
 
         factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         resolver = ConfigResolver(factory, _bound_session=db_session)
-        return await resolver._resolve_video_caps_for_model(
-            ConfigService(db_session), db_session, provider_id, model_id, None
-        )
+        target = await VideoRuntime(resolver).default({"video_backend": f"{provider_id}/{model_id}"})
+        eff = target.snapshot.effective
+        return {
+            "first_frame": eff["first_frame"],
+            "last_frame": eff["last_frame"],
+            "max_reference_images": eff["max_reference_images"],
+        }
 
     async def test_custom_model_without_overrides_follows_system(self, db_session: AsyncSession):
         pid = await self._seed(db_session, overrides=None)
@@ -911,17 +915,9 @@ class TestResolverReturnsEffectiveCapabilities:
     async def test_builtin_boolean_caps_come_from_backend(self, db_session: AsyncSession):
         """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.config.resolver import ConfigResolver
-        from lib.config.service import ConfigService
 
-        factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-        resolver = ConfigResolver(factory, _bound_session=db_session)
-        caps = await resolver._resolve_video_caps_for_model(
-            ConfigService(db_session), db_session, "grok", "grok-imagine-video", None
-        )
-
+        caps = await self._resolve(db_session, "grok", "grok-imagine-video")
         backend_caps = builtin_video_capabilities_for_model("grok", "grok-imagine-video")
-        assert caps["source"] == "registry"
         assert caps["first_frame"] is backend_caps.first_frame
         assert caps["last_frame"] is backend_caps.last_frame
 

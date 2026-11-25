@@ -26,8 +26,11 @@ from tests.http_capture import capture_http, only_request, request_json
 
 
 def _backend(credentials: dict[str, str]):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = builtin_model_spec("ark-agent-plan", "audio", "seed-tts-2.0")
-    return spec.build_backend(
+    return build_builtin_backend(
+        spec,
         LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["ark-agent-plan"], rate_limiter=None),
         "seed-tts-2.0",
     )

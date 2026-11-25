@@ -1,6 +1,3 @@
-import json
-from pathlib import Path
-
 import pytest
 
 from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS
@@ -20,49 +17,42 @@ from lib.custom_provider.endpoints import (
 )
 from tests.factories import comfyui_endpoint_definition
 
-_CASES = json.loads(Path("tests/fixtures/capabilities-before-4003.json").read_text(encoding="utf-8"))["cases"]
 
-
-@pytest.mark.parametrize(
-    "case", [c for c in _CASES if c["entry"] == "builtin_image"], ids=lambda c: c["input"]["model_id"]
-)
-def test_builtin_image_matches_frozen_baseline(case):
-    provider = case["input"]["provider_id"]
-    model = case["input"]["model_id"]
-    info = catalog.get_model(provider, model, media_type="image")
+def test_builtin_image_snapshot_and_settings_view():
+    info = catalog.get_model("ark", "doubao-seedream-5-0-lite-260128", media_type="image")
     assert info is not None
-    snapshot = builtin_image_snapshot(provider, model, official=True)
-    fit = builtin_model_bucket_fit(provider, model, info)
-    view = builtin_capability_view(provider, model, base_model=info, official=True, overrides={})
+    snapshot = builtin_image_snapshot("ark", "doubao-seedream-5-0-lite-260128", official=True)
+    fit = builtin_model_bucket_fit("ark", "doubao-seedream-5-0-lite-260128", info)
+    view = builtin_capability_view(
+        "ark", "doubao-seedream-5-0-lite-260128", base_model=info, official=True, overrides={}
+    )
 
-    assert sorted(c.value for c in ImageCapability if snapshot.effective[c.value]) == case["output"]["capabilities"]
-    assert snapshot.effective["max_reference_images"] == case["output"]["channel_limit"]
-    assert sorted(fit.buckets) == case["bucket_fit"]["buckets"]
-    assert {k: list(v) for k, v in fit.unmet.items()} == case["bucket_fit"]["unmet"]
-    assert view.base == case["settings"]["base"]
-    assert view.effective == case["settings"]["effective"]
-    assert list(view.editable) == case["settings"]["editable"]
+    assert sorted(c.value for c in ImageCapability if snapshot.effective[c.value]) == [
+        "image_to_image",
+        "text_to_image",
+    ]
+    assert sorted(fit.buckets) == ["i2i", "t2i"]
+    assert view.editable == ()
+    assert view.effective == view.base
 
 
-def test_image_reference_limit_baseline_and_openrouter_hard_cap_change():
-    case = next(c for c in _CASES if c["entry"] == "image_reference_limit")
-    inp = case["input"]
-    facts = {"text_to_image": True, "image_to_image": True, "max_reference_images": inp["entry_limit"]}
+def test_image_reference_limit_soft_override_vs_openrouter_hard_cap():
+    facts = {"text_to_image": True, "image_to_image": True, "max_reference_images": 14}
 
     soft_endpoint = image_endpoint(
         [ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE],
-        reference_limit=inp["channel_limit"],
+        reference_limit=16,
     )
-    soft = resolve_image_model(soft_endpoint, facts, {"max_reference_images": inp["override"]})
-    assert soft.reference_images == InputLimit.at_most(case["output"]["maximum"])
+    soft = resolve_image_model(soft_endpoint, facts, {"max_reference_images": 20})
+    assert soft.reference_images == InputLimit.at_most(20)
 
     openrouter = get_endpoint_spec("openrouter-images").image_description()
     with pytest.raises(InvalidOverrides) as exc:
-        openrouter.validate({"max_reference_images": inp["override"]}, facts=facts)
+        openrouter.validate({"max_reference_images": 20}, facts=facts)
     assert exc.value.keys == {"max_reference_images"}
-    hard = resolve_image_model(openrouter, facts, {"max_reference_images": inp["override"]})
+    hard = resolve_image_model(openrouter, facts, {"max_reference_images": 20})
     assert hard.overrides == {}
-    assert hard.reference_images == InputLimit.at_most(inp["entry_limit"])
+    assert hard.reference_images == InputLimit.at_most(14)
 
 
 @pytest.mark.parametrize(

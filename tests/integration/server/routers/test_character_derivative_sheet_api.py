@@ -49,21 +49,16 @@ class _FakeQueue:
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
 
-class _FakeConfigResolver:
-    """i2i 槽解析：只回一个已配置的供应商，能力闸本身另有用例覆盖。"""
-
-    def __init__(self, _session_factory: Any) -> None:
-        pass
-
-    async def resolve_image_backend(self, project, payload=None, *, generation_type=None) -> ProviderModel:
-        del project, payload, generation_type
-        return ProviderModel("dashscope", "qwen-image-2.0")
-
-
 def _client(monkeypatch, pm, *, queue: _FakeQueue | None = None) -> TestClient:
+    from tests.fakes import use_image_read_identity
+
+    async def _read_identity(self, project, bucket, *, payload=None):
+        del self, project, bucket, payload
+        return ProviderModel("dashscope", "qwen-image-2.0"), None
+
     for module in (characters, generate, versions):
         monkeypatch.setattr(module, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generate, "ConfigResolver", _FakeConfigResolver)
+    use_image_read_identity(monkeypatch, _read_identity)
     use_generation_queue(monkeypatch, queue or _FakeQueue())
     app = FastAPI()
     register_error_handlers(app)

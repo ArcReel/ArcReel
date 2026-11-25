@@ -100,9 +100,9 @@ class TextGenerator:
                 registered_max_output_tokens=target.max_output_tokens,
                 custom_model=target.is_custom,
             )
-        from lib.backends.backend_assembly.assembler import output_limit_facts
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
+        from lib.video_runtime.text import output_limit_facts
 
         backend, provider_id = await create_text_backend_for_task(task_type, project_name)
         limit = await output_limit_facts(

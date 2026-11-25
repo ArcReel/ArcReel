@@ -36,7 +36,10 @@ stub_executors = _ExecutorStubs()
 def use_worker_project(monkeypatch, project: dict | None) -> None:
     """worker 与配置解析经 ``get_project_manager().load_project`` 读到的项目都是 *project*（``None`` 视为空项目）。"""
     pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
-    for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
+    for target in (
+        "lib.generation.generation_worker.get_project_manager",
+        "lib.project.project_manager.get_project_manager",
+    ):
         monkeypatch.setattr(target, lambda: pm)
 
 

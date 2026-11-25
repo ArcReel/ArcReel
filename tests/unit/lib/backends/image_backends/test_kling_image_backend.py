@@ -321,8 +321,11 @@ async def test_endpoint_request_shape_and_input_metering(
         )
         backend = get_endpoint_spec(endpoint).build_backend(provider, model)
     else:
+        from lib.video_runtime.builtin import build_builtin_backend
+
         credentials = {"access_key": "ak-1", "secret_key": _SECRET} if auth == "jwt" else {"api_key": "static-key"}
-        backend = get_provider_spec("kling", "image", endpoint).build_backend(
+        backend = build_builtin_backend(
+            get_provider_spec("kling", "image", endpoint),
             LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["kling"], rate_limiter=None),
             model,
         )

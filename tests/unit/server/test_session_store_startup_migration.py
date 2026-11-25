@@ -12,8 +12,10 @@ from lib.project.project_manager import ProjectManager
 @pytest.mark.asyncio
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
+    from tests.fakes import use_project_manager
+
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(tmp_path))
+    use_project_manager(monkeypatch, ProjectManager(tmp_path))
     with (
         patch(
             "server.app.migrate_local_transcripts_to_store",

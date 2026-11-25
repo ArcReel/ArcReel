@@ -505,15 +505,13 @@ class TestDeriveExecutionModelForEnqueueAudio:
     async def test_tts_routes_to_audio_resolver(self, monkeypatch):
         from lib.config.resolver import ProviderModel
         from lib.generation import generation_queue as gq
+        from tests.fakes import use_audio_read_identity
 
-        class _FakeResolver:
-            def __init__(self, factory):
-                pass
+        async def _read_identity(self, project, payload=None):
+            del self, project, payload
+            return ProviderModel("dashscope", "qwen3-tts-flash")
 
-            async def resolve_audio_backend(self, project, payload):
-                return ProviderModel("dashscope", "qwen3-tts-flash")
-
-        monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
+        use_audio_read_identity(monkeypatch, _read_identity)
         derived = await gq._derive_execution_model_for_enqueue(
             project_name=None, payload={}, task_type="tts", media_type="audio", resource_id=None
         )

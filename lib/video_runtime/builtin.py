@@ -21,10 +21,6 @@ if TYPE_CHECKING:
     from lib.billing.metering import Usage
 
 
-def build_legacy_text(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> TextBackend:
-    return build_builtin_text(config, model, provider_id, registry)
-
-
 def build_builtin_text(config: LoadedConfig, model: str | None, provider_id: str, registry: str) -> TextBackend:
     from lib.backends.dashscope_shared import dashscope_text_base_url
     from lib.backends.minimax_shared import minimax_text_base_url
@@ -73,10 +69,6 @@ def build_builtin_text(config: LoadedConfig, model: str | None, provider_id: str
     return text_backends.create_backend(registry, **kwargs)
 
 
-def build_legacy_audio(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> AudioBackend:
-    return build_builtin_audio(config, model, provider_id, registry)
-
-
 def build_builtin_audio(config: LoadedConfig, model: str | None, provider_id: str, registry: str) -> AudioBackend:
     from lib.backends.audio_backends import registry as audio_backends
 
@@ -105,17 +97,6 @@ def build_builtin_audio(config: LoadedConfig, model: str | None, provider_id: st
     if base_url:
         kwargs["base_url"] = base_url
     return audio_backends.create_backend(registry, **kwargs)
-
-
-def build_legacy_image(config: LoadedConfig, model: str | None, *, provider_id: str, registry: str) -> ImageBackend:
-    api_model_name: str | None = None
-    if provider_id == "kling" and model:
-        from lib.catalog import query as catalog
-
-        model_info = catalog.get_model("kling", model)
-        if model_info is not None and model_info.api_model_name:
-            api_model_name = model_info.api_model_name
-    return build_builtin_image(config, model, provider_id, registry, api_model_name=api_model_name)
 
 
 def build_builtin_image(
@@ -158,13 +139,6 @@ def build_builtin_image(
     if base_url:
         kwargs["base_url"] = base_url
     return image_backends.create_backend(registry, **kwargs)
-
-
-def build_legacy_video(
-    config: LoadedConfig, model: str | None, *, provider_id: str, registry: str, endpoint: str
-) -> VideoBackend:
-    definition = builtin_definitions()[endpoint] if registry == "declarative" else None
-    return build_builtin_video(config, model, provider_id, registry, definition)
 
 
 def builtin_declarative_credentials(config: LoadedConfig) -> tuple[str, str]:
@@ -232,6 +206,28 @@ def declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
     if spec.registry_backend != "declarative":
         return None
     return builtin_definitions()[spec.endpoint]
+
+
+def build_builtin_backend(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> Any:
+    """按内置端点规格与已装载凭证构造对应媒体的内置调用通道。"""
+    if spec.media_type == "text":
+        return build_builtin_text(config, model, spec.provider_id, spec.registry_backend)
+    if spec.media_type == "audio":
+        return build_builtin_audio(config, model, spec.provider_id, spec.registry_backend)
+    if spec.media_type == "image":
+        api_model_name: str | None = None
+        if spec.provider_id == "kling" and model:
+            from lib.catalog import query as catalog
+
+            model_info = catalog.get_model("kling", model)
+            if model_info is not None and model_info.api_model_name:
+                api_model_name = model_info.api_model_name
+        return build_builtin_image(
+            config, model, spec.provider_id, spec.registry_backend, api_model_name=api_model_name
+        )
+    if spec.media_type == "video":
+        return build_builtin_video(config, model, spec.provider_id, spec.registry_backend, declarative_definition(spec))
+    raise ValueError(f"unsupported media_type: {spec.media_type!r}")
 
 
 def builtin_video_metered_usage(

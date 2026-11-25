@@ -986,11 +986,13 @@ class TestImageSizeResolutionEquivalence:
 
     @staticmethod
     async def _old_image_size(patched_session_factory, project, payload):
-        """旧执行层口径：resolve_image_backend(i2i) 得 provider/model，再按 model_id 查 resolution。"""
+        from lib.config.resolver import project_resolution
+        from lib.video_runtime.image_resolution import ImageRuntime
+
         resolver = ConfigResolver(patched_session_factory)
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, payload, generation_type="i2i")
-            return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id)
+            resolved, default_res = await ImageRuntime(r).read_identity(project, "i2i", payload=payload)
+            return project_resolution(project, resolved.provider_id, resolved.model_id) or default_res
 
     @pytest.mark.usefixtures("_ctx_env")
     async def test_model_settings_override(self, patched_session_factory):

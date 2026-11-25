@@ -38,6 +38,8 @@ from lib.db.models.catalog_official_sync import CatalogOfficialSync
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.catalog_user_entry_repo import CatalogUserEntryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.video_runtime.image_resolution import ImageRuntime
+from lib.video_runtime.resolution import VideoRuntime
 from tests.catalog_support import (
     install_catalog,
     install_synced_catalog,
@@ -131,7 +133,7 @@ async def _add_custom_image_default(sessions: Sessions) -> str:
 
 
 async def _resolve_image(sessions: Sessions) -> ProviderModel:
-    return await ConfigResolver(sessions).resolve_image_backend(None, None, generation_type="t2i")
+    return (await ImageRuntime(ConfigResolver(sessions)).read_identity(None, "t2i"))[0]
 
 
 def _sessions_like(sessions: Sessions, session_class: type[AsyncSession]) -> Sessions:
@@ -225,12 +227,12 @@ class TestRecommendationChangesKeepGenerationModels:
         """已配置的用户：目录推荐变化后生成用的模型不变，推荐变化以提示呈现，由用户决定是否切换。"""
         before = _recommended("ark", "image")
         resolver = ConfigResolver(session_factory)
-        assert await resolver.resolve_image_backend(None, None, generation_type="t2i") == ProviderModel("ark", before)
+        assert (await ImageRuntime(resolver).read_identity(None, "t2i"))[0] == ProviderModel("ark", before)
         assert await _changes(session_factory) == []
 
         install_catalog(monkeypatch, with_recommendation(catalog.factory_snapshot(), "ark", "image", NEXT_IMAGE))
 
-        assert await resolver.resolve_image_backend(None, None, generation_type="t2i") == ProviderModel("ark", before)
+        assert (await ImageRuntime(resolver).read_identity(None, "t2i"))[0] == ProviderModel("ark", before)
         assert await _changes(session_factory) == [RecommendationChange("image", "ark", NEXT_IMAGE, f"ark/{before}")]
 
     async def test_keeping_the_current_model_dismisses_the_notice(self, session_factory, monkeypatch):
@@ -252,7 +254,7 @@ class TestRecommendationChangesKeepGenerationModels:
             await session.commit()
 
         assert await _changes(session_factory) == []
-        resolved = await ConfigResolver(session_factory).resolve_image_backend(None, None, generation_type="t2i")
+        resolved = (await ImageRuntime(ConfigResolver(session_factory)).read_identity(None, "t2i"))[0]
         assert resolved == ProviderModel("ark", NEXT_IMAGE)
 
     async def test_acknowledging_a_stale_recommendation_changes_nothing(self, session_factory):
@@ -345,7 +347,7 @@ class TestFreezeEffectiveDefaults:
 
         await _upgrade(session_factory, REVISION_0_36)
 
-        resolved = await ConfigResolver(session_factory).resolve_image_backend(None, None, generation_type="t2i")
+        resolved = (await ImageRuntime(ConfigResolver(session_factory)).read_identity(None, "t2i"))[0]
         assert resolved == ProviderModel("dashscope", _recommended("dashscope", "image"))
         assert (await _settings(session_factory))["default_video_backend"] == f"ark/{_recommended('ark', 'video')}"
 
@@ -376,7 +378,7 @@ class TestFreezeEffectiveDefaults:
         assert "default_image_backend" not in settings
         assert settings["default_video_backend"] == f"ark/{_recommended('ark', 'video')}"
         with pytest.raises(NoAvailableProviderError):
-            await ConfigResolver(session_factory).resolve_image_backend(None, None, generation_type="t2i")
+            (await ImageRuntime(ConfigResolver(session_factory)).read_identity(None, "t2i"))[0]
         assert [change.media_type for change in await _changes(session_factory)] == ["image"]
 
     async def test_a_release_below_the_minimum_version_skips_to_the_next_provider(
@@ -424,9 +426,9 @@ class TestFreezeEffectiveDefaults:
             request, with_recommendation(_synced(), "gemini-vertex", "video", "veo-3.1-generate-001")
         )
 
-        assert (
-            await ConfigResolver(session_factory).resolve_video_backend(None, None, generation_type="i2v") == expected
-        )
+        assert (lambda s: ProviderModel(s.provider_id, s.model_id))(
+            (await VideoRuntime(ConfigResolver(session_factory)).read_bucket(None, "i2v")).snapshot
+        ) == expected
         assert [change.media_type for change in await _changes(session_factory)] == ["video"]
 
     async def test_an_unknown_previous_revision_freezes_nothing(self, session_factory):
@@ -439,7 +441,7 @@ class TestFreezeEffectiveDefaults:
         assert not any(settings.get(key) for key in recommended_models.GLOBAL_DEFAULT_KEYS.values())
         assert settings[FROZEN_SETTING_KEY]
         with pytest.raises(NoAvailableProviderError):
-            await ConfigResolver(session_factory).resolve_video_backend(None, None, generation_type="i2v")
+            await VideoRuntime(ConfigResolver(session_factory)).read_bucket(None, "i2v")
         assert {change.media_type for change in await _changes(session_factory)} == {"image", "text", "video"}
 
     @pytest.mark.parametrize("recorded", [True, False], ids=["unknown-revision", "no-record"])

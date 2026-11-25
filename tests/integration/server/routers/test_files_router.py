@@ -1089,8 +1089,8 @@ class TestFilesRouter:
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
     def test_style_image_without_a_default_text_model(self, tmp_path, monkeypatch, file_db_factory, locale):
-        from lib.backends.text_backends.factory import create_text_backend_for_task
         from lib.i18n import MESSAGES
+        from lib.video_runtime.text import create_text_backend_for_task
 
         client, pm = _client(monkeypatch, tmp_path)
         monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", create_text_backend_for_task)

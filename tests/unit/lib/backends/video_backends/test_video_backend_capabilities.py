@@ -214,35 +214,6 @@ class TestVideoAudioTrack:
 
         assert get_args(VideoRoute) == get_args(VideoGenerationType)
 
-    def test_registry_lookup_matches_backend_declaration(self):
-        """lib.config 侧的派生查询与 backend 声明同值——展示层与入队预检读的就是这一份。"""
-        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.catalog import query as catalog
-        from lib.config.registry import PROVIDER_REGISTRY
-        from lib.config.resolver import builtin_video_audio_track
-
-        video_models = [
-            (provider_id, model_id)
-            for provider_id in PROVIDER_REGISTRY
-            for model_id, info in catalog.list_models(provider_id).items()
-            if info.media_type == "video"
-        ]
-        assert video_models
-        for provider_id, model_id in video_models:
-            caps = builtin_video_capabilities_for_model(provider_id, model_id)
-            for route in ("i2v", "r2v"):
-                assert builtin_video_audio_track(provider_id, model_id, generation_type=route) == (
-                    caps.audio_track_for_route(route).value
-                ), (provider_id, model_id, route)
-
-    def test_lookup_returns_none_without_signal(self):
-        """非视频 model / 未知供应商没有逐模型声明，返回 None 交调用方按无信号不收紧处理。"""
-        from lib.config.resolver import builtin_video_audio_track
-
-        assert builtin_video_audio_track("dashscope", "wan2.7-image", generation_type="i2v") is None
-        assert builtin_video_audio_track("custom-1", "whatever", generation_type="i2v") is None
-        assert builtin_video_audio_track("kling", "not-a-registered-model", generation_type="i2v") is None
-
 
 class TestVideoCapabilitySingleSourceOfTruth:
     """全目录扫描：内置视频模型的输入模式、参考图上限与音轨形态只有 backend 一处手写声明。

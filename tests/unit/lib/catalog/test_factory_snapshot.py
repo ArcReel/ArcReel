@@ -12,13 +12,14 @@ from pathlib import Path
 import pytest
 
 from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, check_catalog_files, dump_entry, parse_entry
-from lib.backends.backend_assembly import assemble_backend
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.assembler import load_builtin_config
+from lib.backends.backend_assembly.specs import builtin_model_spec, get_provider_spec
 from lib.catalog import query as catalog
 from lib.catalog.query import SNAPSHOT_DIR, factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from lib.video_runtime.builtin import build_builtin_backend
 from tests.catalog_support import set_catalog_today
 from tests.fakes import captured_vertex_credentials
 
@@ -109,9 +110,9 @@ async def test_every_recommended_model_is_callable_and_assembles(db_factory, tmp
                 if model is None:
                     continue
                 catalog.require_callable(provider_id, model, media_type)
-                backend = await assemble_backend(
-                    provider_id=provider_id, media_type=media_type, model_id=model, resolver=resolver
-                )
+                spec = builtin_model_spec(provider_id, media_type, model)
+                loaded = await load_builtin_config(resolver, provider_id, None)
+                backend = build_builtin_backend(spec, loaded, model)
                 assert backend.model == model
                 checked += 1
 

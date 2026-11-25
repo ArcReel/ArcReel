@@ -533,7 +533,7 @@ async def _rename_global_provider_refs(session: AsyncSession, provider_id: int, 
 
 def _mutate_all_projects(mutate: Callable[[dict], None]) -> None:
     """对每个项目的 project.json 应用 ``mutate``；读取失败或项目不可写的跳过（非致命）。"""
-    from lib.config.resolver import get_project_manager
+    from lib.project.project_manager import get_project_manager
 
     pm = get_project_manager()
     for proj_name in pm.list_projects():

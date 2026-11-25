@@ -211,7 +211,7 @@ async def reference_projection_for_queued_task(
 ) -> ReferenceUnitRequestProjection | None:
     """按任务定位信息读取当前 unit，并生成 claim/限流共用的 current-state 投影。"""
 
-    from lib.config.resolver import get_project_manager
+    from lib.project.project_manager import get_project_manager
     from lib.script.reference_video.request_projection import (
         ReferenceRequestOptions,
         project_reference_unit_request,
@@ -279,7 +279,11 @@ async def resolve_video_execution_for_queued_task(
     execution_payload = (
         without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
-    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, generation_type=generation_type)
+    from lib.config.resolver import ProviderModel
+    from lib.video_runtime.resolution import VideoRuntime
+
+    read = await VideoRuntime(resolver).read_bucket(project, generation_type, payload=execution_payload or {})
+    resolved = ProviderModel(read.snapshot.provider_id, read.snapshot.model_id)
     return resolved, generation_type
 
 
@@ -307,8 +311,11 @@ async def _derive_execution_model_for_enqueue(
     is_audio = media_type == "audio" or task_type == "tts"
     video_generation_type: VideoGenerationType | None = None
     try:
-        from lib.config.resolver import ConfigResolver, get_project_manager
+        from lib.config.resolver import ConfigResolver, ProviderModel
         from lib.db import async_session_factory
+        from lib.project.project_manager import get_project_manager
+        from lib.video_runtime.audio import AudioRuntime
+        from lib.video_runtime.image_resolution import ImageRuntime
 
         project: dict | None = None
         if project_name:
@@ -316,8 +323,6 @@ async def _derive_execution_model_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_text:
-            from lib.config.resolver import ProviderModel
-
             resolved = ProviderModel("text", "")
         elif is_video:
             resolved, video_generation_type = await resolve_video_execution_for_queued_task(
@@ -329,10 +334,10 @@ async def _derive_execution_model_for_enqueue(
                 resource_id=resource_id,
             )
         elif is_audio:
-            resolved = await resolver.resolve_audio_backend(project, payload or {})
+            resolved = await AudioRuntime(resolver).read_identity(project, payload or {})
         else:
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
+            resolved, _ = await ImageRuntime(resolver).read_identity(project, generation_type, payload=payload or {})
     except ModelNotInCatalogError as exc:
         from lib.config.resolver import ProviderModel
 

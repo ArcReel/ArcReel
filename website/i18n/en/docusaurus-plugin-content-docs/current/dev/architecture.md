@@ -97,7 +97,16 @@ Task identity correlates results and costs. A resumed video task looks up the or
 
 ### Provider abstraction {#provider-abstraction}
 
-`lib/backends/` defines the text, image, video, and audio protocols and how to assemble their backends. A provider model pairs an API model name with an endpoint. A catalog entry holds model facts and pricing, the endpoint or backend declares protocol and execution facts, and applicable capability overrides express provider-model differences. Capability resolution determines the available inputs and limits. See [ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md) and [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md).
+Cross-media capability resolution and backend assembly follow a directed acyclic layering enforced by the `import-linter` contracts in `pyproject.toml`:
+
+| Module | Responsibility |
+| --- | --- |
+| `lib/capabilities/` | Pure capability kernel (free of config, assembly, backends, database, or network dependencies) that evaluates catalog entries, endpoint protocol hard bounds, and capability overrides into immutable capability snapshots. |
+| `lib/config/` | Low-level configuration reading for global/project settings, credentials, and project preferences, without cross-builtin/custom target selection, capability synthesis, or project capability projection. |
+| `lib/backends/` and `lib/custom_provider/` | Text, image, video, and audio backend protocols, built-in and custom endpoint descriptions, standalone endpoint-definition decoding, and settings capability views. |
+| `lib/video_runtime/` | Unified runtime layer for target selection and single-pass configuration resolution across built-in and custom providers, producing co-sourced capability snapshots and private assembly specs for preflight, cost estimation, execution, and in-flight resumption across all four media types. |
+
+A provider model pairs an API model name with an endpoint. A catalog entry holds model facts and pricing, the endpoint declares protocol hard bounds and execution facts, and capability overrides express channel differences within those bounds. Video planning, preflight, reference cost estimation, and execution share the same pure synchronous video request-fact evaluation. See [ADR 0049](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0049-generation-context-single-resolution.md), [ADR 0086](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0086-video-request-facts-evaluated-once.md), [ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md), and [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md).
 
 For code entry points and upstream sources, see the [provider API index](https://github.com/ArcReel/ArcReel/tree/main/docs/api-docs). For setup, see [Providers and Models](../guide/providers.md).
 

@@ -28,8 +28,11 @@ _MODEL = "grok-tts"
 
 
 def _backend(model: str | None = _MODEL):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = builtin_model_spec("grok", "audio", model)
-    return spec.build_backend(
+    return build_builtin_backend(
+        spec,
         LoadedConfig(credentials={"api_key": "xai-key"}, provider_meta=PROVIDER_REGISTRY["grok"], rate_limiter=None),
         model,
     )

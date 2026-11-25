@@ -52,11 +52,10 @@ async def require_video_bucket_capability(project: dict, generation_type: VideoG
     预检失效不放行执行。其余解析失败（如未配置任何供应商）沿用既有行为，留给 worker 在任务面板暴露。
     """
     from lib.db import async_session_factory
+    from lib.video_runtime.resolution import VideoRuntime
 
     try:
-        await ConfigResolver(async_session_factory).resolve_video_backend(
-            project, None, generation_type=generation_type
-        )
+        await VideoRuntime(ConfigResolver(async_session_factory)).read_bucket(project, generation_type)
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:

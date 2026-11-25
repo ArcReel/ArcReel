@@ -251,7 +251,9 @@ async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays
         await service.set_setting("narration_voice", "Cherry")
         await service.set_setting("narration_speed", "0.8")
         await session.commit()
-    defaults, voice, speed = await ConfigResolver(db_factory).default_narration_tts()
+    from lib.video_runtime.audio import default_narration_tts
+
+    defaults, voice, speed = await default_narration_tts(ConfigResolver(db_factory))
     assert (defaults.model_id, voice, speed) == ("qwen-tts-latest", "Cherry", 0.8)
     assert _read_json(project_dir / "project.json") == project
     assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.CURRENT
