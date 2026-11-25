@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
-import logging
+import asyncio
+import json
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
+from dataclasses import asdict
+from typing import cast
 
-from pydantic import BaseModel
+from grpc import StatusCode
+from grpc.aio import AioRpcError
 from xai_sdk import chat as xai_chat
+from xai_sdk.chat import Chunk, Response
+from xai_sdk.proto import chat_pb2
 
-from lib.backends.grok_shared import create_grok_client, grok_should_retry
+from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.text_backends.base import (
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
-    check_truncation,
-    model_facing_response_model,
     resolve_schema,
 )
-from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
-
-logger = logging.getLogger(__name__)
+from lib.backends.text_backends.streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
 
 _TRUNCATION_REASONS = ("length", "REASON_MAX_LEN", "REASON_MAX_CONTEXT")
 
@@ -31,7 +35,7 @@ class GrokTextBackend:
     """xAI Grok 文本生成后端。"""
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None):
-        self._client = create_grok_client(api_key=api_key)
+        self._client = create_grok_client(api_key=api_key, disable_retries=True)
         self._model = model or DEFAULT_MODEL
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
@@ -51,14 +55,18 @@ class GrokTextBackend:
     def capabilities(self) -> set[TextCapability]:
         return self._capabilities
 
-    @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+        return await execute_stream(request, self._stream, provider=self.name, protocol="grok", model=self.model)
+
+    async def _stream(self, request: TextGenerationRequest) -> AsyncGenerator[TextDelta | TextGenerationResult]:
         chat_kwargs: dict = {"model": self._model}
         if request.max_output_tokens is not None:
             chat_kwargs["max_tokens"] = request.max_output_tokens
-        response_model = _response_model(request.response_schema) if request.response_schema else None
-        if response_model is not None:
-            chat_kwargs["response_format"] = response_model
+        if request.response_schema is not None:
+            chat_kwargs["response_format"] = chat_pb2.ResponseFormat(
+                format_type=chat_pb2.FORMAT_TYPE_JSON_SCHEMA,
+                schema=json.dumps(resolve_schema(request.response_schema)),
+            )
         chat = self._client.chat.create(**chat_kwargs)
 
         if request.system_prompt:
@@ -71,107 +79,54 @@ class GrokTextBackend:
                 if img_input.path:
                     from lib.backends.image_backends.base import image_to_base64_data_uri
 
-                    data_uri = image_to_base64_data_uri(img_input.path)
+                    data_uri = await asyncio.to_thread(image_to_base64_data_uri, img_input.path)
                     user_parts.append(xai_chat.image(image_url=data_uri))
                 elif img_input.url:
                     user_parts.append(xai_chat.image(image_url=img_input.url))
 
         chat.append(xai_chat.user(request.prompt, *user_parts))
 
-        logger.info(
-            "调用 %s 文本 SDK payload=%s",
-            self.name,
-            format_kwargs_for_log(
-                {
-                    "model": self._model,
-                    "max_tokens": chat_kwargs.get("max_tokens"),
-                    "system_prompt": request.system_prompt,
-                    "prompt": request.prompt,
-                    "image_count": len(request.images) if request.images else 0,
-                    "structured_output": bool(request.response_schema),
-                }
-            ),
-        )
+        async with asyncio.timeout(CONNECT_TIMEOUT):
+            await self._client.wait_connected()
 
-        response = await chat.sample()
-        text = response.content if hasattr(response, "content") else str(response)
-
-        input_tokens = None
-        output_tokens = None
-        cache_read_tokens = None
-        reasoning_tokens = None
-        if hasattr(response, "usage"):
-            usage = response.usage
-            input_tokens = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None)
-            output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None)
-            cache_read_tokens = getattr(usage, "cached_prompt_text_tokens", None)
-            reasoning_tokens = getattr(usage, "reasoning_tokens", None)
-
-        finish_reason = getattr(response, "finish_reason", None)
-        if finish_reason is None:
-            choices = getattr(response, "choices", None) or []
-            if choices:
-                finish_reason = getattr(choices[0], "finish_reason", None)
-        truncated = check_truncation(
-            finish_reason,
-            provider=PROVIDER_GROK,
-            model=self._model,
-            output_tokens=output_tokens,
-            structured=bool(request.response_schema),
-            truncation_values=_TRUNCATION_REASONS,
-        )
-        if response_model is not None:
-            response_model.model_validate_json(text)
-
-        return TextGenerationResult(
-            text=text.strip(),
-            provider=PROVIDER_GROK,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens + reasoning_tokens
-            if output_tokens is not None and reasoning_tokens
-            else output_tokens,
-            truncated=truncated,
-            cache_read_tokens=cache_read_tokens,
-        )
-
-
-def _response_model(response_schema: dict | type) -> type[BaseModel]:
-    if isinstance(response_schema, type):
-        return model_facing_response_model(response_schema)
-    return _schema_to_pydantic(resolve_schema(response_schema))
-
-
-def _schema_to_pydantic(schema: dict):
-    """Convert a JSON Schema dict to a dynamic Pydantic model.
-
-    Maps basic JSON Schema types to Python types. Nested objects and arrays
-    are mapped to dict/list respectively for flexibility.
-    """
-    from typing import Any as AnyType
-
-    from pydantic import create_model
-
-    properties = schema.get("properties", {})
-    required = set(schema.get("required", []))
-    fields = {}
-
-    _TYPE_MAP = {
-        "string": str,
-        "integer": int,
-        "number": float,
-        "boolean": bool,
-        "array": list,
-        "object": dict,
-    }
-
-    for field_name, prop in properties.items():
-        json_type = prop.get("type", "string")
-        py_type = _TYPE_MAP.get(json_type, AnyType)
-
-        if field_name in required:
-            fields[field_name] = (py_type, ...)
-        else:
-            fields[field_name] = (py_type | None, None)
-
-    return create_model("DynamicResponse", **fields)
+        pending = RequestTokens()
+        response = None
+        try:
+            async with aclosing(cast(AsyncGenerator[tuple[Response, Chunk]], chat.stream())) as stream:
+                async for snapshot, chunk in stream:
+                    first = response is None
+                    response = snapshot
+                    if chunk.proto.HasField("usage"):
+                        usage = response.usage
+                        pending = RequestTokens(
+                            input_tokens=usage.prompt_tokens,
+                            output_tokens=usage.completion_tokens + usage.reasoning_tokens,
+                            cache_read_tokens=usage.cached_prompt_text_tokens,
+                        )
+                    if first:
+                        yield TextDelta("")
+                    if chunk.content:
+                        yield TextDelta(chunk.content)
+                    if chunk.reasoning_content:
+                        yield TextDelta(chunk.reasoning_content, thinking=True)
+            if response is None or response.finish_reason == "REASON_INVALID":
+                return
+            truncated = response.finish_reason in _TRUNCATION_REASONS
+            if not truncated and response.finish_reason != "REASON_STOP":
+                raise RuntimeError(f"Grok generation stopped ({response.finish_reason})")
+            result = TextGenerationResult(
+                text=response.content.strip(),
+                provider=self.name,
+                model=self.model,
+                truncated=truncated,
+                **asdict(pending),
+            )
+            pending = RequestTokens()
+            yield result
+        except AioRpcError as exc:
+            if response is None and request.response_schema is not None and exc.code() == StatusCode.INVALID_ARGUMENT:
+                raise NativeSchemaRejected() from exc
+            raise
+        finally:
+            if request.on_usage and pending != RequestTokens():
+                request.on_usage(pending)

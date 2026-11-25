@@ -96,7 +96,8 @@ class LazyGrokClient:
     API Key 在构造时校验，缺失仍立即报错。
     """
 
-    def __init__(self, *, api_key: str | None) -> None:
+    def __init__(self, *, api_key: str | None, disable_retries: bool = False) -> None:
+        self._disable_retries = disable_retries
         self._api_key = resolve_grok_api_key(api_key)
         self._sdk_client: xai_sdk.AsyncClient | None = None
 
@@ -104,8 +105,13 @@ class LazyGrokClient:
         if self._sdk_client is None:
             import xai_sdk
 
-            self._sdk_client = xai_sdk.AsyncClient(api_key=self._api_key)
+            self._sdk_client = xai_sdk.AsyncClient(
+                api_key=self._api_key, channel_options=[("grpc.enable_retries", 0)] if self._disable_retries else None
+            )
         return self._sdk_client
+
+    async def wait_connected(self) -> None:
+        await self._sdk()._api_channel.channel_ready()
 
     @property
     def chat(self) -> chat.Client:
@@ -120,6 +126,6 @@ class LazyGrokClient:
         return self._sdk().video
 
 
-def create_grok_client(*, api_key: str | None = None) -> LazyGrokClient:
+def create_grok_client(*, api_key: str | None = None, disable_retries: bool = False) -> LazyGrokClient:
     """创建 xAI 客户端，统一校验和构造；SDK 客户端推迟到首次使用时创建，backend 可在任意线程构造。"""
-    return LazyGrokClient(api_key=api_key)
+    return LazyGrokClient(api_key=api_key, disable_retries=disable_retries)

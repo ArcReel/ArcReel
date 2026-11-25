@@ -8,32 +8,25 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from functools import partial
+from collections.abc import AsyncGenerator
+from dataclasses import asdict
 
-from openai import BadRequestError
+import httpx
+from openai import BadRequestError, UnprocessableEntityError
+from openai.types.responses import ResponseUsage
 
-from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
+from lib.backends.openai_shared import create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.text_backends.base import (
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
-    check_truncation,
-    merge_billed_usage,
-    prompt_json_fallback,
     resolve_schema,
-    structured_fallback_reason,
-    truncate_for_log,
 )
 from lib.backends.text_backends.openai import DEFAULT_MODEL
+from lib.backends.text_backends.streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
 from lib.backends.transport_layer import TransportLayer
-from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
-
-logger = logging.getLogger(__name__)
-
-_TRUNCATION_REASONS = ("max_output_tokens",)
 
 
 class OpenAIResponsesTextBackend:
@@ -72,56 +65,18 @@ class OpenAIResponsesTextBackend:
         return self._capabilities
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """生成文本回复。
-
-        本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_once` 层完成，降级尝试的失败
-        不会连带重放已成功的原生调用。
-        """
-        structured = request.response_schema is not None
-        try:
-            native = await self._generate_once(request, structured=structured)
-        except BadRequestError as exc:
-            if not structured:
-                raise
-            logger.warning("原生 text.format 被拒收 (%s)，降级到 prompt 注入路径", exc)
-            return await self._prompt_json_fallback(request)
-
-        if structured:
-            fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
-            if fallback_reason:
-                logger.warning(
-                    "原生 text.format %s，降级到 prompt 注入路径；模型原始输出：%s",
-                    fallback_reason,
-                    truncate_for_log(native.text),
-                )
-                result = await self._prompt_json_fallback(request)
-                merge_billed_usage(result, native)
-                return result
-
-        return native
-
-    async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
-        return await prompt_json_fallback(
-            request,
-            partial(self._generate_once, structured=True),
-            provider=self._provider_name,
-            model=self._model,
+        return await execute_stream(
+            request, self._stream, provider=self.name, protocol="openai_responses", model=self.model
         )
 
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
-    async def _generate_once(self, request: TextGenerationRequest, *, structured: bool) -> TextGenerationResult:
-        """单次 Responses 调用：构造请求、解析与截断处理，瞬态错误重试。
-
-        ``structured`` 按本次 generate() 的原始诉求传入：prompt 注入降级把 ``response_schema``
-        置空后复用本方法，那仍是一次结构化输出尝试，截断要硬错误而非仅告警。
-        """
+    async def _stream(self, request: TextGenerationRequest) -> AsyncGenerator[TextDelta | TextGenerationResult]:
         input_items = await asyncio.to_thread(_build_input, request)
         kwargs: dict = {"model": self._model, "input": input_items, "store": False}
         if request.system_prompt:
             kwargs["instructions"] = request.system_prompt
         if request.max_output_tokens is not None:
             kwargs["max_output_tokens"] = request.max_output_tokens
-        if request.response_schema:
+        if request.response_schema is not None:
             kwargs["text"] = {
                 "format": {
                     "type": "json_schema",
@@ -130,32 +85,85 @@ class OpenAIResponsesTextBackend:
                 }
             }
 
-        logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
-        response = await self._client.responses.create(**kwargs)
-        if response.status == "failed":
-            detail = response.error.message if response.error else "unknown error"
-            raise RuntimeError(f"Responses 调用失败 (model={self._model}): {detail}")
+        try:
+            stream = await self._client.responses.create(
+                **kwargs, stream=True, timeout=httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT)
+            )
+        except (BadRequestError, UnprocessableEntityError) as exc:
+            if request.response_schema is not None and (
+                exc.code == "invalid_json_schema"
+                or (exc.param or "").startswith(("text.format", "response_format"))
+                or any(field in exc.message.lower() for field in ("text.format", "response_format", "json_schema"))
+            ):
+                raise NativeSchemaRejected() from exc
+            raise
 
-        usage = response.usage
-        output_tokens = usage.output_tokens if usage else None
-        incomplete = response.incomplete_details
-        truncated = check_truncation(
-            incomplete.reason if response.status == "incomplete" and incomplete else None,
-            provider=self._provider_name,
-            model=self._model,
-            output_tokens=output_tokens,
-            structured=structured,
-            truncation_values=_TRUNCATION_REASONS,
-        )
-        return TextGenerationResult(
-            text=response.output_text,
-            provider=self._provider_name,
-            model=self._model,
-            input_tokens=usage.input_tokens if usage else None,
-            output_tokens=output_tokens,
-            truncated=truncated,
-            cache_read_tokens=usage.input_tokens_details.cached_tokens if usage else None,
-        )
+        parts: list[str] = []
+        pending = RequestTokens()
+        refused = False
+        try:
+            async with stream:
+                yield TextDelta("")
+                async for event in stream:
+                    if event.type == "response.output_text.delta":
+                        parts.append(event.delta)
+                        yield TextDelta(event.delta)
+                    elif (
+                        event.type == "response.reasoning_text.delta"
+                        or event.type == "response.reasoning_summary_text.delta"
+                    ):
+                        yield TextDelta(event.delta, thinking=True)
+                    elif event.type in ("response.refusal.delta", "response.refusal.done"):
+                        refused = True
+                    elif event.type == "error":
+                        raise RuntimeError("Responses stream failed")
+                    elif event.type == "response.created" or event.type == "response.in_progress":
+                        if event.response.usage is not None:
+                            pending = _tokens(event.response.usage)
+                    elif (
+                        event.type == "response.completed"
+                        or event.type == "response.incomplete"
+                        or event.type == "response.failed"
+                    ):
+                        response = event.response
+                        tokens = _tokens(response.usage)
+                        if response.usage is not None:
+                            pending = tokens
+                        if event.type != f"response.{response.status}" or response.status == "failed":
+                            raise RuntimeError("Responses generation failed")
+                        truncated = response.status == "incomplete"
+                        if truncated and getattr(response.incomplete_details, "reason", None) != "max_output_tokens":
+                            raise RuntimeError("Responses generation incomplete")
+                        if refused or any(
+                            part.type == "refusal"
+                            for item in response.output
+                            if item.type == "message"
+                            for part in item.content
+                        ):
+                            raise RuntimeError("Responses generation refused")
+                        result = TextGenerationResult(
+                            text="".join(parts) if parts else response.output_text,
+                            provider=self.name,
+                            model=self.model,
+                            truncated=truncated,
+                            **asdict(tokens),
+                        )
+                        pending = RequestTokens()
+                        yield result
+                        return
+        finally:
+            if request.on_usage and pending != RequestTokens():
+                request.on_usage(pending)
+
+
+def _tokens(usage: ResponseUsage | None) -> RequestTokens:
+    if usage is None:
+        return RequestTokens()
+    return RequestTokens(
+        input_tokens=getattr(usage, "input_tokens", None),
+        output_tokens=getattr(usage, "output_tokens", None),
+        cache_read_tokens=getattr(getattr(usage, "input_tokens_details", None), "cached_tokens", None),
+    )
 
 
 def _build_input(request: TextGenerationRequest) -> list[dict]:
