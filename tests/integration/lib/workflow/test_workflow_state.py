@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import lib.artifacts.artifact_planner as artifact_planner
 import lib.script.script_review as script_review
 from lib.artifacts.artifact_activation import (
     activate_artifact_target_state,
@@ -39,8 +40,10 @@ from lib.speech.narration_delivery import (
     canonical_narration_text,
 )
 from lib.speech.speech_composition import admit_script_unit
+from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService, planning_docs, workflow_finished
 from server.services.admission.asset_sheet_batch import AssetSheetScope, plan_asset_sheet_batch
+from server.services.project.workflow_planner import WorkflowPlanner
 from tests.factories import register_project_sources
 
 
@@ -302,7 +305,7 @@ def test_whole_source_without_episodes_suggests_planning_or_a_new_episode(tmp_pa
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.schema_version == 2
+    assert status.schema_version == 3
     assert status.project.content_mode == "narration"
     assert status.source_revision == revision
     assert status.artifacts["asset_sheets"] == {
@@ -1322,7 +1325,8 @@ def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: st
             register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
         elif kind == "blocked_derivative":
             pm.update_project("demo", lambda project: project["characters"]["Alice"].update({"description": ""}))
-        shot = _valid_ad_shot(characters_in_shot=["Alice/战损"])
+        names = ["Alice", "Alice/战损"] if kind == "owner_and_derivative" else ["Alice/战损"]
+        shot = _valid_ad_shot(characters_in_shot=names)
     script = {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [shot]}
     _write_registered_script(project_path, script)
     project = pm.load_project("demo")
@@ -1335,6 +1339,8 @@ def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: st
 
     status = WorkflowStateService(pm).get_status("demo")
 
+    if kind == "derivative":
+        assert status.artifacts["asset_sheets"]["character"]["current_ids"] == []
     if plan.target_ids:
         assert status.next_action.type == "generate_asset_sheets"
         assert status.next_action.args == {"episode_id": 1}
@@ -1356,18 +1362,43 @@ def test_a_missing_sheet_the_episode_does_not_reference_does_not_hold_it_back(tm
     assert status.next_action.type != "generate_asset_sheets"
 
 
-def test_asset_the_episode_does_not_reference_stays_out_of_the_next_step(tmp_path: Path) -> None:
+async def test_unreferenced_sheet_is_never_planned_or_hashed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
-    pm.update_project("demo", lambda project: project.update(characters={"未出场角色": {"description": "配角"}}))
+    pm.add_character("demo", "Alice", "配角")
+    sheet = "characters/Alice.png"
+    _write_artifact(project_path, sheet)
+    pm.update_project_character_sheet("demo", "Alice", sheet)
     _write_registered_script(
         project_path,
         {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]},
     )
+    register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
+    digest = artifact_planner.visual_file_digest
 
-    status = WorkflowStateService(pm).get_status("demo")
+    def check_digest(path):
+        assert path != project_path / sheet
+        return digest(path)
 
-    assert status.artifacts["asset_sheets"]["character"]["missing_ids"] == ["未出场角色"]
-    assert status.next_action.type == "generate_storyboards"
+    resolve_key = artifact_planner.TargetStatePlanner.resolve_key
+
+    def check_key(planner, key):
+        assert key != ArtifactKey.asset_sheet("character", "Alice")
+        return resolve_key(planner, key)
+
+    async def no_tasks(**kwargs):
+        assert kwargs["task_type"] != "character"
+        return []
+
+    monkeypatch.setattr(artifact_planner, "visual_file_digest", check_digest)
+    monkeypatch.setattr(artifact_planner.TargetStatePlanner, "resolve_key", check_key)
+    monkeypatch.setattr("server.services.project.workflow_planner.get_active_tasks_for_resources", no_tasks)
+    service = WorkflowStateService(pm)
+    for episode in (None, 1):
+        status = service.get_status("demo", episode)
+        assert status.artifacts["asset_sheets"]["character"] == {"current_ids": [], "missing_ids": [], "stale_ids": []}
+        plan = await WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest(episode_id=episode))
+        assert plan.status == status
+    assert service.get_episode_next_steps("demo").episodes[0].next_action == status.next_action
 
 
 def test_referenced_asset_reminders_stay_out_of_the_next_step(tmp_path: Path) -> None:
@@ -1671,7 +1702,7 @@ def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.artifacts["asset_sheets"]["product"]["missing_ids"] == ["杯子"]
+    assert status.artifacts["asset_sheets"]["product"]["missing_ids"] == []
     assert status.next_action.type == "generate_storyboards"
 
 
@@ -1767,6 +1798,7 @@ def test_schema8_manifest_reports_current_stale_missing_and_blocked_without_file
         "content_mode": "ad",
         "shots": [
             _valid_ad_shot(
+                characters_in_shot=["Alice"],
                 image_prompt="red coat hero",
                 generated_assets={"storyboard_image": storyboard_path},
             )

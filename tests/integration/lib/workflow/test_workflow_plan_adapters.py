@@ -109,6 +109,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
         response = client.post("/api/v1/projects/demo/workflow-plan", json=payload)
 
     assert response.status_code == 200
+    assert response.json()["schema_version"] == response.json()["status"]["schema_version"] == 3
     assert json_value(agent_plan.value) == response.json()
     assert planner.calls == [
         ("demo", WorkflowPlanRequest.model_validate(payload), "default"),

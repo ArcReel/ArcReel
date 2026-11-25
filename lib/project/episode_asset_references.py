@@ -5,8 +5,8 @@
 
 引用落点与级联改名、引用状态共用 :func:`lib.script.script_references.payload_reference_names`
 （引用数组、``speaker``、正文 ``@[名称]``），名字归属由 :class:`ReferenceCatalog` 决议，未登记的
-名字不算。衍生引用 ``本体/衍生`` 同时算引用了本体：衍生资产图是对本体资产图的一次编辑，
-本体没有可用资产图时衍生无从生成。
+名字不算。批量生成时，衍生引用 ``本体/衍生`` 同时算引用了本体：衍生资产图是对本体资产图的一次编辑，
+本体没有可用资产图时衍生无从生成。工作流清单只列脚本直接引用的名称。
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class ReferencedAsset:
 
 
 def episode_referenced_assets(
-    project: Mapping[str, Any], script: Mapping[str, Any] | None
+    project: Mapping[str, Any], script: Mapping[str, Any] | None, *, include_derivative_owners: bool = True
 ) -> frozenset[ReferencedAsset]:
     """一集正式脚本引用的全部已登记资产与衍生；没有正式脚本时为空。"""
 
@@ -47,8 +47,9 @@ def episode_referenced_assets(
         owner_key = resolve_asset_key(bucket, entry.asset_name)
         if owner_key is None:
             continue
-        referenced.add(ReferencedAsset(asset_type=entry.asset_type, name=owner_key))
         _base, derivative_name = split_derivative_reference(entry.name)
+        if not derivative_name or include_derivative_owners:
+            referenced.add(ReferencedAsset(asset_type=entry.asset_type, name=owner_key))
         if not derivative_name:
             continue
         table = derivative_table(bucket.get(owner_key) if isinstance(bucket, Mapping) else None)

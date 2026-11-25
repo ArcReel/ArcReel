@@ -5,6 +5,8 @@
 
 从 `steps[]` 读取当前模式下适用的步骤、顺序和进度。按 `next_action` 与操作准入执行。
 
+计划及其内嵌状态的 `schema_version` 均为 3。`status.artifacts.asset_sheets`、资产步骤和活动资产任务只覆盖目标集正式脚本引用的资产。没有目标集、可用脚本或已登记引用时，各资产类型的清单为空。查看全项目资产图状态使用 `GET /projects/{project_name}/asset-sheets/status`。
+
 ## 查询
 
 ```text

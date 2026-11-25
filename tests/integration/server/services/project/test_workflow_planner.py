@@ -411,8 +411,13 @@ async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, m
     assert plan.next_action.args["task_ids"] == ["grid-task"]
 
 
-async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("task_type", "name"), [("character", "张三"), ("character_derivative", "张三/战损")])
+async def test_asset_sheet_plan_waits_for_active_asset_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, task_type: str, name: str
+) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
+    status = _status(action="generate_asset_sheets")
+    status.artifacts["asset_sheets"] = {"character": {"missing_ids": [name]}}
     monkeypatch.setattr(
         pm,
         "load_project",
@@ -426,19 +431,19 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
-        lambda *_args: _status(action="generate_asset_sheets"),
+        lambda *_args: status,
     )
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
-        if kwargs["task_type"] != "character":
+        if kwargs["task_type"] != task_type:
             return []
-        assert kwargs["resource_ids"] == ["张三"]
+        assert kwargs["resource_ids"] == [name]
         return [
             {
                 "task_id": "character-task",
                 "batch_id": "asset-batch",
-                "resource_id": "张三",
-                "task_type": "character",
+                "resource_id": name,
+                "task_type": task_type,
                 "status": "running",
             }
         ]
@@ -478,7 +483,9 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
             assert project_manager is planner_pm
 
         def get_status(self, *_args: object) -> WorkflowStatus:
-            return _status(action="generate_storyboards")
+            status = _status(action="generate_storyboards")
+            status.artifacts["asset_sheets"] = {"product": {"missing_ids": ["杯子", "水壶"]}}
+            return status
 
     monkeypatch.setattr(workflow_planner, "WorkflowStateService", ProductWorkflowStateService)
     queue = GenerationQueue(session_factory=db_factory, project_manager=queue_pm)

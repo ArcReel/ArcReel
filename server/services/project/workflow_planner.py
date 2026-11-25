@@ -17,7 +17,7 @@ from lib.generation.generation_result import (
     migration_problem,
     provider_checkpoint_from_task,
 )
-from lib.project.asset_types import ASSET_SPECS
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, is_derivative_artifact_id
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -205,19 +205,22 @@ class WorkflowPlanner:
             )
 
         if facts is not None:
-            for asset_type in ASSET_SPECS:
-                bucket = facts.project.get(ASSET_SPECS[asset_type].bucket_key)
-                resource_ids = list(bucket) if isinstance(bucket, dict) else []
-                if resource_ids:
-                    rows.extend(
-                        await get_active_tasks_for_resources(
-                            project_name=project_name,
-                            task_type=asset_type,
-                            resource_ids=resource_ids,
-                            user_id=user_id,
-                            queue=queue,
-                        )
+            asset_tasks: dict[str, list[str]] = {}
+            for asset_type, collection in status.artifacts["asset_sheets"].items():
+                for field in ("current_ids", "missing_ids", "stale_ids"):
+                    for name in collection.get(field, []):
+                        task_type = DERIVATIVE_TASK_TYPE if is_derivative_artifact_id(name) else asset_type
+                        asset_tasks.setdefault(task_type, []).append(name)
+            for task_type, resource_ids in asset_tasks.items():
+                rows.extend(
+                    await get_active_tasks_for_resources(
+                        project_name=project_name,
+                        task_type=task_type,
+                        resource_ids=resource_ids,
+                        user_id=user_id,
+                        queue=queue,
                     )
+                )
             id_field = facts.id_field
             unit_ids = [
                 str(item[id_field])
