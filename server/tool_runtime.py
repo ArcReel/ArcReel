@@ -1596,8 +1596,7 @@ async def create_project(
 
     def _create() -> dict[str, Any]:
         name = services.projects.normalize_project_name(value.name)
-        services.projects.create_project(name, content_mode=value.content_mode, publish=False)
-        try:
+        with services.projects.creating_project(name, content_mode=value.content_mode, publish=False):
             project = services.projects.create_project_metadata(
                 name,
                 value.title,
@@ -1612,9 +1611,6 @@ async def create_project(
                 brief=value.brief,
                 narration=narration,
             )
-        except Exception:
-            services.projects.delete_project_directory(name)
-            raise
         return {"name": name, "project": project}
 
     try:

@@ -852,9 +852,11 @@ class ProjectArchiveService:
                                     raise BadGatewayError("archive_import_remote_save_failed", **exc.params) from exc
                                 storage.track(self.project_manager.projects_dir / target_name)
                             target_dir = self.project_manager.projects_dir / target_name
-                            if conflict_resolution == "overwritten":
+                            if conflict_resolution == "overwritten" and target_dir.exists():
                                 self._replace_project_dir(prepared_dir, target_dir)
                             else:
+                                if conflict_resolution == "overwritten":
+                                    conflict_resolution = "none"
                                 prepared_dir.rename(target_dir)
                     self._restore_archived_links(archived_links, diagnostics)
 
