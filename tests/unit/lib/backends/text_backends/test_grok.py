@@ -1,208 +1,156 @@
-"""GrokTextBackend tests."""
+"""Replay gRPC frames through the xAI SDK's cumulative Response and incremental Chunk."""
 
+import asyncio
 import json
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import grpc
 import pytest
-from xai_sdk.proto import usage_pb2
+from xai_sdk.proto import chat_pb2, chat_pb2_grpc, sample_pb2, usage_pb2
 
-from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.grok_shared import create_grok_client
+from lib.backends.text_backends.base import RequestTokens, TextGenerationRequest, TextOutputTruncatedError
+from lib.backends.text_backends.grok import GrokTextBackend
+from lib.backends.text_backends.streaming import TextWaitTimeout
 from tests.unit.lib.backends.text_backends.response_schema_support import (
     leaked_class_docstrings,
     response_schema_params,
 )
 
 
+def _frame(text="", *, thinking="", finish="REASON_INVALID", usage=None):
+    return chat_pb2.GetChatCompletionChunk(
+        outputs=[
+            chat_pb2.CompletionOutputChunk(
+                delta=chat_pb2.Delta(role=chat_pb2.ROLE_ASSISTANT, content=text, reasoning_content=thinking),
+                finish_reason=sample_pb2.FinishReason.Value(finish),
+            )
+        ],
+        usage=usage,
+    )
+
+
+_USAGE = usage_pb2.SamplingUsage(
+    prompt_tokens=1000, cached_prompt_text_tokens=600, completion_tokens=50, reasoning_tokens=200
+)
+_TOKENS = RequestTokens(input_tokens=1000, cache_read_tokens=600, output_tokens=250)
+
+
 @pytest.fixture
-def mock_xai():
-    mock_sdk = MagicMock()
-    mock_sdk.chat.system = MagicMock(side_effect=lambda x: f"system:{x}")
-    mock_sdk.chat.user = MagicMock(side_effect=lambda text, *parts: f"user:{text}")
-    mock_sdk.chat.image = MagicMock(side_effect=lambda **kw: f"image:{kw}")
-    with patch.dict("sys.modules", {"xai_sdk": mock_sdk, "xai_sdk.chat": mock_sdk.chat}):
-        yield mock_sdk
+def channel(monkeypatch):
+    factory = MagicMock()
+    factory.return_value.channel_ready = AsyncMock()
+    monkeypatch.setattr(grpc.aio, "secure_channel", factory)
+    return factory
 
 
-class TestProperties:
-    def test_name(self, mock_xai):
-        with patch("lib.backends.text_backends.grok.create_grok_client") as create_client:
-            from lib.backends.text_backends.grok import GrokTextBackend
+@pytest.fixture
+def replay(monkeypatch, channel):
+    stub = MagicMock()
+    monkeypatch.setattr(chat_pb2_grpc, "ChatStub", lambda channel: stub)
 
-            b = GrokTextBackend(api_key="k")
-        assert b.name == "grok"
-        create_client.assert_called_once_with(api_key="k")
+    def setup(*streams):
+        replies = iter(streams)
 
-    def test_default_model(self, mock_xai):
-        with patch("lib.backends.text_backends.grok.create_grok_client"):
-            from lib.backends.text_backends.grok import GrokTextBackend
+        async def stream(request):
+            for frame in next(replies):
+                if isinstance(frame, BaseException):
+                    raise frame
+                yield frame
 
-            b = GrokTextBackend(api_key="k")
-        assert b.model == "grok-4.3"
+        stub.GetCompletionChunk.side_effect = stream
+        return GrokTextBackend(api_key="test"), stub.GetCompletionChunk
 
-    def test_capabilities(self, mock_xai):
-        with patch("lib.backends.text_backends.grok.create_grok_client"):
-            from lib.backends.text_backends.grok import GrokTextBackend
-
-            b = GrokTextBackend(api_key="k")
-        assert b.capabilities == {
-            TextCapability.TEXT_GENERATION,
-            TextCapability.STRUCTURED_OUTPUT,
-            TextCapability.VISION,
-        }
-
-    def test_no_api_key_raises(self, mock_xai):
-        with patch("lib.backends.text_backends.grok.create_grok_client", side_effect=ValueError("XAI_API_KEY 未设置")):
-            from lib.backends.text_backends.grok import GrokTextBackend
-
-            with pytest.raises(ValueError, match="XAI_API_KEY"):
-                GrokTextBackend()
+    return setup
 
 
-class TestGenerate:
-    @pytest.fixture
-    def backend(self, mock_xai):
-        mock_client = MagicMock()
-        with patch("lib.backends.text_backends.grok.create_grok_client", return_value=mock_client):
-            from lib.backends.text_backends.grok import GrokTextBackend
+async def test_chunk_progress_and_terminal_usage(replay, channel):
+    backend, rpc = replay(
+        [_frame(thinking="think"), _frame("hello"), _frame(" world", finish="REASON_STOP", usage=_USAGE)]
+    )
+    progress, billed = [], []
+    result = await backend.generate(
+        TextGenerationRequest(prompt="hi", max_output_tokens=123, on_progress=progress.append, on_usage=billed.append)
+    )
+    assert (result.text, result.provider, result.model) == ("hello world", "grok", "grok-4.3")
+    assert [(p.characters, p.thinking) for p in progress if p.phase == "receiving"] == [
+        (0, True),
+        (5, False),
+        (11, False),
+    ]
+    assert result.request_tokens() == billed == [_TOKENS]
+    assert rpc.call_args.args[0].max_tokens == 123
+    assert dict(channel.call_args.kwargs["options"])["grpc.enable_retries"] == 0
+    client = create_grok_client(api_key="test")
+    assert client.image
+    assert client.video
+    assert dict(channel.call_args.kwargs["options"])["grpc.enable_retries"] == 1
 
-            b = GrokTextBackend(api_key="k")
-        b._test_client = mock_client
-        return b
 
-    async def test_plain_text(self, backend):
-        mock_chat = MagicMock()
-        mock_response = SimpleNamespace(content="  grok output  ")
-        mock_chat.sample = AsyncMock(return_value=mock_response)
-        backend._test_client.chat.create.return_value = mock_chat
+@pytest.mark.parametrize("finish", ["REASON_MAX_LEN", "REASON_MAX_CONTEXT"])
+async def test_truncation(replay, finish):
+    frames = [_frame("partial", finish=finish, usage=_USAGE)]
+    backend, rpc = replay(frames, frames)
+    result = await backend.generate(TextGenerationRequest(prompt="hi"))
+    assert result.truncated
+    assert result.text == "partial"
+    billed = []
+    with pytest.raises(TextOutputTruncatedError):
+        await backend.generate(TextGenerationRequest(prompt="hi", response_schema={}, on_usage=billed.append))
+    assert billed == [_TOKENS]
+    assert rpc.call_count == 2
 
-        result = await backend.generate(TextGenerationRequest(prompt="hello"))
 
-        assert isinstance(result, TextGenerationResult)
-        assert result.text == "grok output"
-        assert result.provider == "grok"
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        asyncio.CancelledError(),
+        grpc.aio.AioRpcError(grpc.StatusCode.UNAVAILABLE, grpc.aio.Metadata(), grpc.aio.Metadata()),
+    ],
+)
+async def test_no_terminal_keeps_last_reported_usage_once(replay, failure):
+    frames = [_frame("{}", usage=_USAGE), _frame()]
+    backend, rpc = replay(frames if failure is None else [*frames, failure])
+    billed = []
+    with pytest.raises(type(failure) if failure is not None else RuntimeError):
+        await backend.generate(TextGenerationRequest(prompt="hi", response_schema={}, on_usage=billed.append))
+    assert billed == [_TOKENS]
+    assert rpc.call_count == 1
 
-    async def test_usage_deducts_cache_hits_and_bills_reasoning_as_output(self, backend):
-        usage = usage_pb2.SamplingUsage(
-            prompt_tokens=1_000, cached_prompt_text_tokens=600, completion_tokens=50, reasoning_tokens=200
-        )
-        mock_chat = MagicMock()
-        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="x", usage=usage))
-        backend._test_client.chat.create.return_value = mock_chat
 
-        result = await backend.generate(TextGenerationRequest(prompt="hello"))
+@pytest.mark.parametrize("reject", [True, False])
+async def test_native_format_and_prompt_fallback(replay, reject):
+    schema = {"type": "array", "items": {"type": "integer"}}
+    invalid = grpc.aio.AioRpcError(
+        grpc.StatusCode.INVALID_ARGUMENT, grpc.aio.Metadata(), grpc.aio.Metadata(), "response_format unsupported"
+    )
+    backend, rpc = replay(
+        [invalid] if reject else [_frame("invalid", finish="REASON_STOP", usage=_USAGE)],
+        [_frame("```json\n[1]\n```", finish="REASON_STOP")],
+    )
+    result = await backend.generate(TextGenerationRequest(prompt="hi", response_schema=schema))
+    native, fallback = [call.args[0] for call in rpc.call_args_list]
+    assert json.loads(native.response_format.schema) == schema
+    assert not native.HasField("max_tokens")
+    assert not fallback.HasField("response_format")
+    assert '"items"' in fallback.messages[-1].content[0].text
+    assert result.text == "[1]"
+    assert result.request_tokens() == ([] if reject else [_TOKENS])
 
-        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1_000, 600, 250)
 
-    async def test_structured_output(self, backend):
-        mock_chat = MagicMock()
-        mock_response = SimpleNamespace(content='{"name": "test"}')
-        mock_chat.sample = AsyncMock(return_value=mock_response)
-        backend._test_client.chat.create.return_value = mock_chat
+@pytest.mark.parametrize("model", response_schema_params())
+async def test_pydantic_schema_omits_docstrings(replay, model):
+    backend, rpc = replay([_frame("partial", finish="REASON_MAX_LEN")])
+    with pytest.raises(TextOutputTruncatedError):
+        await backend.generate(TextGenerationRequest(prompt="hi", response_schema=model))
+    assert not leaked_class_docstrings(model, rpc.call_args.args[0].response_format.schema)
 
-        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-        result = await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
-        assert result.text == '{"name": "test"}'
-        dynamic_model = backend._test_client.chat.create.call_args.kwargs["response_format"]
-        assert set(dynamic_model.model_fields) == {"name"}
-        name_field = dynamic_model.model_fields["name"]
-        assert name_field.annotation == (str | None)
-        assert name_field.is_required() is False
-
-    @pytest.mark.parametrize("model", response_schema_params())
-    async def test_pydantic_response_format_schema_has_no_class_docstrings(self, backend, model):
-        """xai_sdk 用 response_format.model_json_schema() 生成下发的 schema，其中不带类 docstring。"""
-        from pydantic import ValidationError
-
-        mock_chat = MagicMock()
-        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}"))
-        backend._test_client.chat.create.return_value = mock_chat
-
-        with pytest.raises(ValidationError):
-            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=model))
-
-        response_format = backend._test_client.chat.create.call_args.kwargs["response_format"]
-        assert issubclass(response_format, model)
-        wire_json = json.dumps(response_format.model_json_schema(), ensure_ascii=False)
-        assert leaked_class_docstrings(model, wire_json) == []
-
-    async def test_max_output_tokens_passed_to_chat_create(self, backend):
-        """max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。"""
-        mock_chat = MagicMock()
-        mock_response = SimpleNamespace(content="x")
-        mock_chat.sample = AsyncMock(return_value=mock_response)
-        backend._test_client.chat.create.return_value = mock_chat
-
-        await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=16000))
-
-        call_kwargs = backend._test_client.chat.create.call_args.kwargs
-        assert call_kwargs["max_tokens"] == 16000
-
-    async def test_structured_truncation_raises(self, backend):
-        """结构化输出被截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
-        from lib.backends.text_backends.base import TextOutputTruncatedError
-
-        mock_chat = MagicMock()
-        mock_response = SimpleNamespace(content='{"name": "test"}', finish_reason="length")
-        mock_chat.sample = AsyncMock(return_value=mock_response)
-        backend._test_client.chat.create.return_value = mock_chat
-
-        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-        with pytest.raises(TextOutputTruncatedError) as exc_info:
-            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
-
-        assert exc_info.value.provider == "grok"
-
-    async def test_truncated_invalid_json_raises_truncation_not_validation_error(self, backend):
-        """截断的结构化响应是残缺 JSON：先于校验判截断，抛 TextOutputTruncatedError 而不是 pydantic ValidationError。"""
-        from lib.backends.text_backends.base import TextOutputTruncatedError
-
-        mock_chat = MagicMock()
-        mock_chat.sample = AsyncMock(
-            return_value=SimpleNamespace(content='{"name": "te', finish_reason="REASON_MAX_LEN")
-        )
-        backend._test_client.chat.create.return_value = mock_chat
-
-        schema = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
-        with pytest.raises(TextOutputTruncatedError):
-            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
-
-    async def test_complete_invalid_json_still_fails_validation(self, backend):
-        """未截断但不满足 schema 的响应仍抛校验错误，交给调用方的校验重试。"""
-        from pydantic import ValidationError
-
-        mock_chat = MagicMock()
-        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}", finish_reason="REASON_STOP"))
-        backend._test_client.chat.create.return_value = mock_chat
-
-        schema = {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
-        with pytest.raises(ValidationError):
-            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
-
-    async def test_free_text_truncation_only_warns(self, backend, caplog):
-        """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""
-        import logging
-
-        mock_chat = MagicMock()
-        mock_response = SimpleNamespace(content="partial", finish_reason="length")
-        mock_chat.sample = AsyncMock(return_value=mock_response)
-        backend._test_client.chat.create.return_value = mock_chat
-
-        with caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.base"):
-            result = await backend.generate(TextGenerationRequest(prompt="hi"))
-
-        assert result.text == "partial"
-        assert result.truncated is True
-        assert any("被截断" in r.message for r in caplog.records)
-
-    @pytest.mark.parametrize("finish_reason", ["REASON_MAX_LEN", "REASON_MAX_CONTEXT"])
-    async def test_sdk_truncation_reasons_count_as_truncated(self, backend, finish_reason):
-        """xai_sdk 的 Response.finish_reason 返回 FinishReason 的枚举名，输出上限与上下文上限都算截断。"""
-        mock_chat = MagicMock()
-        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="partial", finish_reason=finish_reason))
-        backend._test_client.chat.create.return_value = mock_chat
-
-        result = await backend.generate(TextGenerationRequest(prompt="hi"))
-
-        assert result.truncated is True
+async def test_connection_deadline_precedes_rpc(replay, channel, monkeypatch):
+    backend, rpc = replay()
+    monkeypatch.setattr("lib.backends.text_backends.grok.CONNECT_TIMEOUT", 0)
+    channel.return_value.channel_ready.side_effect = asyncio.Event().wait
+    with pytest.raises(TextWaitTimeout):
+        await backend.generate(TextGenerationRequest(prompt="hi"))
+    rpc.assert_not_called()

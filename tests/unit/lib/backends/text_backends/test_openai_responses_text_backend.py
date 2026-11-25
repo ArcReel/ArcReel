@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from types import SimpleNamespace
@@ -70,7 +71,18 @@ def _response(
             "total_tokens": input_tokens + output_tokens,
         },
     }
-    return httpx.Response(200, json=body)
+    return _sse(
+        {"type": "response.output_text.delta", "delta": text},
+        {"type": "response." + body["status"], "response": body},
+    )
+
+
+def _sse(*events):
+    return httpx.Response(
+        200,
+        headers={"content-type": "text/event-stream"},
+        text="".join("data: " + json.dumps(event) + "\n\n" for event in events),
+    )
 
 
 async def test_structured_output_encodes_text_format(tmp_path):
@@ -95,6 +107,7 @@ async def test_structured_output_encodes_text_format(tmp_path):
 
     body = request_json(only_request(route))
     assert body["text"] == {"format": {"type": "json_schema", "name": "response", "schema": resolve_schema(_Overview)}}
+    assert body["stream"] is True
     assert body["instructions"] == "你是编剧"
     assert body["max_output_tokens"] == 2000
     assert body["input"] == [
@@ -162,5 +175,92 @@ async def test_truncated_free_text_is_flagged():
 async def test_failed_status_raises():
     with capture_http() as router:
         router.post(_RESPONSES_URL).mock(return_value=_response("", error="upstream boom"))
-        with pytest.raises(RuntimeError, match="upstream boom"):
+        with pytest.raises(RuntimeError, match="failed"):
             await _backend().generate(TextGenerationRequest(prompt="讲个故事"))
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_disconnected_json_keeps_reported_usage_once(cancel):
+    billed = []
+    read_pending = asyncio.Event()
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield _sse(
+                {
+                    "type": "response.in_progress",
+                    "response": {
+                        "usage": {"input_tokens": 7, "output_tokens": 2, "input_tokens_details": {"cached_tokens": 3}},
+                    },
+                },
+                {"type": "response.output_text.delta", "delta": "{}"},
+            ).content
+            if cancel:
+                read_pending.set()
+                await asyncio.Event().wait()
+
+    with capture_http() as router:
+        route = router.post(_RESPONSES_URL).mock(
+            return_value=httpx.Response(200, stream=Body(), headers={"content-type": "text/event-stream"})
+        )
+        task = asyncio.create_task(
+            _backend().generate(TextGenerationRequest(prompt="hi", response_schema={}, on_usage=billed.append))
+        )
+        if cancel:
+            async with asyncio.timeout(5):
+                await read_pending.wait()
+            task.cancel()
+        with pytest.raises(asyncio.CancelledError if cancel else RuntimeError):
+            await task
+    assert route.call_count == 1
+    assert [(u.input_tokens, u.output_tokens, u.cache_read_tokens) for u in billed] == [(7, 2, 3)]
+
+
+async def test_unmetered_completion_counts_only_text_deltas():
+    progress, billed = [], []
+    with capture_http() as router:
+        route = router.post(_RESPONSES_URL).mock(
+            return_value=_sse(
+                {"type": "response.reasoning_summary_text.delta", "delta": "thinking"},
+                {"type": "response.output_text.delta", "delta": "hi"},
+                {"type": "response.completed", "response": {"status": "completed", "output": [], "usage": None}},
+            )
+        )
+        result = await _backend().generate(
+            TextGenerationRequest(prompt="hi", on_usage=billed.append, on_progress=progress.append)
+        )
+    assert result.text == "hi"
+    assert result.request_tokens() == billed == []
+    assert [(p.characters, p.thinking) for p in progress if p.phase == "receiving"] == [(0, True), (2, False)]
+    assert "max_output_tokens" not in request_json(only_request(route))
+
+
+@pytest.mark.parametrize(
+    ("status", "details", "output"),
+    [
+        ("incomplete", {"reason": "content_filter"}, []),
+        ("completed", None, [{"type": "message", "content": [{"type": "refusal", "refusal": "declined"}]}]),
+        ("failed", None, []),
+    ],
+)
+async def test_unsuccessful_generation_never_enters_schema_fallback(status, details, output):
+    billed = []
+    with capture_http() as router:
+        route = router.post(_RESPONSES_URL).mock(
+            return_value=_sse(
+                {
+                    "type": "response." + status,
+                    "response": {
+                        "status": status,
+                        "incomplete_details": details,
+                        "output": output,
+                        "usage": {"input_tokens": 10, "output_tokens": 1, "input_tokens_details": {"cached_tokens": 0}},
+                    },
+                },
+            )
+        )
+        with pytest.raises(RuntimeError):
+            await _backend().generate(TextGenerationRequest(prompt="hi", response_schema={}, on_usage=billed.append))
+    assert route.call_count == 1
+    assert len(billed) == 1
+    assert billed[0].input_tokens == 10
