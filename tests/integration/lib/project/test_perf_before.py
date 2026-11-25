@@ -26,9 +26,12 @@ def test_workflow_before(tmp_path, sqlite):
             manager.versions_file.unlink()
             manager.enable_sqlite_history(json.loads(archive.read("versions/versions.json")))
     status = WorkflowStateService(pm).get_status("demo")
-    assert status.model_dump(mode="json") == json.loads((FIXTURES / "wf_status.json").read_bytes())
+    expected_status = json.loads((FIXTURES / "wf_status.json").read_bytes())
+    assert status.model_dump(mode="json") == {**expected_status, "schema_version": 3}
     plan = build_workflow_plan(status)
-    assert plan.model_dump(mode="json") == json.loads((FIXTURES / "wf_plan.json").read_bytes())
+    expected_plan = json.loads((FIXTURES / "wf_plan.json").read_bytes())
+    expected_plan["schema_version"] = expected_plan["status"]["schema_version"] = 3
+    assert plan.model_dump(mode="json") == expected_plan
 
 
 def test_legacy_before(tmp_path):

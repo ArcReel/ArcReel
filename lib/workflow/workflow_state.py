@@ -10,7 +10,7 @@ import logging
 import sqlite3
 import unicodedata
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -49,7 +49,7 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_migration_report import MigrationReport, visible_migration_report
 from lib.project.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
-from lib.references.reference_admission import admit_references, admit_storyboard_items
+from lib.references.reference_admission import SHEET_REQUIRED_ASSET_TYPES, admit_references, admit_storyboard_items
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script import script_review
 from lib.script.reference_video.text_parser import derive_references_from_text
@@ -217,7 +217,7 @@ class WorkflowStatus(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     project_revision: str
     source_revision: str | None
     project: WorkflowProject
@@ -227,7 +227,9 @@ class WorkflowStatus(BaseModel):
     content: WorkflowContent | None
     operations: dict[str, WorkflowOperation] = Field(default_factory=dict)
     gates: dict[str, dict[str, Any]]
-    artifacts: dict[str, dict[str, Any]]
+    artifacts: dict[str, dict[str, Any]] = Field(
+        description="asset_sheets contains only assets referenced by the target episode."
+    )
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
     migration_report: MigrationReport | None = None
@@ -387,7 +389,6 @@ class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
     planning_sources: tuple[SourceDoc, ...]
     source_remaining: bool
-    sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
     currency: ArtifactCurrencyResolver | None
     blockers: tuple[WorkflowBlocker, ...]
@@ -849,7 +850,7 @@ class WorkflowStateService:
             return EpisodeNextSteps(episodes=[])
         if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
             return EpisodeNextSteps(episodes=[])
-        shared = self._shared_facts(project_path, project, include_sheets=False)
+        shared = self._shared_facts(project_path, project)
         if shared.blockers:
             return EpisodeNextSteps(episodes=[])
         ledger = shared.episodes
@@ -887,10 +888,6 @@ class WorkflowStateService:
                 if facts.stale:
                     action = self._stale_action()
                 else:
-                    if not shared.sheets:
-                        issues = list(shared.issues)
-                        sheets = self._asset_sheets(project_path, project, issues, shared.currency)
-                        shared = replace(shared, sheets=sheets, issues=tuple(issues))
                     action = self._episode_status(project_name, project, project_path, shared, pair).next_action
             steps.append(
                 EpisodeNextStep(
@@ -1124,9 +1121,7 @@ class WorkflowStateService:
             source_remaining=stored_source_remaining(project),
         )
 
-    def _shared_facts(
-        self, project_path: Path, project: dict[str, Any], *, include_sheets: bool = True
-    ) -> _SharedWorkflowFacts:
+    def _shared_facts(self, project_path: Path, project: dict[str, Any]) -> _SharedWorkflowFacts:
         """一次查询内各集共用的事实。
 
         阻断项只收「项目整体不可用」：创作类型或生成模式读不出（无从判定任何内容），或产物清单读不出。
@@ -1193,13 +1188,11 @@ class WorkflowStateService:
             )
         source = self._source_revision(project_path, project, str(mode), issues)
         planning_sources = planning_docs(project, source) if mode != "ad" else ()
-        sheets = self._asset_sheets(project_path, project, issues, currency) if include_sheets else {}
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
             source=source,
             planning_sources=planning_sources,
             source_remaining=source_remaining(project, list(planning_sources)),
-            sheets=sheets,
             episodes=episodes,
             currency=currency,
             blockers=tuple(blockers),
@@ -1228,7 +1221,7 @@ class WorkflowStateService:
                 content=None,
                 operations={},
                 gates={},
-                artifacts=self._base_artifacts(project, shared),
+                artifacts=self._base_artifacts(project),
                 next_action=_action(WorkflowActionType.NONE, "workflow is blocked"),
             )
         if mode == "ad":
@@ -1330,10 +1323,10 @@ class WorkflowStateService:
         )
 
     @staticmethod
-    def _base_artifacts(project: Mapping[str, Any], shared: _SharedWorkflowFacts) -> dict[str, dict[str, Any]]:
+    def _base_artifacts(project: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         is_ad = project.get("content_mode") == "ad"
         return {
-            "asset_sheets": shared.sheets,
+            "asset_sheets": {kind: _empty_collection() for kind in ASSET_SPECS},
             "script_plan": {"state": "not_applicable" if is_ad else "missing"},
             "script": {"state": "missing"},
             "storyboards": _empty_collection(),
@@ -1360,7 +1353,7 @@ class WorkflowStateService:
                 )
             },
             gates={},
-            artifacts=self._base_artifacts(project, shared),
+            artifacts=self._base_artifacts(project),
             next_action=next_action,
             next_alternatives=[_action(WorkflowActionType.CREATE_EPISODE, "an episode can also be created by hand")],
         )
@@ -1483,18 +1476,18 @@ class WorkflowStateService:
         items: list[dict[str, Any]],
         kind: str | None,
         shared: _SharedWorkflowFacts,
+        content: WorkflowContent,
+        sheets: dict[str, Any],
         issues: list[WorkflowBlocker],
-    ) -> tuple[list[str], list[str], list[str]]:
-        """本集引用的资产图现状：(待生成且可生成, 过期, 缺描述)。
+    ) -> list[str]:
+        """记录本集引用的资产图现状，返回待生成且可生成的资产。
 
         待生成与资产图批量的集范围同一判定：缺描述的不算；衍生的本体没有可用资产图、也不在同批时不算。
         """
         missing: list[str] = []
-        stale: list[str] = []
-        without_description: list[str] = []
         accepted_sheets: set[tuple[str, str]] = set()
         for asset in sorted(
-            episode_referenced_assets(project, ({kind: items} if kind else None)),
+            episode_referenced_assets(project, ({kind: items} if kind else None), include_derivative_owners=False),
             key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
         ):
             spec = ASSET_SPECS[asset.asset_type]
@@ -1504,11 +1497,9 @@ class WorkflowStateService:
                 if asset.owner is not None
                 else owner
             )
-            description = entry.get("description")
-            if not isinstance(description, str) or not description.strip():
-                without_description.append(asset.name)
-                continue
             path = entry.get(spec.sheet_field)
+            if asset.asset_type in SHEET_REQUIRED_ASSET_TYPES and not (isinstance(path, str) and path):
+                content.referenced_assets_without_sheet.append(asset.name)
             sheet_state = (
                 self._artifact_state(
                     shared.currency,
@@ -1525,19 +1516,29 @@ class WorkflowStateService:
                 if shared.currency is not None and isinstance(path, str) and path
                 else ArtifactStatus.MISSING.value
             )
+            collection = sheets[asset.asset_type]
+            if sheet_state == ArtifactStatus.BLOCKED.value:
+                collection["state"] = "blocked"
+            else:
+                collection[f"{sheet_state}_ids"].append(asset.name)
+            description = entry.get("description")
+            if not isinstance(description, str) or not description.strip():
+                content.referenced_assets_without_description.append(asset.name)
+                continue
             if sheet_state == ArtifactStatus.STALE.value:
-                stale.append(asset.name)
+                content.referenced_asset_sheets_stale.append(asset.name)
             if sheet_state != ArtifactStatus.MISSING.value:
                 continue
-            if asset.owner is not None:
-                owner_sheets = shared.sheets[asset.asset_type]
-                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
-                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
-                ):
+            if asset.owner is not None and (asset.asset_type, asset.owner) not in accepted_sheets:
+                owner_path = owner.get(spec.sheet_field)
+                if not isinstance(owner_path, str) or not owner_path or shared.currency is None:
+                    continue
+                key = ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.owner))
+                if self._artifact_state(shared.currency, key, owner_path, issues) not in {"current", "stale"}:
                     continue
             missing.append(asset.name)
             accepted_sheets.add((asset.asset_type, asset.name))
-        return missing, stale, without_description
+        return missing
 
     @staticmethod
     def _stale_action() -> WorkflowNextAction:
@@ -1620,7 +1621,7 @@ class WorkflowStateService:
         generation_mode = project.get("generation_mode")
         grid = project.get("grid_storyboard") is True and generation_mode == "storyboard"
         issues = list(shared.issues)
-        artifacts = self._base_artifacts(project, shared)
+        artifacts = self._base_artifacts(project)
         gates: dict[str, dict[str, Any]] = {
             "script_plan_review": {"state": "not_applicable" if is_ad else "pending", "revision": None}
         }
@@ -1693,7 +1694,6 @@ class WorkflowStateService:
         )
         pending_ids: list[str] = []
         replan_ids: list[str] = []
-        without_sheet: list[str] = []
         missing_sheets: list[str] = []
         if formal_present:
             content.script_item_count = len(items)
@@ -1705,11 +1705,9 @@ class WorkflowStateService:
                 if kind == "video_units" and id_field is not None and item.get("needs_replan") is True
             ]
             admission = self._reference_admission(project, items, kind)
-            without_sheet = [name for _asset_type, name in admission.without_sheet]
-            content.referenced_assets_without_sheet = without_sheet
             content.unregistered_references = list(admission.unregistered)
-            missing_sheets, content.referenced_asset_sheets_stale, content.referenced_assets_without_description = (
-                self._referenced_sheet_facts(project, items, kind, shared, issues)
+            missing_sheets = self._referenced_sheet_facts(
+                project, items, kind, shared, content, artifacts["asset_sheets"], issues
             )
             artifacts["storyboards"] = (
                 self._media_collection(

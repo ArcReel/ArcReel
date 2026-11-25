@@ -39,7 +39,7 @@ function workflowStatus(
   overrides: Partial<WorkflowStatus> = {},
 ): WorkflowStatus {
   return {
-    schema_version: 2,
+    schema_version: 3,
     project_revision: "r",
     source_revision: null,
     project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false },

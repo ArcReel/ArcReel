@@ -73,7 +73,7 @@ export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowC
 
 export function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
   return {
-    schema_version: 2,
+    schema_version: 3,
     project_revision: "sha256-v1:project",
     source_revision: "sha256-v1:source",
     project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false },
@@ -99,7 +99,7 @@ export function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowSta
 export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   const status = overrides.status ?? makeStatus();
   return {
-    schema_version: 2,
+    schema_version: 3,
     status,
     steps: [makeStep()],
     blockers: status.blockers,

@@ -325,6 +325,7 @@ async def test_both_hosts_expose_the_declared_name_schema_and_description(
     assert remote.inputSchema["properties"]["project"]["type"] == "string"
     assert remote.inputSchema["required"][0] == "project"
     assert _without_project(remote.inputSchema) == embedded.inputSchema
+    assert remote.outputSchema == embedded.outputSchema
     assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
     assert embedded.description == tool_description(declaration)
     assert remote.description == tool_description(declaration) + (LONG_TASK_NOTE if declaration.long_task else "")

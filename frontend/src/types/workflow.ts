@@ -241,7 +241,7 @@ export interface WorkflowMigrationReport {
 }
 
 export interface WorkflowStatus {
-  schema_version: 2;
+  schema_version: 3;
   project_revision: string;
   source_revision: string | null;
   project: WorkflowProject;
@@ -265,7 +265,7 @@ export interface EpisodeNextStep {
 }
 
 export interface WorkflowPlan {
-  schema_version: 2;
+  schema_version: 3;
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];

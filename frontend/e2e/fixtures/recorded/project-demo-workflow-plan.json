@@ -3,9 +3,9 @@
   "path": "/api/v1/projects/demo/workflow-plan",
   "status": 200,
   "body": {
-    "schema_version": 2,
+    "schema_version": 3,
     "status": {
-      "schema_version": 2,
+      "schema_version": 3,
       "project_revision": "sha256-v1:<project-revision>",
       "source_revision": "sha256-v1:5eccc6d32e26075e1eeb38099443419c4b37a2433114dcbf22ed8071e32a3670",
       "project": {
