@@ -284,6 +284,7 @@ class MediaGenerator:
         image_provider_id: str | None = None,
         video_provider_id: str | None = None,
         audio_provider_id: str | None = None,
+        image_snapshot: "CapabilitySnapshot | None" = None,
         video_snapshot: "CapabilitySnapshot | None" = None,
         video_limits: tuple[int, int] | None = None,
     ):
@@ -312,6 +313,7 @@ class MediaGenerator:
         self.project_name = self.project_path.name
         self._rate_limiter = rate_limiter
         self._image_backend = image_backend
+        self._image_snapshot = image_snapshot
         self._video_backend = video_backend
         self._audio_backend = audio_backend
         self._config = config_resolver
@@ -741,6 +743,7 @@ class MediaGenerator:
             provider_id=cast(str, self._image_provider_id),
             reference_count=len(ref_images),
             reference_paths=((reference_sources or {}).get(str(ref.path), ref.path) for ref in ref_images),
+            snapshot=self._image_snapshot,
         )
 
         async with _remove_staged_output_on_error(staged_output_path):

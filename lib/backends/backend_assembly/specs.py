@@ -21,8 +21,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, builtin_model_endpoint, select_provider_endpoint
-from lib.backends.kling_shared import kling_auth_mode
-from lib.backends.providers import PROVIDER_KLING, video_audio_always_billed
+from lib.backends.providers import video_audio_always_billed
 from lib.backends.video_capabilities import (
     VideoEndpointCapabilities,
     channel_projection,
@@ -35,7 +34,7 @@ from lib.backends.video_capabilities import (
 from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_capabilities
 from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
-from lib.video_runtime.builtin import build_legacy_audio, build_legacy_text, build_legacy_video
+from lib.video_runtime.builtin import build_legacy_audio, build_legacy_image, build_legacy_text, build_legacy_video
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
@@ -54,69 +53,6 @@ class ProviderSpec:
     registry_backend: str
     build_backend: Callable[[LoadedConfig, str | None], Any]
     endpoint: str
-
-
-def _media_create_backend(media_type: str) -> Callable[..., Any]:
-    """按 media_type 取对应 registry 的 create_backend（运行时取，便于测试 patch 模块属性）。"""
-    if media_type == "image":
-        from lib.backends.image_backends.registry import create_backend
-    else:
-        raise ValueError(f"unknown media_type: {media_type!r}")
-    return create_backend
-
-
-def _resolve_base_url(config: LoadedConfig) -> str | None:
-    """base_url 优先级：用户在 db_config 显式填写 > ProviderMeta.default_base_url > None。
-
-    简单族与 kling 共用此兜底语义；调用方各自决定 None 时是否省略 base_url 参数。
-    """
-    default = config.provider_meta.default_base_url if config.provider_meta else None
-    return config.credentials.get("base_url") or default
-
-
-def _build_simple(
-    config: LoadedConfig,
-    model_id: str | None,
-    *,
-    media_type: str,
-    registry_backend: str,
-    extra_keys: tuple[str, ...] = (),
-    extra_kwargs: dict[str, Any] | None = None,
-) -> Any:
-    """简单族通用构造：api_key + model + base_url，外加 extra_keys 声明的 db_config 直传键。
-
-    api_key 与 base_url 同遵「仅非空才写入 kwargs」：显式传 None 可能覆盖底层 SDK 的环境变量兜底
-    （如 OpenAI SDK 读 OPENAI_API_KEY），缺省由 backend 各自处理（要么读环境变量、要么 fail-loud）。
-    base_url 优先级见 _resolve_base_url —— grok 等无 default 且用户未配的 provider 不接受 base_url
-    参数，传 None 会触发 TypeError，故仅非空才写入。extra_keys 同规则：键名即 backend 构造参数名，
-    供个别 provider 的专属 endpoint 配置（如 dashscope 的 wan3_base_url）复用同一条构造缝。
-    """
-    kwargs: dict[str, Any] = {"model": model_id}
-    api_key = config.credentials.get("api_key")
-    if api_key:
-        kwargs["api_key"] = api_key
-    base_url = _resolve_base_url(config)
-    if base_url:
-        kwargs["base_url"] = base_url
-    for key in extra_keys:
-        value = config.credentials.get(key)
-        if value:
-            kwargs[key] = value
-    kwargs.update(extra_kwargs or {})
-    return _media_create_backend(media_type)(registry_backend, **kwargs)
-
-
-def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
-    """登记一条简单族 spec：registry_backend 即 provider_id 自身（媒体侧无别名映射）。"""
-    return ProviderSpec(
-        provider_id=provider_id,
-        media_type=media_type,
-        registry_backend=provider_id,
-        build_backend=partial(
-            _build_simple, media_type=media_type, registry_backend=provider_id, extra_keys=extra_keys
-        ),
-        endpoint=endpoint,
-    )
 
 
 _SEEDANCE_ENDPOINTS = ("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5")
@@ -151,39 +87,20 @@ _KLING_ENDPOINTS = (
 
 _GEMINI_REGISTRY_BACKEND = "gemini"
 
-
-def _build_gemini_image(config: LoadedConfig, model_id: str | None, *, backend_type: str) -> Any:
-    return _media_create_backend("image")(
-        _GEMINI_REGISTRY_BACKEND,
-        backend_type=backend_type,
-        api_key=config.credentials.get("api_key"),
-        base_url=config.credentials.get("base_url"),
-        rate_limiter=config.rate_limiter,
-        image_model=model_id,
-        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
-    )
-
-
-_GEMINI_BUILDS = {"image": _build_gemini_image}
-
-
-_GEMINI_ENDPOINTS = {"image": "gemini-image"}
-
-
 _GEMINI_VIDEO_ENDPOINTS: Mapping[str, Mapping[str, str]] = {
     "veo": {"aistudio": "gemini-video", "vertex": "gemini-vertex-video"},
     "interactions": {"aistudio": "gemini-interactions-video", "vertex": "gemini-vertex-interactions-video"},
 }
 
 
-def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> ProviderSpec:
-    build = _GEMINI_BUILDS[media_type]
+def _image_spec(provider_id: str, endpoint: str, registry_backend: str | None = None) -> ProviderSpec:
+    registry = registry_backend or endpoint
     return ProviderSpec(
-        provider_id=provider_id,
-        media_type=media_type,
-        registry_backend=_GEMINI_REGISTRY_BACKEND,
-        build_backend=partial(build, backend_type=backend_type),
-        endpoint=_GEMINI_ENDPOINTS[media_type],
+        provider_id,
+        "image",
+        registry,
+        partial(build_legacy_image, provider_id=provider_id, registry=registry),
+        endpoint,
     )
 
 
@@ -220,49 +137,11 @@ def _text_spec(provider_id: str, endpoint: str, registry_backend: str | None = N
     )
 
 
-_KLING_REGISTRY_BACKEND = "kling"
-
-
-def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str, endpoint: str | None = None) -> Any:
-    """kling 通用构造：按凭证形态分派 auth_mode（api_key 优先于双 secret）；image 侧叠加 api_model_name 注入。"""
-    if kling_auth_mode(config.credentials) == "bearer":
-        kwargs: dict[str, Any] = {
-            "auth_mode": "bearer",
-            "api_key": config.credentials.get("api_key"),
-            "model": model_id,
-        }
-    else:
-        kwargs = {
-            "auth_mode": "jwt",
-            "access_key": config.credentials.get("access_key"),
-            "secret_key": config.credentials.get("secret_key"),
-            "model": model_id,
-        }
-    if media_type == "image":
-        model_info = catalog.get_model(PROVIDER_KLING, model_id) if model_id else None
-        if model_info is not None and model_info.api_model_name:
-            kwargs["api_model_name"] = model_info.api_model_name
-    base_url = _resolve_base_url(config)
-    if base_url:
-        kwargs["base_url"] = base_url
-    return _media_create_backend(media_type)(endpoint or _KLING_REGISTRY_BACKEND, **kwargs)
-
-
-def _kling_spec(media_type: str, *, endpoint: str | None = None) -> ProviderSpec:
-    return ProviderSpec(
-        provider_id=_KLING_REGISTRY_BACKEND,
-        media_type=media_type,
-        registry_backend=endpoint or _KLING_REGISTRY_BACKEND,
-        build_backend=partial(_build_kling, media_type=media_type, endpoint=endpoint),
-        endpoint=endpoint or f"kling-{media_type}",
-    )
-
-
-_SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
-    ("grok", "image"): "grok-image",
-    ("openai", "image"): "openai-images",
-    ("vidu", "image"): "vidu-image",
-    ("minimax", "image"): "minimax-image",
+_SIMPLE_IMAGE_ENDPOINTS: Mapping[str, str] = {
+    "grok": "grok-image",
+    "openai": "openai-images",
+    "vidu": "vidu-image",
+    "minimax": "minimax-image",
 }
 
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
@@ -270,8 +149,7 @@ _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-
 _MINIMAX_VIDEO_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01", "minimax-h3")
 
 _specs: list[ProviderSpec] = [
-    _simple_spec(provider_id, media_type, endpoint)
-    for (provider_id, media_type), endpoint in _SIMPLE_MEDIA_ENDPOINTS.items()
+    _image_spec(provider_id, endpoint, provider_id) for provider_id, endpoint in _SIMPLE_IMAGE_ENDPOINTS.items()
 ]
 _IMAGE_ENDPOINTS = {
     "ark": ("ark-seedream-3", "ark-seedream-4"),
@@ -280,15 +158,7 @@ _IMAGE_ENDPOINTS = {
     "agnes": ("agnes-image-pixels", "agnes-image-tier"),
 }
 _specs += [
-    ProviderSpec(
-        provider_id=provider_id,
-        media_type="image",
-        registry_backend=endpoint,
-        build_backend=partial(_build_simple, media_type="image", registry_backend=endpoint),
-        endpoint=endpoint,
-    )
-    for provider_id, endpoints in _IMAGE_ENDPOINTS.items()
-    for endpoint in endpoints
+    _image_spec(provider_id, endpoint) for provider_id, endpoints in _IMAGE_ENDPOINTS.items() for endpoint in endpoints
 ]
 _DASHSCOPE_AUDIO_ENDPOINTS = ("dashscope-tts", "dashscope-speech-synthesizer")
 _specs += [_audio_spec("dashscope", endpoint, endpoint) for endpoint in _DASHSCOPE_AUDIO_ENDPOINTS]
@@ -298,10 +168,7 @@ _specs += [
     _audio_spec("ark-agent-plan", "ark-agent-plan-tts"),
     *(_audio_spec(provider_id, "gemini-tts", _GEMINI_REGISTRY_BACKEND) for provider_id in _GEMINI_BACKEND_TYPES),
 ]
-_specs += [
-    _gemini_spec(provider_id, "image", backend_type=backend_type)
-    for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
-]
+_specs += [_image_spec(provider_id, "gemini-image", _GEMINI_REGISTRY_BACKEND) for provider_id in _GEMINI_BACKEND_TYPES]
 _specs.append(_video_spec("openai", "openai-video", "openai"))
 _specs += [
     _video_spec(provider_id, endpoint, "gemini" if endpoint == "gemini-video" else endpoint)
@@ -309,16 +176,8 @@ _specs += [
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
     for endpoint in (by_backend_type[backend_type],)
 ]
-_specs += [_kling_spec("image"), _kling_spec("image", endpoint="kling-image-single")]
-_specs.append(
-    ProviderSpec(
-        provider_id="minimax",
-        media_type="image",
-        registry_backend="minimax-h3-image",
-        build_backend=partial(_build_simple, media_type="image", registry_backend="minimax-h3-image"),
-        endpoint="minimax-h3-image",
-    )
-)
+_specs += [_image_spec("kling", "kling-image", "kling"), _image_spec("kling", "kling-image-single")]
+_specs.append(_image_spec("minimax", "minimax-h3-image"))
 _specs += [
     _video_spec(provider, endpoint)
     for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))

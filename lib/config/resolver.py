@@ -1169,6 +1169,24 @@ class ConfigResolver:
                 model_id=selected.model_id,
             )
 
+    async def configured_image_identity(
+        self,
+        project: dict | None,
+        payload: dict | None,
+        bucket: Literal["t2i", "i2i"],
+    ) -> ProviderModel:
+        async with self._open_session() as (session, svc):
+            if payload:
+                provider_id = _trusted_payload_provider(payload.get("image_provider"))
+                if provider_id is not None:
+                    model = _payload_model(payload.get("image_model"))
+                    if model is not None:
+                        return ProviderModel(provider_id, model)
+            provider_id, model_id = await self._resolve_layered_backend(
+                svc, session, project, _IMAGE_LAYERED_KEYS[bucket]
+            )
+            return ProviderModel(provider_id, model_id)
+
     async def configured_video_identity(
         self, project: dict | None, bucket: VideoGenerationType | None
     ) -> ProviderModel | None:

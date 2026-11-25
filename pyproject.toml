@@ -144,7 +144,6 @@ ignore_imports = [
     "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     "lib.config.resolver -> lib.custom_provider.model_facts",
     "lib.config.resolver -> lib.backends.text_backends.base",
-    "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
     "lib.project.project_manager -> lib.backends.text_backends.base",

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from lib.backends.image_backends.base import ImageBackend, ImageCapability, ImageUsageEstimator
+from lib.capabilities.kernel import Endpoint
 
 _BACKEND_FACTORIES: dict[str, Callable[..., ImageBackend]] = {}
 _UNDECLARED = object()
@@ -72,6 +73,44 @@ def accepts_explicit_quality_of(backend_class: object) -> bool:
     读类属性 ``CHANNEL_ACCEPTS_QUALITY``，缺省为不接受：不读请求 ``quality`` 字段的通道不用声明。
     """
     return getattr(backend_class, "CHANNEL_ACCEPTS_QUALITY", False) is True
+
+
+def is_hard_reference_limit_of(backend_class: object) -> bool:
+    """通道声明的参考图上限是否为不可突破的物理硬上限。"""
+    return getattr(backend_class, "CHANNEL_REFERENCE_LIMIT_HARD", False) is True
+
+
+def describe_image_backend_class(
+    backend_class: object, *, capabilities: Iterable[ImageCapability] | None = None
+) -> Endpoint:
+    """从图片调用通道类生成单一协议能力描述。"""
+    if capabilities is None:
+        declared = getattr(backend_class, "CHANNEL_CAPABILITIES", None)
+        if not isinstance(declared, frozenset):
+            raise ValueError(f"image backend {backend_class!r} does not declare CHANNEL_CAPABILITIES")
+        caps: Iterable[ImageCapability] = declared
+    else:
+        caps = capabilities
+    slots = {cap.value for cap in caps}
+    if accepts_explicit_quality_of(backend_class):
+        slots.add("explicit_quality")
+    limit = reference_limit_of(backend_class)
+    limits: dict[str, int | float] = {}
+    defaults: dict[str, Any] = {}
+    if "image_to_image" in slots and limit is not None:
+        if is_hard_reference_limit_of(backend_class):
+            limits["max_reference_images"] = limit
+        else:
+            defaults["max_reference_images"] = limit
+    return Endpoint("image", frozenset(slots), limits=limits, defaults=defaults)
+
+
+def describe_image_endpoint(name: str) -> Endpoint:
+    """按注册名读取内置图片调用通道的单一协议能力描述，不构造实例。"""
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown image backend: {name}")
+    return describe_image_backend_class(factory)
 
 
 def channel_usage_estimator(name: str) -> ImageUsageEstimator:

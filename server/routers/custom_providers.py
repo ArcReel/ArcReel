@@ -34,6 +34,7 @@ from lib.config.repository import mask_secret
 from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
+    custom_image_snapshot,
     custom_video_snapshot,
     filter_valid_overrides,
 )
@@ -42,8 +43,8 @@ from lib.custom_provider.capability_view import (
     OverrideRejected,
     custom_capability_view,
     overridable_keys,
+    validate_snapshot_overrides,
     validate_text_overrides,
-    validate_video_overrides,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
@@ -362,18 +363,23 @@ def _effective_overrides_for_response(
             )
             or None
         )
+    if media_type == "image":
+        try:
+            snapshot = custom_image_snapshot(
+                endpoint=endpoint,
+                model_id=model_id,
+                overrides=overrides,
+                endpoint_spec=endpoint_spec,
+                entry_binding=entry_binding,
+            )
+        except ValueError:
+            return None
+        return snapshot.override_dict() or None
     if endpoint_spec.kind == COMFYUI_KIND:
         return None
     if media_type == "text":
         return text_capability_snapshot(model_id, overrides, entry_binding=entry_binding).override_dict() or None
-    filtered: dict[str, object] = {}
-    implemented = endpoint_spec.image_capabilities
-    for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
-        image_capability = _IMAGE_CAPABILITY_BY_OVERRIDE_KEY.get(key)
-        if image_capability is not None and value is True and image_capability not in (implemented or frozenset()):
-            continue
-        filtered[key] = value
-    return filtered or None
+    return dict(model_fact_overrides(overrides, media_type, model_id=model_id)) or None
 
 
 async def _read_endpoint_specs(
@@ -624,16 +630,25 @@ def _check_capability_overrides(
         return None
     resolved_spec = spec or get_endpoint_spec(endpoint)
     media_type = resolved_spec.media_type
-    if media_type == "video":
+    if media_type in ("video", "image"):
         try:
-            snapshot = custom_video_snapshot(
-                endpoint=endpoint,
-                model_id=model_id,
-                endpoint_spec=resolved_spec,
-                entry_binding=entry_binding,
-                pending=pending,
-            )
-            return validate_video_overrides(
+            if media_type == "video":
+                snapshot = custom_video_snapshot(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    endpoint_spec=resolved_spec,
+                    entry_binding=entry_binding,
+                    pending=pending,
+                )
+            else:
+                snapshot = custom_image_snapshot(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    endpoint_spec=resolved_spec,
+                    entry_binding=entry_binding,
+                    pending=pending,
+                )
+            return validate_snapshot_overrides(
                 snapshot,
                 overrides,
                 model_id=model_id,

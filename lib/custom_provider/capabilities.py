@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from arcreel_catalog_core import ImageFacts
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import (
     VideoAudioFacts,
@@ -32,7 +33,7 @@ from lib.backends.video_capabilities import (
     projected_video_capabilities,
     resolve_video_model,
 )
-from lib.capabilities.kernel import CapabilitySnapshot
+from lib.capabilities.kernel import CapabilitySnapshot, resolve
 from lib.capabilities.override_schema import (
     LEGACY_AUDIO_KEYS,
     OVERRIDE_KEYS,
@@ -64,6 +65,50 @@ def system_video_capabilities(
     spec = endpoint_spec or get_endpoint_spec(endpoint)
     entry = None if spec.kind == COMFYUI_KIND else model_entry(model_id, "video", entry_binding)
     return channel_projection(spec.video_description(model_id, entry))
+
+
+def custom_image_snapshot(
+    *,
+    endpoint: str,
+    model_id: str,
+    overrides: object = None,
+    endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
+    pending: CatalogEntry | None = None,
+) -> CapabilitySnapshot:
+    from lib.custom_provider.endpoints import get_endpoint_spec
+
+    spec = endpoint_spec or get_endpoint_spec(endpoint)
+    entry = None if spec.kind == COMFYUI_KIND else model_entry(model_id, "image", entry_binding, pending=pending)
+    return custom_image_snapshot_from_entry(spec, model_id, entry, overrides)
+
+
+def custom_image_snapshot_from_entry(
+    spec: EndpointSpec,
+    model_id: str,
+    entry: CatalogEntry | None,
+    overrides: object,
+    *,
+    provider_id: str = "",
+    default_resolution: str | None = None,
+) -> CapabilitySnapshot:
+    facts: dict[str, object] | None = None
+    if entry is not None and isinstance(entry.facts, ImageFacts) and spec.kind != COMFYUI_KIND:
+        facts = {
+            "text_to_image": entry.facts.text_to_image,
+            "image_to_image": entry.facts.image_to_image,
+            "max_reference_images": entry.facts.max_reference_images,
+            "resolutions": entry.facts.resolutions,
+            "qualities": entry.facts.qualities,
+        }
+    return resolve(
+        spec.image_description(),
+        facts=facts,
+        overrides=overrides,
+        model_id=model_id,
+        provider_id=provider_id,
+        default_resolution=default_resolution,
+    )
 
 
 def custom_video_snapshot(

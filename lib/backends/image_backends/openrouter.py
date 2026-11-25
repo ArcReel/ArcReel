@@ -43,6 +43,7 @@ from arcreel_market_core.aspect_size import (
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
@@ -238,7 +239,9 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
 class OpenRouterImageBackend:
     """OpenRouter 统一图片后端：T2I 与 I2I 同 hit ``POST {base_url}/images``。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
+    CHANNEL_REFERENCE_LIMIT_HARD: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -276,6 +279,11 @@ class OpenRouterImageBackend:
         ``generate`` 按不支持图生图报错（docs/adr/0015）。
         """
         return _effective_reference_limit(await self._fetch_supported_params())
+
+    async def remote_reference_image_limit(self) -> int | None:
+        """远端目录声明的正数参考图上限（封顶 16）；远端未声明或目录不可得时返回 ``None`` 沿用本地冻结上限。"""
+        declared = _declared_reference_max(await self._fetch_supported_params())
+        return min(declared, _MAX_REFERENCE_IMAGES) if declared else None
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         supported = await self._fetch_supported_params()
