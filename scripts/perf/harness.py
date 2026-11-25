@@ -272,7 +272,10 @@ def build(
         extra = max(0, (29_000_000 - payload_size) // len(history))
         for resource in history.values():
             resource["versions"][0]["prompt"] += ("scene direction " * (extra // 16 + 1))[:extra]
-        atomic_write_json(path / "versions/versions.json", versions)
+        store = VersionManager(path).sqlite
+        batch = store.resources(())
+        batch.update(versions)
+        store.save(batch)
     revisions = {
         n: script_review.content_fingerprint(path / "drafts" / f"episode_{n}" / "script_plan_reference_units.json")
         for n in range(1, episodes + 1)
@@ -305,13 +308,14 @@ def downgrade_to_v17() -> None:
         for field in CONTENT_FACT_FIELDS:
             entry.pop(field, None)
     atomic_write_json(path / MANIFEST_FILENAME, manifest)
-    versions_file = VersionManager(path).versions_file
-    versions = json.loads(versions_file.read_text(encoding="utf-8"))
+    manager = VersionManager(path)
+    versions = manager.sqlite.snapshot()
     for bucket in versions.values():
         for resource in bucket.values():
             for record in resource["versions"]:
                 record.pop(VERSION_CONTENT_DIGEST, None)
-    atomic_write_json(versions_file, versions)
+    atomic_write_json(manager.versions_file, versions)
+    manager.sqlite.path.unlink()
     project = json.loads((path / "project.json").read_text(encoding="utf-8"))
     project["schema_version"] = 17
     project["default_text_backend"] = "ark"
@@ -388,7 +392,7 @@ def ensure_project(
 
     marker = (
         data_root()
-        / f"built-provider-fixture-{distribution}-{episodes}x{units}x{assets}-v{video_kb}-s{sheet_kb}-r{video_ratio}.ok"
+        / f"built-provider-fixture-sqlite-{distribution}-{episodes}x{units}x{assets}-v{video_kb}-s{sheet_kb}-r{video_ratio}.ok"
     )
     if rebuild or not marker.exists():
         shutil.rmtree(data_root() / "projects", ignore_errors=True)

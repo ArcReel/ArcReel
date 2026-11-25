@@ -513,7 +513,7 @@ class VersionManager:
         """Explicit complete logical snapshot for legacy callers."""
         with self._lock:
             if self.sqlite.path.is_file():
-                yield self.sqlite.resources(self.sqlite.resource_keys())
+                yield self.sqlite.snapshot()
             else:
                 yield self._load_versions()
 

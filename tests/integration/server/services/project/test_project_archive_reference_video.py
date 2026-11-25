@@ -18,6 +18,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.resource_paths import resource_relative_path
 from server.services.project.project_archive import ProjectArchiveService
+from tests.legacy_project_shapes import use_legacy_history
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
@@ -41,6 +42,7 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
+    use_legacy_history(project_dir)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for item in sorted(project_dir.rglob("*")):
             relative = item.relative_to(project_dir)

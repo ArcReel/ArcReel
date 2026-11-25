@@ -7,6 +7,7 @@ from pathlib import Path
 
 from lib.project.project_manager import ProjectManager
 from server.services.project.project_archive import ProjectArchiveService
+from tests.legacy_project_shapes import use_legacy_history
 
 
 def _write_bytes(path: Path, content: bytes) -> None:
@@ -20,6 +21,7 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
+    use_legacy_history(project_dir)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for item in sorted(project_dir.rglob("*")):
             relative = item.relative_to(project_dir)

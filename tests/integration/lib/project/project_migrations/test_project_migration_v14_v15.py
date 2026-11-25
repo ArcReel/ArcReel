@@ -42,6 +42,7 @@ from tests.legacy_project_shapes import (
     ScriptPlanVariantName,
     advance_project_schema,
     bind_episode_script_to_filename,
+    read_version_history,
     write_legacy_script_plan_project,
 )
 
@@ -307,7 +308,7 @@ def test_non_canonical_binding_is_moved_to_the_canonical_script_through_the_chai
     assert _read_json(project_dir / "scripts" / "episode_1.json")["title"] == bound_title
     [grid] = (project_dir / "grids").glob("grid_*.json")
     assert _read_json(grid)["script_file"] == "episode_1.json"
-    record = _read_json(project_dir / "versions" / "versions.json")["videos"]["E1S01"]["versions"][0]
+    record = read_version_history(project_dir)["videos"]["E1S01"]["versions"][0]
     assert record["execution_script_file"] == "episode_1.json"
     entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_SCRIPT)
     assert entry is not None

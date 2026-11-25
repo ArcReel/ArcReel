@@ -48,6 +48,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import bind_session_factory, use_object_storage_sdk, use_project_manager, use_projects_session_factory
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 from tests.integration.server.routers.test_remote_material_storage import MemoryBucket
+from tests.legacy_project_shapes import read_version_history
 
 SOURCE_BUCKET = "source-bucket"
 TARGET_BUCKET = "target-bucket"
@@ -153,8 +154,7 @@ def _import(api: TestClient, archive: bytes):
 
 
 def _history(pm: ProjectManager) -> list[dict[str, Any]]:
-    path = pm.get_project_path("demo") / "versions" / "versions.json"
-    return json.loads(path.read_text(encoding="utf-8"))["characters"]["Alice"]["versions"]
+    return read_version_history(pm.get_project_path("demo"))["characters"]["Alice"]["versions"]
 
 
 def _key(content: bytes) -> str:
@@ -532,9 +532,7 @@ async def test_current_archive_of_a_generated_image_follows_the_target_storage(
             await _use_storage(file_db_factory, "object_storage", _connection(TARGET_BUCKET, TARGET_SK))
         imported = _import(other.api, archive)
         assert imported.status_code == 200, imported.text
-        versions = json.loads(
-            (other.projects.get_project_path("demo") / "versions" / "versions.json").read_text(encoding="utf-8")
-        )
+        versions = read_version_history(other.projects.get_project_path("demo"))
         if target == "local":
             assert "Alice" not in versions.get("characters", {})
             assert bucket.objects == {}

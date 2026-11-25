@@ -106,7 +106,7 @@ class TestShotStoryboardUpload:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"old-canonical-storyboard")
         script_path = project_path / "scripts" / "episode_1.json"
-        versions_path = project_path / "versions.json"
+        store = VersionManager(project_path).sqlite
         manifest_path = project_path / ".arcreel_artifacts.json"
         before_script = script_path.read_bytes()
         before_manifest = manifest_path.read_bytes() if manifest_path.exists() else None
@@ -122,7 +122,7 @@ class TestShotStoryboardUpload:
         assert response.status_code == 500
         assert target.read_bytes() == b"old-canonical-storyboard"
         assert script_path.read_bytes() == before_script
-        assert not versions_path.exists()
+        assert store.snapshot() == {}
         assert (manifest_path.read_bytes() if manifest_path.exists() else None) == before_manifest
 
     def test_upload_updates_metadata_versions_and_fingerprints(self, tmp_path, monkeypatch):
@@ -361,8 +361,8 @@ class TestShotVideoUpload:
             thumbnail: thumbnail.read_bytes(),
             script_path: script_path.read_bytes(),
             project_file: project_file.read_bytes(),
-            manager.versions_file: None,
         }
+        before_history = manager.sqlite.snapshot()
         before_version_copies: dict[str, bytes] = {}
 
         async def _new_thumbnail(_video_path: Path, thumbnail_path: Path):
@@ -379,6 +379,7 @@ class TestShotVideoUpload:
             response = _upload(client, "video", "clip.mp4", b"new-video")
 
         assert response.status_code == 500
+        assert manager.sqlite.snapshot() == before_history
         assert all((path.read_bytes() if path.is_file() else None) == content for path, content in before.items())
         assert {
             path.name: path.read_bytes() for path in (project_path / "versions" / "videos").glob("*") if path.is_file()
@@ -558,8 +559,8 @@ class TestReferenceUnitVideoUpload:
             thumbnail: thumbnail.read_bytes(),
             script_path: script_path.read_bytes(),
             project_file: project_file.read_bytes(),
-            manager.versions_file: manager.versions_file.read_bytes(),
         }
+        before_history = manager.sqlite.snapshot()
         version_dir = project_path / "versions" / "reference_videos"
         before_version_copies = {path.name: path.read_bytes() for path in version_dir.glob("*") if path.is_file()}
 
@@ -572,6 +573,7 @@ class TestReferenceUnitVideoUpload:
             response = _upload_unit(client, content=b"new-video")
 
         assert response.status_code == 500
+        assert manager.sqlite.snapshot() == before_history
         assert all(path.read_bytes() == content for path, content in before.items())
         assert {
             path.name: path.read_bytes() for path in version_dir.glob("*") if path.is_file()

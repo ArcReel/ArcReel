@@ -2510,6 +2510,7 @@ export default {
   'migration_report_skipped': 'Not carried over',
   'migration_report_skipped_hint': 'These files stay where they are but are not recognized by the project, so they show as missing. Generate or upload them again when needed.',
   'migration_report_backup': 'Backup: {{path}}',
+  'migration_adjustment_history_conflict_preserved': 'A copy of the conflicting version history was preserved.',
   'migration_adjustment_retired_draft_trashed': 'The retired draft {{file}} for {{episode}} was moved to the project trash. You can restore it within 30 days.',
   'migration_adjustment_draft_name_conflict_resolved': '{{episode}} had two copies of its script plan draft under the old and new names. The new one is kept and the old one is saved as a backup.',
   'migration_adjustment_duplicate_episode_entry_removed': '{{episode}} was listed twice in the episode list. The duplicate entry is removed; its script {{file}} stays in place.',

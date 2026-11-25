@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,7 +69,7 @@ def _restore_snapshots(snapshots: tuple[_FileSnapshot, ...]) -> None:
 
 
 @contextmanager
-def project_metadata_lock(project_dir: Path) -> Generator[None]:
+def project_metadata_lock(project_dir: Path, *, journal: bool = True) -> Generator[None]:
     """Serialize project metadata and formal-artifact transactions across processes.
 
     Inside a task whose project was deleted while it ran, raises
@@ -82,7 +82,10 @@ def project_metadata_lock(project_dir: Path) -> Generator[None]:
         return
     lock_path = Path(project_dir) / ".project.json.lock"
     lock_path.touch(exist_ok=True)
-    with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX), project_operation(project_dir):
+    with (
+        portalocker.Lock(lock_path, flags=portalocker.LOCK_EX),
+        project_operation(project_dir) if journal else nullcontext(),
+    ):
         yield
 
 

@@ -27,7 +27,9 @@ from pathlib import Path
 from typing import Any
 
 from lib.agent.agent_memory_paths import project_memory_dir
+from lib.infra.project_write_journal import is_history_database_name
 from lib.project.project_activity import recorded_project_activity
+from lib.project.project_migrations.backups import is_kept_copy_name
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +91,6 @@ def _latest_content_mtime(project_dir: Path) -> float | None:
 def _counts_as_content(name: str, *, is_root: bool) -> bool:
     if name.startswith("."):
         return False
-    if name.endswith((".json", ".lock")) or ".bak" in name:
+    if name.endswith((".json", ".lock")) or ".bak" in name or is_kept_copy_name(name) or is_history_database_name(name):
         return False
     return not (is_root and name in _PROFILE_SYNCED_ROOT_FILES)

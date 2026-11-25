@@ -25,6 +25,7 @@ from lib.script.script_batch_edit import ScriptBatchEditor
 from server.routers import project_trash as trash_router
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import build_projects_client, override
+from tests.legacy_project_shapes import use_legacy_history
 
 _SHOT = {
     "duration_seconds": 6,
@@ -44,8 +45,8 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, sqlite=False) -
     manager.create_project("demo", content_mode="narration")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
     project_dir = manager.get_project_path("demo")
-    if sqlite:
-        VersionManager(project_dir).enable_sqlite_history()
+    if not sqlite:
+        use_legacy_history(project_dir)
     segments = []
     for item_id in ("E1S01", "E1S02", "E1S03"):
         assets: dict[str, Any] = {}

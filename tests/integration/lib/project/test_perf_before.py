@@ -44,12 +44,19 @@ def test_archive_before(tmp_path, scope):
     pm = ProjectManager(tmp_path)
     result = ProjectArchiveService(pm).import_project_archive(FIXTURES / f"{scope}.zip")
     path = pm.get_project_path(result.project_name)
+    assert VersionManager(path).sqlite.is_enabled()
+    assert not VersionManager(path).versions_file.exists()
     assert (path / "products/Cup.png").read_bytes() == b"products-v3"
     records = VersionManager(path).get_versions("products", "Cup")["versions"]
     expected_versions = [1, 2, 3] if scope == "full" else []
     assert [row["version"] for row in records] == expected_versions
     archive, _ = ProjectArchiveService(pm).export_project(result.project_name, scope=scope)
     try:
+        with ZipFile(archive) as package:
+            assert not any(
+                "history.sqlite3" in name or ".history-undo" in name or ".bak.v" in name for name in package.namelist()
+            )
+            assert json.loads(package.read(f"{path.name}/project.json"))["schema_version"] == 21
         fresh = ProjectManager(tmp_path / "restored")
         imported = ProjectArchiveService(fresh).import_project_archive(archive)
         restored = fresh.get_project_path(imported.project_name)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -692,7 +693,7 @@ class ScriptReviewService:
                 "tiers": " / ".join(str(tier) for tier in exc.tiers),
             }
             raise ScriptReviewError("duration_off_tier", str(exc), params=params) from exc
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, FileNotFoundError, sqlite3.DatabaseError) as exc:
             raise ScriptReviewError("conversion_refused", str(exc)) from exc
 
     def _confirm_sync(

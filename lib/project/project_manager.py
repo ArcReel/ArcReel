@@ -2517,6 +2517,11 @@ class ProjectManager:
         if resolved_mode == "ad" and grid_storyboard:
             raise ValueError("广告/短片项目不支持宫格分镜（grid_storyboard）")
 
+        from lib.artifacts.version_manager import VersionManager
+
+        versions = VersionManager(self.get_project_path(project_name))
+        if not versions.sqlite.is_enabled():
+            versions.enable_sqlite_history()
         self.save_project(project_name, project)
         return project
 

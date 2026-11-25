@@ -936,13 +936,13 @@ def _without_artifact_envelope(archive_path: Path, rewritten: Path) -> Path:
 def _drop_selected_video_record_digest(project_path: Path) -> None:
     """把选中的视频版本记录改成没有内容指纹的旧记录（早于版本记录指纹的版本被切回选中）。"""
 
-    path = project_path / "versions" / "versions.json"
-    versions = json.loads(path.read_text(encoding="utf-8"))
+    store = VersionManager(project_path).sqlite
+    versions = store.resources([("videos", "E1S01")])
     history = versions["videos"]["E1S01"]
     for record in history["versions"]:
         if record["version"] == history["current_version"]:
             del record["content_digest"]
-    atomic_write_json(path, versions)
+    store.save(versions)
 
 
 @pytest.mark.parametrize(

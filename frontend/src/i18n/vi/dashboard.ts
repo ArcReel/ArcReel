@@ -2736,6 +2736,7 @@ export default {
   'migration_report_skipped': 'Không mang theo được',
   'migration_report_skipped_hint': 'Các tệp này vẫn ở nguyên chỗ nhưng dự án không còn nhận ra, nên hiển thị là bị thiếu. Hãy tạo lại hoặc tải lên khi cần.',
   'migration_report_backup': 'Bản sao lưu: {{path}}',
+  'migration_adjustment_history_conflict_preserved': 'Đã giữ lại bản sao lịch sử phiên bản bị xung đột.',
   'migration_adjustment_retired_draft_trashed': 'Bản nháp cũ {{file}} của {{episode}} đã được chuyển vào thùng rác dự án. Bạn có thể khôi phục trong vòng 30 ngày.',
   'migration_adjustment_draft_name_conflict_resolved': '{{episode}} có hai bản nháp kế hoạch kịch bản dưới tên cũ và tên mới. Giữ bản mới, bản cũ được lưu làm bản sao lưu.',
   'migration_adjustment_duplicate_episode_entry_removed': '{{episode}} được ghi hai lần trong danh sách tập. Mục trùng đã được bỏ; kịch bản {{file}} của mục đó vẫn ở nguyên chỗ.',
