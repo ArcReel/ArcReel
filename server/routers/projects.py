@@ -88,7 +88,6 @@ from lib.speech.narration_config import (
     TTS_VOICE_FIELD,
     NarrationConfigError,
     NarrationDelivery,
-    validate_project_narration_config,
 )
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
@@ -116,9 +115,8 @@ from server.services.project.episode_display import present_episode_diagnostics
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import (
     NarrationSettingsInput,
+    apply_project_tts_patch,
     new_project_narration_fields,
-    validate_tts_backend,
-    validate_tts_speed,
 )
 from server.services.project.project_activity import project_last_activity_at
 from server.services.project.project_archive import (
@@ -340,11 +338,8 @@ class UpdateProjectRequest(BaseModel):
     model_settings: dict[str, dict[str, str | None]] | None = None
 
 
-def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
-    """写入旁白交付方式与 TTS 快照；改完后 TTS 配音项目仍须带完整快照，否则整次 PATCH 422。
-
-    交付方式不进产物的生成依据：切换交付方式不让已有产物过期，改为后期配音时 TTS 快照保留。
-    """
+def _apply_narration_patch(project: dict, req: UpdateProjectRequest, bridge: EventLoopBridge) -> None:
+    """在项目写锁内应用交付方式与整组配音覆盖。"""
 
     fields = req.model_fields_set
     try:
@@ -352,24 +347,14 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
             if req.narration_delivery is None:
                 raise NarrationConfigError("narration_delivery_required")
             project[NARRATION_DELIVERY_FIELD] = req.narration_delivery
-        if TTS_BACKEND_FIELD in fields:
-            if req.audio_backend:
-                validate_backend_value(req.audio_backend, TTS_BACKEND_FIELD)
-                project[TTS_BACKEND_FIELD] = validate_tts_backend(req.audio_backend)
-            else:
-                project.pop(TTS_BACKEND_FIELD, None)
-        if TTS_VOICE_FIELD in fields:
-            voice = (req.narration_voice or "").strip()
-            if voice:
-                project[TTS_VOICE_FIELD] = voice
-            else:
-                project.pop(TTS_VOICE_FIELD, None)
-        if TTS_SPEED_FIELD in fields:
-            if req.narration_speed is None:
-                project.pop(TTS_SPEED_FIELD, None)
-            else:
-                project[TTS_SPEED_FIELD] = validate_tts_speed(req.narration_speed)
-        validate_project_narration_config(project)
+        if req.audio_backend:
+            validate_backend_value(req.audio_backend, TTS_BACKEND_FIELD)
+        resolver = ConfigResolver(async_session_factory)
+        apply_project_tts_patch(
+            project,
+            req.model_dump(exclude_unset=True),
+            lambda provider, model: bridge.run(resolver.audio_model_profile(provider, model)),
+        )
     except NarrationConfigError as exc:
         raise UnprocessableError(exc.code) from exc
 
@@ -954,6 +939,7 @@ async def reset_agent_profile(name: str, _t: Translator):
 @router.patch("/projects/{name}")
 async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
     """更新项目元数据"""
+    bridge = EventLoopBridge.capture()
     try:
 
         def _sync():
@@ -987,7 +973,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project[CHARACTER_VOICE_BINDING_FIELD] = binding
                     else:
                         raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
-                _apply_narration_patch(project, req)
+                _apply_narration_patch(project, req, bridge)
                 if "speech_rate_units_per_second" in req.model_fields_set:
                     if req.speech_rate_units_per_second is None:
                         project.pop(SPEECH_RATE_FIELD, None)

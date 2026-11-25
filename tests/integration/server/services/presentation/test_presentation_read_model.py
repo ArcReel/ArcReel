@@ -49,14 +49,6 @@ from tests.fakes import use_private_tempdir
 from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
 
 
-class _SettingsResolver:
-    def __init__(self, settings: TtsSynthesisSettings) -> None:
-        self.settings = settings
-
-    async def resolve_tts_synthesis_settings(self, _project: dict) -> TtsSynthesisSettings:
-        return self.settings
-
-
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
@@ -147,7 +139,7 @@ def _setup_narrator_project(
     )
 
     settings = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
-    audio_basis = build_narration_audio_basis(preparation, settings)
+    audio_basis = build_narration_audio_basis(preparation)
     versions.add_version(
         "audio",
         "E1S01",
@@ -233,14 +225,13 @@ def _add_second_narrator_video(project_path: Path) -> None:
 
 
 async def test_current_tts_presentation_materializes_manifest_and_actual_media_boundaries(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
 
@@ -265,14 +256,13 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
 
 
 async def test_persisted_presentation_records_no_transition_and_stays_current(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
     result = await PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     ).materialize_unit(
         project_name="demo",
@@ -294,12 +284,11 @@ async def test_persisted_presentation_records_no_transition_and_stays_current(tm
 
 
 async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     video_probe = AsyncMock(return_value=6.25)
     audio_probe = AsyncMock(return_value=4.5)
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         video_duration_probe=video_probe,
         audio_duration_probe=audio_probe,
     )
@@ -333,7 +322,7 @@ async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path
 
 
 async def test_current_media_content_identity_is_reused_after_manifest_verification(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     digest_calls: Counter[Path] = Counter()
 
     def digest(path: Path) -> str:
@@ -345,7 +334,6 @@ async def test_current_media_content_identity_is_reused_after_manifest_verificat
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
         content_digest=digest,
     )
@@ -363,14 +351,13 @@ async def test_current_media_content_identity_is_reused_after_manifest_verificat
 
 
 async def test_stale_current_tts_remains_materializable_without_touching_paid_media(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     script_path = project_path / "scripts" / "episode_1.json"
@@ -403,7 +390,7 @@ async def test_stale_current_tts_remains_materializable_without_touching_paid_me
 
 @pytest.mark.parametrize("uploaded", [False, True])
 async def test_history_read_does_not_replace_current_presentation_or_manifest(tmp_path: Path, uploaded: bool) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     if uploaded:
         _mark_e1s01_manual_upload(project_path)
 
@@ -412,7 +399,6 @@ async def test_history_read_does_not_replace_current_presentation_or_manifest(tm
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     current = await service.materialize_unit(
@@ -473,7 +459,7 @@ async def test_history_read_does_not_replace_current_presentation_or_manifest(tm
 
 
 async def test_episode_materialization_skips_units_with_only_paid_history(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     script_path = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     history_only_item = {
@@ -503,7 +489,6 @@ async def test_episode_materialization_skips_units_with_only_paid_history(tmp_pa
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
 
@@ -517,7 +502,7 @@ async def test_episode_materialization_skips_units_with_only_paid_history(tmp_pa
 
 
 async def test_episode_tts_materialization_keeps_video_without_selected_narration(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     _add_second_narrator_video(project_path)
 
     async def probe(path: Path) -> float | None:
@@ -525,7 +510,6 @@ async def test_episode_tts_materialization_keeps_video_without_selected_narratio
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
 
@@ -542,7 +526,7 @@ async def test_episode_tts_materialization_keeps_video_without_selected_narratio
 
 
 async def test_episode_materialization_restarts_as_one_snapshot_after_script_edit(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     _add_second_narrator_video(project_path)
 
     video_probes = 0
@@ -567,7 +551,6 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
 
@@ -585,14 +568,13 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
 
 
 async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     service = PresentationBundleService(pm, presentation_reader=read_model)
@@ -629,14 +611,13 @@ async def test_editable_bundle_contains_exact_selected_media_model_and_subtitles
 async def test_cancelling_a_bundle_export_settles_the_packaging_and_removes_its_temp_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm, _project_path, settings = _setup_narrator_project(tmp_path)
+    pm, _project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     temp_root = use_private_tempdir(monkeypatch, tmp_path / "tmp")
@@ -697,15 +678,13 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
         make_test_video_with_audio_tail(source_video, video_duration_sec=1, audio_duration_sec=1.5)
     else:
         make_test_video(source_video, duration_sec=6, fps=5)
-    pm, _project_path, settings = _setup_narrator_project(
+    pm, _project_path, _settings = _setup_narrator_project(
         tmp_path, video_bytes=source_video.read_bytes(), audio_bytes=wav_bytes(audio_microseconds / 1_000_000)
     )
     empty_bin = tmp_path / "empty-bin"
     empty_bin.mkdir()
     monkeypatch.setenv("PATH", str(empty_bin))
-    read_model = PresentationReadModelService(
-        pm, settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings)
-    )
+    read_model = PresentationReadModelService(pm)
 
     preview = await read_model.materialize_unit(
         project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
@@ -724,14 +703,13 @@ async def test_real_media_presents_without_system_ffmpeg_or_ffprobe(
 
 
 async def test_tts_longer_than_its_video_is_presented_whole_for_preview_and_bundle(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
         return 7.0 if path.suffix == ".wav" else 6.25
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
 
@@ -761,7 +739,7 @@ async def test_tts_longer_than_its_video_is_presented_whole_for_preview_and_bund
 
 
 async def test_manual_upload_includes_narration_and_subtitles_in_presentation_and_bundle(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     _mark_e1s01_manual_upload(project_path)
 
     async def probe(_path: Path) -> float | None:
@@ -769,7 +747,6 @@ async def test_manual_upload_includes_narration_and_subtitles_in_presentation_an
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     result = await read_model.materialize_unit(
@@ -832,7 +809,7 @@ def _add_planned_episode_without_script(project_path: Path, *, first: bool) -> N
 
 
 async def test_manual_upload_skips_planned_episode_without_script(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     _mark_e1s01_manual_upload(project_path)
     _add_planned_episode_without_script(project_path, first=True)
 
@@ -841,7 +818,6 @@ async def test_manual_upload_skips_planned_episode_without_script(tmp_path: Path
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     result = await read_model.materialize_unit(
@@ -856,14 +832,13 @@ async def test_manual_upload_skips_planned_episode_without_script(tmp_path: Path
 
 
 async def test_manual_upload_unit_missing_from_existing_scripts_stays_unavailable(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     _mark_e1s01_manual_upload(project_path)
     _add_planned_episode_without_script(project_path, first=False)
     (project_path / "scripts" / "episode_1.json").unlink()
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
     )
     with pytest.raises(PresentationUnavailableError):
         await read_model.materialize_unit(
@@ -906,7 +881,7 @@ async def test_duplicate_uploaded_unit_is_rejected_for_single_and_episode_reques
 
 
 async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     versions_path = project_path / "versions" / "versions.json"
     versions_value = json.loads(versions_path.read_text(encoding="utf-8"))
     record = versions_value["videos"]["E1S01"]["versions"][0]
@@ -919,7 +894,6 @@ async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: P
 
     read_model = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
     )
 
     with pytest.raises(PresentationUnavailableError, match="typed presentation provenance"):
@@ -932,7 +906,7 @@ async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: P
 
 
 async def test_current_presentation_reselects_when_version_changes_during_media_probe(tmp_path: Path) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     versions = VersionManager(project_path)
     switched = False
 
@@ -970,7 +944,6 @@ async def test_current_presentation_reselects_when_version_changes_during_media_
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     result = await service.materialize_unit(
@@ -990,14 +963,12 @@ async def test_legacy_video_materializes_after_the_provenance_backfill_migration
     projects_root = tmp_path / "projects"
     project_path = write_legacy_storyboard_project(projects_root, "legacy", unit_ids=("E1S1",))
     advance_project_schema(project_path, to_version=12)
-    settings = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
 
     async def probe(_path: Path) -> float | None:
         return 4.0
 
     read_model = PresentationReadModelService(
         ProjectManager(tmp_path),
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     with pytest.raises(PresentationUnavailableError, match="typed presentation provenance"):
@@ -1028,7 +999,7 @@ async def test_legacy_video_materializes_after_the_provenance_backfill_migration
 async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
     tmp_path: Path, text: str, expected_cues: list[str]
 ) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     script_path = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["segments"][0]["novel_text"] = text
@@ -1039,7 +1010,6 @@ async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
 
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
     result = await service.materialize_unit(
@@ -1092,7 +1062,7 @@ async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
 
 @pytest.mark.parametrize("variant", ["use_tts", "post_production"])
 async def test_manual_reference_video_uses_admitted_speech_and_rejects_replan(tmp_path: Path, variant) -> None:
-    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    pm, project_path, _settings = _setup_narrator_project(tmp_path)
     project = pm.load_project("demo")
     _write_json(project_path / "project.json", dict(project, generation_mode="reference_video"))
     script = {
@@ -1114,7 +1084,6 @@ async def test_manual_reference_video_uses_admitted_speech_and_rejects_replan(tm
     )
     service = PresentationReadModelService(
         pm,
-        settings_resolver_factory=lambda _name, _path: _SettingsResolver(settings),
         video_duration_probe=AsyncMock(return_value=6.0),
         audio_duration_probe=AsyncMock(return_value=4.5),
     )

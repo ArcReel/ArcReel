@@ -29,18 +29,10 @@ from tests.legacy_project_shapes import write_legacy_tts_narration_project
 
 
 def _descriptor(seed: str, *, kind: str = "narration-delivery/tts-audio") -> ArtifactBasisDescriptor:
-    inputs = (
-        {
-            "text": seed,
-            "provider_id": "dashscope",
-            "model_id": "qwen3-tts-flash",
-            "voice": "Cherry",
-            "speed": None,
-        }
-        if kind == "narration-delivery/tts-audio"
-        else {"seed": seed}
+    audio = kind == "narration-delivery/tts-audio"
+    return ArtifactBasisDescriptor.from_basis(
+        ArtifactBasis.build(kind, kind_version=2 if audio else 1, inputs={"text" if audio else "seed": seed})
     )
-    return ArtifactBasisDescriptor.from_basis(ArtifactBasis.build(kind, kind_version=1, inputs=inputs))
 
 
 def _project(tmp_path: Path) -> tuple[ProjectManager, Path]:
@@ -76,6 +68,7 @@ def _add_audio_version(
     *,
     content: bytes,
     basis: ArtifactBasisDescriptor | None,
+    corrupt: dict | None = None,
 ) -> int:
     current.parent.mkdir(parents=True, exist_ok=True)
     current.write_bytes(content)
@@ -94,6 +87,7 @@ def _add_audio_version(
         if basis is not None
         else {}
     )
+    metadata.update(corrupt or {})
     return vm.add_version("audio", "E1S01", content.decode(), source_file=current, **metadata)
 
 
@@ -225,12 +219,25 @@ def test_legacy_audio_restore_without_typed_basis_is_rejected_without_mutation(t
     assert vm.get_current_version("audio", "E1S01") == current_version
 
 
-def test_audio_restore_rejects_kind_only_descriptor_that_metadata_cannot_verify(tmp_path):
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        {"prompt_mismatch": True},
+        {"tts_voice": ""},
+        {"tts_provider_id": None},
+        {"tts_model_id": False},
+        {"tts_speed": -1},
+        {"tts_actual_duration_seconds": 0},
+    ],
+)
+def test_audio_restore_rejects_damaged_frozen_record(tmp_path, corrupt):
     pm, project_path = _project(tmp_path)
     vm = VersionManager(project_path)
     current = project_path / "audio" / "segment_E1S01.wav"
-    unverifiable = _descriptor("different prompt")
-    invalid_version = _add_audio_version(vm, current, content=b"old", basis=unverifiable)
+    unverifiable = _descriptor("different prompt" if "prompt_mismatch" in corrupt else "old")
+    invalid_version = _add_audio_version(
+        vm, current, content=b"old", basis=unverifiable, corrupt={} if "prompt_mismatch" in corrupt else corrupt
+    )
     current_version = _add_audio_version(vm, current, content=b"current", basis=_descriptor("current"))
 
     with pytest.raises(ValueError, match="typed artifact metadata"):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -51,6 +51,7 @@ from lib.artifacts.input_gap import GAP_TOLERANT_BASIS_SCHEMA_VERSION, InputGap,
 from lib.artifacts.media_artifact_currency import (
     CURRENT_AUDIO_RULES,
     AudioBasisRules,
+    VideoDurationOverride,
     build_current_video_artifact_basis,
 )
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
@@ -124,6 +125,7 @@ from lib.speech.speech_composition import (
 )
 from lib.speech.speech_presentation import (
     PresentationMedia,
+    SpeechPresentation,
     materialize_speech_presentation,
     presentation_artifact_paths,
 )
@@ -186,7 +188,8 @@ class _EpisodeState:
 
 @dataclass(frozen=True, slots=True)
 class _PersistedPresentationProof:
-    frozen_subtitle_basis: ArtifactBasis
+    frozen: SpeechPresentation
+    preparation: SpeechPreparation
     frozen_presentation_basis: ArtifactBasis
     current_subtitle_basis: ArtifactBasis | None
     current_presentation_basis: ArtifactBasis | None
@@ -279,6 +282,7 @@ class TargetStatePlanner:
         pending_renames: Mapping[str, str] | None = None,
         pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
         audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
+        duration_override: VideoDurationOverride | None = None,
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
         shared_versions: SharedVersionMetadata | None = None,
         manifest_snapshot: ArtifactManifestSnapshot | None = None,
@@ -290,6 +294,7 @@ class TargetStatePlanner:
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
         self.audio_rules = audio_rules
+        self.duration_override = duration_override
         self.legacy_audio_entries = legacy_audio_entries
         self.manifest_snapshot = manifest_snapshot
         self.shared_observations = shared_observations
@@ -370,6 +375,12 @@ class TargetStatePlanner:
             script_paths=tuple(self.script_paths),
             skipped=tuple(self.skipped),
         )
+
+    def project_registered_entries(self, keys: Collection[ArtifactKey]) -> dict[ArtifactKey, ArtifactManifestEntry]:
+        """Project the requested manifest keys under this planner's schema and rules."""
+        for key in keys:
+            self._plan_key(key)
+        return {key: self.entries[key] for key in keys if key in self.entries}
 
     def resolve_key(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         """Resolve one post-commit target through the same canonical planner."""
@@ -1196,7 +1207,7 @@ class TargetStatePlanner:
                     resource_type=resource_type,
                     resource_id=resource_id,
                     version_metadata=record,
-                    audio_rules=self.audio_rules,
+                    duration_override=self.duration_override,
                     legacy_audio_entries=self._legacy_audio_entries(),
                 )
         except (KeyError, OSError, TypeError, ValueError):
@@ -1340,7 +1351,7 @@ class TargetStatePlanner:
                     if proof.current_presentation_basis is not None and proof.admitted:
                         self.current_presentation_bases[presentation_key] = proof.current_presentation_basis
                     subtitle_basis = (
-                        proof.frozen_subtitle_basis if self._activation_mode else proof.current_subtitle_basis
+                        proof.frozen.subtitle_basis if self._activation_mode else proof.current_subtitle_basis
                     )
                     presentation_basis = (
                         proof.frozen_presentation_basis if self._activation_mode else proof.current_presentation_basis
@@ -1358,6 +1369,35 @@ class TargetStatePlanner:
                             basis_digest=presentation_basis.digest,
                         )
         self._planned.add("persisted-presentations")
+
+    def proven_narrated_presentations(
+        self,
+    ) -> Iterator[tuple[str, str, Mapping[str, Any], SpeechPresentation, SpeechPreparation]]:
+        """Yield verified persisted TTS presentations, including those bound to historical snapshots."""
+        self.load_episodes()
+        self._plan_typed_media()
+        for episode in self.episodes:
+            for item in episode.items:
+                unit = str(item[episode.id_field])
+                sub, pres = presentation_artifact_paths(episode.episode, unit, USE_TTS)
+                presentation = self._read_optional_json_artifact(pres)
+                subtitle = self._read_optional_json_artifact(sub)
+                if presentation is None or subtitle is None:
+                    continue
+                proof = self._prove_persisted_presentation(
+                    episode=episode,
+                    item=item,
+                    resource_id=unit,
+                    variant=USE_TTS,
+                    subtitle_path=sub,
+                    presentation_path=pres,
+                    subtitle=subtitle,
+                    presentation=presentation,
+                    allow_unselected_media=True,
+                    require_current_basis=False,
+                )
+                if proof is not None:
+                    yield sub, pres, presentation, proof.frozen, proof.preparation
 
     def _record_unselected_media_presentation(
         self,
@@ -1574,6 +1614,7 @@ class TargetStatePlanner:
         subtitle: Mapping[str, Any],
         presentation: Mapping[str, Any],
         allow_unselected_media: bool = False,
+        require_current_basis: bool = True,
     ) -> _PersistedPresentationProof | None:
         """Validate a frozen typed presentation and derive its current basis.
 
@@ -1587,6 +1628,7 @@ class TargetStatePlanner:
             resource_id=resource_id,
             resource_type=resource_type,
             allow_unselected=allow_unselected_media,
+            require_current_basis=require_current_basis,
         )
         if video_pair is None:
             return None
@@ -1599,6 +1641,7 @@ class TargetStatePlanner:
                 resource_id=resource_id,
                 resource_type="audio",
                 allow_unselected=allow_unselected_media,
+                require_current_basis=require_current_basis,
             )
             if raw_audio is not None
             else None
@@ -1686,7 +1729,8 @@ class TargetStatePlanner:
             except (TypeError, ValueError):
                 current_subtitle = current_presentation = None
         return _PersistedPresentationProof(
-            frozen_subtitle_basis=frozen.subtitle_basis,
+            frozen=frozen,
+            preparation=frozen_preparation,
             frozen_presentation_basis=frozen_presentation_basis,
             current_subtitle_basis=current_subtitle,
             current_presentation_basis=current_presentation,
@@ -1701,6 +1745,7 @@ class TargetStatePlanner:
         resource_id: str,
         resource_type: str,
         allow_unselected: bool = False,
+        require_current_basis: bool = True,
     ) -> tuple[PresentationMedia, PresentationMedia] | None:
         """Prove one selected media snapshot and expose frozen/current currency.
 
@@ -1716,7 +1761,8 @@ class TargetStatePlanner:
             else ArtifactKey.episode_video(episode.episode, resource_id)
         )
         planned = self.entries.get(key)
-        if planned is None or planned.artifact_path != resource_relative_path(resource_type, resource_id):
+        canonical = resource_relative_path(resource_type, resource_id)
+        if (require_current_basis and planned is None) or (planned is not None and planned.artifact_path != canonical):
             return None
         versions = self._load_versions()
         bucket = versions.get(resource_type)
@@ -1744,7 +1790,7 @@ class TargetStatePlanner:
         ):
             return None
         snapshot = self._safe_present_path(cast(str, snapshot_path))
-        artifact = self._safe_present_path(planned.artifact_path) if not unselected else None
+        artifact = self._safe_present_path(canonical) if not unselected else None
         if snapshot is None or (not unselected and artifact is None):
             return None
         try:
@@ -1791,7 +1837,7 @@ class TargetStatePlanner:
             artifact_path=frozen.artifact_path,
             version=frozen.version,
             selection=frozen.selection,
-            currency="current" if planned.basis_digest == embedded_basis.digest else "stale",
+            currency="current" if planned is not None and planned.basis_digest == embedded_basis.digest else "stale",
             evidence=evidence,
         )
         return frozen, current
@@ -2020,6 +2066,7 @@ def plan_artifact_target_state(
     project_dir: Path,
     *,
     audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
+    duration_override: VideoDurationOverride | None = None,
     pending_renames: Mapping[str, str] | None = None,
 ) -> ArtifactTargetStatePlan:
     """Perform the complete read-only activation preflight.
@@ -2029,7 +2076,9 @@ def plan_artifact_target_state(
     里的依赖路径与产物路径因此都是提交时刻的事实，激活的稳定性闸门可直接复用。
     """
 
-    return TargetStatePlanner(project_dir, audio_rules=audio_rules, pending_renames=pending_renames).plan()
+    return TargetStatePlanner(
+        project_dir, audio_rules=audio_rules, duration_override=duration_override, pending_renames=pending_renames
+    ).plan()
 
 
 def plan_artifact_target_state_by_gap_rule(

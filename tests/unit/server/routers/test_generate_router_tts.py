@@ -265,7 +265,12 @@ class TestGenerateTtsSingle:
         call = fake_queue.calls[0]
         assert call["resource_id"] == "E1U1"
         assert call["task_type"] == "tts"
-        assert call["payload"] == {"prompt": None, "script_file": "episode_1.json"}
+        assert call["payload"]["tts_settings"] == {
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
+            "narration_speed": None,
+        }
+        assert call["payload"]["script_file"] == "episode_1.json"
 
     def test_character_owned_unit_cannot_generate_narrator_tts(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

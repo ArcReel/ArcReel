@@ -37,7 +37,7 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets, resolve_content_mode
 from lib.script.script_skeleton import ensure_route_skeleton
-from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
+from lib.speech.narration_config import NarrationConfigError, tts_group_fields
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
 from server.media_tools.context import (
@@ -155,7 +155,7 @@ async def generate_narration_audio(
 
         script, project = await run_sync_transaction(load_inputs)
         try:
-            require_project_tts_generation(project)
+            settings = await services.capabilities.resolve_tts_synthesis_settings(project)
         except NarrationConfigError as exc:
             return tool_problem(_NARRATION_CONFIG_DETAILS[exc.code], code=exc.code)
         content_mode = resolve_content_mode(script, project)
@@ -215,6 +215,7 @@ async def generate_narration_audio(
                 media_type="audio",
                 resource_id=state.unit_id,
                 prompt=None,
+                extra_payload={"tts_settings": tts_group_fields(settings)},
                 script_file=script_filename,
                 unit_id=state.unit_id,
                 source=caller.source,

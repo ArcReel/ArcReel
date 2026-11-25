@@ -15,7 +15,7 @@ from lib.artifacts.artifact_manifest import (
     InMemoryArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS, TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS, build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     CharacterVoiceEvidence,
     SelectedMediaEvidence,
@@ -283,10 +283,8 @@ def test_stale_comparison_is_reversible_and_preserves_paid_media() -> None:
 
 def test_tts_change_stales_tts_subtitle_and_tts_presentation_but_not_video_or_post_variant() -> None:
     narration = _narration("旁白")
-    settings = TtsSynthesisSettings("provider", "model", "voice", 1.0)
-    changed_settings = TtsSynthesisSettings("provider", "model", "other-voice", 1.0)
-    tts_basis = build_narration_audio_basis(narration, settings)
-    changed_tts_basis = build_narration_audio_basis(narration, changed_settings)
+    tts_basis = build_narration_audio_basis(narration)
+    changed_tts_basis = build_narration_audio_basis(_narration("改过的旁白"))
     video_basis = compose_video_artifact_basis(
         visual=_basis("test/visual", "v1"),
         speech=build_video_speech_basis(narration),

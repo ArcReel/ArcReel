@@ -43,12 +43,13 @@ from lib.project import deleted_projects, project_trash
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
+from lib.project.project_migrations.legacy_audio import legacy_audio_basis
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 from lib.script.grid.models import GridGeneration
-from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis_from_canonical_text
+from lib.speech.narration_delivery import TtsSynthesisSettings
 from server.services.project import project_archive as project_archive_module
 from server.services.project.project_archive import (
     ARCHIVE_MANIFEST_NAME,
@@ -1165,9 +1166,7 @@ class TestProjectArchiveService:
         audio = project_dir / "audio" / "segment_E1S01.wav"
         _write_bytes(audio, b"typed-audio")
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        descriptor = ArtifactBasisDescriptor.from_basis(
-            build_narration_audio_basis_from_canonical_text("原文", settings)
-        )
+        descriptor = ArtifactBasisDescriptor.from_basis(legacy_audio_basis("原文", settings))
         manager = VersionManager(project_dir)
         selected_version = manager.add_version(
             "audio",
@@ -1232,9 +1231,7 @@ class TestProjectArchiveService:
         audio = project_dir / "audio" / "segment_E1S01.wav"
         _write_bytes(audio, b"typed-audio")
         settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        descriptor = ArtifactBasisDescriptor.from_basis(
-            build_narration_audio_basis_from_canonical_text("原文", settings)
-        )
+        descriptor = ArtifactBasisDescriptor.from_basis(legacy_audio_basis("原文", settings))
         VersionManager(project_dir).add_version(
             "audio",
             "E1S01",

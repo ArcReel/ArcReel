@@ -381,6 +381,12 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
             *((source, project_backup_versions) for source in timeline_backup_sources(project_dir)),
+            *(
+                (source, (20,))
+                for folder in ("subtitles", "presentations")
+                for source in project_dir.glob(f"{folder}/episode_*/*.use_tts.json")
+                if schema_version > 20 and source.resolve() == source.absolute()
+            ),
         )
         for source, versions in sources:
             for bak in versioned_backup_candidates(source, versions):

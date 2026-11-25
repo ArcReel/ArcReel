@@ -1,4 +1,4 @@
-"""v20→v21：将退役的隔离草稿原样移入项目回收站。"""
+"""v20→v21：升级旁白交付依据，将退役的隔离草稿移入项目回收站。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from lib.episode.episode_paths import (
 )
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_migration_report import MigrationAdjustment
+from lib.project.project_migrations.audio_delivery import upgrade_audio_delivery
 from lib.project.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES
 from lib.project.project_schema import parse_project_schema_version
 from lib.project.project_trash import record_deletion, trash_dir
@@ -65,4 +66,5 @@ def migrate_v20_to_v21(
                 )
                 if record is not None:
                     record.append(MigrationAdjustment(code="retired_draft_trashed", episode=episode, file=rel))
+        upgrade_audio_delivery(project_dir, project)
         atomic_write_json(project_file, {**project, "schema_version": 21})

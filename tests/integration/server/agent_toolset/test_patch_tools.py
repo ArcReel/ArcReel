@@ -1435,24 +1435,10 @@ class TestPatchProjectSettings:
 class TestPatchProjectNarrationSettings:
     """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目的 TTS 快照）。"""
 
-    async def test_set_narration_voice(self, ctx: ToolHarness) -> None:
+    async def test_inherited_project_rejects_voice_only(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
-        assert out.problem is None
-        assert ctx.pm.load_project("demo")["narration_voice"] == "Ethan"
-        assert "已更新" in _said(out)
-
-    async def test_modify_narration_voice(self, ctx: ToolHarness) -> None:
-        await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Cherry"}})
-        assert out.problem is None
-        assert ctx.pm.load_project("demo")["narration_voice"] == "Cherry"
-
-    async def test_clear_narration_voice(self, ctx: ToolHarness) -> None:
-        await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
-        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": None}})
-        assert out.problem is None
+        assert out.problem is not None
         assert "narration_voice" not in ctx.pm.load_project("demo")
-        assert "已清除" in _said(out)
 
     @pytest.mark.parametrize("bad", ["", "   ", "\t\n", 1, 1.5, True, ["Ethan"], {"id": "Ethan"}])
     async def test_invalid_narration_voice_rejected(self, ctx: ToolHarness, bad: Any) -> None:
@@ -1462,17 +1448,26 @@ class TestPatchProjectNarrationSettings:
 
     @pytest.mark.parametrize("speed", [1.2, 0.5, 2, 1])
     async def test_set_narration_speed(self, ctx: ToolHarness, speed: Any) -> None:
+        ctx.pm.update_project(
+            "demo", lambda p: p.update(audio_backend="dashscope/qwen3-tts-flash", narration_voice="Cherry")
+        )
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": speed}})
         assert out.problem is None
         assert ctx.pm.load_project("demo")["narration_speed"] == speed
 
     async def test_narration_speed_accepts_numeric_string(self, ctx: ToolHarness) -> None:
         """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；有限数值字符串按落盘用 float 容忍。"""
+        ctx.pm.update_project(
+            "demo", lambda p: p.update(audio_backend="dashscope/qwen3-tts-flash", narration_voice="Cherry")
+        )
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": "1.5"}})
         assert out.problem is None
         assert ctx.pm.load_project("demo")["narration_speed"] == 1.5
 
     async def test_clear_narration_speed(self, ctx: ToolHarness) -> None:
+        ctx.pm.update_project(
+            "demo", lambda p: p.update(audio_backend="dashscope/qwen3-tts-flash", narration_voice="Cherry")
+        )
         await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": 1.2}})
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": None}})
         assert out.problem is None

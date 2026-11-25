@@ -11,9 +11,9 @@ from lib.artifacts.artifact_version_provenance import parse_typed_media_version_
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
-from lib.project.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import MIGRATION_REPORT_FILENAME, load_migration_report
+from lib.project.project_migrations.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION

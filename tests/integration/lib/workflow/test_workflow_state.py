@@ -166,7 +166,7 @@ def _commit_audio_version(
 ) -> str:
     """按 TTS 执行事实提交一条旁白配音版本记录，返回项目内相对路径。"""
     preparation = admit_script_unit(skeleton_kind, item).preparation
-    basis = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, _TTS_SETTINGS))
+    basis = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation))
     relative = resource_relative_path("audio", resource_id)
     current = project_path / relative
     current.parent.mkdir(parents=True, exist_ok=True)

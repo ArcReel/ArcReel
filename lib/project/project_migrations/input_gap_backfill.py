@@ -30,11 +30,11 @@ from lib.artifacts.artifact_planner import (
     plan_artifact_target_state_by_gap_rule,
 )
 from lib.artifacts.input_gap import GAP_TOLERANT_BASIS_SCHEMA_VERSION
-from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.infra.json_io import atomic_write_bytes
-from lib.project.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES
+from lib.project.project_migrations.legacy_media_provenance import backfill_legacy_media_provenance
 
 _FROM_VERSION = GAP_TOLERANT_BASIS_SCHEMA_VERSION - 1
 

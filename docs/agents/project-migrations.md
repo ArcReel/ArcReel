@@ -16,13 +16,14 @@
 | 旧数据 | 核对入口 |
 | --- | --- |
 | 非规范剧本绑定、重复集号或条目编号、重名资产、跨资产共用文件、新旧脚本规划草稿名并存 | [链首规整](../../lib/project/project_migrations/legacy_shapes.py)。更早的共用文件在[资产名称空间迁移](../../lib/project/project_migrations/v5_to_v6_asset_namespace.py)的暂存树中先规整。 |
-| 视频版本记录缺来源或时长为字符串、旁白版本记录缺 TTS 设置、旧草稿或源文件名 | [旧媒体来源补录](../../lib/project/project_migrations/v12_to_v13_legacy_media_provenance.py)与[版本来源解析](../../lib/project/legacy_media_provenance.py)。 |
+| 视频版本记录缺来源或时长为字符串、旁白版本记录缺 TTS 设置、旧草稿或源文件名 | [旧媒体来源补录](../../lib/project/project_migrations/v12_to_v13_legacy_media_provenance.py)与[版本来源解析](../../lib/project/project_migrations/legacy_media_provenance.py)。 |
 | 广告旧镜头索引、旧参考生视频单元与重复编号 | [v6→v7](../../lib/project/project_migrations/v6_to_v7_ad_reference_video_units.py)、[v8→v9](../../lib/project/project_migrations/v8_to_v9_reference_unit_text.py)。 |
 | 旧风格值、缺正式剧本、旧规划指纹、正式剧本缺字段 | [风格快照迁移](../../lib/project/project_migrations/v13_to_v14_legacy_style_values.py)、[正式剧本迁移](../../lib/project/project_migrations/v14_to_v15_formal_script_truth.py)。 |
 | 旧转场、旁白交付、上传媒体登记、集号与整本源文 | [剪辑与集账本迁移](../../lib/project/project_migrations/v15_to_v16_edit_decisions.py)。 |
 | 旧模型 ID、裸供应商引用、无后继的退役模型 | [退役文本模型](../../lib/project/project_migrations/v16_to_v17_retired_text_model_ids.py)、[退役模型冻结映射](../../lib/project/project_migrations/v17_to_v18_timeline_agent_turn.py)、[裸供应商模型迁移](../../lib/project/project_migrations/v19_to_v20_bare_provider_models.py)。 |
 | 生成输入有缺口、产物缺内容指纹、时间线带 `agent_turn` | [v17→v18](../../lib/project/project_migrations/v17_to_v18_timeline_agent_turn.py)、[缺口补录](../../lib/project/project_migrations/input_gap_backfill.py)、[内容指纹补录](../../lib/project/project_migrations/content_digest_backfill.py)。 |
 | 条目删后重用编号、分镜或宫格依据仍含资产名 | [条目编号与依据迁移](../../lib/project/project_migrations/v18_to_v19_item_id_high_water.py)。 |
+| 旁白配音版本与依赖配音的字幕、呈现及导出登记 | [旁白交付迁移](../../lib/project/project_migrations/audio_delivery.py) 在 v20→v21 按正文重算依据，仅更新改前时新的登记。 |
 | 各集遗留的隔离草稿 | [v20→v21](../../lib/project/project_migrations/v20_to_v21_retired_drafts.py) 将文件原样移入项目回收站。恢复删除记录时，暂存树保留这些文件供恢复入口取回。 |
 | 不可读的媒体、宫格或草稿、无法计算依据、导入引用未定义资产 | [规划器激活模式](../../lib/artifacts/artifact_planner.py)、[迁移报告](../../lib/project/project_migration_report.py)、[归档导入](../../server/services/project/project_archive.py)。 |
 

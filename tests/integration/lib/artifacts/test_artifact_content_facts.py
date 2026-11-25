@@ -27,7 +27,7 @@ from lib.speech.narration_delivery import register_narration_audio_transactional
 from server.services.project.project_archive import ProjectArchiveService
 from tests.integration.lib.artifacts.test_video_artifact_commit import _currency, _seed_current
 from tests.integration.server.routers.test_shot_uploads_currency import _client, _upload
-from tests.unit.lib.speech.test_narration_delivery import _narrator_preparation, _settings
+from tests.unit.lib.speech.test_narration_delivery import _narrator_preparation
 
 Registered = tuple[Path, ArtifactKey, str]
 
@@ -64,7 +64,6 @@ def _paid_audio(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> Registered:
         project_path=tmp_path,
         episode=1,
         preparation=_narrator_preparation("E1U1"),
-        settings=_settings(),
     )
     return tmp_path, ArtifactKey.episode_audio(1, "E1U1"), "audio/segment_E1U1.wav"
 

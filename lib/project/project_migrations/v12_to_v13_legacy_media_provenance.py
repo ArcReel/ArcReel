@@ -19,11 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state, plan_artifact_target_state
-from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.infra.json_io import load_json
-from lib.project.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES, legacy_narrated_duration
+from lib.project.project_migrations.legacy_media_provenance import backfill_legacy_media_provenance
 from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 13
@@ -38,7 +38,9 @@ def migrate_v12_to_v13(project_dir: Path) -> ArtifactBackfillOutcome | None:
     ensure_versioned_backup(project_dir / "versions" / "versions.json", TARGET_SCHEMA_VERSION - 1)
     backfill = backfill_legacy_media_provenance(project_dir)
 
-    plan = plan_artifact_target_state(project_dir, audio_rules=V1_AUDIO_RULES)
+    plan = plan_artifact_target_state(
+        project_dir, duration_override=legacy_narrated_duration, audio_rules=V1_AUDIO_RULES
+    )
     activate_artifact_target_state(
         project_dir,
         bump_schema=True,
