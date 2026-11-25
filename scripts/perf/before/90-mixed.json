@@ -1,0 +1,378 @@
+{
+  "workload": "synthetic",
+  "base_commit": "af20f66c1",
+  "argv": [
+    "uv",
+    "run",
+    "python",
+    "-m",
+    "scripts.perf.bench",
+    "all",
+    "--rebuild"
+  ],
+  "host": {
+    "arch": "aarch64",
+    "cpu": "4 x Neoverse-N1",
+    "memory_kib": 24548116,
+    "python": "3.12.3"
+  },
+  "migration": {
+    "target_schema": 21,
+    "startup_migration_s": 5.4767654680181295,
+    "videos": 2284,
+    "with_facts": 2284
+  },
+  "idle": {
+    "project": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220888,
+          "sampled_peak_kib": 356120,
+          "high_water_kib": 357384
+        }
+      },
+      "response_bytes": 1188123,
+      "reads": {
+        "project": 4,
+        "script": 270,
+        "history": 91
+      },
+      "first_open_s": 1.132847687928006,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 1.0560635350411758,
+      "warm_s": [
+        1.0325212279567495,
+        0.8389434349955991,
+        0.8092588699655607,
+        1.194345569005236,
+        0.8273123620310798
+      ],
+      "p50": 0.8389434349955991,
+      "p95": 1.194345569005236,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 1,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "cost": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 219608,
+          "sampled_peak_kib": 245468,
+          "high_water_kib": 246516
+        }
+      },
+      "response_bytes": 1570905,
+      "reads": {
+        "project": 2,
+        "script": 90,
+        "history": 1
+      },
+      "first_open_s": 1.2947785460855812,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 1.437636743998155,
+      "warm_s": [
+        1.038758284994401,
+        1.2644135690061375,
+        0.9962846440030262,
+        1.2460011169314384,
+        1.041871614055708
+      ],
+      "p50": 1.041871614055708,
+      "p95": 1.2644135690061375,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 92,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "wf_status": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 219492,
+          "sampled_peak_kib": 231268,
+          "high_water_kib": 231268
+        }
+      },
+      "response_bytes": 2973,
+      "reads": {
+        "project": 4,
+        "script": 2,
+        "history": 2
+      },
+      "first_open_s": 0.4512906780000776,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 0.18823741702362895,
+      "warm_s": [
+        0.045846730936318636,
+        0.043978685047477484,
+        0.045227729016914964,
+        0.04418028600048274,
+        0.0454966900870204
+      ],
+      "p50": 0.045227729016914964,
+      "p95": 0.045846730936318636,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 2,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "wf_plan": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220884,
+          "sampled_peak_kib": 233148,
+          "high_water_kib": 233148
+        }
+      },
+      "response_bytes": 11607,
+      "reads": {
+        "project": 7,
+        "script": 4,
+        "history": 4
+      },
+      "first_open_s": 0.3230437149759382,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 0.4646800470072776,
+      "warm_s": [
+        0.10680810397025198,
+        0.10672102391254157,
+        0.10897451103664935,
+        0.11283712205477059,
+        0.10643126396462321
+      ],
+      "p50": 0.10680810397025198,
+      "p95": 0.11283712205477059,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 8,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "units": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 219296,
+          "sampled_peak_kib": 229500,
+          "high_water_kib": 229500
+        }
+      },
+      "response_bytes": 26563,
+      "reads": {
+        "project": 2,
+        "script": 1,
+        "history": 1
+      },
+      "first_open_s": 0.24842186295427382,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 0.2041597830830142,
+      "warm_s": [
+        0.04352536401711404,
+        0.05077946500387043,
+        0.04683573392685503,
+        0.04128483799286187,
+        0.040942757041193545
+      ],
+      "p50": 0.04352536401711404,
+      "p95": 0.05077946500387043,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 3,
+      "lock_acq": 0,
+      "status": 200
+    }
+  },
+  "peak": {
+    "duration_s": 240.0,
+    "writes": 61,
+    "write_p95_s": 1.3788609330076724,
+    "drain_s": 3.3773778120521456,
+    "drain_capped": false,
+    "leftover": {},
+    "manifest_lock_wait_s": 0.012778514181263745,
+    "version_write_lock_wait_s": 9.708013385534286e-05,
+    "manifest_lock_nb_failures": 0,
+    "video_facts_after": {
+      "videos": 2284,
+      "with_facts": 2284
+    },
+    "thread_queue_max": 2,
+    "loop_lag_max_s": 0.4443397339200601,
+    "cpu_cores_mean": 0.9738887067425508,
+    "cpu_cores_max": 1.1965363947925352,
+    "stack_samples": null,
+    "endpoints": {
+      "project": {
+        "n": 61,
+        "response_bytes": 72730606,
+        "reads": {
+          "project": 208,
+          "script": 14040,
+          "history": 4732
+        },
+        "abandon_rate": 0.5901639344262295,
+        "abandoned": 36,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 6.220520147006027,
+        "p95": 11.441891492926516,
+        "max": 16.921898943022825,
+        "delivered_p95": 4.638917017029598,
+        "inflight_max": 5,
+        "computing_max": 1,
+        "mean_thread_hops": 0.8524590163934426,
+        "mean_thread_qwait_s": 0.0021674238301844138,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 3.5876028942455704,
+        "mean_thread_cpu_s": 0.9390669324590164
+      },
+      "cost": {
+        "n": 61,
+        "response_bytes": 95825205,
+        "reads": {
+          "project": 122,
+          "script": 5490,
+          "history": 61
+        },
+        "abandon_rate": 0.0,
+        "abandoned": 0,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 2.2641185640823096,
+        "p95": 2.8634933891007677,
+        "max": 3.6006931950105354,
+        "delivered_p95": 2.8634933891007677,
+        "inflight_max": 1,
+        "computing_max": 1,
+        "mean_thread_hops": 92,
+        "mean_thread_qwait_s": 0.057200212909488894,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 1.5128961499765148,
+        "mean_thread_cpu_s": 0.8314264019672128
+      },
+      "wf_status": {
+        "n": 122,
+        "response_bytes": 362706,
+        "reads": {
+          "project": 488,
+          "script": 244,
+          "history": 244
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 61,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 1.2146852649748325,
+        "p95": 1.6152055690763518,
+        "max": 1.772363177035004,
+        "delivered_p95": 1.6152055690763518,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 2,
+        "mean_thread_qwait_s": 0.003385833617238725,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 1.1406401195487037,
+        "mean_thread_cpu_s": 0.19239635344262318
+      },
+      "wf_plan": {
+        "n": 122,
+        "response_bytes": 1416054,
+        "reads": {
+          "project": 854,
+          "script": 488,
+          "history": 488
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 61,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 1.6229964289814234,
+        "p95": 2.1096421000547707,
+        "max": 2.3214310930343345,
+        "delivered_p95": 2.221846819971688,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 8,
+        "mean_thread_qwait_s": 0.0074326068746903146,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 1.3333545201582087,
+        "mean_thread_cpu_s": 0.2651528062295083
+      },
+      "units": {
+        "n": 122,
+        "response_bytes": 3285406,
+        "reads": {
+          "project": 244,
+          "script": 122,
+          "history": 122
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 61,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 1.3125192200532183,
+        "p95": 1.7166558479657397,
+        "max": 1.8060214649885893,
+        "delivered_p95": 1.7166558479657397,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 3,
+        "mean_thread_qwait_s": 0.016131418675077377,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 1.1819018357372308,
+        "mean_thread_cpu_s": 0.13847455672131137
+      }
+    },
+    "probes": {
+      "auth_verify": {
+        "n": 1024,
+        "p95": 0.001300003961659968,
+        "max": 0.011402713018469512,
+        "errors": 0
+      },
+      "media_range": {
+        "n": 735,
+        "p95": 0.5214619670296088,
+        "max": 1.301717945956625,
+        "errors": 0
+      }
+    }
+  },
+  "units_trace": {
+    "episode": 45,
+    "python_peak_bytes": 10195042,
+    "status": 200
+  },
+  "observed_at_end": {
+    "history_bytes": 1199291,
+    "manifest_bytes": 945151,
+    "asset_images": 30
+  }
+}
