@@ -490,6 +490,22 @@ class TestSaveValidatesOpenOverrides:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.parametrize("bad_value", [[], {}, {"mode": "always_on"}, 1, None])
+    def test_unhashable_or_non_string_legacy_audio_mode_rejected(self, capability_client: TestClient, bad_value):
+        """旧音轨键收到列表/对象等非字符串值时返回结构化 422，不在集合成员检查中抛 TypeError 导致 500。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                    capability_overrides={"audio_track": bad_value},
+                )
+            ],
+        )
+        assert resp.status_code == 422
+        assert "has_audio_track" in resp.json()["detail"]
+
     def test_non_video_endpoint_rejected(self, capability_client: TestClient):
         resp = _post_provider(
             capability_client,
@@ -1068,3 +1084,51 @@ def test_batch_save_rejects_invalid_video_overrides_atomically(capability_client
     saved = capability_client.get(url).json()
     assert saved["display_name"] == "Relay"
     assert saved["models"][0]["capability_overrides"] == {"has_audio_track": True}
+
+
+async def test_endpoint_change_drops_carried_legacy_controllable_audio(
+    capability_client, custom_providers_app_session_factory
+):
+    pid = await _seed_provider_with_raw_models(
+        custom_providers_app_session_factory,
+        [_video_model(endpoint="newapi-video", capability_overrides={"audio_track": "controllable", "durations": [5]})],
+    )
+    url = f"/api/v1/custom-providers/{pid}"
+    saved = capability_client.put(
+        url,
+        json={
+            "display_name": "Relay",
+            "base_url": "https://relay.test/v1",
+            "models": [
+                _video_model(
+                    endpoint="dashscope-video",
+                    capability_overrides={"audio_track": "controllable", "durations": [5]},
+                )
+            ],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["models"][0]["capability_overrides"] == {"durations": [5]}
+
+
+def test_video_override_rejection_reports_specific_guidance(capability_client):
+    incoherent = _post_provider(
+        capability_client,
+        [
+            _video_model(
+                endpoint="ark-seedance-2",
+                model_id="doubao-seedance-2-0",
+                capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 0},
+            )
+        ],
+    )
+    assert incoherent.status_code == 422
+    assert "max_reference_audio_count" in incoherent.json()["detail"]
+    assert "none" in incoherent.json()["detail"]
+
+    invalid_type = _post_provider(
+        capability_client,
+        [_video_model(endpoint="dashscope-video", capability_overrides={"last_frame": "true"})],
+    )
+    assert invalid_type.status_code == 422
+    assert "bool" in invalid_type.json()["detail"]

@@ -33,7 +33,13 @@ from lib.backends.video_capabilities import (
     resolve_video_model,
 )
 from lib.capabilities.kernel import CapabilitySnapshot
-from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS, OVERRIDE_KEYS, valid_value
+from lib.capabilities.override_schema import (
+    LEGACY_AUDIO_KEYS,
+    OVERRIDE_KEYS,
+    VIDEO_CHANNEL_FLAG_KEYS,
+    is_legacy_audio_mode,
+    valid_value,
+)
 from lib.custom_provider.definition_capabilities import decode_definition
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.model_facts import model_entry
@@ -117,10 +123,8 @@ def video_capabilities_from_definition(definition: Mapping[str, object]) -> Vide
         if key == "max_reference_images" and isinstance(value, float) and value.is_integer():
             value = int(value)
         if key in LEGACY_AUDIO_KEYS:
-            valid = value in ("always_on", "always_off", "controllable") or (
-                value is None and key == "reference_route_audio_track"
-            )
-        elif key in {"first_frame_ratio_adaptive_only", "reference_audio_per_image"}:
+            valid = is_legacy_audio_mode(value) or (value is None and key == "reference_route_audio_track")
+        elif key in VIDEO_CHANNEL_FLAG_KEYS:
             valid = type(value) is bool
         else:
             valid = (

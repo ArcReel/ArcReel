@@ -102,7 +102,7 @@ Select a model in the provider details to open Provider settings and Model info.
 
 The interface shows the parameters in effect. This usually means the range supported by both the catalog and the call endpoint, with the smaller limit for any count. "Not recorded" means ArcReel has no data for that limit.
 
-The endpoint protocol determines whether it accepts an audio switch. For editable video models, choose whether the output has audio. Reference video inherits the main route unless you set it separately. Kling v3 Omni always produces silent video from multiple subject references. Duration options are read-only when a ComfyUI workflow fixes the duration.
+The endpoint protocol determines whether it accepts an audio switch. For editable video models, choose whether the output has audio. Reference video inherits the main route unless you set it separately. Kling v3 Omni always produces silent video from multiple subject references. Duration options are read-only when a ComfyUI endpoint fixes the duration.
 
 Pre-submission estimates and usage records use the same audio pricing tier. Gemini AI Studio always bills at the audio rate, even when project audio is off or the model is marked silent. Other providers use the expected audio track for the request.
 

@@ -3,6 +3,35 @@ from math import isfinite
 from typing import Any
 
 LEGACY_AUDIO_KEYS = {"audio_track": "has_audio_track", "reference_route_audio_track": "reference_route_has_audio_track"}
+LEGACY_AUDIO_MODES = frozenset({"always_on", "always_off", "controllable"})
+
+
+def is_legacy_audio_mode(value: object) -> bool:
+    return isinstance(value, str) and value in LEGACY_AUDIO_MODES
+
+
+VIDEO_CHANNEL_FLAG_KEYS = frozenset({"first_frame_ratio_adaptive_only", "reference_audio_per_image"})
+_EXPECTED_TYPE_NAMES: Mapping[str, str] = {
+    "durations": "list[int > 0]（非空）",
+    "resolutions": "list[str]（非空）",
+    "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0], with_end_frame: list[int > 0]}",
+    "reference_audio_mode": "none | direct",
+    "max_reference_audio_total_seconds": "float | None",
+    "max_prompt_chars": "int | None",
+    "max_output_tokens": "int",
+    "max_reference_images": "int",
+    "max_reference_audio_count": "int",
+}
+
+
+def expected_type_name(key: str) -> str:
+    if key in _EXPECTED_TYPE_NAMES:
+        return _EXPECTED_TYPE_NAMES[key]
+    if key in LEGACY_AUDIO_KEYS:
+        return "controllable | always_on | always_off"
+    return "bool"
+
+
 OVERRIDE_KEYS = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
