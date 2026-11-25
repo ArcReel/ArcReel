@@ -94,7 +94,11 @@ class OpenAITextBackend:
                 break
             except APIStatusError as exc:
                 param = (exc.param or "").partition(".")[0]
-                if exc.status_code in {400, 422} and param == "stream_options" and "stream_options" in kwargs:
+                if (
+                    exc.status_code in {400, 422}
+                    and "stream_options" in kwargs
+                    and (param == "stream_options" or (param == "" and exc.code != "invalid_json_schema"))
+                ):
                     del kwargs["stream_options"]
                     continue
                 if request.response_schema is not None and (

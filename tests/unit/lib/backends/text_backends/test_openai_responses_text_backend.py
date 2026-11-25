@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 import pytest
+from openai import BadRequestError
 from pydantic import BaseModel
 
 from lib.backends.text_backends.base import (
@@ -141,11 +142,19 @@ async def test_schema_violating_output_falls_back_to_prompt_injection():
     assert (result.input_tokens, result.output_tokens) == (250, 22)
 
 
-async def test_rejected_text_format_falls_back_to_prompt_injection():
+@pytest.mark.parametrize(
+    "error",
+    [
+        {"code": "invalid_json_schema"},
+        {"param": "text.format.schema"},
+        {"message": "Invalid request"},
+    ],
+)
+async def test_rejected_text_format_falls_back_to_prompt_injection(error):
     with capture_http() as router:
         route = router.post(_RESPONSES_URL).mock(
             side_effect=[
-                httpx.Response(400, json={"error": {"message": "Invalid schema for response_format 'response'"}}),
+                httpx.Response(400, json={"error": error}),
                 _response('{"title": "雪夜", "episode_count": 3}'),
             ]
         )
@@ -156,6 +165,16 @@ async def test_rejected_text_format_falls_back_to_prompt_injection():
     assert json.loads(result.text) == {"title": "雪夜", "episode_count": 3}
 
 
+async def test_non_schema_rejection_propagates_even_when_message_mentions_schema():
+    with capture_http() as router:
+        route = router.post(_RESPONSES_URL).respond(
+            400, json={"error": {"param": "input", "message": "Invalid input with json_schema"}}
+        )
+        with pytest.raises(BadRequestError):
+            await _backend().generate(TextGenerationRequest(prompt="概括", response_schema=_Overview))
+    assert route.call_count == 1
+
+
 async def test_truncated_structured_output_raises():
     with capture_http() as router:
         router.post(_RESPONSES_URL).mock(return_value=_response('{"title": "雪', incomplete_reason="max_output_tokens"))
@@ -163,13 +182,14 @@ async def test_truncated_structured_output_raises():
             await _backend().generate(TextGenerationRequest(prompt="概括这部小说", response_schema=_Overview))
 
 
-async def test_truncated_free_text_is_flagged():
-    with capture_http() as router:
+async def test_truncated_free_text_is_flagged(caplog):
+    with capture_http() as router, caplog.at_level("WARNING", logger="lib.backends.text_backends.base"):
         router.post(_RESPONSES_URL).mock(return_value=_response("从前有座山", incomplete_reason="max_output_tokens"))
         result = await _backend().generate(TextGenerationRequest(prompt="讲个故事"))
 
     assert result.text == "从前有座山"
     assert result.truncated is True
+    assert any("max_output_tokens" in record.message for record in caplog.records)
 
 
 async def test_failed_status_raises():

@@ -100,23 +100,6 @@ class StructuredOutputExhaustedError(NonRetryableError):
         super().__init__(f"{provider}/{model} 的结构化输出能力不足：{reason}。请更换文本模型或供应商后重试。")
 
 
-RAW_OUTPUT_LOG_LIMIT = 500
-
-
-def truncate_for_log(text: str | None, limit: int = RAW_OUTPUT_LOG_LIMIT) -> str:
-    """把模型原始输出压到可入日志的长度。
-
-    结构化输出降级与解析拒绝由「模型实际输出了什么」决定，只记摘要（字段路径、错误类型）
-    事后无法复盘，故这里刻意保留原文片段。与 :func:`summarize_validation_error` 的取舍不同：
-    后者是每次校验失败都会走的高频路径，本函数只用在 warning 级的降级 / 拒绝分支。
-    """
-    if not text:
-        return "<空>"
-    if len(text) > limit:
-        return f"{text[:limit]}…（截断，共 {len(text)} 字符）"
-    return text
-
-
 _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 
@@ -383,26 +366,6 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
             if node.get("description") in self._class_docstrings:
                 del node["description"]
         return json_schema
-
-
-def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
-    """供自行生成 schema、不经 :func:`resolve_schema` 的库（xai_sdk）使用的 ``model`` 子类。
-
-    子类不带 docstring，``model_json_schema`` 默认改用 :class:`_ModelFacingJsonSchema`，库据此生成的 schema
-    与工具说明都不含类 docstring；字段、校验与序列化沿用 ``model``。
-    """
-
-    def model_json_schema(cls: type[M], *args: Any, **kwargs: Any) -> dict[str, Any]:
-        kwargs.setdefault("schema_generator", _ModelFacingJsonSchema)
-        return model.model_json_schema(*args, **kwargs)
-
-    namespace = {
-        "__doc__": None,
-        "__module__": model.__module__,
-        "__qualname__": model.__qualname__,
-        "model_json_schema": classmethod(model_json_schema),
-    }
-    return type(model)(model.__name__, (model,), namespace)
 
 
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:

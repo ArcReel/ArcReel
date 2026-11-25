@@ -3,8 +3,6 @@
 新增结构化输出调用点时把它的模型补进 :func:`response_schema_models`，让 schema 内容约束覆盖到它。
 """
 
-import inspect
-import json
 from typing import get_args
 
 import pytest
@@ -74,7 +72,7 @@ def _model_field_descriptions(model: type[BaseModel]) -> set[str]:
     return found
 
 
-def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
+def class_docstring_texts(model: type[BaseModel]) -> set[str]:
     """``model`` 的默认 schema 里由类 docstring 生成的说明，即发给模型的内容不应带的文本。
 
     取顶层与各 ``$defs`` 定义上的 ``description``。与字段说明同文的除外（如 ``Composition`` 的「构图信息」）：
@@ -83,9 +81,3 @@ def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
     raw = model.model_json_schema()
     nodes = [raw, *raw.get("$defs", {}).values()]
     return {node["description"] for node in nodes if "description" in node} - _model_field_descriptions(model)
-
-
-def leaked_class_docstrings(model: type[BaseModel], wire_json: str) -> list[str]:
-    """``wire_json``（发往端点的 JSON 文本）里出现的 ``model`` 类 docstring，按首行匹配。"""
-    first_lines = (inspect.cleandoc(text).splitlines()[0] for text in _class_docstring_texts(model))
-    return [line for line in first_lines if json.dumps(line, ensure_ascii=False)[1:-1] in wire_json]

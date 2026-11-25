@@ -9,6 +9,7 @@ from contextlib import aclosing
 from dataclasses import asdict
 from typing import cast
 
+import httpx
 from grpc import StatusCode
 from grpc.aio import AioRpcError
 from xai_sdk import chat as xai_chat
@@ -22,6 +23,7 @@ from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    check_truncation,
     resolve_schema,
 )
 from lib.backends.text_backends.streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
@@ -34,9 +36,12 @@ DEFAULT_MODEL = "grok-4.3"
 class GrokTextBackend:
     """xAI Grok 文本生成后端。"""
 
-    def __init__(self, *, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self, *, api_key: str | None = None, model: str | None = None, connect_timeout: float = CONNECT_TIMEOUT
+    ):
         self._client = create_grok_client(api_key=api_key, disable_retries=True)
         self._model = model or DEFAULT_MODEL
+        self._connect_timeout = connect_timeout
         self._capabilities: set[TextCapability] = {
             TextCapability.TEXT_GENERATION,
             TextCapability.STRUCTURED_OUTPUT,
@@ -86,8 +91,11 @@ class GrokTextBackend:
 
         chat.append(xai_chat.user(request.prompt, *user_parts))
 
-        async with asyncio.timeout(CONNECT_TIMEOUT):
-            await self._client.wait_connected()
+        try:
+            async with asyncio.timeout(self._connect_timeout):
+                await self._client.wait_connected()
+        except TimeoutError as exc:
+            raise httpx.ConnectTimeout("Grok gRPC channel connect timeout") from exc
 
         pending = RequestTokens()
         response = None
@@ -111,9 +119,16 @@ class GrokTextBackend:
                         yield TextDelta(chunk.reasoning_content, thinking=True)
             if response is None or response.finish_reason == "REASON_INVALID":
                 return
-            truncated = response.finish_reason in _TRUNCATION_REASONS
-            if not truncated and response.finish_reason != "REASON_STOP":
+            if response.finish_reason not in _TRUNCATION_REASONS and response.finish_reason != "REASON_STOP":
                 raise RuntimeError(f"Grok generation stopped ({response.finish_reason})")
+            truncated = check_truncation(
+                response.finish_reason,
+                provider=self.name,
+                model=self.model,
+                output_tokens=pending.output_tokens,
+                structured=False,
+                truncation_values=_TRUNCATION_REASONS,
+            )
             result = TextGenerationResult(
                 text=response.content.strip(),
                 provider=self.name,
