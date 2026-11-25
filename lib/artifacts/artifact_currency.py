@@ -18,11 +18,10 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactManifestError,
-    ArtifactObservation,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.artifact_planner import SharedVersionMetadata, TargetStatePlanner, episode_scope_for_key
+from lib.artifacts.artifact_planner import RuntimePlanningContext, TargetStatePlanner, episode_scope_for_key
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
@@ -126,58 +125,59 @@ class ArtifactCurrencyResolver:
     does not change this request's answers.
     """
 
-    def __init__(self, project_dir: Path) -> None:
-        self._project_dir = Path(project_dir)
-        self._shared_versions = SharedVersionMetadata()
-        root_planner = TargetStatePlanner(project_dir, shared_versions=self._shared_versions)
+    def __init__(self, project_dir: Path, *, project: dict[str, Any] | None = None) -> None:
+        self._runtime = RuntimePlanningContext()
+        root_planner = TargetStatePlanner(
+            project_dir, runtime=self._runtime, parsed_project=project, project_bytes=None if project is None else b""
+        )
         if not project_schema_is_current(root_planner.project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         self.manifest_snapshot = root_planner.adapter.read_snapshot()
         root_planner.manifest_snapshot = self.manifest_snapshot
-        self._observations: dict[str, ArtifactObservation] = {}
-        root_planner.shared_observations = self._observations
-        self._project_bytes = root_planner.project_bytes
-        self._planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
+        root_planner.shared_observations = {}
+        self._root = root_planner
+        self._project_dir = root_planner.project_dir
+        self._active: TargetStatePlanner | None = None
         self._adapter = root_planner.adapter
         self._manifest = ArtifactManifest(self._adapter)
 
+    def release_episode(self) -> None:
+        self._active = None
+
     def _planner_for(self, key: ArtifactKey) -> TargetStatePlanner:
         scope = episode_scope_for_key(key)
-        planner = self._planners.get(scope)
-        if planner is None:
-            planner = TargetStatePlanner(
+        if scope is None:
+            return self._root
+        if self._active is None or self._active.episode_scope != scope:
+            self.release_episode()
+            self._active = TargetStatePlanner(
                 self._project_dir,
                 episode_scope=scope,
-                project_bytes=self._project_bytes,
-                shared_versions=self._shared_versions,
+                project_bytes=self._root.project_bytes,
+                parsed_project=self._root.project,
+                runtime=self._runtime,
                 manifest_snapshot=self.manifest_snapshot,
-                shared_observations=self._observations,
+                shared_observations={},
             )
-            self._planners[scope] = planner
-        return planner
+        return self._active
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        planner = self._planner_for(key)
         entries = self.manifest_snapshot.entries
         admission = self._manifest.compare_observed_entry(
-            key, observation=self._observe(artifact_path), expected=None, entries=entries
+            key, observation=planner.observe(artifact_path), expected=None, entries=entries
         )
         if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
             return admission
-        expected = self._planner_for(key).resolve_key(key)
+        expected = planner.resolve_key(key)
         return self._manifest.compare_observed_entry(
-            key, observation=self._observe(artifact_path), expected=expected, entries=entries
+            key, observation=planner.observe(artifact_path), expected=expected, entries=entries
         )
 
     def resolve_basis(self, key: ArtifactKey) -> ArtifactBasis | None:
         """Canonical basis of *key* from this resolver's planners; ``None`` when none is derivable."""
 
         return self._planner_for(key).resolve_basis(key)
-
-    def _observe(self, artifact_path: str) -> ArtifactObservation:
-        observation = self._observations.get(artifact_path)
-        if observation is None:
-            observation = self._observations[artifact_path] = self._adapter.inspect_artifact(artifact_path)
-        return observation
 
     def resolve_usable_entry(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactManifestEntry | None:
         """Return the exact registered entry selected through canonical admission."""
@@ -223,7 +223,7 @@ def active_artifact_currency_resolver(
             f"project schema v{parse_project_schema_version(project)} did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}",
             file="project.json",
         )
-    return ArtifactCurrencyResolver(project_dir)
+    return ArtifactCurrencyResolver(project_dir, project=project if isinstance(project, dict) else dict(project))
 
 
 def resolve_artifact_episode(

@@ -1,8 +1,4 @@
-"""同一个比对器按集建出的规划共享版本历史的解析结果，但只在读到的字节完全相同时复用。
-
-每条用例先比对第一集，让比对器解析过一次版本历史，再改动 ``versions/versions.json``，
-随后比对第二集：第二集的规划必须看到改动后的文件，不能拿到第一集留下的解析结果。
-"""
+"""逐集读取旧版 JSON 历史时，只解码所需资源，并识别替换、删除与损坏。"""
 
 from __future__ import annotations
 
@@ -41,14 +37,12 @@ def resolver_after_first_episode(two_episode_project: Path) -> ArtifactCurrencyR
     return resolver
 
 
-def test_unchanged_versions_are_parsed_once_across_episodes(
-    two_episode_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_episodes_never_decode_the_whole_history(two_episode_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     versions_parses = count_versions_parses(monkeypatch)
     resolver = ArtifactCurrencyResolver(two_episode_project)
 
     assert [_compare_video(resolver, episode) for episode in (1, 2)] == [ArtifactStatus.CURRENT] * 2
-    assert versions_parses["parses"] == 1
+    assert versions_parses["parses"] == 0
 
 
 def test_replaced_versions_reach_the_next_episode(
@@ -61,7 +55,7 @@ def test_replaced_versions_reach_the_next_episode(
     versions_parses = count_versions_parses(monkeypatch)
 
     assert _compare_video(resolver_after_first_episode, 2) is ArtifactStatus.STALE
-    assert versions_parses["parses"] == 1
+    assert versions_parses["parses"] == 0
 
 
 def test_deleted_versions_read_as_empty_for_the_next_episode(

@@ -675,7 +675,8 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
             return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
 
     monkeypatch.setattr(
-        f"{WorkflowStateService.__module__}.ArtifactCurrencyResolver", lambda _project_path: _AudioBlockedResolver()
+        f"{WorkflowStateService.__module__}.ArtifactCurrencyResolver",
+        lambda _project_path, *, project: _AudioBlockedResolver(),
     )
 
     status = WorkflowStateService(pm).get_status("demo")
