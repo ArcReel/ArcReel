@@ -188,10 +188,11 @@ describe("ProjectStatusBar", () => {
     setProject();
     vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(workflowStatus(action("none")));
     vi.spyOn(API, "getEpisodeNextSteps").mockResolvedValue({
+      next_cursor: null,
       episodes: [
-        { episode: 4, plan_stale: false, next_action: action("none") },
-        { episode: 7, plan_stale: false, next_action: action("generate_videos", { episode_id: 7 }) },
-        { episode: 2, plan_stale: true, next_action: action("none") },
+        { episode: 4, plan_stale: false, episode_complete: true, next_action: null },
+        { episode: 7, plan_stale: false, episode_complete: false, next_action: action("generate_videos", { episode_id: 7 }) },
+        { episode: 2, plan_stale: true, episode_complete: false, next_action: action("none") },
       ],
     });
     const location = renderBar();

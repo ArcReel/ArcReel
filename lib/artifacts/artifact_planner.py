@@ -201,6 +201,31 @@ class _EpisodeBinding:
     script_file: str
 
 
+def _episode_bindings(project: Mapping[str, Any]) -> list[_EpisodeBinding]:
+    bindings: list[_EpisodeBinding] = []
+    raw_episodes = project.get("episodes")
+    if raw_episodes is None:
+        raw_episodes = []
+    if not isinstance(raw_episodes, list):
+        raise ValueError("project episodes must be an array")
+    seen_episodes: set[int] = set()
+    seen_scripts: set[str] = set()
+    for index, raw in enumerate(raw_episodes):
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"project episode {index} must be an object")
+        episode = raw.get("episode")
+        script_file = raw.get("script_file")
+        if type(episode) is not int or episode < 1 or not isinstance(script_file, str) or not script_file:
+            raise ValueError(f"project episode {index} has an invalid binding")
+        normalized = normalize_script_binding(script_file)
+        if episode in seen_episodes or normalized in seen_scripts:
+            raise ValueError("project episode bindings must be unique")
+        seen_episodes.add(episode)
+        seen_scripts.add(normalized)
+        bindings.append(_EpisodeBinding(episode=episode, script_file=normalized))
+    return bindings
+
+
 @dataclass(slots=True)
 class RuntimePlanningContext:
     history: LegacyHistoryIndex = field(default_factory=LegacyHistoryIndex)
@@ -208,6 +233,33 @@ class RuntimePlanningContext:
     catalog: ReferenceCatalog | None = None
 
     asset_aliases: dict[int, dict[str, str]] = field(default_factory=dict)
+
+    def episode_bindings(self, project: Mapping[str, Any]) -> Mapping[int, _EpisodeBinding]:
+        if self.bindings is None:
+            self.bindings = {binding.episode: binding for binding in _episode_bindings(project)}
+        return self.bindings
+
+    def selected_history(
+        self,
+        directory: Path,
+        adapter: ProjectArtifactManifestAdapter,
+        store: SQLiteHistory | None,
+        keys: Iterable[tuple[str, str]],
+        *,
+        equivalent: bool = False,
+        proof_version: int | None = None,
+    ) -> Mapping[str, Any]:
+        if store is not None:
+            if equivalent:
+                keys = [pair for kind, name in keys for pair in store.equivalent_keys(kind, name)]
+            return store.selected_resources(keys, proof_version=proof_version)
+        relative = "versions/versions.json"
+        observation = adapter.inspect_artifact(relative)
+        if observation.blocker is not None:
+            raise ArtifactManifestError(observation.blocker.detail)
+        if not observation.present:
+            return {}
+        return self.history.resources(directory / relative, keys, equivalent=equivalent, proof_version=proof_version)
 
     def index_asset_names(self, project: Mapping[str, Any]) -> None:
         def index(bucket: Mapping[Any, Any]) -> None:
@@ -227,7 +279,7 @@ class RuntimePlanningContext:
 
 
 @dataclass(frozen=True, slots=True)
-class _EpisodeState:
+class EpisodeScriptInputs:
     episode: int
     script_file: str
     script_path: Path
@@ -237,6 +289,58 @@ class _EpisodeState:
     items: tuple[dict[str, Any], ...]
     id_field: str
     kind: str
+
+    @classmethod
+    def parse(cls, directory: Path, binding: _EpisodeBinding, raw_script: bytes) -> EpisodeScriptInputs:
+        try:
+            parsed = json.loads(raw_script.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ValueError(f"episode script {binding.script_file} is not valid UTF-8 JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"episode script {binding.script_file} must contain an object")
+        script = cast(dict[str, Any], parsed)
+        if script.get("episode") != binding.episode:
+            raise ValueError(f"episode script {binding.script_file} does not match its project binding")
+        items, id_field, kind = resolve_items(script)
+        seen_ids: set[str] = set()
+        typed_items: list[dict[str, Any]] = []
+        for item_index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"episode script {binding.script_file} item {item_index} must be an object")
+            resource_id = item.get(id_field)
+            if not isinstance(resource_id, str) or not resource_id:
+                raise ValueError(f"episode script {binding.script_file} item {item_index} has no identity")
+            if resource_id in seen_ids:
+                raise ValueError(
+                    f"episode script {binding.script_file} has duplicate resource identity {resource_id!r}"
+                )
+            seen_ids.add(resource_id)
+            typed_items.append(item)
+        return cls(
+            episode=binding.episode,
+            script_file=binding.script_file,
+            script_path=directory / binding.script_file,
+            script=script,
+            positions={item[id_field]: index for index, item in enumerate(typed_items)},
+            by_id={item[id_field]: item for item in typed_items},
+            items=tuple(typed_items),
+            id_field=id_field,
+            kind=kind,
+        )
+
+    def video_input(self, resource_id: str, *, record_gaps: bool) -> tuple[str, str] | None:
+        item = self.by_id.get(resource_id)
+        if item is None:
+            return None
+        if item.get("needs_replan") is True and not (
+            record_gaps and replan_marked_only_for_mixed_speech(self.kind, item)
+        ):
+            return None
+        assets = item.get("generated_assets")
+        path = assets.get("video_clip") if isinstance(assets, Mapping) else None
+        if not isinstance(path, str) or not path:
+            return None
+        return ("reference_videos" if self.kind == "video_units" else "videos", path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,7 +482,7 @@ class TargetStatePlanner:
         self.dependency_digests: dict[Path, str] = {}
         self.script_paths: list[Path] = []
         self.bindings: list[_EpisodeBinding] = []
-        self.episodes: list[_EpisodeState] = []
+        self.episodes: list[EpisodeScriptInputs] = []
         self._bindings_loaded = False
         self._episodes_loaded = False
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
@@ -509,33 +613,11 @@ class TargetStatePlanner:
     def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
             return
-        if self.runtime is not None and self.runtime.bindings is not None:
-            self._use_runtime_bindings(self.runtime.bindings)
-            return
-        raw_episodes = self.project.get("episodes")
-        if raw_episodes is None:
-            raw_episodes = []
-        if not isinstance(raw_episodes, list):
-            raise ValueError("project episodes must be an array")
-        seen_episodes: set[int] = set()
-        seen_scripts: set[str] = set()
-        for index, raw in enumerate(raw_episodes):
-            if not isinstance(raw, Mapping):
-                raise ValueError(f"project episode {index} must be an object")
-            episode = raw.get("episode")
-            script_file = raw.get("script_file")
-            if type(episode) is not int or episode < 1 or not isinstance(script_file, str) or not script_file:
-                raise ValueError(f"project episode {index} has an invalid binding")
-            normalized = normalize_script_binding(script_file)
-            if episode in seen_episodes or normalized in seen_scripts:
-                raise ValueError("project episode bindings must be unique")
-            seen_episodes.add(episode)
-            seen_scripts.add(normalized)
-            self.bindings.append(_EpisodeBinding(episode=episode, script_file=normalized))
-        self._bindings_loaded = True
         if self.runtime is not None:
-            self.runtime.bindings = {binding.episode: binding for binding in self.bindings}
-            self._use_runtime_bindings(self.runtime.bindings)
+            self._use_runtime_bindings(self.runtime.episode_bindings(self.project))
+        else:
+            self.bindings = _episode_bindings(self.project)
+            self._bindings_loaded = True
 
     def _use_runtime_bindings(self, bindings: Mapping[int, _EpisodeBinding]) -> None:
         if self.episode_scope is None:
@@ -581,42 +663,9 @@ class TargetStatePlanner:
         if not observation.present:
             return
         raw_script = self._read_dependency(binding.script_file, "episode script")
-        parsed = self._parse_json(raw_script, f"episode script {binding.script_file}")
-        if not isinstance(parsed, dict):
-            raise ValueError(f"episode script {binding.script_file} must contain an object")
-        script = cast(dict[str, Any], parsed)
-        if script.get("episode") != binding.episode:
-            raise ValueError(f"episode script {binding.script_file} does not match its project binding")
-        items, id_field, kind = resolve_items(script)
-        seen_ids: set[str] = set()
-        typed_items: list[dict[str, Any]] = []
-        for item_index, item in enumerate(items):
-            if not isinstance(item, dict):
-                raise ValueError(f"episode script {binding.script_file} item {item_index} must be an object")
-            resource_id = item.get(id_field)
-            if not isinstance(resource_id, str) or not resource_id:
-                raise ValueError(f"episode script {binding.script_file} item {item_index} has no identity")
-            if resource_id in seen_ids:
-                raise ValueError(
-                    f"episode script {binding.script_file} has duplicate resource identity {resource_id!r}"
-                )
-            seen_ids.add(resource_id)
-            typed_items.append(item)
-        script_path = self.project_dir / binding.script_file
-        self.script_paths.append(script_path)
-        self.episodes.append(
-            _EpisodeState(
-                episode=binding.episode,
-                script_file=binding.script_file,
-                script_path=script_path,
-                script=script,
-                positions={item[id_field]: index for index, item in enumerate(typed_items)},
-                by_id={item[id_field]: item for item in typed_items},
-                items=tuple(typed_items),
-                id_field=id_field,
-                kind=kind,
-            )
-        )
+        episode = EpisodeScriptInputs.parse(self.project_dir, binding, raw_script)
+        self.script_paths.append(episode.script_path)
+        self.episodes.append(episode)
         self._record_formal_path(
             ArtifactKey.episode_script(binding.episode),
             observation.artifact_path,
@@ -1113,7 +1162,7 @@ class TargetStatePlanner:
     def _grid_visual_members(
         self,
         grid: GridGeneration,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
     ) -> tuple[GridStoryboardVisual, ...] | None:
         by_id = episode.by_id
         if len(set(grid.scene_ids)) != len(grid.scene_ids):
@@ -1218,7 +1267,7 @@ class TargetStatePlanner:
         return grid
 
     @staticmethod
-    def _items_for(episode: _EpisodeState, target: str | None) -> Sequence[dict[str, Any]]:
+    def _items_for(episode: EpisodeScriptInputs, target: str | None) -> Sequence[dict[str, Any]]:
         if target is None:
             return episode.items
         item = episode.by_id.get(target)
@@ -1229,17 +1278,17 @@ class TargetStatePlanner:
             return
         for episode in self.episodes:
             for item in self._items_for(episode, target):
-                video_only = False
-                if item.get("needs_replan") is True:
-                    if not (self._records_gaps and replan_marked_only_for_mixed_speech(episode.kind, item)):
-                        continue
-                    video_only = True
                 resource_id = str(item[episode.id_field])
                 assets = item.get("generated_assets")
                 if not isinstance(assets, Mapping):
                     continue
                 audio_path = assets.get("narration_audio")
-                if isinstance(audio_path, str) and audio_path and not video_only and kind != "episode-video":
+                if (
+                    isinstance(audio_path, str)
+                    and audio_path
+                    and item.get("needs_replan") is not True
+                    and kind != "episode-video"
+                ):
                     self._plan_one_typed_media(
                         episode=episode,
                         item=item,
@@ -1248,9 +1297,13 @@ class TargetStatePlanner:
                         artifact_path=audio_path,
                         key=ArtifactKey.episode_audio(episode.episode, resource_id),
                     )
-                video_path = assets.get("video_clip")
-                if isinstance(video_path, str) and video_path and kind != "episode-audio":
-                    resource_type = "reference_videos" if episode.kind == "video_units" else "videos"
+                video = (
+                    episode.video_input(resource_id, record_gaps=self._records_gaps)
+                    if kind != "episode-audio"
+                    else None
+                )
+                if video is not None:
+                    resource_type, video_path = video
                     self._plan_one_typed_media(
                         episode=episode,
                         item=item,
@@ -1285,7 +1338,7 @@ class TargetStatePlanner:
     def _plan_one_typed_media(
         self,
         *,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
         item: Mapping[str, Any],
         resource_id: str,
         resource_type: str,
@@ -1300,18 +1353,10 @@ class TargetStatePlanner:
         if not isinstance(resource, Mapping):
             self._skip(key, artifact_path, "version history has no record for this media")
             return
-        selected_version = resource.get("current_version")
-        records = resource.get("versions")
-        if type(selected_version) is not int or not isinstance(records, list):
+        record = selected_media_record(resource)
+        if record is None:
             self._skip(key, artifact_path, "version history has no selected version")
             return
-        selected = [
-            record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
-        ]
-        if len(selected) != 1:
-            self._skip(key, artifact_path, "version history has no selected version")
-            return
-        record = selected[0]
         if is_uploaded_video_version(resource_type, record):
             if self.manifest_snapshot is None:
                 uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
@@ -1433,22 +1478,12 @@ class TargetStatePlanner:
         """
 
         assert self.manifest_snapshot is not None
-        entry = self.manifest_snapshot.entries.get(key)
-        facts = entry.content if entry is not None and entry.artifact_path == artifact_path else None
-        if facts is None:
-            return None
-        observation = self.observe(artifact_path)
-        if observation.blocker is not None or not observation.present or observation.file_stat is None:
-            return None
-        manifest_stat = self.manifest_snapshot.file_stat
-        racy = manifest_stat is None or facts.mtime_ns >= manifest_stat.st_mtime_ns
-        file_stat = observation.file_stat
-        if not racy and (file_stat.st_size, file_stat.st_mtime_ns) == (facts.size, facts.mtime_ns):
-            return facts.digest
-        observation = self.adapter.inspect_artifact_content(artifact_path)
+        observation, digest = inspect_registered_media(
+            self.adapter, self.manifest_snapshot, key, artifact_path, self.observe(artifact_path)
+        )
         if self.shared_observations is not None:
             self.shared_observations[artifact_path] = observation
-        return facts.digest if observation.content_digest == facts.digest else None
+        return digest
 
     def _media_entry(self, artifact_path: str, basis_digest: str, proven_digest: str) -> ArtifactManifestEntry:
         """视频与音频的规划条目。激活模式下证明成立时顺带记下正式文件的内容事实（与 v18 补录同一条规则）：
@@ -1569,7 +1604,7 @@ class TargetStatePlanner:
     def _record_unselected_media_presentation(
         self,
         *,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
         item: Mapping[str, Any],
         resource_id: str,
         variant: RenditionVariant,
@@ -1770,7 +1805,7 @@ class TargetStatePlanner:
     def _draft_unit_basis(
         self,
         *,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
         item: Mapping[str, Any],
         unit_id: str,
         narration: DraftNarration,
@@ -1794,7 +1829,7 @@ class TargetStatePlanner:
     def _prove_persisted_presentation(
         self,
         *,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
         item: Mapping[str, Any],
         resource_id: str,
         variant: RenditionVariant,
@@ -1930,7 +1965,7 @@ class TargetStatePlanner:
         self,
         raw: object,
         *,
-        episode: _EpisodeState,
+        episode: EpisodeScriptInputs,
         resource_id: str,
         resource_type: str,
         allow_unselected: bool = False,
@@ -2099,19 +2134,24 @@ class TargetStatePlanner:
     def _load_versions(
         self, keys: Iterable[tuple[str, str]], *, equivalent: bool = False, proof_version: int | None = None
     ) -> Mapping[str, Any]:
+        if self.runtime is not None:
+            return self.runtime.selected_history(
+                self.project_dir,
+                self.adapter,
+                self.history_store,
+                keys,
+                equivalent=equivalent,
+                proof_version=proof_version,
+            )
         if self.history_store is not None:
             store = self.history_store
-            if self.runtime is None:
-                revision = store.revision()
-                if self.dependencies.setdefault(store.path, revision) != revision:
-                    raise ArtifactManifestError("version history changed during planning")
+            revision = store.revision()
+            if self.dependencies.setdefault(store.path, revision) != revision:
+                raise ArtifactManifestError("version history changed during planning")
             if equivalent:
                 keys = [pair for kind, name in keys for pair in store.equivalent_keys(kind, name)]
-            if self.runtime is not None:
-                return store.selected_resources(keys, proof_version=proof_version)
             return store.resources(keys)
-        if self.runtime is None:
-            self.absent_paths.add(self._history_path)
+        self.absent_paths.add(self._history_path)
         if self._versions is not None:
             return self._versions
         relative = "versions/versions.json"
@@ -2121,10 +2161,6 @@ class TargetStatePlanner:
         if not observation.present:
             self._versions = {}
             return self._versions
-        if self.runtime is not None:
-            return self.runtime.history.resources(
-                self.project_dir / relative, keys, equivalent=equivalent, proof_version=proof_version
-            )
         raw = self._read_dependency(relative, "version metadata")
         self._versions = self._shared_versions.parse(raw, self._parse_versions)
         return self._versions
@@ -2345,6 +2381,37 @@ def episode_scope_for_key(key: ArtifactKey) -> int | None:
     if type(episode) is not int:
         raise ValueError("episode artifact key has no positive episode identity")
     return episode
+
+
+def inspect_registered_media(
+    adapter: ProjectArtifactManifestAdapter,
+    snapshot: ArtifactManifestSnapshot,
+    key: ArtifactKey,
+    path: str,
+    observation: ArtifactObservation,
+) -> tuple[ArtifactObservation, str | None]:
+    entry = snapshot.entries.get(key)
+    facts = entry.content if entry is not None and entry.artifact_path == path else None
+    stat = observation.file_stat
+    if facts is None or observation.blocker is not None or not observation.present or stat is None:
+        return observation, None
+    if (
+        snapshot.file_stat is not None
+        and facts.mtime_ns < snapshot.file_stat.st_mtime_ns
+        and (stat.st_size, stat.st_mtime_ns) == (facts.size, facts.mtime_ns)
+    ):
+        return observation, facts.digest
+    observation = adapter.inspect_artifact_content(path)
+    return observation, facts.digest if observation.content_digest == facts.digest else None
+
+
+def selected_media_record(resource: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    version = resource.get("current_version")
+    records = resource.get("versions")
+    if type(version) is not int or not isinstance(records, list):
+        return None
+    selected = [r for r in records if isinstance(r, Mapping) and r.get("version") == version]
+    return selected[0] if len(selected) == 1 else None
 
 
 def normalize_script_binding(value: str) -> str:

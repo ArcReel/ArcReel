@@ -93,7 +93,7 @@ from lib.speech.narration_config import (
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import (
-    EpisodeNextStep,
+    EpisodeNextSteps,
     ProjectSummary,
     WorkflowRequestError,
     WorkflowStateService,
@@ -794,25 +794,23 @@ async def get_workflow_status(
         raise BadRequestError("request_invalid") from exc
 
 
-class EpisodeNextSteps(BaseModel):
-    episodes: list[EpisodeNextStep]
-
-
 @router.get("/projects/{name}/workflow-status/episodes", response_model=EpisodeNextSteps)
-async def get_episode_next_steps(name: str, _t: Translator):
-    """账本顺序中每一集建议的下一步，供项目层的逐集清单使用。"""
+async def get_episode_next_steps(
+    name: str, _t: Translator, episodes: Annotated[list[int] | None, Query()] = None, cursor: str | None = None
+):
+    """按账本顺序返回最多 32 集。可重复传 episodes 指定集号，或传上一页的 next_cursor 续读。已完成集的 next_action 为 null。"""
 
     try:
         manager = get_project_manager()
-        steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
-        if not steps:
-            return EpisodeNextSteps(episodes=[])
+        steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name, episodes, cursor)
+        if not steps.episodes:
+            return steps
         project = await asyncio.to_thread(manager.load_project, name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    return EpisodeNextSteps.model_validate(
-        present_episode_diagnostics(EpisodeNextSteps(episodes=steps).model_dump(mode="json"), project, _t)
-    )
+    except WorkflowRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EpisodeNextSteps.model_validate(present_episode_diagnostics(steps.model_dump(mode="json"), project, _t))
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)

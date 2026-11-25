@@ -237,7 +237,8 @@ function EpisodeList({
     const step = steps?.get(episode.episode);
     if (!step) return steps === null ? "…" : "";
     if (step.plan_stale) return t("dashboard:guide_episode_plan_stale");
-    if (step.next_action.type === "none") return t("workflow:action_none");
+    if (step.episode_complete) return t("dashboard:guide_episode_completed");
+    if (!step.next_action || step.next_action.type === "none") return t("workflow:action_none");
     return t("dashboard:guide_episode_next", { step: actionPhrase(t, step.next_action.type) });
   };
 
