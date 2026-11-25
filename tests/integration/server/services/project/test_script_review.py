@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import contextmanager
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Event
 from typing import cast
 
+import portalocker
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
@@ -437,19 +437,18 @@ class TestConfirmMaterializesScript:
         if existing_script:
             _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
 
-        rename_at_plan = Event()
-        confirmation_finished = Event()
-        file_lock = pm.file_lock
+        plan_lock = plan.parent / f".{plan.name}.lock"
+        rename_at_plan = threading.Event()
+        confirmation_finished = threading.Event()
+        real_enter = portalocker.Lock.__enter__
 
-        @contextmanager
-        def synchronize_plan_lock(path):
-            if path == plan and not rename_at_plan.is_set():
+        def synchronize_plan_lock(lock: portalocker.Lock):
+            if Path(lock.filename) == plan_lock and not rename_at_plan.is_set():
                 rename_at_plan.set()
                 assert confirmation_finished.wait(5), "确认在改名等待规划锁时被阻塞"
-            with file_lock(path):
-                yield
+            return real_enter(lock)
 
-        monkeypatch.setattr(pm, "file_lock", synchronize_plan_lock)
+        monkeypatch.setattr(portalocker.Lock, "__enter__", synchronize_plan_lock)
         rename = asyncio.create_task(asyncio.to_thread(pm.rename_asset, "demo", "characters", "裴与", "裴将军"))
         try:
             assert await asyncio.to_thread(rename_at_plan.wait, 5)
@@ -467,6 +466,122 @@ class TestConfirmMaterializesScript:
         assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "confirmed"
         for content in (json.loads(plan.read_text(encoding="utf-8")), _formal_script(pm)):
             assert content["segments"][0]["characters_in_segment"] == ["裴将军"]
+
+    async def test_confirm_conflicts_without_deadlock_when_rename_holds_plan_lock(
+        self, tmp_path, video_request_facts, monkeypatch
+    ):
+        pm = _make_project(tmp_path, "narration")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01", characters_in_segment=["裴与"])))
+        revision = (await _service(pm).get_state("demo", 1))["script_overwrite"]["revision"]
+
+        plan_lock = plan.parent / f".{plan.name}.lock"
+        confirm_validated = threading.Event()
+        rename_holds_plan = threading.Event()
+        confirm_at_commit_plan = threading.Event()
+        rename_thread_id: int | None = None
+        real_enter = portalocker.Lock.__enter__
+        real_exit = portalocker.Lock.__exit__
+
+        def synchronize_enter(lock: portalocker.Lock):
+            if Path(lock.filename) == plan_lock:
+                if threading.get_ident() == rename_thread_id:
+                    assert confirm_validated.wait(5)
+                    handle = real_enter(lock)
+                    try:
+                        rename_holds_plan.set()
+                        assert confirm_at_commit_plan.wait(5), "确认未能在改名持规划锁时到达规划锁入口"
+                    except BaseException:
+                        lock.release()
+                        raise
+                    return handle
+                if confirm_validated.is_set():
+                    assert rename_holds_plan.wait(5)
+                    confirm_at_commit_plan.set()
+            return real_enter(lock)
+
+        def synchronize_exit(lock: portalocker.Lock, *args):
+            result = real_exit(lock, *args)
+            if (
+                Path(lock.filename) == plan_lock
+                and threading.get_ident() != rename_thread_id
+                and not confirm_validated.is_set()
+            ):
+                confirm_validated.set()
+            return result
+
+        def run_rename() -> None:
+            nonlocal rename_thread_id
+            rename_thread_id = threading.get_ident()
+            pm.rename_asset("demo", "characters", "裴与", "裴将军")
+
+        monkeypatch.setattr(portalocker.Lock, "__enter__", synchronize_enter)
+        monkeypatch.setattr(portalocker.Lock, "__exit__", synchronize_exit)
+        rename = asyncio.create_task(asyncio.to_thread(run_rename))
+        try:
+            with pytest.raises(ScriptReviewError) as exc_info:
+                await _service(pm).confirm("demo", 1, overwrite_revision=revision)
+        finally:
+            confirm_validated.set()
+            rename_holds_plan.set()
+            confirm_at_commit_plan.set()
+            await rename
+
+        assert exc_info.value.code == "conversion_conflict"
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        for content in (json.loads(plan.read_text(encoding="utf-8")), _formal_script(pm)):
+            assert content["segments"][0]["characters_in_segment"] == ["裴将军"]
+
+    async def test_rename_retries_lock_set_when_new_script_lands_before_project_lock(
+        self, tmp_path, video_request_facts, monkeypatch
+    ):
+        pm = _make_project(tmp_path, "narration")
+        pm.add_episode("demo", 2, "第二集", "scripts/episode_2.json")
+        plan = _write_script_plan(pm, "narration", _narration_script_plan())
+
+        project_lock = pm.get_project_path("demo") / ".project.json.lock"
+        rename_before_project_lock = threading.Event()
+        episode2_saved = threading.Event()
+        rename_thread_id: int | None = None
+        real_enter = portalocker.Lock.__enter__
+
+        def pause_before_project_lock(lock: portalocker.Lock):
+            if (
+                threading.get_ident() == rename_thread_id
+                and Path(lock.filename) == project_lock
+                and not rename_before_project_lock.is_set()
+            ):
+                rename_before_project_lock.set()
+                assert episode2_saved.wait(5)
+            return real_enter(lock)
+
+        def run_rename() -> None:
+            nonlocal rename_thread_id
+            rename_thread_id = threading.get_ident()
+            pm.rename_asset("demo", "characters", "裴与", "裴将军")
+
+        monkeypatch.setattr(portalocker.Lock, "__enter__", pause_before_project_lock)
+        rename = asyncio.create_task(asyncio.to_thread(run_rename))
+        try:
+            assert await asyncio.to_thread(rename_before_project_lock.wait, 5)
+            ep2_script = {
+                **_narration_script(_narration_script_segment("E2S01", characters_in_segment=["裴与"])),
+                "episode": 2,
+                "title": "第二集",
+            }
+            await asyncio.to_thread(pm.save_script, "demo", ep2_script, "episode_2.json", validate=False)
+        finally:
+            episode2_saved.set()
+            await rename
+
+        project = pm.load_project("demo")
+        assert "裴将军" in project["characters"]
+        assert "裴与" not in project["characters"]
+        assert json.loads(plan.read_text(encoding="utf-8"))["segments"][0]["characters_in_segment"] == ["裴将军"]
+        ep2_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
+        assert json.loads(ep2_path.read_text(encoding="utf-8"))["segments"][0]["characters_in_segment"] == ["裴将军"]
 
     async def test_drama_confirm_writes_every_plan_entry_pending_authoring(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama")
