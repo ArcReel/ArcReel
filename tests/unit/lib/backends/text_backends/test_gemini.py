@@ -1,183 +1,187 @@
 """GeminiTextBackend tests."""
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+import asyncio
+import json
 
 import httpx
 import pytest
-from google.genai.types import GenerateContentResponseUsageMetadata
+from google.genai.errors import ClientError, ServerError
+from google.oauth2.credentials import Credentials
 from pydantic import BaseModel
 
 from lib.backends.text_backends.base import (
-    StructuredOutputExhaustedError,
+    ImageInput,
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
-    TextGenerationResult,
+    TextOutputTruncatedError,
 )
 from lib.backends.text_backends.gemini import GeminiTextBackend
-from tests.fakes import bounded_poll_clock
-from tests.http_capture import capture_http, request_json
+from lib.backends.text_backends.streaming import TextWaitTimeout
+from tests.fakes import bounded_poll_clock, captured_vertex_credentials
+from tests.http_capture import PathPrefixRewrite, capture_http, request_json
 from tests.unit.lib.backends.text_backends.response_schema_support import (
     response_schema_models,
     response_schema_params,
 )
 
 
+def _sse(*frames):
+    return httpx.Response(
+        200,
+        headers={"Content-Type": "text/event-stream"},
+        content="".join("data: " + json.dumps(frame) + "\n\n" for frame in frames),
+    )
+
+
+def _frame(text, finish=None, *, thinking=False, usage=None):
+    candidate = {"content": {"parts": [{"text": text, "thought": thinking}]}}
+    if finish:
+        candidate["finishReason"] = finish
+    frame = {"candidates": [candidate]}
+    if usage:
+        frame["usageMetadata"] = usage
+    return frame
+
+
 @pytest.fixture
-def mock_genai():
-    with patch("lib.backends.text_backends.gemini.genai") as m:
-        yield m
+def backend():
+    return GeminiTextBackend(api_key="k")
 
 
-class TestProperties:
-    def test_name(self, mock_genai):
-        b = GeminiTextBackend(api_key="k")
-        assert b.name == "gemini"
-        mock_genai.Client.assert_called_once_with(api_key="k", http_options=None)
-
-    def test_default_model(self, mock_genai):
-        b = GeminiTextBackend(api_key="k")
-        assert b.model == "gemini-3.8-flash"
-
-    def test_custom_model(self, mock_genai):
-        b = GeminiTextBackend(api_key="k", model="custom")
-        assert b.model == "custom"
-
-    def test_capabilities(self, mock_genai):
-        b = GeminiTextBackend(api_key="k")
-        assert b.capabilities == {
-            TextCapability.TEXT_GENERATION,
-            TextCapability.STRUCTURED_OUTPUT,
-            TextCapability.VISION,
-        }
-
-    def test_no_api_key_raises(self, mock_genai):
-        with pytest.raises(ValueError, match="API Key"):
-            GeminiTextBackend()
+@pytest.fixture(params=["aistudio", "vertex"])
+def channel(request, tmp_path):
+    layer = PathPrefixRewrite("/", "/")
+    if request.param == "aistudio":
+        return GeminiTextBackend(api_key="k", transport_layer=layer), layer
+    creds = tmp_path / "vertex.json"
+    creds.write_text('{"project_id":"vertex-project"}')
+    with captured_vertex_credentials() as load:
+        load.return_value = Credentials(token="vertex-token")
+        return GeminiTextBackend(backend="vertex", credentials_path=str(creds), transport_layer=layer), layer
 
 
-class TestGenerate:
-    @pytest.fixture
-    def backend(self, mock_genai):
-        mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
-        b = GeminiTextBackend(api_key="k")
-        b._test_client = mock_client
-        return b
+class Answer(BaseModel):
+    answer: int
 
-    async def test_plain_text(self, backend):
-        mock_resp = SimpleNamespace(
-            text="  generated text  ",
-            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=10, candidates_token_count=5),
+
+TOKENS = {"promptTokenCount": 100, "cachedContentTokenCount": 70, "candidatesTokenCount": 5, "thoughtsTokenCount": 3}
+BILL = RequestTokens(input_tokens=100, cache_read_tokens=70, output_tokens=8)
+
+
+@pytest.mark.parametrize(
+    ("finish", "usage"), [("STOP", TOKENS), ("STOP", None), ("MAX_TOKENS", TOKENS), (None, TOKENS)]
+)
+async def test_stream_outcome(channel, finish, usage):
+    backend, layer = channel
+    bills, progress = [], []
+    frames = [_frame("思考", thinking=True) for _ in range(5)]
+    frames += [_frame('{"answer":1}', usage=usage), _frame("", finish)]
+    request = TextGenerationRequest(
+        prompt="question",
+        response_schema=Answer,
+        on_progress=progress.append,
+        on_usage=bills.append,
+        system_prompt="system",
+    )
+    with capture_http() as router, bounded_poll_clock(step=45):
+        route = router.post(path__regex=":streamGenerateContent$").mock(return_value=_sse(*frames))
+        if finish == "MAX_TOKENS":
+            with pytest.raises(TextOutputTruncatedError):
+                await backend.generate(request)
+        elif finish is None:
+            with pytest.raises(RuntimeError, match="terminal"):
+                await backend.generate(request)
+        else:
+            result = await backend.generate(request)
+            assert result.text == '{"answer":1}'
+            assert result.request_tokens() == ([BILL] if usage else [])
+    assert bills == ([BILL] if usage else [])
+    assert [(p.characters, p.thinking) for p in progress if p.phase == "receiving"] == [(0, True)] * 5 + [(12, False)]
+    assert route.call_count == layer.closed == 1
+    wire = route.calls.last.request
+    assert wire.url.params["alt"] == "sse"
+    assert wire.extensions["timeout"] == {"connect": 15, "read": None, "write": None, "pool": 15}
+    body = request_json(wire)
+    config = body["generationConfig"]
+    assert "responseSchema" in config
+    assert "responseJsonSchema" not in config
+    assert "maxOutputTokens" not in config
+    assert body["systemInstruction"]["parts"][0]["text"] == "system"
+
+
+async def test_cancel_after_partial_usage(channel):
+    backend, layer = channel
+    bills = []
+    waiting = asyncio.Event()
+
+    class Paused(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield _sse(_frame("partial", usage=TOKENS)).content
+            waiting.set()
+            await asyncio.Event().wait()
+
+    with capture_http() as router:
+        route = router.post(path__regex=":streamGenerateContent$").mock(
+            return_value=httpx.Response(200, stream=Paused())
         )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+        task = asyncio.create_task(backend.generate(TextGenerationRequest(prompt="hello", on_usage=bills.append)))
+        try:
+            async with asyncio.timeout(5):
+                await waiting.wait()
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    assert bills == [BILL]
+    assert route.call_count == layer.closed == 1
 
-        result = await backend.generate(TextGenerationRequest(prompt="hello"))
 
-        assert isinstance(result, TextGenerationResult)
-        assert result.text == "generated text"
-        assert result.provider == "gemini"
-        assert result.input_tokens == 10
-        assert result.output_tokens == 5
-
-    async def test_cache_hits_and_thinking_tokens_are_reported(self, backend):
-        """prompt_token_count 含缓存命中，命中量另报；思考 token 按输出计入。"""
-        mock_resp = SimpleNamespace(
-            text="ok",
-            usage_metadata=GenerateContentResponseUsageMetadata(
-                prompt_token_count=1000,
-                cached_content_token_count=700,
-                candidates_token_count=50,
-                thoughts_token_count=30,
-            ),
+async def test_native_and_fallback_are_individually_billed_and_redacted(backend, caplog):
+    bills = []
+    with capture_http() as router, caplog.at_level("INFO"):
+        route = router.post(path__regex=":streamGenerateContent$").mock(
+            side_effect=[
+                _sse(_frame("private output", "STOP", usage=TOKENS)),
+                _sse(_frame('<think>abc</think>\n```json\n{"answer":1}\n```', "STOP", usage=TOKENS)),
+            ]
         )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        result = await backend.generate(TextGenerationRequest(prompt="hello"))
-
-        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1000, 700, 80)
-
-    async def test_structured_output_passes_schema(self, backend):
-        mock_resp = SimpleNamespace(
-            text='{"key": "value"}',
-            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
+        result = await backend.generate(
+            TextGenerationRequest(
+                prompt="private prompt", max_output_tokens=123, response_schema=Answer, on_usage=bills.append
+            )
         )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+    assert result.text == '{"answer":1}'
+    assert bills == result.request_tokens() == [BILL, BILL]
+    first, second = [request_json(call.request) for call in route.calls]
+    assert first["generationConfig"]["maxOutputTokens"] == 123
+    assert "responseSchema" not in second["generationConfig"]
+    assert "JSON Schema" in second["contents"][0]["parts"][0]["text"]
+    assert "private prompt" not in caplog.text
+    assert "private output" not in caplog.text
 
-        schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        result = await backend.generate(TextGenerationRequest(prompt="gen json", response_schema=schema))
 
-        assert result.text == '{"key": "value"}'
-        call_kwargs = backend._test_client.aio.models.generate_content.call_args
-        config = call_kwargs.kwargs.get("config")
-        assert config["response_mime_type"] == "application/json"
-        assert config["response_schema"] == schema
-        assert "response_json_schema" not in config
+async def test_retry_limit_counts_actual_http_requests(channel):
+    backend, layer = channel
+    with capture_http() as router, bounded_poll_clock(step=1):
+        route = router.post(path__regex=":streamGenerateContent$").respond(503, json={"error": {"code": 503}})
+        with pytest.raises(ServerError):
+            await backend.generate(TextGenerationRequest(prompt="hello"))
+    assert route.call_count == layer.closed == 3
 
-    async def test_structured_truncation_raises(self, backend):
-        """结构化输出被 MAX_TOKENS 截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
-        from lib.backends.text_backends.base import TextOutputTruncatedError
 
-        mock_resp = SimpleNamespace(
-            text='{"key": "value"}',
-            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
-            candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
-        )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+def test_defaults_and_capabilities(backend):
+    assert (backend.name, backend.model) == ("gemini", "gemini-3.8-flash")
+    assert backend.capabilities == {
+        TextCapability.TEXT_GENERATION,
+        TextCapability.STRUCTURED_OUTPUT,
+        TextCapability.VISION,
+    }
+    with pytest.raises(ValueError, match="API Key"):
+        GeminiTextBackend()
 
-        schema = {"type": "object", "properties": {"key": {"type": "string"}}}
-        with pytest.raises(TextOutputTruncatedError) as exc_info:
-            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=schema))
 
-        assert exc_info.value.provider == "gemini"
-
-    async def test_free_text_truncation_only_warns(self, backend, caplog):
-        """自由文本（无 response_schema）被截断时告警并在结果上标记截断，不抛错。"""
-        import logging
-
-        mock_resp = SimpleNamespace(
-            text="partial",
-            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
-            candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
-        )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        with caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.base"):
-            result = await backend.generate(TextGenerationRequest(prompt="gen"))
-
-        assert result.text == "partial"
-        assert result.truncated is True
-        assert any("被截断" in r.message for r in caplog.records)
-
-    async def test_structured_output_pydantic_class_resolved_to_response_schema(self, backend):
-        """传入 Pydantic 类时解析为 dict 走 response_schema（wire 字段 responseSchema）。
-
-        responseSchema 上线已久、代理网关普遍能透传给真实上游执行约束解码；较新的
-        responseJsonSchema 多数代理网关的请求解析结构体不认识、会静默丢弃，导致上游
-        按无 schema 的纯 JSON 模式自由生成。故统一走 responseSchema，与 dict 入参同口径。
-        """
-        from pydantic import BaseModel
-
-        class MyModel(BaseModel):
-            name: str
-
-        mock_resp = SimpleNamespace(
-            text='{"name": "test"}',
-            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
-        )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        await backend.generate(TextGenerationRequest(prompt="gen", response_schema=MyModel))
-
-        call_kwargs = backend._test_client.aio.models.generate_content.call_args
-        config = call_kwargs.kwargs.get("config")
-        assert config["response_mime_type"] == "application/json"
-        assert "response_json_schema" not in config
-        js = config["response_schema"]
-        assert js["type"] == "object"
-        assert js["properties"]["name"]["type"] == "string"
-        assert js["required"] == ["name"]
-
+class TestResponseSchema:
     def test_episode_script_integer_enum_stringified(self, backend):
         """回归：duration_seconds 整数 enum 在 responseSchema 通道转为字符串枚举。
 
@@ -250,191 +254,6 @@ class TestGenerate:
             validated = gtypes.Schema.model_validate(config["response_schema"])
             assert validated.type == gtypes.Type.OBJECT
 
-    async def test_system_prompt(self, backend):
-        mock_resp = SimpleNamespace(
-            text="output",
-            usage_metadata=None,
-        )
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        result = await backend.generate(TextGenerationRequest(prompt="hello", system_prompt="You are X."))
-
-        assert result.text == "output"
-        assert result.input_tokens is None
-        call_kwargs = backend._test_client.aio.models.generate_content.call_args
-        config = call_kwargs.kwargs.get("config")
-        assert config["system_instruction"] == "You are X."
-
-    async def test_no_usage_metadata(self, backend):
-        mock_resp = SimpleNamespace(text="output", usage_metadata=None)
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        result = await backend.generate(TextGenerationRequest(prompt="hi"))
-        assert result.input_tokens is None
-        assert result.output_tokens is None
-
-    async def test_max_output_tokens_in_config(self, backend):
-        """max_output_tokens 注入到 Gemini config 字典。"""
-        mock_resp = SimpleNamespace(text="x", usage_metadata=None)
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=32000))
-
-        call_kwargs = backend._test_client.aio.models.generate_content.call_args
-        config = call_kwargs.kwargs.get("config")
-        assert config["max_output_tokens"] == 32000
-
-    async def test_no_max_output_tokens_means_no_config_key(self, backend):
-        """未指定 max_output_tokens 时 config 中不应出现该键。"""
-        mock_resp = SimpleNamespace(text="x", usage_metadata=None)
-        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
-
-        await backend.generate(TextGenerationRequest(prompt="hi"))
-
-        call_kwargs = backend._test_client.aio.models.generate_content.call_args
-        config = call_kwargs.kwargs.get("config")
-        assert config is None or "max_output_tokens" not in config
-
-
-class _OverviewModel(BaseModel):
-    genre: str
-    theme: str
-
-
-def _resp(text: str, input_tokens: int | None = None, output_tokens: int | None = None) -> SimpleNamespace:
-    usage = (
-        GenerateContentResponseUsageMetadata(prompt_token_count=input_tokens, candidates_token_count=output_tokens)
-        if input_tokens is not None or output_tokens is not None
-        else None
-    )
-    return SimpleNamespace(text=text, usage_metadata=usage)
-
-
-_PROSE = "经仔细阅读，该剧本讲述了一个都市逆袭故事。"
-_VALID_JSON = '{"genre": "都市", "theme": "逆袭"}'
-
-
-class TestStructuredFallback:
-    """代理网关 HTTP 200 但不强制 response_schema（返回散文/违例 JSON）时的降级路径。"""
-
-    @pytest.fixture
-    def backend(self, mock_genai):
-        mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
-        b = GeminiTextBackend(api_key="k")
-        b._test_client = mock_client
-        return b
-
-    async def test_prose_triggers_prompt_fallback_and_succeeds(self, backend):
-        """散文响应触发降级：schema 注入 prompt、不带 wire 结构化参数重发，token 并账。"""
-        gc = AsyncMock(side_effect=[_resp(_PROSE, 20, 10), _resp(_VALID_JSON, 30, 15)])
-        backend._test_client.aio.models.generate_content = gc
-
-        result = await backend.generate(TextGenerationRequest(prompt="分析剧本", response_schema=_OverviewModel))
-
-        assert gc.call_count == 2
-        fb_config = gc.call_args_list[1].kwargs.get("config")
-        assert fb_config is None or (
-            "response_schema" not in fb_config
-            and "response_json_schema" not in fb_config
-            and "response_mime_type" not in fb_config
-        )
-        fb_prompt = gc.call_args_list[1].kwargs["contents"][-1]
-        assert "分析剧本" in fb_prompt
-        assert "JSON Schema" in fb_prompt
-        assert '"genre"' in fb_prompt
-        assert _OverviewModel.model_validate_json(result.text) == _OverviewModel(genre="都市", theme="逆袭")
-        assert result.provider == "gemini"
-        assert result.model == backend.model
-        assert result.input_tokens == 50
-        assert result.output_tokens == 25
-
-    async def test_fallback_strips_code_fences(self, backend):
-        """降级输出带 markdown 栅栏时剥离后校验。"""
-        fenced = f"```json\n{_VALID_JSON}\n```"
-        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(fenced)])
-        backend._test_client.aio.models.generate_content = gc
-
-        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert _OverviewModel.model_validate_json(result.text).genre == "都市"
-        assert result.input_tokens is None
-        assert result.output_tokens is None
-
-    async def test_fallback_retries_with_error_feedback(self, backend):
-        """降级首次输出违反 schema 时带错误反馈重试一次。"""
-        gc = AsyncMock(
-            side_effect=[
-                _resp(_PROSE, 10, 5),
-                _resp('{"genre": "都市"}', 10, 5),
-                _resp(_VALID_JSON, 10, 5),
-            ]
-        )
-        backend._test_client.aio.models.generate_content = gc
-
-        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert gc.call_count == 3
-        retry_prompt = gc.call_args_list[2].kwargs["contents"][-1]
-        assert "不符合" in retry_prompt
-        assert _OverviewModel.model_validate_json(result.text).theme == "逆袭"
-        assert result.input_tokens == 30
-        assert result.output_tokens == 15
-
-    async def test_fallback_exhausted_raises_structured_output_exhausted(self, backend):
-        """降级重试穷尽后收敛为 StructuredOutputExhaustedError，消息面向用户可读（不透传 pydantic 原始串）。"""
-        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_PROSE), _resp(_PROSE)])
-        backend._test_client.aio.models.generate_content = gc
-
-        with pytest.raises(StructuredOutputExhaustedError, match="结构化输出能力不足") as exc_info:
-            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert gc.call_count == 3
-        assert exc_info.value.provider == "gemini"
-        assert exc_info.value.model == "gemini-3.8-flash"
-        assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
-
-    async def test_fallback_logs_raw_model_output(self, backend, caplog):
-        """降级触发点以 warning 记录模型原始输出，供事后诊断模型实际吐了什么。"""
-        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp(_VALID_JSON)])
-        backend._test_client.aio.models.generate_content = gc
-
-        with caplog.at_level("WARNING", logger="lib.backends.text_backends.gemini"):
-            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert any(_PROSE in record.getMessage() for record in caplog.records)
-
-    async def test_valid_schema_json_no_fallback(self, backend):
-        """满足 schema 的合法 JSON 不触发降级（单次调用）。"""
-        gc = AsyncMock(return_value=_resp(_VALID_JSON, 20, 10))
-        backend._test_client.aio.models.generate_content = gc
-
-        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert gc.call_count == 1
-        assert result.text == _VALID_JSON
-
-    async def test_dict_schema_prose_fallback_returns_stripped_json(self, backend):
-        """dict schema 无 Pydantic 模型可校验，降级后按「合法 JSON」标准放行。"""
-        schema = {"type": "object", "properties": {"k": {"type": "string"}}}
-        gc = AsyncMock(side_effect=[_resp(_PROSE), _resp('```json\n{"k": "v"}\n```')])
-        backend._test_client.aio.models.generate_content = gc
-
-        result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=schema))
-
-        assert result.text == '{"k": "v"}'
-
-    async def test_fallback_transient_error_does_not_replay_native_call(self, backend):
-        """降级路径瞬态错误只在降级层重试，不重放已成功（已计费）的原生调用。"""
-        transient = ConnectionError("503 service unavailable")
-        gc = AsyncMock(side_effect=[_resp(_PROSE), transient, transient, transient])
-        backend._test_client.aio.models.generate_content = gc
-
-        with bounded_poll_clock(), pytest.raises(ConnectionError):
-            await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
-
-        assert gc.call_count == 4
-
 
 def _keys_anywhere(node: object, names: set[str]) -> list[str]:
     """递归收集 dict 中任何层级出现的指定 key（含属性名位置，用于断言「完全不含」）。"""
@@ -452,11 +271,6 @@ def _keys_anywhere(node: object, names: set[str]) -> list[str]:
 
 class TestAdditionalPropertiesStripped:
     """Gemini Developer API 的 responseSchema 不认识 additionalProperties，下发即 400 INVALID_ARGUMENT。"""
-
-    @pytest.fixture
-    def backend(self, mock_genai):
-        mock_genai.Client.return_value = MagicMock()
-        return GeminiTextBackend(api_key="k")
 
     def test_response_schema_models_carry_additional_properties_before_conversion(self):
         """前提自检：原始 schema 确实带 additionalProperties，否则下面的参数化断言形同虚设。"""
@@ -514,30 +328,67 @@ class TestAdditionalPropertiesStripped:
         assert props["with_examples"]["examples"] == [{"additionalProperties": False}]
         assert out["required"] == ["additionalProperties"]
 
-    async def test_request_body_response_schema_has_no_additional_properties(self):
-        """请求体层面：真实 google-genai 序列化后的 generationConfig.responseSchema 不含该字段。
-
-        google-genai 装有 aiohttp 时默认走 aiohttp，respx 拦不到；注入 ``httpx_async_client`` 后 SDK
-        改走该 httpx 客户端（含降级链的后续请求），由 respx 在 transport 层截获，未声明的请求直接抛错。
-        """
-        from google import genai as real_genai
-
-        reply = {
-            "candidates": [{"content": {"parts": [{"text": "{}"}], "role": "model"}, "finishReason": "STOP"}],
-            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
-        }
-        backend = GeminiTextBackend(api_key="k")
+    async def test_all_models_send_normalized_schema_on_the_wire(self, backend):
         with capture_http() as router:
-            route = router.post(url__regex=r":generateContent$").mock(return_value=httpx.Response(200, json=reply))
-            async with httpx.AsyncClient() as http_client:
-                backend._client = real_genai.Client(api_key="k", http_options={"httpx_async_client": http_client})
-                for model in response_schema_models():
-                    route.calls.reset()
-                    with pytest.raises(StructuredOutputExhaustedError):
-                        await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
-                    assert route.called, model.__name__
-                    response_schema = request_json(route.calls[0].request)["generationConfig"]["responseSchema"]
-                    assert response_schema["type"] == "OBJECT"
-                    assert _keys_anywhere(response_schema, {"additional_properties", "additionalProperties"}) == [], (
-                        model.__name__
-                    )
+            route = router.post(path__regex=":streamGenerateContent$").respond(401, json={"error": {"code": 401}})
+            for model in response_schema_models():
+                with pytest.raises(ClientError):
+                    await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
+                schema = request_json(route.calls.last.request)["generationConfig"]["responseSchema"]
+                assert schema["type"] == "OBJECT"
+                assert _keys_anywhere(schema, {"additionalProperties", "additional_properties"}) == [], model.__name__
+
+
+async def test_error_in_accepted_stream_does_not_replay(channel):
+    backend, layer = channel
+    with capture_http() as router, bounded_poll_clock(step=1):
+        route = router.post(path__regex=":streamGenerateContent$").mock(return_value=_sse({"error": {"code": 503}}))
+        with pytest.raises(ServerError):
+            await backend.generate(TextGenerationRequest(prompt="x"))
+    assert route.call_count == layer.closed == 1
+
+
+async def test_native_rejection_falls_back(channel):
+    backend, layer = channel
+    with capture_http() as router:
+        route = router.post(path__regex=":streamGenerateContent$").mock(
+            side_effect=[httpx.Response(400, json={"error": {"code": 400}}), _sse(_frame('{"answer":1}', "STOP"))]
+        )
+        result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Answer))
+    assert result.text == '{"answer":1}'
+    assert route.call_count == layer.closed == 2
+
+
+async def test_read_timeout_bills_latest_partial_usage(channel):
+    backend, layer = channel
+    bills = []
+
+    class TimedOut(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield _sse(_frame("partial", usage=TOKENS)).content
+            yield _sse({"usageMetadata": {"thoughtsTokenCount": 7}}).content
+            raise httpx.ReadTimeout("stalled")
+
+    with capture_http() as router:
+        route = router.post(path__regex=":streamGenerateContent$").mock(
+            return_value=httpx.Response(200, stream=TimedOut())
+        )
+        with pytest.raises(TextWaitTimeout):
+            await backend.generate(TextGenerationRequest(prompt="x", on_usage=bills.append))
+    assert route.call_count == layer.closed == 1
+    assert bills == [RequestTokens(input_tokens=100, cache_read_tokens=70, output_tokens=12)]
+
+
+async def test_image_and_prompt_are_sent_together(backend, tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "reference.png"
+    Image.new("RGB", (2, 2)).save(path)
+    with capture_http() as router:
+        route = router.post(path__regex=":streamGenerateContent$").mock(return_value=_sse(_frame("cut", "MAX_TOKENS")))
+        result = await backend.generate(TextGenerationRequest(prompt="describe", images=[ImageInput(path=path)]))
+    assert result.text == "cut"
+    assert result.truncated
+    parts = request_json(route.calls.last.request)["contents"][0]["parts"]
+    assert parts[0]["inlineData"]["mime_type"] == "image/png"
+    assert parts[1] == {"text": "describe"}

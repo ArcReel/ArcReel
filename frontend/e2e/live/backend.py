@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 import uvicorn
 from pydantic import BaseModel
+from starlette.responses import Response
 
 HISTORY_COUNT = 205
 
@@ -82,14 +83,14 @@ def serve(port: int, data_dir: str) -> None:
         text_responses.extend(request.responses)
 
     @control.post("/gemini/v1beta/models/{model_action:path}")
-    async def gemini_generate_content(model_action: str, payload: dict[str, Any]) -> dict[str, Any]:
-        if not model_action.endswith(":generateContent"):
+    async def gemini_generate_content(model_action: str, payload: dict[str, Any]) -> Response:
+        if not model_action.endswith(":streamGenerateContent"):
             raise HTTPException(status_code=404, detail=f"Unsupported Gemini action: {model_action}")
         if not payload.get("contents"):
             raise HTTPException(status_code=400, detail="Missing contents in Gemini request")
         if not text_responses:
             raise HTTPException(status_code=500, detail="No scripted Gemini text response queued")
-        return {
+        frame = {
             "candidates": [
                 {
                     "content": {"role": "model", "parts": [{"text": text_responses.popleft()}]},
@@ -102,6 +103,8 @@ def serve(port: int, data_dir: str) -> None:
                 "totalTokenCount": 30,
             },
         }
+
+        return Response(f"data: {json.dumps(frame)}\n\n", media_type="text/event-stream")
 
     @control.post("/downgrade-v20/{project_name}")
     async def downgrade_v20(project_name: str) -> None:
