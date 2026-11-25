@@ -1,5 +1,6 @@
 
 import type {
+  TaskProgress,
   AssistantSessionResumedPayload,
   EpisodeScript,
   ModelSettingEntry,
@@ -106,6 +107,7 @@ export interface ShotUploadResult {
 export interface ProjectEventStreamOptions {
   projectName: string;
   onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
+  onTaskProgress?: (payload: TaskProgress) => void;
   onChanges?: (payload: ProjectChangeBatchPayload) => void;
   onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
   onAssistantSessionResumed?: (payload: AssistantSessionResumedPayload) => void;

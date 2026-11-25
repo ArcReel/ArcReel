@@ -9,7 +9,14 @@ export type TaskStatus =
   | "cancelled";
 export type TaskMediaType = "image" | "video" | "audio" | "render";
 
+export type TaskProgress = { task_id: string; seq: number } & (
+  | { phase: "waiting"; model: string }
+  | { phase: "receiving"; characters: number; thinking: boolean }
+  | { phase: "retrying"; error: string; attempt: number; max_attempts: number }
+);
+
 export interface TaskItem {
+  progress?: TaskProgress;
   task_id: string;
   project_name: string;
   task_type: string;
