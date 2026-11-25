@@ -622,6 +622,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
     剪辑时间线，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
     narration_audio 键抛错的假 resolver 隔离验证，不牵扯 script_plan/script Manifest 激活的
     全套前置状态。"""
+    from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
 
     pm, project_path = _make_project(tmp_path, "narration")
@@ -670,18 +671,12 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
     _write_artifact(project_path, audio_path)
     atomic_write_json(script_path, script)
 
-    class _AudioBlockedResolver:
-        """narration_audio 键 compare 抛错（BLOCKED），其余键一律 current。"""
+    def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        if key == ArtifactKey.episode_audio(1, "E1S01"):
+            raise RuntimeError("manifest sidecar unreadable")
+        return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
 
-        def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
-            if key == ArtifactKey.episode_audio(1, "E1S01"):
-                raise RuntimeError("manifest sidecar unreadable")
-            return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
-
-    monkeypatch.setattr(
-        f"{WorkflowStateService.__module__}.ArtifactCurrencyResolver",
-        lambda _project_path, *, project: _AudioBlockedResolver(),
-    )
+    monkeypatch.setattr(ArtifactCurrencyResolver, "compare", compare)
 
     status = WorkflowStateService(pm).get_status("demo", 1)
     assert status.next_action.type == "create_edit_timeline"
@@ -2775,6 +2770,14 @@ def test_large_ledger_plans_only_returned_target_and_visible_unfinished_rows(
     atomic_write_json(manifest_path, manifest)
     pm.update_project("demo", lambda project: project.update(episodes=ledger))
 
+    script_reads = []
+    snapshot = ProjectArtifactManifestAdapter.inspect_artifact_snapshot
+
+    def observed_snapshot(adapter, path):
+        script_reads.append(path)
+        return snapshot(adapter, path)
+
+    monkeypatch.setattr(ProjectArtifactManifestAdapter, "inspect_artifact_snapshot", observed_snapshot)
     scopes = []
     init = TargetStatePlanner.__init__
 
@@ -2791,6 +2794,7 @@ def test_large_ledger_plans_only_returned_target_and_visible_unfinished_rows(
     assert status.content is not None
     assert status.content.project_complete == (completed == 686)
     assert scopes == [selected]
+    assert script_reads.count("scripts/episode_1.json") == 1
     scopes.clear()
 
     app = FastAPI()

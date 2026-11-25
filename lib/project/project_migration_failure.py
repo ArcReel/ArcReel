@@ -114,17 +114,18 @@ def _project_relative(record: MigrationFailureRecord, project_dir: Path) -> Migr
     )
 
 
-def _readable_schema_version(project_dir: Path) -> int | None:
+def _readable_schema_version(project_dir: Path, data: dict | None) -> int | None:
     """Return the project's schema version, or ``None`` when it cannot be read.
 
     A directory without a parseable ``project.json`` is not a project this guard
     can rule on; whoever resolved the name owns that verdict.
     """
 
-    try:
-        data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
-        return None
+    if data is None:
+        try:
+            data = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None
     if not isinstance(data, dict):
         return None
     try:
@@ -148,7 +149,7 @@ def pending_migration_record(schema_version: int) -> MigrationFailureRecord:
     )
 
 
-def load_migration_verdict(project_dir: Path) -> MigrationFailureRecord | None:
+def load_migration_verdict(project_dir: Path, *, project: dict | None = None) -> MigrationFailureRecord | None:
     """Return the blocking verdict for a project — recorded failure or still pending.
 
     A recorded failure wins: it names the exact inputs the chain refused. Absent
@@ -160,7 +161,7 @@ def load_migration_verdict(project_dir: Path) -> MigrationFailureRecord | None:
     recorded = load_migration_failure(project_dir)
     if recorded is not None:
         return recorded
-    version = _readable_schema_version(project_dir)
+    version = _readable_schema_version(project_dir, project)
     if version is None or version >= CURRENT_PROJECT_SCHEMA_VERSION:
         return None
     return pending_migration_record(version)

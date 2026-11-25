@@ -151,7 +151,7 @@ from lib.project.asset_merge import (
     AssetMergeReport,
 )
 from lib.project.asset_types import ASSET_SPECS
-from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.project_manager import ProjectManager, get_project_manager, is_reference_video_project
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
     ProjectMigrationError,
@@ -229,7 +229,7 @@ from server.services.project.narration_settings import (
     new_project_narration_fields,
 )
 from server.services.project.script_review import ScriptPlanContent, ScriptReviewError, ScriptReviewService
-from server.services.project.workflow_planner import WorkflowPlanner
+from server.services.project.workflow_planner import DEFAULT_WORKFLOW_CONFIG, WorkflowPlanner
 from server.services.tasks.episode_activity import episode_has_active_tasks
 from server.services.tasks.video_caps import resolve_agent_video_capabilities
 from server.text_generation import (
@@ -308,8 +308,10 @@ class Services:
         return cls(
             projects=projects,
             workflow_planner=WorkflowPlanner(projects),
-            capabilities=ConfigResolver(async_session_factory),
-            queue=GenerationQueue(project_manager=projects),
+            capabilities=DEFAULT_WORKFLOW_CONFIG,
+            queue=get_generation_queue()
+            if projects is get_project_manager()
+            else GenerationQueue(project_manager=projects),
         )
 
 
