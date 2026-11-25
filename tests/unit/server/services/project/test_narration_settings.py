@@ -129,9 +129,13 @@ async def test_tts_project_prefills_a_voice_the_default_model_supports(db_factor
 
 
 async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
-    """显式选了 DashScope、全局默认却是 Gemini：音色按实际写入的模型校正，Cherry 保留。"""
-    await _set_api_keys(db_factory, "gemini-aistudio", "dashscope")
-    await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
+    """显式选了开放音色模型而全局默认是另一家模型：不泄露另一家音色，按所选模型首音色预填。"""
+    await _set_api_keys(db_factory, "grok", "dashscope")
+    await _set_globals(
+        db_factory,
+        default_audio_backend="grok/grok-tts",
+        narration_voice="eve",
+    )
     fields = await new_project_narration_fields(
         NarrationSettingsInput(
             delivery="use_tts",
@@ -142,6 +146,21 @@ async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
     )
     assert fields["audio_backend"] == "dashscope/qwen3-tts-flash"
     assert fields["narration_voice"] == "Cherry"
+
+
+async def test_same_open_voice_model_preserves_custom_global_voice(db_factory):
+    """全局默认与所选模型相同时，开放音色模型保留用户手填的全局音色。"""
+    await _set_api_keys(db_factory, "dashscope")
+    await _set_globals(
+        db_factory,
+        default_audio_backend="dashscope/qwen3-tts-flash",
+        narration_voice="my-cloned-voice",
+    )
+    fields = await new_project_narration_fields(
+        NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
+    )
+    assert fields["audio_backend"] == "dashscope/qwen3-tts-flash"
+    assert fields["narration_voice"] == "my-cloned-voice"
 
 
 async def test_offline_prefill_when_the_model_cannot_be_constructed(db_factory):

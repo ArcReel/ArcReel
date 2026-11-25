@@ -7,20 +7,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
+from lib.backends.audio_profiles import VoiceOption as VoiceOption
+
 
 class AudioCapability(StrEnum):
     """音频后端支持的能力枚举。"""
 
     TEXT_TO_SPEECH = "text_to_speech"
     SPEECH_SPEED = "speech_speed"
-
-
-@dataclass(frozen=True)
-class VoiceOption:
-    """音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值，``label`` 是给人看的展示名。"""
-
-    id: str
-    label: str
 
 
 @dataclass

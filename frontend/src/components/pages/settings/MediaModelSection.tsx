@@ -196,9 +196,6 @@ export function MediaModelSection() {
       if (model && model !== saved.default_audio_backend) {
         patch.narration_voice = fields.narration_voice;
         patch.narration_speed = fields.narration_speed;
-      } else if (model && fields.narration_voice === undefined && saved.narration_voice !== undefined) {
-        const { voices } = await API.getTtsModelCapabilities(model);
-        patch.narration_voice = voices[0]?.id ?? "";
       }
       const res = await API.updateSystemConfig(patch);
       useCapabilitiesStore.getState().invalidate();
@@ -220,17 +217,24 @@ export function MediaModelSection() {
       useCapabilitiesStore.getState().invalidate();
       const latest = await fetchConfig();
       if (applied && change.media_type === "audio") {
-        setFields((prev) => ({
-          ...prev,
-          default_audio_backend: latest.default_audio_backend,
-          narration_voice: latest.narration_voice,
-          narration_speed: latest.narration_speed,
-        }));
+        setFields((prev) => {
+          if (
+            prev.default_audio_backend !== fields.default_audio_backend ||
+            prev.narration_voice !== fields.narration_voice ||
+            prev.narration_speed !== fields.narration_speed
+          ) return prev;
+          return {
+            ...prev,
+            default_audio_backend: latest.default_audio_backend,
+            narration_voice: latest.narration_voice,
+            narration_speed: latest.narration_speed,
+          };
+        });
       }
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
     },
-    [fetchConfig, reloadCandidates, setFields],
+    [fetchConfig, fields, reloadCandidates, setFields],
   );
   const currentAudioBackend = fields.default_audio_backend || auto?.audio || "";
   const capabilities = useTtsModelCapabilities(currentAudioBackend);
@@ -238,6 +242,14 @@ export function MediaModelSection() {
   const changeAudioBackend = (backend: string) => {
     setFields((prev) => {
       if (backend === prev.default_audio_backend) return prev;
+      if (backend && backend === unit.savedValue.default_audio_backend) {
+        return {
+          ...prev,
+          default_audio_backend: backend,
+          narration_voice: unit.savedValue.narration_voice,
+          narration_speed: unit.savedValue.narration_speed,
+        };
+      }
       return {
         ...prev,
         default_audio_backend: backend,
@@ -560,6 +572,7 @@ export function MediaModelSection() {
           <NarrationVoiceInput
             id="narration-voice-input"
             aria-describedby="narration-voice-hint"
+            disabled={!currentAudioBackend}
             value={currentNarrationVoice}
             onChange={(narration_voice) =>
               setFields((prev) => ({ ...prev, default_audio_backend: currentAudioBackend, narration_voice }))
@@ -577,7 +590,7 @@ export function MediaModelSection() {
           <Input
             id="narration-speed-input"
             type="number"
-            disabled={!currentAudioBackend || capabilities?.supportsSpeed === false}
+            disabled={!fields.default_audio_backend || !currentNarrationVoice.trim() || capabilities?.supportsSpeed === false}
             min={0.1}
             step={0.1}
             aria-describedby="narration-speed-hint"

@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import i18n from "@/i18n";
+import { createDeferred } from "@/test/deferred";
 import { API } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
@@ -127,6 +128,41 @@ describe("MediaModelSection", () => {
     await user.click(screen.getByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
+  });
+
+  it("preserves audio edits made while an applied recommendation refreshes", async () => {
+    const user = userEvent.setup();
+    const current = "dashscope/first";
+    const recommended = "dashscope/second";
+    const change = { media_type: "audio" as const, provider_id: "dashscope", recommended, current };
+    const initial = {
+      options: { ...CONFIG.options, audio_backends: [current, recommended] },
+      settings: { ...CONFIG.settings, default_audio_backend: current, narration_voice: "old" },
+    };
+    vi.spyOn(API, "getSystemConfig").mockResolvedValueOnce(initial as never);
+    vi.spyOn(API, "getRecommendationChanges")
+      .mockResolvedValueOnce({ changes: [change] })
+      .mockResolvedValue({ changes: [] });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
+    vi.spyOn(API, "acknowledgeRecommendation").mockResolvedValue();
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(initial as never);
+    const refresh = createDeferred<Awaited<ReturnType<typeof API.getSystemConfig>>>();
+    vi.mocked(API.getSystemConfig).mockReturnValueOnce(refresh.promise);
+
+    render(<MediaModelSection />);
+    await user.click(await screen.findByRole("button", { name: "切换到 second" }));
+    await waitFor(() => expect(API.getSystemConfig).toHaveBeenCalledTimes(2));
+    const voice = screen.getByLabelText("旁白音色 ID");
+    await user.clear(voice);
+    await user.type(voice, "my-voice");
+    await act(async () => refresh.resolve({
+      ...initial, settings: { ...initial.settings, default_audio_backend: recommended, narration_voice: "first-voice" },
+    } as never));
+
+    expect(voice).toHaveValue("my-voice");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(patch).toHaveBeenCalledWith(expect.objectContaining({ default_audio_backend: current, narration_voice: "my-voice" }));
   });
 
   it("offers a new recommendation when the default model is empty", async () => {
@@ -536,7 +572,7 @@ describe("MediaModelSection", () => {
     expect(input).toHaveValue("longanlufeng");
   });
 
-  it("resets the voice and speed when switching audio models", async () => {
+  it("resets the voice and speed when switching audio models and restores saved state when switching back", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       options: { ...CONFIG.options, audio_backends: ["grok/grok-tts", "dashscope/qwen3-tts-flash"] },
@@ -547,14 +583,21 @@ describe("MediaModelSection", () => {
       voices: [{ id: backend.startsWith("grok/") ? "eve" : "Cherry", label: "Voice" }],
     }));
     render(<MediaModelSection />);
-    await user.click(await screen.findByRole("combobox", { name: "默认旁白配音模型" }));
+    const audioSelect = await screen.findByRole("combobox", { name: "默认旁白配音模型" });
+    await user.click(audioSelect);
     await user.click(await screen.findByRole("option", { name: /qwen3-tts-flash/ }));
     await waitFor(() => expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Cherry"));
     expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
     expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(null);
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+    await user.click(audioSelect);
+    await user.click(await screen.findByRole("option", { name: /grok-tts/ }));
+    await waitFor(() => expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("eve"));
+    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.4);
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
-  it("pins the discovered custom audio model with the entered voice", async () => {
+  it.each([null, 1.2])("pins the discovered custom audio model with the entered voice and speed %s", async (requestedSpeed) => {
     const user = userEvent.setup();
     const model = "custom-2/relay";
     vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, audio: model });
@@ -567,17 +610,22 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
     expect(await screen.findByRole("combobox", { name: "默认旁白配音模型" })).toHaveTextContent("relay");
     expect(screen.getByText(/已发现自定义供应商的默认音频模型/)).toBeInTheDocument();
+    const speed = screen.getByLabelText("配音语速（可选）");
+    expect(speed).toBeDisabled();
     await user.type(screen.getByLabelText("旁白音色 ID"), "speaker");
     await user.keyboard("{Escape}");
+    expect(speed).toBeEnabled();
+    if (requestedSpeed !== null) await user.type(speed, String(requestedSpeed));
     await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(patch).toHaveBeenCalledWith({ default_audio_backend: model, narration_voice: "speaker", narration_speed: null });
+    expect(patch).toHaveBeenCalledWith({ default_audio_backend: model, narration_voice: "speaker", narration_speed: requestedSpeed });
   });
 
-  it("does not ask for voices while the default audio model is auto-selected", async () => {
+  it("does not ask for voices and disables voice input while the default audio model is auto-selected", async () => {
     const capabilities = vi.spyOn(API, "getTtsModelCapabilities");
     render(<MediaModelSection />);
 
-    await userEvent.click(await screen.findByLabelText("旁白音色 ID"));
+    const voiceInput = await screen.findByLabelText("旁白音色 ID");
+    expect(voiceInput).toBeDisabled();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
     expect(capabilities).not.toHaveBeenCalled();
   });

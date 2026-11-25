@@ -30,7 +30,7 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.audio_backends.profiles import endpoint_profile
+from lib.backends.audio_profiles import endpoint_profile
 from lib.backends.backend_runtime import (
     should_retry_signed_download,
     should_retry_submit,
