@@ -65,6 +65,10 @@ paths:
 
 用户输入或第三方返回的 ID（如供应商模型 ID）会拼进 `/{id:path}` 这类路由时，添加、改名与导入的服务端入口按 `/` 切分，拒绝任何等于 `.` 或 `..` 的段，只校验长度不够。WHATWG URL 把 `.`、`..` 及其百分号编码都当作点段规范化，`a/../b` 到达服务端时已变成 `b`，前端编码挡不住，带点段的 ID 会读、改、删到同一作用域下的另一个对象。参考 `lib/catalog/model_id.py` 的 `has_dot_segment`。
 
+### 在 `projects_dir` 下分配或落位项目目录的入口共用 `project_names_lock`
+
+新建项目、从回收站恢复项目、归档导入以及其他会在 `layout.projects_dir` 下检查重名、分配名称或改名落位项目目录的运行期入口，必须共用 `lib/project/project_manager.py` 的 `project_names_lock` 把重名校验与目录落位收进同一把锁内。只在某一入口用排他 `mkdir`，其余入口先检查目标是否存在再 `rename`，并发请求会在两次操作间隙占下同名空目录并在 POSIX 上被改名替换，导致两个成功请求写入同一项目目录、损坏元数据（#3954、#4087）。
+
 ## 删除与恢复
 
 项目内的删除都成为项目回收站中的删除记录，恢复只新增、不覆盖，见 `docs/adr/0107-deletion-goes-to-trash-restore-only-adds.md`。下面几条违反时，后果都是用户以为能找回的内容实际找不回。

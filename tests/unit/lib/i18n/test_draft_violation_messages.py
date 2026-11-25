@@ -12,14 +12,22 @@ from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import assert_dialogue_preserved, validate_unit_text
 
 ROOT = Path(__file__).resolve().parents[4]
-PRODUCERS = (
-    "lib/script/draft_violation.py",
-    "lib/script/reference_video/draft_validation.py",
-    "lib/script/script_generator.py",
-    "lib/script/script_plan_validation.py",
-    "server/text_generation.py",
-    "lib/script/plan_new_assets.py",
-)
+PRODUCER_ROOTS = ("lib", "server")
+PRODUCER_TOKENS = ("DraftViolation", "NewAssetProblem", "SCHEMA_ERROR_PARAM")
+
+
+def _iter_producer_trees(root: Path = ROOT) -> list[tuple[str, ast.AST]]:
+    trees: list[tuple[str, ast.AST]] = []
+    for base in PRODUCER_ROOTS:
+        base_dir = root / base
+        if not base_dir.is_dir():
+            continue
+        for path in sorted(base_dir.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            if not any(token in text for token in PRODUCER_TOKENS):
+                continue
+            trees.append((path.relative_to(root).as_posix(), ast.parse(text)))
+    return trees
 
 
 def _fields(template: str) -> set[str]:
@@ -34,10 +42,10 @@ def _param_key(node: ast.expr | None) -> str | None:
     return None
 
 
-def _schema_error_types():
+def _schema_error_types(root: Path = ROOT):
     """Producer-side shape codes written as literal ``schema_error`` dicts."""
-    for filename in PRODUCERS:
-        for node in ast.walk(ast.parse((ROOT / filename).read_text())):
+    for _, tree in _iter_producer_trees(root):
+        for node in ast.walk(tree):
             if isinstance(node, ast.Dict):
                 for key, value in zip(node.keys, node.values, strict=True):
                     if _param_key(key) == SCHEMA_ERROR_PARAM and isinstance(value, ast.Dict):
@@ -47,9 +55,9 @@ def _schema_error_types():
                             yield kind.value
 
 
-def _producer_contracts():
-    for filename in PRODUCERS:
-        for node in ast.walk(ast.parse((ROOT / filename).read_text())):
+def _producer_contracts(root: Path = ROOT):
+    for filename, tree in _iter_producer_trees(root):
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             if isinstance(node.func, ast.Name) and node.func.id == "DraftViolation":
@@ -70,6 +78,18 @@ def _producer_contracts():
                     params = node.args[3]
                     assert isinstance(params, ast.Dict)
                     yield code.value, {key.value for key in params.keys if isinstance(key, ast.Constant)}
+
+
+def test_producer_discovery_covers_new_modules_without_manual_list(tmp_path: Path):
+    module = tmp_path / "lib" / "script" / "unregistered_validator.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "from lib.script.draft_violation import DraftViolation\n"
+        "def check():\n"
+        '    return DraftViolation(code="unregistered_violation", params={"field": "x"})\n',
+        encoding="utf-8",
+    )
+    assert list(_producer_contracts(tmp_path)) == [("unregistered_violation", {"field"})]
 
 
 @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
