@@ -75,7 +75,6 @@ async def test_restore_uses_a_suffix_when_create_claims_the_name_mid_restore(tmp
         [entry] = client.get(DELETED).json()["projects"]
         restore_url = f"{DELETED}/{quote(entry['id'], safe='')}/restore"
         checked, claimed = threading.Event(), threading.Event()
-        finish_create = threading.Event()
         real_exists, real_mkdir = Path.exists, Path.mkdir
 
         def wait_for_create_after_free_name_check(path):
@@ -85,27 +84,23 @@ async def test_restore_uses_a_suffix_when_create_claims_the_name_mid_restore(tmp
                 assert claimed.wait(10)
             return exists
 
-        def pause_after_create_claim(path, *args, **kwargs):
+        def observe_create_claim(path, *args, **kwargs):
             if path.parent == original_dir and not claimed.is_set():
                 claimed.set()
-                assert finish_create.wait(10)
             real_mkdir(path, *args, **kwargs)
 
         monkeypatch.setattr(Path, "exists", wait_for_create_after_free_name_check)
-        monkeypatch.setattr(Path, "mkdir", pause_after_create_claim)
+        monkeypatch.setattr(Path, "mkdir", observe_create_claim)
         with ThreadPoolExecutor(max_workers=2) as requests:
             restore = requests.submit(client.post, restore_url)
-            try:
-                assert checked.wait(10)
-                create = requests.submit(
-                    client.post,
-                    "/api/v1/projects",
-                    json={"name": "demo", "title": "New", "generation_mode": "storyboard"},
-                )
-                assert claimed.wait(10)
-                restored = restore.result(timeout=10)
-            finally:
-                finish_create.set()
+            assert checked.wait(10)
+            create = requests.submit(
+                client.post,
+                "/api/v1/projects",
+                json={"name": "demo", "title": "New", "generation_mode": "storyboard"},
+            )
+            assert claimed.wait(10)
+            restored = restore.result(timeout=10)
             created = create.result(timeout=10)
 
         assert created.status_code == 200, created.text

@@ -684,10 +684,6 @@ async def create_project(
                 else _validated_episode_target_duration(req.episode_target_duration, _t)
             )
 
-            try:
-                manager.create_project(project_name, content_mode=req.content_mode or "narration")
-            except FileExistsError as exc:
-                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name)) from exc
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
@@ -695,21 +691,27 @@ async def create_project(
             extras["grid_storyboard"] = req.grid_storyboard
             if speech_rate is not None:
                 extras[SPEECH_RATE_FIELD] = speech_rate
-            with project_change_source("webui"):
-                project = manager.create_project_metadata(
-                    project_name,
-                    title or manual_name,
-                    style_prompt,
-                    req.content_mode,
-                    aspect_ratio=req.aspect_ratio,
-                    default_duration=req.default_duration,
-                    episode_target_duration=episode_target_duration,
-                    style_template_id=req.style_template_id,
-                    extras=extras or None,
-                    target_duration=req.target_duration,
-                    brief=req.brief,
-                    narration=narration_fields,
-                )
+            try:
+                with (
+                    manager.creating_project(project_name, content_mode=req.content_mode or "narration", publish=False),
+                    project_change_source("webui"),
+                ):
+                    project = manager.create_project_metadata(
+                        project_name,
+                        title or manual_name,
+                        style_prompt,
+                        req.content_mode,
+                        aspect_ratio=req.aspect_ratio,
+                        default_duration=req.default_duration,
+                        episode_target_duration=episode_target_duration,
+                        style_template_id=req.style_template_id,
+                        extras=extras or None,
+                        target_duration=req.target_duration,
+                        brief=req.brief,
+                        narration=narration_fields,
+                    )
+            except FileExistsError as exc:
+                raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name)) from exc
             return {"success": True, "name": project_name, "project": project}
 
         return await run_sync_transaction(_sync)

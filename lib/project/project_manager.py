@@ -450,6 +450,18 @@ class ProjectManager:
         Returns:
             项目目录路径
         """
+        with self.creating_project(name, content_mode, publish=publish) as project_dir:
+            return project_dir
+
+    @contextmanager
+    def creating_project(
+        self,
+        name: str,
+        content_mode: ContentMode = "narration",
+        *,
+        publish: bool = True,
+    ) -> Generator[Path]:
+        """持有项目名锁直到初始化及调用方的元数据发布完成。"""
         name = self.normalize_project_name(name)
         project_dir = self.projects_dir / name
 
@@ -459,17 +471,16 @@ class ProjectManager:
             except FileExistsError as exc:
                 raise FileExistsError(f"项目 '{name}' 已存在") from exc
 
-        try:
-            for subdir in self.SUBDIRS:
-                (project_dir / subdir).mkdir(exist_ok=True)
-            if publish:
-                atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
-            self.sync_agent_profile(project_dir, content_mode=content_mode)
-        except Exception:
-            shutil.rmtree(project_dir, ignore_errors=True)  # hard-delete: rollback -- 创建项目失败时移除刚建的项目目录
-            raise
-
-        return project_dir
+            try:
+                for subdir in self.SUBDIRS:
+                    (project_dir / subdir).mkdir(exist_ok=True)
+                if publish:
+                    atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
+                self.sync_agent_profile(project_dir, content_mode=content_mode)
+                yield project_dir
+            except Exception:
+                self.delete_project_directory(name)
+                raise
 
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
