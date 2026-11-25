@@ -1,0 +1,145 @@
+{
+  "workload": "synthetic",
+  "base_commit": "af20f66c1",
+  "argv": [
+    "uv",
+    "run",
+    "python",
+    "-m",
+    "scripts.perf.bench",
+    "all",
+    "--rebuild",
+    "--episodes",
+    "686",
+    "--distribution",
+    "tail",
+    "--duration",
+    "8",
+    "--reps",
+    "1",
+    "--only",
+    "units",
+    "--ep",
+    "686",
+    "--video-kb",
+    "1",
+    "--sheet-kb",
+    "1"
+  ],
+  "host": {
+    "arch": "aarch64",
+    "cpu": "4 x Neoverse-N1",
+    "memory_kib": 24548116,
+    "python": "3.12.3"
+  },
+  "migration": {
+    "target_schema": 21,
+    "startup_migration_s": 36.652081141015515,
+    "videos": 13033,
+    "with_facts": 13033
+  },
+  "idle": {
+    "units": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 219484,
+          "sampled_peak_kib": 386948,
+          "high_water_kib": 386656
+        }
+      },
+      "response_bytes": 18669,
+      "reads": {
+        "project": 2,
+        "script": 1,
+        "history": 1
+      },
+      "first_open_s": 1.458658649935387,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 1.4059535809792578,
+      "warm_s": [
+        0.2841334039112553
+      ],
+      "p50": 0.2841334039112553,
+      "p95": 0.2841334039112553,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 3,
+      "lock_acq": 0,
+      "status": 200
+    }
+  },
+  "peak": {
+    "duration_s": 8.0,
+    "writes": 2,
+    "write_p95_s": 2.2632256610086188,
+    "drain_s": 4.11109625606332,
+    "drain_capped": false,
+    "leftover": {},
+    "version_write_lock_wait_s": 4.12005465477705e-06,
+    "manifest_lock_nb_failures": 0,
+    "video_facts_after": {
+      "videos": 13033,
+      "with_facts": 13033
+    },
+    "thread_queue_max": 1,
+    "loop_lag_max_s": 0.1384084220044315,
+    "cpu_cores_mean": 0.7376100057118896,
+    "cpu_cores_max": 1.1097265539268544,
+    "stack_samples": null,
+    "endpoints": {
+      "units": {
+        "n": 4,
+        "response_bytes": 75034,
+        "reads": {
+          "project": 8,
+          "script": 4,
+          "history": 4
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 2,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 2.8822845090180635,
+        "p95": 2.933925735997036,
+        "max": 2.933925735997036,
+        "delivered_p95": 2.8822845090180635,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 3,
+        "mean_thread_qwait_s": 0.004770813480718061,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 2.8042738750518765,
+        "mean_thread_cpu_s": 1.29080637
+      }
+    },
+    "probes": {
+      "auth_verify": {
+        "n": 36,
+        "p95": 0.0019984859973192215,
+        "max": 0.003358288900926709,
+        "errors": 0
+      },
+      "media_range": {
+        "n": 29,
+        "p95": 0.433780879015103,
+        "max": 0.4442713080206886,
+        "errors": 0
+      }
+    }
+  },
+  "units_trace": {
+    "episode": 686,
+    "python_peak_bytes": 168802924,
+    "status": 200
+  },
+  "observed_at_end": {
+    "history_bytes": 30249029,
+    "manifest_bytes": 5540520,
+    "asset_images": 400
+  }
+}
