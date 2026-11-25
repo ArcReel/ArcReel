@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import tempfile
 import wave
+from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -22,6 +24,16 @@ HISTORY_COUNT = 205
 class Release(BaseModel):
     task_ids: list[str]
     outcome: Literal["success", "failure"] = "success"
+
+
+class TextResponses(BaseModel):
+    responses: list[str]
+
+
+class DowngradeV20WithRetiredDraft(BaseModel):
+    episode: int = 1
+    retired_draft_filename: str = "script_plan_segments.invalid.json"
+    retired_draft_content: str = '{"legacy": "retired-draft"}'
 
 
 def main() -> None:
@@ -50,20 +62,71 @@ def serve(port: int, data_dir: str) -> None:
     for key in PROVIDER_SECRET_KEYS:
         os.environ.pop(key, None)
 
+    from lib.backends import text_generator as text_generator_module
+    from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
     from lib.db import async_session_factory
     from lib.db.base import DEFAULT_USER_ID
     from lib.db.models.task import Task
+    from lib.episode.episode_paths import episode_drafts_dir
     from lib.generation.generation_worker import GenerationWorker
     from lib.infra.app_data_dir import app_data_dir
+    from lib.infra.json_io import atomic_write_json
     from lib.project.project_manager import get_project_manager
     from server import app as backend
     from server.services.tasks.generation_tasks import voice_sample_resource_id
+    from server.tool_runtime import execute_queued_text_task
 
     if app_data_dir() != Path(data_dir).resolve():
         raise RuntimeError("Playwright backend data directory is not isolated")
 
     releases: dict[str, asyncio.Future[str]] = {}
+    text_responses: dict[str, deque[str]] = defaultdict(deque)
     control = APIRouter(prefix="/__playwright", include_in_schema=False)
+
+    class FixtureTextBackend:
+        name = "gemini"
+        model = "gemini-3-flash-preview"
+
+        def __init__(self, project_name: str | None) -> None:
+            self.capabilities: set[TextCapability] = set()
+            self._project_name = project_name or ""
+
+        async def generate(self, _request: TextGenerationRequest) -> TextGenerationResult:
+            queue = text_responses[self._project_name]
+            if not queue:
+                raise RuntimeError(f"No scripted text response queued for project {self._project_name!r}")
+            return TextGenerationResult(
+                text=queue.popleft(),
+                provider=self.name,
+                model=self.model,
+                input_tokens=20,
+                output_tokens=10,
+            )
+
+    async def fake_text_backend(_task_type: object, project_name: str | None = None) -> tuple[FixtureTextBackend, str]:
+        return FixtureTextBackend(project_name), "gemini-aistudio"
+
+    text_generator_module.create_text_backend_for_task = fake_text_backend
+
+    @control.post("/text-responses/{project_name}")
+    async def queue_text_responses(project_name: str, request: TextResponses) -> None:
+        text_responses[project_name].extend(request.responses)
+
+    @control.post("/downgrade-v20/{project_name}")
+    async def downgrade_v20(project_name: str, request: DowngradeV20WithRetiredDraft) -> None:
+        pm = get_project_manager()
+
+        def _downgrade() -> None:
+            project_dir = pm.get_project_path(project_name)
+            drafts_dir = episode_drafts_dir(project_dir, request.episode)
+            drafts_dir.mkdir(parents=True, exist_ok=True)
+            (drafts_dir / request.retired_draft_filename).write_text(request.retired_draft_content, encoding="utf-8")
+            project_file = project_dir / "project.json"
+            data = json.loads(project_file.read_bytes())
+            data["schema_version"] = 20
+            atomic_write_json(project_file, data)
+
+        await asyncio.to_thread(_downgrade)
 
     @control.post("/history/{project_name}")
     async def seed_history(project_name: str) -> None:
@@ -107,6 +170,8 @@ def serve(port: int, data_dir: str) -> None:
         return path
 
     async def execute(task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
+        if str(task.get("task_type") or "").startswith("text_"):
+            return await execute_queued_text_task(task)
         task_id = task["task_id"]
         outcome = await release_signal(task_id)
         if outcome == "failure":
