@@ -133,7 +133,7 @@ def _ref_range(model_id: str, low: int, high: int) -> dict:
         pytest.param((_ref_range("m", 0, 20),), 200, 16, id="declared-above-endpoint-cap"),
         pytest.param((), 200, 16, id="model-not-in-catalog"),
         pytest.param((), 500, 16, id="catalog-unavailable"),
-        pytest.param(({"id": "m", "supported_parameters": {}},), 200, 16, id="no-input-references"),
+        pytest.param(({"id": "m", "supported_parameters": {}},), 200, 0, id="no-input-references"),
     ],
 )
 def test_reference_image_limit_follows_the_model_declaration(catalog, status, expected):

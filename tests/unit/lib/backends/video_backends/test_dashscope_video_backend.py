@@ -1447,8 +1447,8 @@ class TestPollErrorRedaction:
 
 async def test_custom_silent_model_executes_without_audio_switch_and_settles_silent(tmp_path):
     from lib.custom_provider.backends import CustomVideoBackend
-    from lib.custom_provider.factory import create_custom_backend
     from lib.db.models.custom_provider import CustomProvider
+    from tests.custom_backend_support import create_custom_backend
     from tests.http_capture import request_json
 
     backend = create_custom_backend(

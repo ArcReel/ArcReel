@@ -103,12 +103,10 @@ async def _builtin_text_spec(
     resolver: ConfigResolver, selected: ProviderModel, *, task_type: TextTaskType
 ) -> BuiltinTextSpec:
     provider, model = selected.provider_id, selected.model_id
-    initial_view = catalog.provider_model_view(provider, model, media_type="text")
-    snapshot = builtin_text_snapshot_from_view(provider, model, initial_view)
-    if task_type in VISION_REQUIRED_TASKS and snapshot.effective.get("image_input") is False:
-        raise VisionCapabilityError(task_type=task_type, provider_id=provider, model_id=model)
     view, endpoint = catalog.callable_model_view(provider, model, "text", submitted=False)
     snapshot = builtin_text_snapshot_from_view(provider, model, view)
+    if task_type in VISION_REQUIRED_TASKS and snapshot.effective.get("image_input") is False:
+        raise VisionCapabilityError(task_type=task_type, provider_id=provider, model_id=model)
     builtin = get_provider_spec(provider, "text", endpoint)
     config = await load_builtin_config(resolver, provider, None)
     return BuiltinTextSpec(snapshot, builtin.endpoint, builtin.registry_backend, config)
@@ -204,34 +202,3 @@ async def resolve_and_assemble_text(
     target = await TextRuntime(ConfigResolver(async_session_factory)).for_task(task_type, project_name)
     backend = await assemble_text(target.spec)
     return backend, target
-
-
-async def create_text_backend_for_task(
-    task_type: TextTaskType,
-    project_name: str | None = None,
-) -> tuple[TextBackend, str]:
-    backend, target = await resolve_and_assemble_text(task_type, project_name)
-    return backend, target.provider_id
-
-
-@dataclass(frozen=True)
-class OutputLimitFacts:
-    """模型在请求输出上限与截断出路上需要的事实。"""
-
-    registered_max_output_tokens: int | None
-    custom_model: bool
-
-
-async def output_limit_facts(*, provider_id: str, model_id: str, resolver: ConfigResolver) -> OutputLimitFacts:
-    if is_custom_provider(provider_id):
-        from lib.custom_provider.loader import custom_model_max_output_tokens
-
-        async with resolver._open_session() as (session, _):
-            registered = await custom_model_max_output_tokens(
-                session=session, provider_id=provider_id, model_id=model_id
-            )
-        return OutputLimitFacts(registered_max_output_tokens=registered, custom_model=True)
-    info = catalog.get_model(provider_id, model_id)
-    return OutputLimitFacts(
-        registered_max_output_tokens=info.max_output_tokens if info is not None else None, custom_model=False
-    )

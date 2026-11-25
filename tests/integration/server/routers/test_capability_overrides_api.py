@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import synthesize_video_capabilities, two_sided_video_capabilities
-from lib.custom_provider.loader import load_custom_backend
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.video_runtime.assembly import assemble_video
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -826,9 +826,12 @@ class TestResolverReturnsEffectiveCapabilities:
 
         caps = await self._resolve(db_session, pid, model_id=LAST_FRAME_MODEL)
         db_session.expunge_all()
-        backend = await load_custom_backend(
-            session=db_session, provider_id=pid, model_id=LAST_FRAME_MODEL, media_type="video"
-        )
+        from lib.config.resolver import ConfigResolver
+        from lib.video_runtime.resolution import VideoRuntime
+
+        factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+        target = await VideoRuntime(ConfigResolver(factory)).default({"video_backend": f"{pid}/{LAST_FRAME_MODEL}"})
+        backend = await assemble_video(target.spec)
 
         executed = backend.video_capabilities
         assert caps["first_frame"] is executed.first_frame

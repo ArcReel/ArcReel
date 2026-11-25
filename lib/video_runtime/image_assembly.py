@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.image_backends.base import ImageBackend
@@ -27,6 +29,7 @@ class BuiltinImageSpec:
 class CustomImageSpec:
     snapshot: CapabilitySnapshot
     endpoint: str
+    definition: Mapping[str, Any] | None
     build_backend: BackendBuilder = field(compare=False, repr=False)
     connection: ProviderConnectionSnapshot
     paths: PathOverrides
@@ -35,7 +38,7 @@ class CustomImageSpec:
 type ImageAssemblySpec = BuiltinImageSpec | CustomImageSpec
 
 
-def _build_image(spec: ImageAssemblySpec) -> ImageBackend:
+def build_image(spec: ImageAssemblySpec) -> ImageBackend:
     model = spec.snapshot.model_id
     if isinstance(spec, CustomImageSpec):
         backend = spec.build_backend(spec.connection, model, spec.paths)
@@ -52,4 +55,4 @@ def _build_image(spec: ImageAssemblySpec) -> ImageBackend:
 
 
 async def assemble_image(spec: ImageAssemblySpec) -> ImageBackend:
-    return await asyncio.to_thread(_build_image, spec)
+    return await asyncio.to_thread(build_image, spec)

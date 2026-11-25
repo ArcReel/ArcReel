@@ -1212,7 +1212,9 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
     from lib.backends.image_backends.base import ImageCapabilityError
     from lib.backends.image_backends.grok import GrokImageBackend
     from lib.backends.image_capabilities import backend_reference_image_limit, gate_image_request
-    from lib.custom_provider.loader import load_custom_backend
+    from lib.config.resolver import ConfigResolver
+    from lib.video_runtime.image_assembly import assemble_image
+    from lib.video_runtime.image_resolution import ImageRuntime
     from tests.catalog_support import with_entry_facts
 
     install_catalog(
@@ -1245,10 +1247,10 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
 
     async def runtime(expected):
         if custom:
-            async with db_factory() as session:
-                backend = await load_custom_backend(
-                    session=session, provider_id=provider, model_id=model_id, media_type="image"
-                )
+            target = await ImageRuntime(ConfigResolver(db_factory)).resolve(
+                None, {"image_provider": provider, "image_model": model_id}, bucket="i2i" if expected else "t2i"
+            )
+            backend = await assemble_image(target.spec)
         else:
             backend = GrokImageBackend(api_key="fake", model=model_id)
         limit = await backend_reference_image_limit(backend, provider_id=provider)

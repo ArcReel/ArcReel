@@ -25,7 +25,7 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.factory import create_custom_backend
+from tests.custom_backend_support import create_custom_backend
 
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",

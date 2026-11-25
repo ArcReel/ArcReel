@@ -202,9 +202,7 @@ class CustomProviderRepository(BaseRepository):
 
         非自定义供应商 / 畸形 provider id / 查询异常 / 查无模型均降级为默认值，绝不抛错。
 
-        刻意不做 enabled / media_type 校验（区别于 ``lib/custom_provider/loader.load_custom_backend``
-        的模型解析回退）：记账须按实际调用的那个模型计价，与该模型当前是否启用无关；enabled / media_type
-        回退属模型解析层（loader）职责、在取数上游发生。
+        记账按实际调用的模型计价，与模型当前的启用状态无关。
         """
         if not is_custom_provider(provider):
             return _DEFAULT_PRICING

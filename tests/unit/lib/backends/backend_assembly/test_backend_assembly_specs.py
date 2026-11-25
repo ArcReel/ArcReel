@@ -430,6 +430,25 @@ class TestKlingSpec:
             "base_url": "https://api-beijing.klingai.com/v1",
         }
 
+    def test_image_production_assembly_forwards_api_model_name(self):
+        from lib.config.resolver import ProviderModel
+        from lib.video_runtime.image_assembly import BuiltinImageSpec, build_image
+        from lib.video_runtime.image_resolution import _builtin_image_snapshot
+
+        snapshot, builtin, api_model_name = _builtin_image_snapshot(ProviderModel("kling", "kling-v3-omni-image"))
+        assert api_model_name == "kling-v3-omni"
+        spec = BuiltinImageSpec(
+            snapshot,
+            builtin.endpoint,
+            builtin.registry_backend,
+            self._kling_config(access_key="ak-1", secret_key="sk-1"),
+            api_model_name=api_model_name,
+        )
+        with _captured_backend_construction() as records:
+            build_image(spec)
+        assert len(records) == 1
+        assert records[0]["kwargs"]["api_model_name"] == "kling-v3-omni"
+
     def test_image_user_base_url_wins_over_registry_default(self):
         config = self._kling_config(access_key="ak-1", secret_key="sk-1", base_url="https://relay.example.com")
         assert _built(get_provider_spec("kling", "image"), config, "kling-image-o1")["kwargs"] == {

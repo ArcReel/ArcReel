@@ -2,6 +2,7 @@ import json
 import shutil
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -110,10 +111,12 @@ class TestProjectManager:
             return await original_create(task_type, project_name, purpose=purpose)
 
         async def fake_backend(*args, **kwargs):
-            return _FakeTextBackend(), "gemini-aistudio"
+            return _FakeTextBackend(), SimpleNamespace(
+                provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False
+            )
 
         use_text_generator(monkeypatch, capture_create)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", fake_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", fake_backend)
 
         overview = await pm.generate_overview("demo")
 
@@ -833,9 +836,11 @@ class TestProjectManager:
         assert "1.txt" in content
 
         async def _fake_create_backend(*args, **kwargs):
-            return _FakeTextBackend(), "gemini-aistudio"
+            return _FakeTextBackend(), SimpleNamespace(
+                provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False
+            )
 
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
         overview = await pm.generate_overview("demo")
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview
@@ -863,9 +868,11 @@ class TestProjectManager:
         _write(pm.get_project_path("demo") / "source" / "1.txt", "source body")
 
         async def _fake_create_backend(*args, **kwargs):
-            return _FakeTextBackend(language=lang), "gemini-aistudio"
+            return _FakeTextBackend(language=lang), SimpleNamespace(
+                provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False
+            )
 
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
         overview = await pm.generate_overview("demo")
         assert overview["language"] == lang
         assert pm.load_project("demo")["source_language"] == lang
@@ -881,9 +888,11 @@ class TestProjectManager:
         _write(pm.get_project_path("demo") / "source" / "1.txt", "source body")
 
         async def _fake_create_backend(*args, **kwargs):
-            return _FakeTextBackend(language="chinese"), "gemini-aistudio"
+            return _FakeTextBackend(language="chinese"), SimpleNamespace(
+                provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False
+            )
 
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
         with pytest.raises(ValidationError):
             await pm.generate_overview("demo")
         assert "source_language" not in pm.load_project("demo")
@@ -918,9 +927,9 @@ class TestProjectManager:
         backend = _FakeTextBackend()
 
         async def _fake_create_backend(*args, **kwargs):
-            return backend, "gemini-aistudio"
+            return backend, SimpleNamespace(provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False)
 
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
         await pm.generate_overview("demo")
 
         source_content = pm._read_source_files("demo")
@@ -945,9 +954,9 @@ class TestProjectManager:
         backend = _FakeTextBackend()
 
         async def _fake_create_backend(*args, **kwargs):
-            return backend, "gemini-aistudio"
+            return backend, SimpleNamespace(provider_id="gemini-aistudio", max_output_tokens=None, is_custom=False)
 
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
         await pm.generate_overview("demo")
 
         source_content = pm._read_source_files("demo")

@@ -2209,7 +2209,7 @@ def _custom_video_backend(endpoint: str, model_id: str, entry_binding: str | Non
     """自定义供应商的视频模型，经生产工厂构造。"""
     from types import SimpleNamespace
 
-    from lib.custom_provider.factory import create_custom_backend
+    from tests.custom_backend_support import create_custom_backend
 
     provider = SimpleNamespace(provider_id="custom-9", base_url="https://relay.test", api_key="TEST-relay-key")
     return create_custom_backend(

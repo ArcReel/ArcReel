@@ -357,7 +357,10 @@ async def _row_spec(
 
 
 def custom_video_spec(
-    provider: CustomProvider, row: CustomProviderModel, endpoint: EndpointSpec, entry: CatalogEntry | None
+    provider: CustomProvider | ProviderConnectionSnapshot,
+    row: CustomProviderModel,
+    endpoint: EndpointSpec,
+    entry: CatalogEntry | None,
 ) -> CustomVideoSpec:
     provider_id = provider.provider_id
     if endpoint.kind == "comfyui":

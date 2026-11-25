@@ -247,8 +247,16 @@ async def test_openrouter_remote_probe_outside_db_without_catalog_reread_and_app
     [
         ({"max_reference_images": 12}, None, 500, {}, 12),
         (None, None, 500, {}, 16),
+        (
+            None,
+            None,
+            200,
+            {"data": [{"id": "vendor/or-fallback", "supported_parameters": {"input_references": {"max": 0}}}]},
+            0,
+        ),
         (None, None, 200, {"data": []}, 16),
-        (None, 8, 200, {"data": [{"id": "vendor/or-fallback", "supported_parameters": {}}]}, 8),
+        (None, 8, 200, {"data": [{"id": "vendor/or-fallback", "supported_parameters": {}}]}, 0),
+        (None, 8, 200, {"data": [{"id": "vendor/or-fallback"}]}, 8),
         (
             {"max_reference_images": 12},
             8,

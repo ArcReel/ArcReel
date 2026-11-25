@@ -1,13 +1,10 @@
-"""load_builtin_config 与 output_limit_facts 单测：内存 SQLite + 真 ConfigResolver。"""
+"""load_builtin_config 单测：内存 SQLite + 真 ConfigResolver。"""
 
 from __future__ import annotations
-
-import pytest
 
 from lib.backends.backend_assembly.assembler import load_builtin_config
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from lib.video_runtime.text import OutputLimitFacts, output_limit_facts
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -48,48 +45,3 @@ class TestLoadBuiltinConfig:
         resolver = ConfigResolver(db_factory)
         config = await load_builtin_config(resolver, "grok", rate_limiter=sentinel)
         assert config.rate_limiter is sentinel
-
-
-class TestOutputLimitFacts:
-    async def test_builtin_text_model_reads_registry(self, db_factory):
-        facts = await output_limit_facts(
-            provider_id="dashscope", model_id="qwen-long", resolver=ConfigResolver(db_factory)
-        )
-
-        assert facts == OutputLimitFacts(registered_max_output_tokens=8192, custom_model=False)
-
-    async def test_unknown_builtin_model_is_unregistered(self, db_factory):
-        facts = await output_limit_facts(
-            provider_id="gemini-aistudio", model_id="retired-model", resolver=ConfigResolver(db_factory)
-        )
-
-        assert facts == OutputLimitFacts(registered_max_output_tokens=None, custom_model=False)
-
-    @pytest.mark.parametrize(("registered", "expected"), [(8192, 8192), (None, None)])
-    async def test_custom_model_reads_its_entry(self, db_factory, registered, expected):
-        from lib.custom_provider import make_provider_id
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-        async with db_factory() as s:
-            provider = await CustomProviderRepository(s).create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": "my-llm",
-                        "display_name": "my-llm",
-                        "endpoint": "openai-chat",
-                        "is_enabled": True,
-                        "capability_overrides": None if registered is None else {"max_output_tokens": registered},
-                    }
-                ],
-            )
-            await s.commit()
-
-        facts = await output_limit_facts(
-            provider_id=make_provider_id(provider.id), model_id="my-llm", resolver=ConfigResolver(db_factory)
-        )
-
-        assert facts == OutputLimitFacts(registered_max_output_tokens=expected, custom_model=True)

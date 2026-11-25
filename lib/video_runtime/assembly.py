@@ -42,7 +42,7 @@ class CustomVideoSpec:
 type VideoAssemblySpec = BuiltinVideoSpec | CustomVideoSpec
 
 
-def _build_video(spec: VideoAssemblySpec) -> VideoBackend:
+def build_video(spec: VideoAssemblySpec) -> VideoBackend:
     model = spec.snapshot.model_id
     if isinstance(spec, CustomVideoSpec):
         backend = spec.build_backend(spec.connection, model, spec.paths)
@@ -60,4 +60,4 @@ def _build_video(spec: VideoAssemblySpec) -> VideoBackend:
 
 
 async def assemble_video(spec: VideoAssemblySpec) -> VideoBackend:
-    return await asyncio.to_thread(_build_video, spec)
+    return await asyncio.to_thread(build_video, spec)
