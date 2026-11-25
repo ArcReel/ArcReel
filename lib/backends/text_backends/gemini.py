@@ -2,32 +2,35 @@
 
 from __future__ import annotations
 
-import logging
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
+from typing import cast
 
+import httpx
 from google import genai
+from google.genai import types
+from google.genai.errors import ClientError
 from PIL import Image
 
 from lib.config.url_utils import normalize_base_url
-from lib.infra.logging_utils import format_kwargs_for_log
+from lib.infra.async_thread import run_sync_transaction
 
-from ..gemini_shared import VERTEX_SCOPES, gemini_http_options, with_retry_async
+from ..gemini_shared import VERTEX_SCOPES
 from ..providers import PROVIDER_GEMINI
-from ..transport_layer import TransportLayer
+from ..transport_layer import TransportLayer, layer_async_client
 from .base import (
+    RequestTokens,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
-    merge_billed_usage,
-    prompt_json_fallback,
     resolve_schema,
-    structured_fallback_reason,
-    truncate_for_log,
 )
-
-logger = logging.getLogger(__name__)
+from .streaming import CONNECT_TIMEOUT, NativeSchemaRejected, TextDelta, execute_stream
 
 DEFAULT_MODEL = "gemini-3.8-flash"
 
@@ -113,6 +116,8 @@ class GeminiTextBackend:
         raw_backend = backend or "aistudio"
         self._backend = str(raw_backend).strip().lower() or "aistudio"
 
+        self._transport_layer = transport_layer
+        self._base_url = None
         if self._backend == "vertex":
             import json as json_module
 
@@ -135,24 +140,18 @@ class GeminiTextBackend:
                 str(credentials_file), scopes=VERTEX_SCOPES
             )
 
-            self._client = genai.Client(
+            self._make_client = partial(
+                genai.Client,
                 vertexai=True,
                 project=project_id,
                 location="global",
                 credentials=credentials,
             )
-            logger.info("GeminiTextBackend: 使用 Vertex AI 后端（凭证: %s）", credentials_file.name)
         else:
             if not api_key:
                 raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
-            effective_base_url = normalize_base_url(base_url)
-            self._client = genai.Client(
-                api_key=api_key, http_options=gemini_http_options(effective_base_url, transport_layer)
-            )
-            if base_url:
-                logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
-            else:
-                logger.info("GeminiTextBackend: 使用 AI Studio 后端")
+            self._base_url = normalize_base_url(base_url)
+            self._make_client = partial(genai.Client, api_key=api_key)
 
     @property
     def name(self) -> str:
@@ -187,105 +186,115 @@ class GeminiTextBackend:
             config["max_output_tokens"] = max_output_tokens
         return config
 
-    def _build_contents(self, request: TextGenerationRequest) -> list:
-        """构建 contents 列表（图片 parts + 文本 prompt）。"""
-        contents: list = []
-
-        if request.images:
-            for img_input in request.images:
-                if img_input.path is not None:
-                    pil_img = Image.open(img_input.path)
-                    contents.append(pil_img)
-                elif img_input.url is not None:
-                    contents.append(img_input.url)
-
-        contents.append(request.prompt)
-        return contents
+    def _build_contents(self, request: TextGenerationRequest) -> types.UserContent:
+        parts = []
+        with ExitStack() as images:
+            for image in request.images or []:
+                if image.path is not None:
+                    parts.append(images.enter_context(Image.open(image.path)))
+                elif image.url is not None:
+                    parts.append(image.url)
+            parts.append(request.prompt)
+            return types.UserContent(parts)
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
-        """异步生成文本，支持结构化输出和 vision。
-
-        本方法不带重试装饰器：瞬态错误重试在 :meth:`_generate_native` 层完成。若把复验/
-        降级也包进重试范围，降级尝试的失败会连带重放已成功的原生调用（重试叠乘）。
-        """
-        native = await self._generate_native(request, structured=bool(request.response_schema))
-
-        if request.response_schema:
-            fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
-            if fallback_reason:
-                logger.warning(
-                    "原生 response_schema %s，降级到 prompt 注入路径；模型原始输出：%s",
-                    fallback_reason,
-                    truncate_for_log(native.text),
-                )
-                result = await prompt_json_fallback(
-                    request,
-                    partial(self._generate_native, structured=True),
-                    provider=PROVIDER_GEMINI,
-                    model=self._model,
-                )
-                merge_billed_usage(result, native)
-                return result
-
-        return native
-
-    @with_retry_async()
-    async def _generate_native(self, request: TextGenerationRequest, *, structured: bool) -> TextGenerationResult:
-        """单次原生 SDK 调用：构造 config/contents、发请求、截断处理与瞬态错误重试。
-
-        ``structured`` 由调用方按本次 generate() 的原始请求诉求传入，与 ``request.response_schema``
-        本身解耦——:func:`.base.prompt_json_fallback` 会把 ``response_schema`` 置空后仍复用本方法
-        （schema 已改写进 prompt），但那仍是一次结构化输出尝试，截断同样要硬错误而非仅告警。
-        """
-        config = self._build_config(
-            request.response_schema,
-            request.system_prompt,
-            request.max_output_tokens,
-        )
-        contents = self._build_contents(request)
-
-        logger.info(
-            "调用 %s 文本 SDK payload=%s",
-            self.name,
-            format_kwargs_for_log({"model": self._model, "contents": contents, "config": config or None}),
-        )
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=contents,
-            config=config if config else None,
+        return await execute_stream(
+            request, self._stream, provider=self.name, protocol="gemini_generate", model=self.model
         )
 
-        text = response.text.strip() if response.text else ""
+    @asynccontextmanager
+    async def _session(self) -> AsyncGenerator[genai.client.AsyncClient]:
+        timeout = httpx.Timeout(None, connect=CONNECT_TIMEOUT, pool=CONNECT_TIMEOUT)
 
-        input_tokens: int | None = None
-        output_tokens: int | None = None
-        cache_read_tokens: int | None = None
-        usage = response.usage_metadata
-        if usage is not None:
-            input_tokens = usage.prompt_token_count
-            cache_read_tokens = usage.cached_content_token_count
-            candidates = usage.candidates_token_count
-            thoughts = usage.thoughts_token_count
-            output_tokens = None if candidates is None and thoughts is None else (candidates or 0) + (thoughts or 0)
+        async def configure_timeout(wire: httpx.Request) -> None:
+            wire.extensions["timeout"] = timeout.as_dict()
 
-        candidates = getattr(response, "candidates", None) or []
-        truncated = False
-        if candidates:
-            finish_reason = getattr(candidates[0], "finish_reason", None)
-            truncated = check_truncation(
-                str(finish_reason).rsplit(".", 1)[-1] if finish_reason is not None else None,
-                provider=PROVIDER_GEMINI,
-                model=self._model,
-                output_tokens=output_tokens,
-                structured=structured,
+        async with AsyncExitStack() as stack:
+
+            async def track_response(response: httpx.Response) -> None:
+                stack.push_async_callback(response.aclose)
+
+            http = layer_async_client(
+                httpx.AsyncClient(
+                    follow_redirects=True, event_hooks={"request": [configure_timeout], "response": [track_response]}
+                ),
+                self._transport_layer,
+            )
+            await stack.enter_async_context(http)
+            options = types.HttpOptions(
+                base_url=self._base_url or None,
+                httpx_async_client=http,
+                retry_options=types.HttpRetryOptions(attempts=1),
             )
 
-        return TextGenerationResult(
-            text=text,
-            provider=PROVIDER_GEMINI,
-            model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            truncated=truncated,
-            cache_read_tokens=cache_read_tokens,
-        )
+            def open_client() -> genai.Client:
+                return stack.enter_context(self._make_client(http_options=options))
+
+            client = await run_sync_transaction(open_client)
+            yield await stack.enter_async_context(client.aio)
+
+    async def _stream(self, request: TextGenerationRequest) -> AsyncGenerator[TextDelta | TextGenerationResult]:
+        config = self._build_config(request.response_schema, request.system_prompt, request.max_output_tokens)
+        contents = await asyncio.to_thread(self._build_contents, request)
+        async with self._session() as aio:
+            try:
+                chunks = cast(
+                    AsyncIterator[types.GenerateContentResponse],
+                    await aio.models._generate_content_stream(model=self.model, contents=contents, config=config),
+                )
+            except ClientError as exc:
+                if request.response_schema is not None and exc.code in (400, 422):
+                    raise NativeSchemaRejected() from exc
+                raise
+            yield TextDelta("")
+            usage = types.GenerateContentResponseUsageMetadata()
+            text = []
+            delivered = False
+            try:
+                async for chunk in chunks:
+                    if chunk.usage_metadata is not None:
+                        usage = usage.model_copy(update=chunk.usage_metadata.model_dump(exclude_none=True))
+                    if not chunk.candidates:
+                        continue
+                    candidate = chunk.candidates[0]
+                    for part in (candidate.content.parts or []) if candidate.content else []:
+                        if part.text:
+                            if not part.thought:
+                                text.append(part.text)
+                            yield TextDelta(part.text, thinking=bool(part.thought))
+                    if (
+                        candidate.finish_reason
+                        and candidate.finish_reason != types.FinishReason.FINISH_REASON_UNSPECIFIED
+                    ):
+                        tokens = _tokens(usage)
+                        result = TextGenerationResult(
+                            text="".join(text).strip(),
+                            provider=self.name,
+                            model=self.model,
+                            truncated=check_truncation(
+                                candidate.finish_reason.value,
+                                provider=self.name,
+                                model=self.model,
+                                structured=False,
+                                output_tokens=tokens.output_tokens,
+                            ),
+                            **asdict(tokens),
+                        )
+                        delivered = True
+                        yield result
+                        return
+            finally:
+                if not delivered and request.on_usage:
+                    tokens = _tokens(usage)
+                    if tokens != RequestTokens():
+                        request.on_usage(tokens)
+
+
+def _tokens(usage: types.GenerateContentResponseUsageMetadata) -> RequestTokens:
+    candidates = usage.candidates_token_count
+    thoughts = usage.thoughts_token_count
+    return RequestTokens(
+        input_tokens=usage.prompt_token_count,
+        cache_read_tokens=usage.cached_content_token_count,
+        output_tokens=None if candidates is None and thoughts is None else (candidates or 0) + (thoughts or 0),
+    )

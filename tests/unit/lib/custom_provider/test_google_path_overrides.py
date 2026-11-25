@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from google.genai.errors import ClientError
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.audio_backends.base import AudioSynthesisRequest
@@ -50,6 +51,17 @@ async def test_overridden_generate_keeps_version_segment_of_raw_base_url(endpoin
 
     assert paths
     assert set(paths) == {"/google/v1/api/gemini-x/gen"}
+
+
+async def test_text_stream_preserves_override_query():
+    backend = get_endpoint_spec("gemini-generate").build_backend(
+        PROVIDER, "gemini-x", {"generate": "/legacy/{{ model }}:generateContent?tenant=a&alt=sse"}
+    )
+    with capture_http() as router:
+        route = router.post(f"{BASE}/legacy/gemini-x:generateContent?tenant=a&alt=sse").mock(return_value=_stop_here())
+        with pytest.raises(ClientError):
+            await backend.generate(TextGenerationRequest(prompt="猫"))
+    assert route.call_count == 1
 
 
 @pytest.mark.parametrize(

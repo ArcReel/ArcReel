@@ -350,7 +350,7 @@ def _build_gemini_generate(
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
-        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+        transport_layer=_google_path_layer(_GEMINI_STREAM_REQUESTS, provider.base_url, model_id, path_overrides),
     )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -642,6 +642,9 @@ _MINIMAX_TTS_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_g
 _GEMINI_GENERATE_REQUESTS = _python_requests(
     "strip_version", ("generate", "cp_request_generate", "/v1beta/models/{{ model }}:generateContent")
 )
+_GEMINI_STREAM_REQUESTS = _python_requests(
+    "strip_version", ("generate", "cp_request_generate", "/v1beta/models/{{ model }}:streamGenerateContent")
+)
 _GEMINI_VIDEO_REQUESTS = _python_requests(
     "strip_version",
     ("submit", "cp_request_submit", "/v1beta/models/{{ model }}:predictLongRunning"),
@@ -900,9 +903,9 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         family="google",
         display_name_key="endpoint_gemini_generate_display",
         request_method="POST",
-        request_path_template="/v1beta/models/{model}:generateContent",
+        request_path_template="/v1beta/models/{model}:streamGenerateContent",
         build_backend=_build_gemini_generate,
-        requests=_GEMINI_GENERATE_REQUESTS,
+        requests=_GEMINI_STREAM_REQUESTS,
     ),
     "anthropic-messages": EndpointSpec(
         key="anthropic-messages",
