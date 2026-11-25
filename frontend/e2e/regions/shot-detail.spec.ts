@@ -170,6 +170,12 @@ defineRegionScenarios("分镜详情", [
     ready: boardReady,
     act: async (page) => {
       await expect(shotList(page).getByRole("button", { name: /^分镜 1(?!\d)/ })).toHaveAttribute("aria-current", "true");
+      const shotIdLabel = shotList(page).getByText("E1S01", { exact: true });
+      await expect(shotIdLabel).toBeVisible();
+      expect(await shotIdLabel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      const idBounds = await box(shotIdLabel);
+      const listBounds = await box(shotList(page));
+      expect(idBounds.x + idBounds.width).toBeLessThan(listBounds.x + listBounds.width);
       const { width } = viewport(page);
       if (width === 1440) {
         await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
