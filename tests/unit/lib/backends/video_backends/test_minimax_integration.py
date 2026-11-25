@@ -106,7 +106,7 @@ class TestFactoryWiring:
             patch.object(text_runtime, "ConfigResolver", return_value=resolver),
             patch.object(text_registry, "create_backend", side_effect=_fake_create_backend),
         ):
-            await text_runtime.create_text_backend_for_task(TextTaskType.SCRIPT)
+            await text_runtime.resolve_and_assemble_text(TextTaskType.SCRIPT)
 
         assert captured["backend_name"] == "openai"
         assert captured["provider_name"] == PROVIDER_MINIMAX

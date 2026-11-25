@@ -104,7 +104,7 @@ flowchart TB
 | `lib/capabilities/` | 纯能力内核（不依赖配置、装配、调用通道、数据库或网络），依据模型条目、调用端点协议硬边界与能力覆盖统一求值，产出不可变的能力快照。 |
 | `lib/config/` | 底层配置读取，只承载全局/项目设置、凭证与项目偏好读取，不承载跨内置与自定义供应商的目标选型、能力合成或项目能力投影。 |
 | `lib/backends/` 与 `lib/custom_provider/` | 定义文本、图像、视频和音频的调用通道协议、内置与自定义调用端点描述、端点定义独立解码及设置视图。 |
-| `lib/video_runtime/` | 统一运行时层，跨内置与自定义供应商执行目标选型与单次配置读取，同时产出同源的能力快照与私有装配规格，供四类媒体的预检、预估、执行与在途续跑共用。 |
+| `lib/video_runtime/` | 统一运行时层，跨内置与自定义供应商执行目标选型与单次配置读取：为文本、图像和视频产出同源的能力快照与私有装配规格，为音频产出私有装配规格，供四类媒体的预检、预估、执行以及视频任务的在途续跑共用。 |
 
 供应商模型将 API 模型名与调用端点组合起来。模型条目保存模型自身的事实与价目表，调用端点声明协议硬边界与执行事实，渠道差异由协议允许范围内的能力覆盖表达；视频规划、预检、参考费用预估与执行共用同一套纯同步视频请求事实求值。参见 [ADR 0049](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0049-generation-context-single-resolution.md)、[ADR 0086](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0086-video-request-facts-evaluated-once.md)、[ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md) 与 [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md)。
 

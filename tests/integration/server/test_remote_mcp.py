@@ -39,7 +39,7 @@ from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import Services, TextGenerationResult
 from tests.factories import install_current_video, make_test_clip, register_project_sources
-from tests.fakes import refuse_resume_execution
+from tests.fakes import FakeConfigResolver, refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness
 
 
@@ -72,20 +72,6 @@ class _Planner:
             }
         )
         return build_workflow_plan(status)
-
-
-class _Capabilities:
-    def fake_image_read_snapshot(self, _project: dict | None, generation_type: str | None = None) -> object:
-        assert generation_type == "i2i"
-        raise ValueError("image capability unavailable")
-
-
-class _AvailableImageCapabilities(_Capabilities):
-    def fake_image_read_snapshot(self, _project: dict | None, generation_type: str | None = None) -> object:
-        from types import SimpleNamespace
-
-        assert generation_type == "i2i"
-        return SimpleNamespace(provider_id="fake", model_id="fake-image", default_resolution=None)
 
 
 @pytest.fixture
@@ -122,7 +108,11 @@ def remote_server(remote_projects: ProjectManager):
     async def verify_api_key(token: str):
         return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
 
-    services = Services(projects=remote_projects, workflow_planner=_Planner(), capabilities=_Capabilities())
+    services = Services(
+        projects=remote_projects,
+        workflow_planner=_Planner(),
+        capabilities=FakeConfigResolver(image_backend_error=ValueError("image capability unavailable")),
+    )
     return build_remote_mcp_server(
         projects=remote_projects, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)
     )
@@ -142,7 +132,7 @@ def remote_batch_server(remote_projects: ProjectManager, db_factory):
     services = Services(
         projects=remote_projects,
         workflow_planner=_Planner(),
-        capabilities=_AvailableImageCapabilities(),
+        capabilities=FakeConfigResolver(),
         queue=queue,
     )
     return (
@@ -170,7 +160,7 @@ def test_remote_mcp_rejects_mismatched_projects_roots(tmp_path: Path) -> None:
     services = Services(
         projects=ProjectManager(tmp_path / "service-projects"),
         workflow_planner=_Planner(),
-        capabilities=_Capabilities(),
+        capabilities=FakeConfigResolver(image_backend_error=ValueError("image capability unavailable")),
     )
 
     with pytest.raises(ValueError, match="同一项目根"):
@@ -1023,7 +1013,12 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30, brief="卖点")
     queue = RecordingQueue(projects)
-    services = Services(projects=projects, workflow_planner=_Planner(), capabilities=_Capabilities(), queue=queue)
+    services = Services(
+        projects=projects,
+        workflow_planner=_Planner(),
+        capabilities=FakeConfigResolver(image_backend_error=ValueError("image capability unavailable")),
+        queue=queue,
+    )
 
     async def verify_api_key(token: str):
         return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
@@ -1170,7 +1165,9 @@ async def test_remote_workflow_plan_names_migration_failures_by_project_relative
         return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
 
     services = Services(
-        projects=remote_projects, workflow_planner=WorkflowPlanner(remote_projects), capabilities=_Capabilities()
+        projects=remote_projects,
+        workflow_planner=WorkflowPlanner(remote_projects),
+        capabilities=FakeConfigResolver(image_backend_error=ValueError("image capability unavailable")),
     )
     server = build_remote_mcp_server(
         projects=remote_projects, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)

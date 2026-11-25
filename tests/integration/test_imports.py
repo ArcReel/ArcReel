@@ -94,8 +94,6 @@ FIRST_IMPORT_MODULES = [
     "arcreel_market_core.endpoint_definition",
     "lib.custom_provider.endpoint_test",
     "lib.custom_provider.endpoints",
-    "lib.custom_provider.factory",
-    "lib.custom_provider.loader",
     "server.services.currency.upload_finalize",
     "server.services.tasks.derivative_sheet_tasks",
     "server.services.tasks.formal_image_commit",

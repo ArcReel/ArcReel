@@ -111,13 +111,13 @@ def _declared_reference_max(supported: dict | None) -> int | None:
     if "input_references" not in supported:
         return 0
     value = _range_bound(supported, "input_references", "max")
-    return None if value is None else max(value, 0)
+    return None if value is None else min(max(value, 0), _MAX_REFERENCE_IMAGES)
 
 
 def _effective_reference_limit(supported: dict | None) -> int:
-    """实际按多少张裁剪：模型声明的上限封顶端点的 16 张；声明不出正数上限时取 16。"""
+    """实际按多少张裁剪：模型声明的上限封顶端点的 16 张；未显式声明上限时取 16。"""
     declared = _declared_reference_max(supported)
-    return min(declared, _MAX_REFERENCE_IMAGES) if declared else _MAX_REFERENCE_IMAGES
+    return _MAX_REFERENCE_IMAGES if declared is None else declared
 
 
 def _resolution_px(value: str) -> int | None:
@@ -270,20 +270,18 @@ class OpenRouterImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+        return set(self.CHANNEL_CAPABILITIES)
 
     async def reference_image_limit(self) -> int:
         """这个模型单请求可携带的参考图上限：目录声明的 ``input_references`` 上限，封顶 16。
 
-        目录不可得、目录里没有这个模型，或模型没声明可用的参考图上限时取端点的 16：没声明参考图的模型由
-        ``generate`` 按不支持图生图报错（docs/adr/0015）。
+        目录不可得、未收录或参考图槽位未声明上限时取端点的 16。已收录且未提供参考图槽位时为 0。
         """
         return _effective_reference_limit(await self._fetch_supported_params())
 
     async def remote_reference_image_limit(self) -> int | None:
-        """远端目录声明的正数参考图上限（封顶 16）；远端未声明或目录不可得时返回 ``None`` 沿用本地冻结上限。"""
-        declared = _declared_reference_max(await self._fetch_supported_params())
-        return min(declared, _MAX_REFERENCE_IMAGES) if declared else None
+        """远端目录显式声明的参考图上限（封顶 16）；远端未声明或目录不可得时返回 ``None`` 沿用本地冻结上限。"""
+        return _declared_reference_max(await self._fetch_supported_params())
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         supported = await self._fetch_supported_params()

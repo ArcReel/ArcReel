@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +45,7 @@ class CustomAudioSpec:
     provider_id: str
     model_id: str
     endpoint: str
+    definition: Mapping[str, Any] | None
     build_backend: BackendBuilder = field(compare=False, repr=False)
     connection: ProviderConnectionSnapshot
     paths: PathOverrides
@@ -75,7 +77,16 @@ class AudioRuntime:
                 async with resolver._open_session() as (session, _):
                     spec = await _automatic_audio_spec(session)
                 return ProviderModel(spec.provider_id, spec.model_id)
-            return selected
+            if not is_custom_provider(selected.provider_id):
+                return selected
+            try:
+                async with resolver._open_session() as (session, _):
+                    spec = await _custom_audio_spec(session, selected)
+            except ModelDiscontinuedError:
+                raise
+            except ValueError:
+                return selected
+            return ProviderModel(spec.provider_id, spec.model_id)
 
     async def for_identity(self, identity: ProviderModel) -> AudioTarget:
         if not identity or not identity.provider_id or not identity.model_id:
@@ -131,6 +142,7 @@ async def _row_audio_spec(session: AsyncSession, provider_id: str, row: CustomPr
         provider_id,
         row.model_id,
         endpoint.key,
+        endpoint.definition,
         endpoint.build_backend,
         connection,
         effective_path_overrides(row.path_overrides, endpoint.requests),

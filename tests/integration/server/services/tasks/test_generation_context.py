@@ -883,6 +883,52 @@ class TestBackendCache:
         assert (t2i.model, i2i.model) == ("t2i-m", "i2i-m")
         assert t2i_again is t2i
 
+    async def test_changed_workflow_with_same_bindings_replaces_cached_image_backend(self, db_factory):
+        from dataclasses import asdict
+
+        from lib.custom_provider.endpoint_resolution import derive_mirror_columns
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.video_runtime.image_resolution import ImageRuntime
+        from tests.factories import comfyui_endpoint_definition
+
+        definition = comfyui_endpoint_definition(media_type="image")
+        columns = asdict(derive_mirror_columns(definition))
+        async with db_factory.begin() as session:
+            endpoint = await CustomEndpointRepository(session).create(definition=definition, **columns)
+            endpoint_id = endpoint.id
+        provider = await _seed_custom_image_provider(
+            db_factory, [{"model_id": "workflow", "endpoint": f"ce-{endpoint_id}", "is_default": True}]
+        )
+        runtime = ImageRuntime(
+            ConfigResolver(db_factory), capture_generation=generation_context._backend_cache.generation
+        )
+        project = {"image_provider_t2i": f"{provider}/workflow"}
+
+        async def backend():
+            target = await runtime.resolve(project, None, bucket="t2i")
+            return await generation_context._image_backend_for(target)
+
+        original = await backend()
+        assert await backend() is original
+        definition["workflow"]["3"]["inputs"]["steps"] = 51
+        async with db_factory.begin() as session:
+            await CustomEndpointRepository(session).update(endpoint_id, definition=definition, **columns)
+        assert await backend() is not original
+
+    async def test_image_quote_identity_uses_executions_bucket_default(self, db_factory):
+        from lib.video_runtime.image_resolution import ImageRuntime
+
+        provider = await _seed_custom_image_provider(
+            db_factory,
+            [{"model_id": "replacement", "endpoint": "openai-images", "is_default": True, "resolution": "2K"}],
+        )
+        project = {"image_provider_i2i": f"{provider}/removed"}
+        runtime = ImageRuntime(ConfigResolver(db_factory))
+        identity, resolution = await runtime.read_identity(project, "i2i")
+        target = await runtime.resolve(project, None, bucket="i2i")
+        assert identity.model_id == target.snapshot.model_id == "replacement"
+        assert resolution == target.snapshot.default_resolution == "2K"
+
     async def test_a_changed_endpoint_is_not_served_from_the_cache(self, db_factory, monkeypatch):
         """模型挂接的端点变了（如官方目录同步不经缓存失效），下一次取到的是按新端点构造的实例。"""
         built_with: list[str | None] = []

@@ -749,32 +749,15 @@ class FakeConfigResolver:
         )
         return VideoReadSnapshot(snapshot=snapshot, requested_audio=bool(caps.get("requested_generate_audio", True)))
 
-    def fake_image_read_snapshot(self, project: dict[str, Any] | None, generation_type: str | None = None) -> Any:
-        from lib.capabilities.kernel import Endpoint, resolve
-
-        del project
-        self.image_generation_type_calls.append(generation_type)
-        if self._image_backend_error is not None:
-            raise self._image_backend_error
-        provider_id, model_id = self._image_backend
-        endpoint = Endpoint("image", slots=frozenset({"text_to_image", "image_to_image"}))
-        return resolve(
-            endpoint,
-            provider_id=provider_id,
-            model_id=model_id,
-            default_resolution=self._image_resolution,
-        )
-
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
         return self._image_resolution
 
-    async def resolve_image_backend(
+    async def configured_image_identity(
         self,
         project: dict[str, Any] | None,
-        payload: dict[str, Any] | None = None,
-        *,
-        generation_type: str | None = None,
+        payload: dict[str, Any] | None,
+        generation_type: str,
     ) -> Any:
         """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
         from lib.config.resolver import ProviderModel

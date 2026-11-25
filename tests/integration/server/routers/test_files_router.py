@@ -4,6 +4,7 @@ import shutil
 import sys
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -64,7 +65,7 @@ class _FakeTextBackend:
 
 
 async def _fake_create_backend(*args, **kwargs):
-    return _FakeTextBackend(), "fake"
+    return _FakeTextBackend(), SimpleNamespace(provider_id="fake", max_output_tokens=None, is_custom=False)
 
 
 def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
@@ -83,7 +84,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
     use_project_manager(monkeypatch, pm)
-    monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -1090,10 +1091,10 @@ class TestFilesRouter:
     @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
     def test_style_image_without_a_default_text_model(self, tmp_path, monkeypatch, file_db_factory, locale):
         from lib.i18n import MESSAGES
-        from lib.video_runtime.text import create_text_backend_for_task
+        from lib.video_runtime.text import resolve_and_assemble_text
 
         client, pm = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", create_text_backend_for_task)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", resolve_and_assemble_text)
         use_text_backend_sessions(monkeypatch, file_db_factory)
         project_dir = pm.get_project_path("demo")
         original_image = _img_bytes("PNG", color=(0, 0, 255))
@@ -2069,7 +2070,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_vision_error)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _raise_vision_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",
@@ -2089,7 +2090,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             raise ValueError(f"凭证文件 {sentinel} 中未找到 project_id")
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_backend_error)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _raise_backend_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",

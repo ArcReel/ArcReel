@@ -12,7 +12,7 @@ import httpx
 from pydantic import BaseModel
 
 from lib.backends.text_backends.base import ImageInput, TextGenerationRequest
-from lib.custom_provider.factory import create_custom_backend
+from tests.custom_backend_support import create_custom_backend
 from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http, only_request, request_json
 

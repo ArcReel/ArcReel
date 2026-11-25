@@ -106,7 +106,7 @@ class OpenAIChatImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+        return set(self.CHANNEL_CAPABILITIES)
 
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT

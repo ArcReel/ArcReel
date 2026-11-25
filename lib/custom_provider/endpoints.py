@@ -3,7 +3,7 @@
 每条 endpoint 是一个 EndpointSpec，绑定 media_type、family、HTTP 调用形态与 build_backend 闭包。
 实现形态有两种：Python backend，或随版声明式定义（``builtin_endpoints/*.json``，import 期经
 builtin_definitions 装入本注册表，用 EndpointSpec.definition 与前者区分）。两者共用同一键域。
-factory.create_custom_backend 通过 endpoint 字符串查表派发；
+运行时通过 endpoint 字符串查表派发；
 server.routers.custom_providers 通过 GET /custom-providers/endpoints 把目录暴露给前端，
 让前端的下拉选项、路径展示完全派生自此真相源。
 """
@@ -1600,9 +1600,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
         if f.name not in _ENDPOINT_SPEC_EXCLUDED_FIELDS
         for value in (getattr(spec, f.name),)
     }
-    raw_requests = data.get("requests")
-    if isinstance(raw_requests, (list, tuple)):
-        data["requests"] = [asdict(v) if is_dataclass(v) and not isinstance(v, type) else v for v in raw_requests]
+    data["requests"] = tuple(asdict(request) for request in spec.requests)
     data["end_image_capable"] = spec.end_image_capable
     data["reference_audio_capable"] = spec.reference_audio_capable
     data["kind"] = spec.kind

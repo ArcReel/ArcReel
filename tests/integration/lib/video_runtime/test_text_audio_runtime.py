@@ -14,7 +14,7 @@ from lib.backends.text_generator import TextGenerator
 from lib.capabilities.kernel import CapabilitySnapshot
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError
-from lib.config.resolver import ConfigResolver, VisionCapabilityError
+from lib.config.resolver import ConfigResolver, ProviderModel, VisionCapabilityError
 from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capability_view import (
@@ -331,6 +331,23 @@ class TestAudioRuntimeAndAssembly:
         runtime = AudioRuntime(ConfigResolver(db_factory))
         fallback = await runtime.resolve({"audio_backend": f"{pid}/tts-disabled"})
         assert fallback.model_id == "tts-1"
+        assert await runtime.read_identity({"audio_backend": f"{pid}/tts-disabled"}) == ProviderModel(pid, "tts-1")
+
+        no_default_pid = await _seed_custom_provider(
+            db_factory,
+            models=[
+                {
+                    "model_id": "tts-only-disabled",
+                    "display_name": "Only Disabled",
+                    "endpoint": "openai-tts",
+                    "is_enabled": False,
+                    "is_default": False,
+                }
+            ],
+        )
+        assert await runtime.read_identity({"audio_backend": f"{no_default_pid}/tts-only-disabled"}) == ProviderModel(
+            no_default_pid, "tts-only-disabled"
+        )
 
         profile = await audio_backend_profile(pid, audio_model)
         assert AudioCapability.TEXT_TO_SPEECH in profile.capabilities
@@ -348,3 +365,5 @@ class TestAudioRuntimeAndAssembly:
         )
         with pytest.raises(ModelDiscontinuedError):
             await runtime.resolve({"audio_backend": f"{pid}/{audio_model}"})
+        with pytest.raises(ModelDiscontinuedError):
+            await runtime.read_identity({"audio_backend": f"{pid}/{audio_model}"})

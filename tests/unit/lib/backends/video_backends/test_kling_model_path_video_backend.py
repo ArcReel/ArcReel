@@ -28,7 +28,7 @@ from lib.backends.video_backends.registry import (
     metered_usage_for_model,
     video_capabilities_for_model,
 )
-from lib.custom_provider.factory import create_custom_backend
+from tests.custom_backend_support import create_custom_backend
 from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json

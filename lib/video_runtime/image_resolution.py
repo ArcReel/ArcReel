@@ -56,7 +56,7 @@ class ImageRuntime:
             selected = await resolver.configured_image_identity(project, payload, bucket)
             if selected is None:
                 async with resolver._open_session() as (session, _):
-                    spec: ImageAssemblySpec = await _automatic_image_spec(session, bucket)
+                    spec: ImageAssemblySpec = await automatic_image_spec(session, bucket)
             elif is_custom_provider(selected.provider_id):
                 async with resolver._open_session() as (session, _):
                     spec = await _custom_image_spec(session, selected, bucket=bucket)
@@ -71,7 +71,7 @@ class ImageRuntime:
             selected = await resolver.configured_image_identity(project, payload, bucket)
             if selected is None:
                 async with resolver._open_session() as (session, _):
-                    return (await _automatic_image_spec(session, bucket)).snapshot
+                    return (await automatic_image_spec(session, bucket)).snapshot
             if is_custom_provider(selected.provider_id):
                 async with resolver._open_session() as (session, _):
                     return (await _custom_image_spec(session, selected, bucket=bucket)).snapshot
@@ -85,30 +85,20 @@ class ImageRuntime:
             selected = await resolver.configured_image_identity(project, payload, bucket)
             if selected is None:
                 async with resolver._open_session() as (session, _):
-                    spec = await _automatic_image_spec(session, bucket)
+                    spec = await automatic_image_spec(session, bucket)
                 return ProviderModel(
                     spec.snapshot.provider_id, spec.snapshot.model_id
                 ), spec.snapshot.default_resolution
             if not is_custom_provider(selected.provider_id):
                 return selected, None
             try:
-                db_pid = parse_provider_id(selected.provider_id)
+                async with resolver._open_session() as (session, _):
+                    snapshot = (await _custom_image_spec(session, selected, bucket=bucket)).snapshot
+            except (ImageBucketCapabilityError, ModelDiscontinuedError):
+                raise
             except ValueError:
                 return selected, None
-            async with resolver._open_session() as (session, _):
-                model = await CustomProviderRepository(session).get_model_by_ids(db_pid, selected.model_id)
-                if model is None:
-                    return selected, None
-                if model.is_enabled:
-                    from lib.custom_provider.default_models import lacks_bucket
-
-                    if await lacks_bucket(session, model, bucket):
-                        raise ImageBucketCapabilityError(
-                            generation_type=bucket,
-                            provider_id=selected.provider_id,
-                            model_id=selected.model_id,
-                        )
-                return selected, model.resolution or None
+            return ProviderModel(snapshot.provider_id, snapshot.model_id), snapshot.default_resolution
 
 
 def _builtin_image_snapshot(selected: ProviderModel) -> tuple[CapabilitySnapshot, Any, str | None]:
@@ -138,7 +128,10 @@ async def builtin_image_spec(
 
 
 def custom_image_spec(
-    provider: CustomProvider, row: CustomProviderModel, endpoint: EndpointSpec, entry: CatalogEntry | None
+    provider: CustomProvider | ProviderConnectionSnapshot,
+    row: CustomProviderModel,
+    endpoint: EndpointSpec,
+    entry: CatalogEntry | None,
 ) -> CustomImageSpec:
     provider_id = provider.provider_id
     if endpoint.kind == "comfyui":
@@ -155,6 +148,7 @@ def custom_image_spec(
     return CustomImageSpec(
         snapshot,
         endpoint.key,
+        endpoint.definition,
         endpoint.build_backend,
         connection,
         effective_path_overrides(row.path_overrides, endpoint.requests),
@@ -210,7 +204,7 @@ async def _custom_image_spec(
     return custom_image_spec(provider, default_row, default_endpoint, default_entry)
 
 
-async def _automatic_image_spec(session: AsyncSession, bucket: ImageGenerationType) -> CustomImageSpec:
+async def automatic_image_spec(session: AsyncSession, bucket: ImageGenerationType) -> CustomImageSpec:
     repo = CustomProviderRepository(session)
     endpoint_repo = CustomEndpointRepository(session)
     for row in await repo.list_enabled_models_by_media_type("image"):
