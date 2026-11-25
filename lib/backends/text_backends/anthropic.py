@@ -26,7 +26,6 @@ from anthropic.types.parsed_message import ParsedMessage
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_ANTHROPIC
 from lib.backends.text_backends.base import (
-    DEFAULT_MAX_OUTPUT_TOKENS,
     RequestTokens,
     TextCapability,
     TextGenerationRequest,
@@ -84,7 +83,7 @@ class AnthropicTextBackend:
         content = await asyncio.to_thread(_build_user_content, request)
         kwargs: dict = {
             "model": self._model,
-            "max_tokens": request.max_output_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
+            "max_tokens": request.max_output_tokens or 16384,
             "messages": [{"role": "user", "content": content}],
         }
         if request.system_prompt:

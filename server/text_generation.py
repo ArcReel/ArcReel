@@ -19,8 +19,8 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
 from lib.backends.http_status_errors import TextWaitTimeout
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
+from lib.backends.text_backends.base import TextOutputTruncatedError, TextTaskType
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError
@@ -863,7 +863,6 @@ async def generate_drama_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )
@@ -1104,7 +1103,6 @@ async def generate_reference_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )
@@ -1214,7 +1212,6 @@ async def generate_narration_script_plan(
             BackendTextGenerationRequest(
                 prompt=prompt,
                 response_schema=schema,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             ),
             project_name=project_name,
         )

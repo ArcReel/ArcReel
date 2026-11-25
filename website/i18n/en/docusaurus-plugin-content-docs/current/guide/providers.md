@@ -114,6 +114,8 @@ You can enable or disable officially listed provider models. Official data maint
 
 You can edit the display name, capabilities, durations, resolutions, maximum output length, and prices. Set prices by billing item, currency, and condition. A missing price or condition can show as Unpriced in usage records.
 
+When a text model has a registered maximum output length, ArcReel uses the lower of that value and 64,000 tokens for the request limit and episode planning budget. Without a registered limit, requests use the upstream default, except that Anthropic Messages requests specify 16,384 tokens. Episode planning uses an 8,192-token estimate in this case. If a multi-episode batch is truncated and the window has attempts left, ArcReel halves the target episode count and retries once. If truncation persists, check the registered output length or choose a model with a higher output limit.
+
 When you save changes to official data, the catalog entry uses your values and official sync does not overwrite them. Use official values one at a time or choose Restore official data for the whole entry. If official data later includes a model you added by hand, choose Use official data to switch. Both actions immediately replace your changes. Check the affected providers before confirming.
 
 A manual link takes precedence over a match by model name. Choose Unlink to return to automatic matching. Links and manually entered information apply when you save.

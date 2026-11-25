@@ -225,7 +225,7 @@ class FakeTextGenerator:
     ``generate`` 抛出，模拟供应商调用失败。
     """
 
-    max_output_tokens = 64000
+    planning_output_budget = 64000
     model = "fake-text"
 
     def __init__(self, *responses: str | BaseException):

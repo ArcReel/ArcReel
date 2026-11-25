@@ -843,7 +843,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
 
     class Generator:
         model = "fake-model"
-        max_output_tokens = 64000
+        planning_output_budget = 64000
 
         async def generate(self, _request, project_name=None):
             return BackendTextGenerationResult(

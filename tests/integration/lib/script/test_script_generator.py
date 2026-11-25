@@ -869,10 +869,7 @@ class TestScriptGenerator:
         assert fake.backend.last_request is None
         assert script_path.read_bytes() == before
 
-    async def test_generate_sets_script_max_output_tokens(self, tmp_path):
-        """drama prompt_authoring generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
-        from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS
-
+    async def test_generate_leaves_output_limit_to_text_generator(self, tmp_path):
         project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
@@ -887,8 +884,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="视觉层结构校验失败"):
             await generator.generate(1)
 
-        assert fake.backend.last_request.max_output_tokens == DEFAULT_MAX_OUTPUT_TOKENS
-        assert DEFAULT_MAX_OUTPUT_TOKENS >= 16000
+        assert fake.backend.last_request.max_output_tokens is None
 
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
