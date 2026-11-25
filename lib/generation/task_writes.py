@@ -29,8 +29,8 @@ class TaskWrites:
                 await self.backoff(delay)
         try:
             return await write()
-        except Exception:
-            logger.exception("任务状态写入失败 task_id=%s", task_id)
+        except Exception as exc:
+            logger.error("任务状态写入失败 task_id=%s error_type=%s", task_id, type(exc).__name__)
             raise
 
     async def failed(self, task_id: str, error: str) -> int:

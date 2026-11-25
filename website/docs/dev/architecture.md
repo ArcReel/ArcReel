@@ -83,7 +83,7 @@ flowchart TB
 
 ## 请求、任务与费用 {#generation-queue}
 
-`lib/generation/` 负责持久化生成任务并调度执行。生成 Worker 按供应商与媒体类型分配并发容量，本地渲染则独占一条执行车道。任务进入终态后会驱动项目状态同步更新。
+`lib/generation/` 负责持久化生成任务并调度执行。生成 Worker 按供应商分别限制图像、视频和音频并发。文本任务共享进程级额度，最多同时执行 16 条，每轮最多认领 4 条，其余任务保持排队并可取消。任务行在执行时记录实际解析的文本供应商。本地渲染独占一条串行车道。任务进入终态后会驱动项目状态同步更新。
 
 客户端可通过 `GET /api/v1/tasks/active` 获取正在排队或执行的任务。传入可选查询参数 `project_name` 可限定项目，也可使用 `GET /api/v1/projects/{project_name}/tasks/active`。响应包含 `items` 和 `truncated`。可见的活跃任务超过 5000 条时，返回 5000 条且将 `truncated` 设为 `true`。最近任务列表继续按更新时间分页。
 

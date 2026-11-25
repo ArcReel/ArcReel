@@ -46,7 +46,7 @@ from lib.generation.generation_result import (
     GenerationSelectionMode,
     problem_from_task_failure,
 )
-from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.generation.generation_worker import GenerationWorker
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_sync_transaction
@@ -89,13 +89,8 @@ async def _start_text_worker(
     queue: GenerationQueue,
     executor: Callable[..., Awaitable[dict[str, Any]]],
 ) -> GenerationWorker:
-    async def text_provider(_task: dict[str, Any]) -> str:
-        return "text"
-
     worker = GenerationWorker(
         queue=queue,
-        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
-        provider_projection=text_provider,
         executor=executor,
         lanes=("text",),
         resume_executor=refuse_resume_execution,

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
-from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.generation.generation_worker import GenerationWorker
 from lib.project.project_change_hints import register_project_change_batch_listener
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -309,13 +309,8 @@ async def fake_ctx(
     bind_safe_session_factory(monkeypatch, concurrent_session_factory)
     queue = ctx.queue
 
-    async def text_provider(_task: dict[str, Any]) -> str:
-        return "text"
-
     worker = GenerationWorker(
         queue=queue,
-        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
-        provider_projection=text_provider,
         lanes=("text",),
         executor=execute_generation_task,
         resume_executor=execute_resume_video_task,

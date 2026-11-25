@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -194,11 +197,28 @@ async def assemble_text(spec: TextAssemblySpec) -> TextBackend:
     return await asyncio.to_thread(_build_text, spec)
 
 
+_provider_observer: ContextVar[Callable[[str], Awaitable[None]] | None] = ContextVar(
+    "text_provider_observer", default=None
+)
+
+
+@contextmanager
+def observe_text_provider(observer: Callable[[str], Awaitable[None]]) -> Generator[None]:
+    token = _provider_observer.set(observer)
+    try:
+        yield
+    finally:
+        _provider_observer.reset(token)
+
+
 async def resolve_and_assemble_text(
     task_type: TextTaskType, project_name: str | None = None
 ) -> tuple[TextBackend, TextTarget]:
     from lib.db import async_session_factory
 
     target = await TextRuntime(ConfigResolver(async_session_factory)).for_task(task_type, project_name)
+    observer = _provider_observer.get()
+    if observer is not None:
+        await observer(target.provider_id)
     backend = await assemble_text(target.spec)
     return backend, target

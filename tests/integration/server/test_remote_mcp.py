@@ -19,7 +19,7 @@ from lib.generation.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import submit_generation_batch
 from lib.generation.generation_result import GenerationSelectionMode
-from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.generation.generation_worker import GenerationWorker
 from lib.infra.api_errors import ConflictError
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
@@ -1042,13 +1042,8 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             raise
         return {"message": "done"}
 
-    async def text_provider(_task):
-        return "text"
-
     worker = GenerationWorker(
         queue=queue,
-        capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
-        provider_projection=text_provider,
         executor=blocking_text,
         lanes=("text",),
         resume_executor=refuse_resume_execution,

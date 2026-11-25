@@ -83,7 +83,7 @@ Projects reference material identities. Material storage holds the bytes, and ea
 
 ## Requests, tasks, and billing {#generation-queue}
 
-`lib/generation/` persists and schedules tasks. The generation worker allocates concurrency by provider and media type, and local rendering has a dedicated lane. Project state updates when a task reaches a terminal state.
+`lib/generation/` persists and schedules tasks. The generation worker limits image, video, and audio concurrency per provider. Text tasks share a process-wide limit of 16 in flight. The worker claims up to four text tasks per cycle, leaving the rest queued and cancellable. Each text task records the provider selected at execution time. Local rendering has a dedicated serial lane. Project state updates when a task reaches a terminal state.
 
 Clients can use `GET /api/v1/tasks/active` to read queued and running tasks. The optional `project_name` query parameter limits the snapshot to one project. `GET /api/v1/projects/{project_name}/tasks/active` provides the same project snapshot. The response contains `items` and `truncated`. When more than 5,000 visible tasks are active, the snapshot returns 5,000 rows and sets `truncated` to `true`. The recent task list remains paginated by update time.
 
