@@ -629,7 +629,7 @@ class TestNarrationDefaults:
 
         use_system_config_router_sessions(monkeypatch, db_factory)
         with TestClient(_make_app_with_mock(_make_mock_svc())) as client:
-            resp = client.get("/api/v1/system/narration-defaults")
+            resp = client.get("/api/v1/system/global-narration-settings")
         assert resp.status_code == 200
         assert resp.json() == {
             "audio_backend": "dashscope/qwen3-tts-flash",

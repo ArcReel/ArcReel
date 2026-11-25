@@ -7,11 +7,12 @@ import { SpeechRateField } from "@/components/shared/SpeechRateField";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { NarrationDeliveryFields } from "@/components/shared/NarrationDeliveryFields";
 import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
-import type { AutoBackendsResponse, ProviderInfo } from "@/types";
+import type { AutoBackendsResponse, ProviderInfo, NarrationDefaultsResponse } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { WizardSection } from "./WizardSection";
 
 export interface WizardGenerationData {
+  narrationDefaults: NarrationDefaultsResponse | null;
   options: {
     video: string[];
     image: string[];
@@ -131,6 +132,7 @@ export function WizardStepGeneration({
       {data && (
         <WizardSection title={t("project_narration_delivery_title")}>
           <NarrationDeliveryFields
+            defaults={data.narrationDefaults}
             value={narration}
             onChange={onNarrationChange}
             audioBackends={data.options.audio}

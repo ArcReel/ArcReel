@@ -32,7 +32,7 @@ PATCH_PROJECT = ToolDeclaration(
     description=(
         "新增或修改 project.json，三种形态三选一，同时给出多个或都不给会被拒：(1) 资产 upsert（传 table + "
         "entries），按资产表 + 名称 upsert，名称不存在则新增、存在则合并改字段；(2) 顶层 settings 写入（传 "
-        f"settings），白名单字段 {list(PROJECT_SETTINGS)}，值为 null 时清除；(3) 项目概述编辑（传 overview），"
+        f"settings），白名单字段 {list(PROJECT_SETTINGS)}，传 audio_backend: null 恢复全局配音设置，传 narration_speed: null 仅清空覆盖语速；(3) 项目概述编辑（传 overview），"
         f"白名单字段 {list(PROJECT_OVERVIEW_FIELDS)}，只改传入字段、概述不存在时创建。写入后结构非法时不落盘"
         "并返回 problem。资产改名不要用本工具（会变成「新名新建 + 旧名残留」），改用 rename_asset。"
         "项目数据升级失败时仍可调用，用于修复。"

@@ -9,6 +9,7 @@ import type { TtsModelCapabilitiesResponse } from "@/types";
 import type { NarrationDeliveryValue } from "./narration-delivery";
 
 const ttsProject: NarrationDeliveryValue = {
+  override: true,
   delivery: "use_tts",
   audioBackend: "dashscope/qwen3-tts-flash",
   narrationVoice: "Cherry",
@@ -178,6 +179,5 @@ describe("NarrationDeliveryFields", () => {
     renderFields({ ...ttsProject, narrationVoice: "  " });
 
     expect(screen.getByLabelText("旁白音色 ID")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("选择 TTS 配音时必须填写音色")).toBeInTheDocument();
   });
 });

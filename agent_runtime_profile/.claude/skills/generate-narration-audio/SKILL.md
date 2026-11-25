@@ -25,12 +25,9 @@ description: 为 TTS 项目生成旁白配音。首轮自动剪辑需补齐配�
 > 新旁白配音完成后请用户试听确认。
 >
 > **依赖**：generation worker 必须在线（audio 独立通道）；项目的旁白交付方式是「TTS 配音」。TTS 模型、音色与语速
-> 都取自项目设置里的 TTS 快照，与全局默认无关。
->
-> **改音色/语速**：用户要求"这个项目旁白用 X 音色 / 语速 1.2"时，调
-> `mcp__arcreel__patch_project({"settings": {"narration_voice": "X", "narration_speed": 1.2}})`
-> 改项目的 TTS 快照（只影响当前项目；`narration_speed` 传 `null` 表示不向供应商传语速）。改完后，按旧模型、音色或语速
-> 生成的旁白配音读作 stale，仍可试听并参与剪辑。用户要求应用新设置时，点名这些条目重新合成。
+> 默认跟随全局；项目显式选择的配音组优先。通过 `mcp__arcreel__patch_project` 的 `settings` 修改。
+> 建立项目覆盖时传入 `audio_backend`，可同时指定音色与语速；已有覆盖可仅修改音色或语速。
+> 单独传 `audio_backend: null` 恢复跟随全局。设置变动只影响后续合成，用户要求时再重新合成。
 
 ## 结果
 

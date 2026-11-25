@@ -49,11 +49,11 @@ from lib.infra.api_errors import ConflictError, UnprocessableError
 from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from lib.speech.narration_config import parse_tts_backend
+from lib.video_runtime.audio import default_narration_tts
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
 from server.services.project.model_references import project_model_references
-from server.services.project.narration_settings import default_narration_tts
 
 logger = logging.getLogger(__name__)
 
@@ -668,16 +668,16 @@ async def acknowledge_recommendation_change(
 
 
 class NarrationDefaultsResponse(BaseModel):
-    """新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
+    """项目继承的全局配音设置；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
 
     audio_backend: str | None
     narration_voice: str
     narration_speed: float | None
 
 
-@router.get("/system/narration-defaults", response_model=NarrationDefaultsResponse)
+@router.get("/system/global-narration-settings", response_model=NarrationDefaultsResponse)
 async def get_narration_defaults() -> NarrationDefaultsResponse:
-    """全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。"""
+    """读取全局配音模型、音色与语速，供项目展示继承值。"""
     try:
         backend, voice, speed = await default_narration_tts(ConfigResolver(async_session_factory))
         audio_backend: str | None = f"{backend.provider_id}/{backend.model_id}"

@@ -1122,6 +1122,41 @@ describe("ProjectSettingsPage – 配音", () => {
     expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("my-cloned-voice");
   });
 
+  it("clears only the speed, then replaces the group when switching models", async () => {
+    const user = userEvent.setup();
+    const update = mockProject({
+      narration_delivery: "use_tts", audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "clone", narration_speed: 1.25,
+    });
+    mockConfig({ ...FAKE_CONFIG, options: {
+      ...FAKE_CONFIG.options, audio_backends: ["dashscope/qwen3-tts-flash", "gemini-aistudio/gemini-3.8-flash-tts"],
+    } });
+    type Capabilities = Awaited<ReturnType<typeof API.getTtsModelCapabilities>>;
+    let resolveCapabilities!: (value: Capabilities) => void;
+    const capabilities = new Promise<Capabilities>((resolve) => { resolveCapabilities = resolve; });
+    vi.mocked(API.getTtsModelCapabilities).mockImplementation(async (backend) =>
+      backend.startsWith("gemini") ? capabilities : { supports_speed: true, voices: [] });
+    renderAt("/app/projects/demo/settings?tab=voice");
+    fireEvent.change(await screen.findByLabelText("配音语速（可选）"), { target: { value: "" } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(update.mock.calls[0][1]).toEqual({ narration_speed: null });
+    fireEvent.change(screen.getByLabelText("配音语速（可选）"), { target: { value: "1.1" } });
+    await user.click(screen.getByRole("combobox", { name: "TTS 模型" }));
+    await user.click(await screen.findByRole("option", { name: /gemini-3.8-flash-tts/ }));
+    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("");
+    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(null);
+    expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
+    resolveCapabilities({ supports_speed: false, voices: [{ id: "Zephyr", label: "Zephyr" }] });
+    await waitFor(() => expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Zephyr"));
+    expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1][1]).toEqual({
+      audio_backend: "gemini-aistudio/gemini-3.8-flash-tts", narration_voice: "Zephyr", narration_speed: null,
+    });
+  });
+
   it("switching a TTS project to post-production writes only the delivery and keeps the snapshot", async () => {
     const updateSpy = mockProject({
       content_mode: "drama",
@@ -1144,22 +1179,23 @@ describe("ProjectSettingsPage – 配音", () => {
     }
   });
 
-  it("prefills a project without a snapshot from the global defaults when switched to TTS", async () => {
+  it("can follow global settings, save a project override and return to inheritance", async () => {
     const updateSpy = mockProject({ content_mode: "narration", narration_delivery: "post_production" });
     renderAt("/app/projects/demo/settings?tab=voice");
-
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
+    expect(screen.getByText("Ethan")).toBeVisible();
+    fireEvent.click(screen.getByRole("radio", { name: "项目覆盖" }));
     expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Ethan");
-    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.2);
     fireEvent.click(saveButton());
-
-    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
-    expect(updateSpy.mock.calls[0][1]).toMatchObject({
-      narration_delivery: "use_tts",
-      audio_backend: "dashscope/qwen3-tts-flash",
-      narration_voice: "Ethan",
-      narration_speed: 1.2,
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      narration_delivery: "use_tts", audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "Ethan", narration_speed: 1.2,
     });
+    fireEvent.click(screen.getByRole("radio", { name: "跟随全局" }));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(2));
+    expect(updateSpy.mock.calls[1][1]).toEqual({ audio_backend: null });
   });
 
   it("leaves a legacy post-production audio backend untouched when saving other settings", async () => {

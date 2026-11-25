@@ -50,19 +50,7 @@ export function VoiceTab({
   const bindingId = useId();
 
   const handleNarrationChange = (next: NarrationDeliveryValue) => {
-    onChange((prev) => {
-      let narration = next;
-      const hasSnapshot = next.audioBackend.includes("/") && next.narrationVoice.trim() !== "";
-      if (next.delivery === "use_tts" && prev.narration.delivery !== "use_tts" && !hasSnapshot && narrationDefaults) {
-        narration = {
-          ...next,
-          audioBackend: next.audioBackend.includes("/") ? next.audioBackend : (narrationDefaults.audio_backend ?? ""),
-          narrationVoice: next.narrationVoice.trim() ? next.narrationVoice : narrationDefaults.narration_voice,
-          narrationSpeed: next.narrationSpeed ?? narrationDefaults.narration_speed,
-        };
-      }
-      return { ...prev, narration };
-    });
+    onChange((prev) => ({ ...prev, narration: next }));
   };
 
   return (
@@ -71,6 +59,7 @@ export function VoiceTab({
 
       <SettingsBlock title={t("project_narration_delivery_title")}>
         <NarrationDeliveryFields
+          defaults={narrationDefaults}
           value={value.narration}
           onChange={handleNarrationChange}
           audioBackends={audioBackends}

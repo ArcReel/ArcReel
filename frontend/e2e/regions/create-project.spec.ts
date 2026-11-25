@@ -19,6 +19,10 @@ function manyModels(): ApiOverrides {
     Array.from({ length: 24 }, (_, i) => `custom-12/${kind}-model-${i + 1}-with-a-rather-long-identifier-preview`);
   const [video, image, text, audio] = ["video", "image", "text", "audio"].map(ids);
   return {
+    "GET /api/v1/system/global-narration-settings": {
+      status: 200,
+      body: { audio_backend: audio[0], narration_voice: "studio-narrator", narration_speed: 1.1 },
+    },
     "GET /api/v1/system/config": {
       status: 200,
       body: {
@@ -148,7 +152,8 @@ defineRegionScenarios("新建项目向导", [
       await goNext(page);
       const dialog = wizard(page);
       await dialog.getByRole("radio", { name: "TTS 配音" }).check({ force: true });
-      await expectBodyScrollsToEnd(page, dialog.getByLabel("配音语速（可选）"));
+      await expect(dialog.getByRole("radio", { name: "跟随全局" })).toBeChecked();
+      await expectBodyScrollsToEnd(page, dialog.getByText("1.1", { exact: true }));
     },
     screenshot: { name: "create-project-generation", target: wizard },
   },
