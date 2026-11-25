@@ -127,6 +127,12 @@ def is_infrastructure_path(rel: str) -> bool:
     parts = PurePosixPath(rel).parts
     if not parts:
         return False
+    if (
+        len(parts) == 2
+        and parts[0] == "versions"
+        and (parts[1] == "history.sqlite3" or parts[1].startswith("history.sqlite3-"))
+    ):
+        return True
     if parts[0] == ".claude":
         return False
     if parts[:2] == (ARCREEL_DIRNAME, MEMORY_DIRNAME) or parts == (ARCREEL_DIRNAME,):
@@ -370,6 +376,19 @@ class ReferenceIndex:
                 self._index_grid(str(key.components[1]), int(key.components[0]))
 
     def _index_versions(self, project_dir: Path) -> None:
+        from lib.artifacts.sqlite_history import SQLiteHistory
+
+        store = SQLiteHistory(project_dir)
+        if store.path.is_file():
+            self._mark("versions/history.sqlite3", FileRole.STRUCTURE)
+            for kind, name, current, record in store.rows():
+                self._mark(
+                    record.get("file"),
+                    FileRole.HISTORY,
+                    self._version_owner(kind, name),
+                    current=current is not None and current == record.get("version"),
+                )
+            return
         versions_file = project_dir / "versions" / "versions.json"
         data = _read_json(versions_file)
         if data is None:

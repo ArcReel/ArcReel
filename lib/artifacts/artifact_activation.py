@@ -581,9 +581,12 @@ def assert_artifact_target_state_plan_unchanged(
         project_dir,
         plan.project_bytes if expected_project_bytes is None else expected_project_bytes,
     )
+    from lib.artifacts.sqlite_history import SQLiteHistory
+
+    history = SQLiteHistory(project_dir)
     for path, expected in plan.dependency_bytes.items():
         try:
-            current = path.read_bytes()
+            current = history.revision() if path == history.path else path.read_bytes()
         except OSError as exc:
             raise RuntimeError(f"artifact activation dependency changed after preflight: {path}") from exc
         if current != expected:

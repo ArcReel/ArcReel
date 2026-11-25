@@ -28,7 +28,7 @@ def record_project_activity(project_dir: Path) -> None:
     """把当前时刻记为项目的最近活动时间（原子整份覆盖）。"""
     stamp = datetime.now(UTC).isoformat()
     try:
-        atomic_write_bytes(project_dir / ACTIVITY_FILENAME, stamp.encode("utf-8"))
+        atomic_write_bytes(project_dir / ACTIVITY_FILENAME, stamp.encode("utf-8"), journal=False)
     except OSError as exc:
         logger.warning("记录项目活动时间失败 dir=%s err=%s", project_dir, exc)
 

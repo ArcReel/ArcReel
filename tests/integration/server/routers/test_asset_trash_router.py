@@ -29,10 +29,12 @@ CHARACTERS = "/api/v1/projects/demo/characters"
 TRASH = "/api/v1/projects/demo/trash"
 
 
-@pytest.fixture
-def asset_pm(tmp_path: Path) -> ProjectManager:
+@pytest.fixture(params=["json", "sqlite"])
+def asset_pm(tmp_path: Path, request) -> ProjectManager:
     manager = ProjectManager(tmp_path / "data")
     manager.create_project("demo")
+    if request.param == "sqlite":
+        VersionManager(manager.get_project_path("demo")).enable_sqlite_history()
     return manager
 
 
@@ -599,3 +601,15 @@ def test_a_missing_file_during_migration_still_degrades_to_restoring_the_files(
     assert restored.status_code == 200, restored.text
     assert restored.json()["degraded"] is True
     assert (asset_dir / "characters/阿岚.png").read_bytes() == b"sheet"
+
+
+def test_owner_rename_keeps_derivative_snapshot_identity(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    _with_derivative_sheet(asset_client, asset_dir)
+    manager = VersionManager(asset_dir)
+    prior = manager.get_versions("character_derivatives", "阿岚/战甲")["versions"][0]
+    asset_pm.rename_asset("demo", "characters", "阿岚", "岚")
+    moved = manager.get_versions("character_derivatives", "岚/战甲")["versions"][0]
+    assert moved["content_version_id"] == prior["content_version_id"]
+    assert (asset_dir / moved["file"]).read_bytes() == b"armor"
+    assert not (asset_dir / prior["file"]).exists()

@@ -11,6 +11,7 @@ from pathlib import Path
 import portalocker
 
 from lib.infra.json_io import atomic_write_bytes
+from lib.infra.project_write_journal import active_journal, project_operation, track_write
 from lib.project.task_project_claim import ensure_task_project_claim
 
 
@@ -70,9 +71,12 @@ def project_metadata_lock(project_dir: Path) -> Generator[None]:
     """
 
     ensure_task_project_claim(Path(project_dir).name)
+    if active_journal(project_dir) is not None:
+        yield
+        return
     lock_path = Path(project_dir) / ".project.json.lock"
     lock_path.touch(exist_ok=True)
-    with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+    with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX), project_operation(project_dir):
         yield
 
 
@@ -90,9 +94,20 @@ def formal_write_transaction(*paths: Path) -> Generator[None]:
     seen: set[Path] = set()
     for raw_path in paths:
         path = Path(raw_path)
+        if path.parent.name == "versions":
+            if path.name in {
+                "history.sqlite3",
+                "history.sqlite3-wal",
+                "history.sqlite3-shm",
+                "history.sqlite3-journal",
+            }:
+                raise ValueError("cannot snapshot live history database")
+            if path.name == "versions.json" and (path.parent / "history.sqlite3").is_file():
+                continue
         identity = path.parent.resolve(strict=False) / path.name
         if identity in seen:
             continue
+        track_write(path)
         seen.add(identity)
         snapshots.append(_snapshot_file(path))
 

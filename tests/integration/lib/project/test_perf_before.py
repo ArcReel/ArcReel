@@ -15,10 +15,16 @@ from server.services.project.project_archive import ProjectArchiveService
 FIXTURES = Path(__file__).resolve().parents[3] / "fixtures/perf_before"
 
 
-def test_workflow_before(tmp_path):
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_workflow_before(tmp_path, sqlite):
     pm = ProjectManager(tmp_path)
     with ZipFile(FIXTURES / "workflow-v2.zip") as archive:
-        archive.extractall(pm.projects_dir / "demo")
+        root = pm.projects_dir / "demo"
+        archive.extractall(root)
+        if sqlite:
+            manager = VersionManager(root)
+            manager.versions_file.unlink()
+            manager.enable_sqlite_history(json.loads(archive.read("versions/versions.json")))
     status = WorkflowStateService(pm).get_status("demo")
     assert status.model_dump(mode="json") == json.loads((FIXTURES / "wf_status.json").read_bytes())
     plan = build_workflow_plan(status)
@@ -58,11 +64,14 @@ def test_archive_before(tmp_path, scope):
 @pytest.mark.parametrize(
     ("kind", "key"), [("character_derivatives", "Hero/Armor"), ("characters", "Café"), ("characters", "Cafe\u0301")]
 )
-def test_version_allocation_before(tmp_path, kind, key):
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_version_allocation_before(tmp_path, sqlite, kind, key):
     pm = ProjectManager(tmp_path)
     pm.create_project("demo")
     path = pm.get_project_path("demo")
     manager = VersionManager(path)
+    if sqlite:
+        manager.enable_sqlite_history()
     assert manager.get_versions(kind, key) == {"versions": [], "current_version": 0}
     current = path / "current.png"
     current.write_bytes(b"image")
@@ -75,26 +84,37 @@ def test_version_allocation_before(tmp_path, kind, key):
     assert manager.add_version(kind, key, "replacement", current) == 2
 
 
-def test_legacy_missing_selection(tmp_path):
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_legacy_missing_selection(tmp_path, sqlite):
     manager = VersionManager(tmp_path)
-    manager.versions_file.parent.mkdir(parents=True)
-    manager.versions_file.write_text('{"characters":{"Hero":{"versions":[]}}}', encoding="utf-8")
+    if sqlite:
+        manager.enable_sqlite_history({"characters": {"Hero": {"versions": []}}})
+    else:
+        manager.versions_file.parent.mkdir(parents=True)
+        manager.versions_file.write_text('{"characters":{"Hero":{"versions":[]}}}', encoding="utf-8")
     assert manager.get_versions("characters", "Hero") == {"versions": [], "current_version": 0}
 
 
-def test_append_with_legacy_missing_pointer(tmp_path):
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_append_with_legacy_missing_pointer(tmp_path, sqlite):
     manager = VersionManager(tmp_path)
-    manager.versions_file.parent.mkdir(parents=True)
     history = {"characters": {"Hero": {"versions": [{"version": 7, "file": "versions/characters/Hero_v7_old.png"}]}}}
-    manager.versions_file.write_text(json.dumps(history), encoding="utf-8")
+    if sqlite:
+        manager.enable_sqlite_history(history)
+    else:
+        manager.versions_file.parent.mkdir(parents=True)
+        manager.versions_file.write_text(json.dumps(history), encoding="utf-8")
     current = tmp_path / "current.png"
     current.write_bytes(b"image")
     assert manager.add_version("characters", "Hero", "", current) == 8
     assert manager.get_current_version("characters", "Hero") == 8
 
 
-def test_unicode_resource_ids_remain_distinct(tmp_path):
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_unicode_resource_ids_remain_distinct(tmp_path, sqlite):
     manager = VersionManager(tmp_path)
+    if sqlite:
+        manager.enable_sqlite_history()
     current = tmp_path / "current.png"
     current.write_bytes(b"image")
     for name in ("Café", "Cafe\u0301"):

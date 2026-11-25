@@ -27,7 +27,7 @@ import time
 from collections import Counter
 from collections.abc import AsyncGenerator, Generator, Iterable, Mapping
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -38,7 +38,7 @@ from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepos
 from lib.infra.api_errors import BadGatewayError, ConflictError
 from lib.infra.content_digest import sha256_file
 from lib.infra.data_root_layout import list_project_dirs
-from lib.material.formal_objects import iter_version_records, stored_object_keys
+from lib.material.formal_objects import stored_object_keys
 from lib.material.storage import (
     CONTENT_DIGEST,
     CONTENT_VERSION_ID,
@@ -116,6 +116,7 @@ class _WorkFile:
     digest: str
     stored: ObjectLocator
     formal: bool
+    created_at: object = field(default=None, compare=False)
 
 
 def _load_project_json(project_path: Path) -> dict[str, Any]:
@@ -145,14 +146,14 @@ def _formal_path(project: dict[str, Any], resource_type: str, resource_id: str) 
 
 def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
     """版本历史中所有远端内容版本的工作文件。``data`` 须在版本锁内读取。"""
+    from lib.artifacts.version_manager import VersionManager
+
+    return _work_files_from_rows(VersionManager._history_rows(data) if isinstance(data, dict) else (), project)
+
+
+def _work_files_from_rows(rows, project):
     result: list[_WorkFile] = []
-    current_versions: dict[tuple[str, str], object] = {}
-    if isinstance(data, dict):
-        for resource_type, bucket in data.items():
-            for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
-                if isinstance(history, dict):
-                    current_versions[(resource_type, resource_id)] = history.get("current_version")
-    for resource_type, resource_id, record in iter_version_records(data):
+    for resource_type, resource_id, current, record in rows:
         stored = ObjectLocator.from_record(record.get(STORAGE))
         content_version_id, digest, file = (
             record.get(CONTENT_VERSION_ID),
@@ -162,11 +163,33 @@ def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
         if stored is None or not isinstance(content_version_id, str) or not isinstance(digest, str):
             continue
         if isinstance(file, str):
-            result.append(_WorkFile(file, resource_type, resource_id, content_version_id, digest, stored, False))
-        if current_versions.get((resource_type, resource_id)) == record.get("version"):
+            result.append(
+                _WorkFile(
+                    file,
+                    resource_type,
+                    resource_id,
+                    content_version_id,
+                    digest,
+                    stored,
+                    False,
+                    record.get("created_at"),
+                )
+            )
+        if current == record.get("version"):
             formal = _formal_path(project, resource_type, resource_id)
             if formal is not None:
-                result.append(_WorkFile(formal, resource_type, resource_id, content_version_id, digest, stored, True))
+                result.append(
+                    _WorkFile(
+                        formal,
+                        resource_type,
+                        resource_id,
+                        content_version_id,
+                        digest,
+                        stored,
+                        True,
+                        record.get("created_at"),
+                    )
+                )
     return result
 
 
@@ -190,6 +213,12 @@ def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
     稳定性复核把关。
     """
     project_path = Path(project_path)
+    from lib.artifacts.sqlite_history import SQLiteHistory
+
+    store = SQLiteHistory(project_path)
+    if store.path.is_file():
+        files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
+        return {item.path: item.digest for item in files}
     versions_file = project_path / "versions" / "versions.json"
     version = (_file_version(versions_file), _file_version(project_path / "project.json"))
     if version[0] is None:
@@ -270,8 +299,8 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
     from lib.artifacts.version_manager import VersionManager
 
     project = _load_project_json(project_path)
-    with VersionManager(project_path).locked_history() as data:
-        return _work_files(data, project)
+    with VersionManager(project_path).locked_rows(remote_only=True) as data:
+        return _work_files_from_rows(data, project)
 
 
 RemoteWorkFile = _WorkFile
@@ -292,7 +321,7 @@ def locked_remote_work_files(project_path: Path) -> list[RemoteWorkFile]:
 
 def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> bool:
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
-    return work_file in _work_files(data, _load_project_json(project_path))
+    return work_file in _work_files_from_rows(data, _load_project_json(project_path))
 
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
@@ -365,7 +394,7 @@ def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        with VersionManager(project_path).locked_history() as history:
+        with VersionManager(project_path).locked_rows(remote_only=True) as history:
             if not target.exists() and _same_work_file(project_path, work_file, history):
                 os.replace(tmp, target)
     finally:
@@ -510,7 +539,7 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
     from lib.artifacts.version_manager import VersionManager
 
     target = project_path / work_file.path
-    with VersionManager(project_path).locked_history() as data:
+    with VersionManager(project_path).locked_rows(remote_only=True) as data:
         try:
             stat_result = target.stat()
         except OSError:
