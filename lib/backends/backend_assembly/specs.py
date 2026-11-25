@@ -1,17 +1,4 @@
-"""内置 provider 的 (provider_id, media_type) → ProviderSpec 声明式表。
-
-镜像自定义侧 ENDPOINT_REGISTRY（lib/custom_provider/endpoints.py）：每条 spec 是 frozen
-dataclass，挂一个 build 闭包；闭包读 LoadedConfig 信封 + model_id 拼 backend，不查 DB、不 await。
-登记简单族（媒体侧只需 api_key + model + base_url 的内置 provider）的 image/video/audio，
-共享一个 _build_simple 闭包；外加 gemini（backend_type 双模式，image/video/audio 对等透传 base_url）与
-kling（JWT 双 secret + api_model_name 解耦）两个特例族，各自挂专属 build 闭包。文本（media_type=text）
-四条 media_type 同经本表：简单文本（ark/ark-agent-plan/grok/agnes，agnes 走 OpenAI 兼容
-chat/completions 但鉴权 / base_url 收口在专属 AgnesTextBackend，故归简单族而非 OpenAI-compat 别名）、gemini 文本（aistudio/vertex）、
-OpenAI-compat 文本（openai/dashscope/minimax，dashscope/minimax 经 helper 派生 base_url + 透传
-provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashscope/minimax → openai registry backend）
-并入 spec 的 registry_backend 字段，根除原文本工厂第二份 PROVIDER_ID_TO_BACKEND。表在 import 期校验
-构造表与供应商端点清单的一致性。后端 registry 与自定义端点注册表的一致性由 CI 校验。
-"""
+"""内置供应商调用端点与后端注册表的映射。"""
 
 from __future__ import annotations
 
@@ -173,10 +160,10 @@ for _provider, _endpoints in (
         _specs.append(_video_spec(_provider, _endpoint))
 _specs += [_video_spec("minimax", endpoint, "declarative") for endpoint in _MINIMAX_VIDEO_ENDPOINTS]
 _specs += [
-    _text_spec("ark", "ark-chat"),
-    _text_spec("ark-agent-plan", "ark-chat"),
+    _text_spec("ark", "ark-chat", "openai"),
+    _text_spec("ark-agent-plan", "ark-chat", "openai"),
     _text_spec("grok", "grok-chat"),
-    _text_spec("agnes", "agnes-chat"),
+    _text_spec("agnes", "agnes-chat", "openai"),
     _text_spec("gemini-aistudio", "gemini-generate", _GEMINI_REGISTRY_BACKEND),
     _text_spec("gemini-vertex", "gemini-generate", _GEMINI_REGISTRY_BACKEND),
     _text_spec("openai", "openai-responses", "openai-responses"),

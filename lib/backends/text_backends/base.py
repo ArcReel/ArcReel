@@ -91,16 +91,7 @@ class TextOutputTruncatedError(NonRetryableError):
 
 
 class StructuredOutputExhaustedError(NonRetryableError):
-    """结构化输出降级链已走完，模型仍未产出满足 schema 的内容。
-
-    各后端把「结构化输出能力不足」的终局失败统一收敛到本异常：Instructor 档内校验重试
-    耗尽、Gemini prompt 注入降级耗尽，都抛它而非各自的内部异常（``InstructorRetryException``、
-    裸 ``ValueError``），调用方据此给用户一句可行动的解释，而不是把 SDK 内部异常原文透出去。
-
-    继承 NonRetryableError 的理由同 :class:`TextOutputTruncatedError`：消息里嵌的失败原因
-    含模型侧动态文本，可能偶然命中 with_retry_async 的瞬态错误字符串模式。语义上也确实
-    不该重试——降级链本身已经把该试的档位与档内重试都试过了。
-    """
+    """结构化输出降级链已走完，模型仍未产出满足 schema 的内容。"""
 
     def __init__(self, *, provider: str, model: str, reason: str):
         self.provider = provider
@@ -395,7 +386,7 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
 
 
 def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
-    """供自行生成 schema、不经 :func:`resolve_schema` 的库（Instructor、xai_sdk）使用的 ``model`` 子类。
+    """供自行生成 schema、不经 :func:`resolve_schema` 的库（xai_sdk）使用的 ``model`` 子类。
 
     子类不带 docstring，``model_json_schema`` 默认改用 :class:`_ModelFacingJsonSchema`，库据此生成的 schema
     与工具说明都不含类 docstring；字段、校验与序列化沿用 ``model``。

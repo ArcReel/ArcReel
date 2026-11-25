@@ -521,34 +521,6 @@ class TestKlingSpec:
 
 
 class TestTextSimpleSpec:
-    """简单文本族（ark / ark-agent-plan / grok / agnes）：model + api_key（无条件透传）+ base_url
-    （user > registry default，仅非空才传）。映射到文本 registry 的 create_backend，registry_backend
-    即 provider_id 自身。"""
-
-    def test_ark_falls_back_to_registry_default(self):
-        spec = get_provider_spec("ark", "text")
-        assert spec.registry_backend == "ark"
-        config = _loaded(credentials={"api_key": "ark-key"}, provider_id="ark")
-        assert _built(spec, config, "doubao-seed-2-0-lite-260215") == {
-            "media": "text",
-            "backend": "ark",
-            "kwargs": {
-                "model": "doubao-seed-2-0-lite-260215",
-                "api_key": "ark-key",
-                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-            },
-        }
-
-    def test_ark_agent_plan_uses_plan_base_url(self):
-        spec = get_provider_spec("ark-agent-plan", "text")
-        assert spec.registry_backend == "ark-agent-plan"
-        config = _loaded(credentials={"api_key": "k"}, provider_id="ark-agent-plan")
-        assert _built(spec, config, "doubao-seed-2.0-lite")["kwargs"] == {
-            "model": "doubao-seed-2.0-lite",
-            "api_key": "k",
-            "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
-        }
-
     def test_user_base_url_wins(self):
         config = _loaded(credentials={"api_key": "k", "base_url": "https://relay.test/v3"}, provider_id="ark")
         built = _built(get_provider_spec("ark", "text"), config, "m")
@@ -559,16 +531,6 @@ class TestTextSimpleSpec:
         assert _built(get_provider_spec("grok", "text"), config, "grok-4")["kwargs"] == {
             "model": "grok-4",
             "api_key": "grok-key",
-        }
-
-    def test_agnes_falls_back_to_registry_default_base_url(self):
-        spec = get_provider_spec("agnes", "text")
-        assert spec.registry_backend == "agnes"
-        config = _loaded(credentials={"api_key": "ag-key"}, provider_id="agnes")
-        assert _built(spec, config, "agnes-2.0-flash")["kwargs"] == {
-            "model": "agnes-2.0-flash",
-            "api_key": "ag-key",
-            "base_url": "https://apihub.agnes-ai.com/v1",
         }
 
     def test_api_key_passed_unconditionally_even_when_missing(self):

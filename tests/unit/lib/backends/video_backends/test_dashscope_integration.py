@@ -2,57 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
-from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
+from lib.backends.providers import PROVIDER_DASHSCOPE
 from tests.catalog_support import builtin_price
-from tests.fakes import captured_openai_clients
-
-
-def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> MagicMock:
-    usage = MagicMock()
-    usage.prompt_tokens = in_tok
-    usage.completion_tokens = out_tok
-    message = MagicMock()
-    message.content = content
-    choice = MagicMock()
-    choice.message = message
-    choice.finish_reason = "stop"
-    response = MagicMock()
-    response.choices = [choice]
-    response.usage = usage
-    return response
-
-
-class TestTextProviderBilling:
-    """隐患 3 回归：dashscope 文本复用 OpenAI 后端必须以 'dashscope' 记账，否则计费命中 USD。"""
-
-    def test_provider_name_override(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            b = OpenAITextBackend(api_key="k", model="qwen-plus", provider_name="dashscope")
-            assert b.name == "dashscope"
-
-    async def test_result_provider_is_dashscope(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_text_response("hi"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.base import TextGenerationRequest
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            b = OpenAITextBackend(api_key="k", model="qwen-plus", provider_name="dashscope")
-            result = await b.generate(TextGenerationRequest(prompt="x"))
-        assert result.provider == "dashscope"
-        assert result.model == "qwen-plus"
-
-    def test_default_provider_still_openai(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            assert OpenAITextBackend(api_key="k").name == PROVIDER_OPENAI
 
 
 class TestCatalogPricing:

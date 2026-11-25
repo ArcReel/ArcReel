@@ -27,7 +27,6 @@ dependencies = [
     "openai>=2.30.0",
     "xai-sdk>=1.20.0",
     "pyjianyingdraft>=0.3.0",
-    "instructor>=1.16.0",
     "charset-normalizer>=3.4.6",
     "docx2txt>=0.9",
     "mammoth>=1.12.0",

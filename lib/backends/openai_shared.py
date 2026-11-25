@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+import httpx
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
 from lib.backends.transport_layer import TransportLayer, layer_async_client
@@ -54,6 +55,7 @@ def create_openai_client(
     api_key: str | None = None,
     base_url: str | None = None,
     max_retries: int | None = None,
+    timeout: httpx.Timeout | None = None,
     transport_layer: TransportLayer | None = None,
 ) -> AsyncOpenAI:
     """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。
@@ -67,6 +69,8 @@ def create_openai_client(
         kwargs["api_key"] = api_key
     if max_retries is not None:
         kwargs["max_retries"] = max_retries
+    if timeout is not None:
+        kwargs["timeout"] = timeout
     if transport_layer is not None:
         kwargs["http_client"] = layer_async_client(DefaultAsyncHttpxClient(), transport_layer)
     return AsyncOpenAI(**kwargs)

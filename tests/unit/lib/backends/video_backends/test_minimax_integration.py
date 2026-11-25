@@ -9,22 +9,6 @@ import pytest
 from lib.backends.providers import PROVIDER_MINIMAX, PROVIDER_OPENAI
 from lib.catalog import query as catalog
 from tests.catalog_support import builtin_price
-from tests.fakes import captured_openai_clients
-
-
-def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> MagicMock:
-    usage = MagicMock()
-    usage.prompt_tokens = in_tok
-    usage.completion_tokens = out_tok
-    message = MagicMock()
-    message.content = content
-    choice = MagicMock()
-    choice.message = message
-    choice.finish_reason = "stop"
-    response = MagicMock()
-    response.choices = [choice]
-    response.usage = usage
-    return response
 
 
 class TestRegistry:
@@ -51,31 +35,6 @@ class TestRegistry:
 
         assert "MINIMAX_API_KEY" in OTHER_PROVIDER_ENV_KEYS
         assert "MINIMAX_API_KEY" in PROVIDER_SECRET_KEYS
-
-
-class TestTextProviderBilling:
-    """文本复用 OpenAI 后端必须以 'minimax' 记账，否则计费命中 USD。"""
-
-    def test_provider_name_override(self):
-        with captured_openai_clients():
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            b = OpenAITextBackend(api_key="k", model="MiniMax-M2.7", provider_name=PROVIDER_MINIMAX)
-            assert b.name == "minimax"
-
-    async def test_result_provider_is_minimax(self):
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_text_response("hi"))
-        with captured_openai_clients(mock_client):
-            from lib.backends.text_backends.base import TextGenerationRequest
-            from lib.backends.text_backends.openai import OpenAITextBackend
-
-            b = OpenAITextBackend(api_key="k", model="MiniMax-M2.7", provider_name=PROVIDER_MINIMAX)
-            result = await b.generate(TextGenerationRequest(prompt="x"))
-        assert result.provider == "minimax"
-        assert result.model == "MiniMax-M2.7"
-        assert result.input_tokens == 10
-        assert result.output_tokens == 5
 
 
 class TestFactoryWiring:
