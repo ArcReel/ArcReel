@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
@@ -23,7 +23,10 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
+from lib.artifacts.artifact_version_provenance import (
+    TypedMediaVersionTarget,
+    read_v1_audio_target,
+)
 from lib.artifacts.generation_input import PROMPT_PENDING_CODE
 from lib.artifacts.input_gap import InputGap, add_absent_inputs, project_basis_records_gaps
 from lib.artifacts.version_manager import VersionManager
@@ -86,13 +89,13 @@ def build_current_audio_artifact_basis(
     """
 
     try:
-        target = parse_typed_media_version_target("audio", version_record)
+        target = read_v1_audio_target(version_record)
         if parse_project_schema_version(project) >= PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION:
             settings = project_tts_settings(project)
             if settings is None:
                 return None
         else:
-            settings = parse_typed_audio_settings(version_record)
+            settings = target.settings
         admission = admit_script_unit(skeleton_kind, item)
         current = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(admission.preparation, settings))
     except (TypeError, ValueError):
@@ -100,6 +103,28 @@ def build_current_audio_artifact_basis(
     if target.basis.kind != current.kind:
         return None
     return current
+
+
+class AudioBasisRules(Protocol):
+    def read(self, record: Mapping[str, Any]) -> TypedMediaVersionTarget: ...
+
+    def project(
+        self,
+        *,
+        project: Mapping[str, Any],
+        item: Mapping[str, Any],
+        skeleton_kind: str,
+        version_record: Mapping[str, Any],
+    ) -> ArtifactBasisDescriptor | None: ...
+
+
+class _V1AudioBasisRules:
+    read = staticmethod(read_v1_audio_target)
+    project = staticmethod(build_current_audio_artifact_basis)
+
+
+V1_AUDIO_RULES: AudioBasisRules = _V1AudioBasisRules()
+CURRENT_AUDIO_RULES = V1_AUDIO_RULES
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +334,7 @@ def build_current_video_artifact_basis(
     resource_type: str,
     resource_id: str,
     version_metadata: Mapping[str, Any],
+    audio_rules: AudioBasisRules = CURRENT_AUDIO_RULES,
     legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
 ) -> ArtifactBasisDescriptor | None:
     """Rebuild current video inputs using only frozen execution dependency shape."""
@@ -364,6 +390,7 @@ def build_current_video_artifact_basis(
                 record=version_metadata,
                 tiers=shape.duration_tiers,
                 audio_entries=legacy_audio_entries,
+                audio_rules=audio_rules,
             )
             if legacy_duration is not None:
                 components = replace(components, duration=legacy_duration)
@@ -382,6 +409,7 @@ def _legacy_narrated_duration(
     episode: int,
     record: Mapping[str, Any],
     tiers: tuple[int, ...],
+    audio_rules: AudioBasisRules,
     audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None,
 ) -> ArtifactBasis | None:
     """schema < 16 的迁移读法：只有已登记且时新的选中配音会抬升旧视频基准。"""
@@ -394,10 +422,8 @@ def _legacy_narrated_duration(
     if not isinstance(selected, Mapping):
         return None
     try:
-        target = parse_typed_media_version_target("audio", selected)
-        current = build_current_audio_artifact_basis(
-            project=project, item=item, skeleton_kind=skeleton_kind, version_record=selected
-        )
+        target = audio_rules.read(selected)
+        current = audio_rules.project(project=project, item=item, skeleton_kind=skeleton_kind, version_record=selected)
     except (TypeError, ValueError):
         return None
     actual = selected.get("tts_actual_duration_seconds")
@@ -481,6 +507,9 @@ def _execution_reference_audio_speakers(value: object) -> tuple[str, ...] | None
 
 
 __all__ = [
+    "CURRENT_AUDIO_RULES",
+    "V1_AUDIO_RULES",
+    "AudioBasisRules",
     "VideoBasisComponents",
     "VideoExecutionShape",
     "build_current_audio_artifact_basis",

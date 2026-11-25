@@ -38,6 +38,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.artifacts.visual_artifact_provenance import ASSET_NAME_FREE_IMAGE_BASIS_KINDS, without_asset_names
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.project.item_id_history import max_used_item_numbers
@@ -113,7 +114,7 @@ def without_asset_names_in_versions(versions: dict[str, Any]) -> bool:
 
 def _plan(project_dir: Path, project: Mapping[str, Any]) -> ArtifactTargetStatePlan:
     project_bytes = json.dumps(project, ensure_ascii=False).encode("utf-8")
-    return TargetStatePlanner(project_dir, project_bytes=project_bytes).plan()
+    return TargetStatePlanner(project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=project_bytes).plan()
 
 
 def _rebase_entries(

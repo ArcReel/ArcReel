@@ -99,10 +99,11 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifacts.artifact_version_provenance import (
     VIDEO_CURRENCY_DURATION_FIELD,
-    parse_typed_audio_settings,
     parse_typed_media_version_target,
+    read_v1_audio_target,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.artifacts.version_manager import selected_manual_upload_snapshot
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import (
@@ -182,6 +183,7 @@ def _plan_before_rewrite(project_dir: Path, view: Mapping[str, Any]) -> Artifact
     project_bytes = (project_dir / "project.json").read_bytes()
     plan = TargetStatePlanner(
         project_dir,
+        audio_rules=V1_AUDIO_RULES,
         project_bytes=json.dumps(view).encode(),
         allow_stale_formal_targets=True,
         legacy_audio_entries=ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),
@@ -193,7 +195,10 @@ def _plan_before_rewrite(project_dir: Path, view: Mapping[str, Any]) -> Artifact
 def _plan_after_rewrite(project_dir: Path, migrated: Mapping[str, Any]) -> ArtifactTargetStatePlan:
     project_bytes = (project_dir / "project.json").read_bytes()
     after = TargetStatePlanner(
-        project_dir, project_bytes=json.dumps(migrated).encode(), allow_stale_formal_targets=True
+        project_dir,
+        audio_rules=V1_AUDIO_RULES,
+        project_bytes=json.dumps(migrated).encode(),
+        allow_stale_formal_targets=True,
     ).plan()
     assert_artifact_target_state_plan_unchanged(project_dir, after, expected_project_bytes=project_bytes)
     return after
@@ -270,7 +275,9 @@ def _uploaded_basis_digest(project_dir: Path, kind: ArtifactKind, artifact_path:
 
 def _register_uploaded_media(project_dir: Path, migrated: Mapping[str, Any]) -> None:
     project_bytes = (project_dir / "project.json").read_bytes()
-    target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated).encode()).plan()
+    target = TargetStatePlanner(
+        project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=json.dumps(migrated).encode()
+    ).plan()
     assert_artifact_target_state_plan_unchanged(project_dir, target, expected_project_bytes=project_bytes)
     versions = _load_object(project_dir / "versions" / "versions.json") or {}
     adapter = ProjectArtifactManifestAdapter(project_dir)
@@ -614,12 +621,11 @@ def _latest_registered_tts_settings(project_dir: Path) -> TtsSynthesisSettings |
         if record is None:
             continue
         try:
-            target = parse_typed_media_version_target("audio", record)
-            settings = parse_typed_audio_settings(record)
+            target = read_v1_audio_target(record)
         except (TypeError, ValueError):
             continue
         if target.episode == episode:
-            candidates.append((target.created_at or "", episode, resource_id, settings))
+            candidates.append((target.created_at or "", episode, resource_id, target.settings))
     if not candidates:
         return None
     return max(candidates, key=lambda candidate: candidate[:3])[3]
@@ -695,7 +701,9 @@ def migrate_v15_to_v16(
         _rebase_video_duration_entries(project_dir, before, after)
         _rebase_script_plan_entries(project_dir, before, after)
         _register_uploaded_media(project_dir, migrated_project)
-        target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
+        target = TargetStatePlanner(
+            project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=json.dumps(migrated_project).encode()
+        ).plan()
         sync_source_snapshots(project_dir, migrated_project, snapshot_texts)
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(
