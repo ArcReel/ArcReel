@@ -107,6 +107,14 @@ class SystemSettingRepository:
         stmt = insert(SystemSetting).values(key=key, value=value, updated_at=datetime.now(UTC))
         await self.session.execute(stmt.on_conflict_do_nothing(index_elements=[SystemSetting.key]))
 
+    async def lock_audio_group(self) -> None:
+        """串行化全局旁白配置的读改写，首次写入时模型行可能尚不存在。"""
+        insert = pg_insert if self.session.get_bind().dialect.name == "postgresql" else sqlite_insert
+        stmt = insert(SystemSetting).values(key="default_audio_backend", value="", updated_at=datetime.now(UTC))
+        await self.session.execute(
+            stmt.on_conflict_do_update(index_elements=[SystemSetting.key], set_={"value": SystemSetting.value})
+        )
+
     async def get_prefixed(self, prefix: str) -> dict[str, str]:
         """键以 ``prefix`` 开头的全部设置。"""
         stmt = select(SystemSetting.key, SystemSetting.value).where(

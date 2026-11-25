@@ -176,6 +176,7 @@ export function MediaModelSection() {
     setCustomProviders(custom);
     setAuto(autoBackends);
     setRecommendations(changes.changes);
+    return res.settings;
   }, []);
 
   useEffect(() => {
@@ -190,7 +191,16 @@ export function MediaModelSection() {
   const source = useMemo(() => fieldsFrom(settings), [settings]);
   const saveFields = useCallback(
     async (fields: MediaModelFields, saved: MediaModelFields) => {
-      const res = await API.updateSystemConfig(changedFields(fields, saved));
+      const patch = changedFields(fields, saved);
+      const model = fields.default_audio_backend;
+      if (model && model !== saved.default_audio_backend) {
+        patch.narration_voice = fields.narration_voice;
+        patch.narration_speed = fields.narration_speed;
+      } else if (model && fields.narration_voice === undefined && saved.narration_voice !== undefined) {
+        const { voices } = await API.getTtsModelCapabilities(model);
+        patch.narration_voice = voices[0]?.id ?? "";
+      }
+      const res = await API.updateSystemConfig(patch);
       useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
       void reloadCandidates();
@@ -204,15 +214,38 @@ export function MediaModelSection() {
   const setFields = unit.setValue;
   const onRecommendationResolved = useCallback(
     async (change: RecommendationChange, applied: boolean) => {
-      if (applied) setFields((prev) => ({ ...prev, [RECOMMENDATION_DEFAULT_KEYS[change.media_type]]: change.recommended }));
+      if (applied && change.media_type !== "audio") {
+        setFields((prev) => ({ ...prev, [RECOMMENDATION_DEFAULT_KEYS[change.media_type]]: change.recommended }));
+      }
       useCapabilitiesStore.getState().invalidate();
-      await fetchConfig();
+      const latest = await fetchConfig();
+      if (applied && change.media_type === "audio") {
+        setFields((prev) => ({
+          ...prev,
+          default_audio_backend: latest.default_audio_backend,
+          narration_voice: latest.narration_voice,
+          narration_speed: latest.narration_speed,
+        }));
+      }
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
     },
     [fetchConfig, reloadCandidates, setFields],
   );
-  const audioVoices = useTtsModelCapabilities(fields.default_audio_backend ?? "")?.voices ?? [];
+  const currentAudioBackend = fields.default_audio_backend || auto?.audio || "";
+  const capabilities = useTtsModelCapabilities(currentAudioBackend);
+  const audioVoices = capabilities?.voices ?? [];
+  const changeAudioBackend = (backend: string) => {
+    setFields((prev) => {
+      if (backend === prev.default_audio_backend) return prev;
+      return {
+        ...prev,
+        default_audio_backend: backend,
+        narration_voice: backend ? undefined : "",
+        narration_speed: null,
+      };
+    });
+  };
 
   if (!settings || !options) {
     return (
@@ -318,8 +351,7 @@ export function MediaModelSection() {
     : [];
 
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
-  const currentAudioBackend = fields.default_audio_backend ?? "";
-  const currentNarrationVoice = fields.narration_voice ?? "";
+  const currentNarrationVoice = fields.narration_voice ?? audioVoices[0]?.id ?? "";
   const currentNarrationSpeed =
     fields.narration_speed;
 
@@ -505,7 +537,7 @@ export function MediaModelSection() {
               options={audioBackends}
               providerNames={allProviderNames}
               modelNames={allModelNames}
-              onChange={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
+              onChange={changeAudioBackend}
               allowDefault
               defaultLabel={t("auto_select")}
               defaultHint={t("auto")}
@@ -515,7 +547,7 @@ export function MediaModelSection() {
               value={currentAudioBackend}
               notices={lifecycle}
               modelNames={allModelNames}
-              onSwitch={(v) => setFields((prev) => ({ ...prev, default_audio_backend: v }))}
+              onSwitch={changeAudioBackend}
             />
             {recommendationNotice("audio")}
           </div>
@@ -529,11 +561,15 @@ export function MediaModelSection() {
             id="narration-voice-input"
             aria-describedby="narration-voice-hint"
             value={currentNarrationVoice}
-            onChange={(narration_voice) => setFields((prev) => ({ ...prev, narration_voice }))}
+            onChange={(narration_voice) =>
+              setFields((prev) => ({ ...prev, default_audio_backend: currentAudioBackend, narration_voice }))
+            }
             voices={audioVoices}
           />
           <FieldHint id="narration-voice-hint">
-            {audioVoices.length > 0 ? t("narration_voice_hint_with_voices") : t("narration_voice_hint")}
+            {t(!settings.default_audio_backend && currentAudioBackend === auto?.audio && !currentNarrationVoice
+              ? "discovered_audio_model_hint"
+              : audioVoices.length > 0 ? "project_narration_voice_hint_with_voices" : "project_narration_voice_hint")}
           </FieldHint>
         </div>
         <div className="flex flex-col gap-1.5">
@@ -541,6 +577,7 @@ export function MediaModelSection() {
           <Input
             id="narration-speed-input"
             type="number"
+            disabled={!currentAudioBackend || capabilities?.supportsSpeed === false}
             min={0.1}
             step={0.1}
             aria-describedby="narration-speed-hint"
@@ -556,7 +593,7 @@ export function MediaModelSection() {
             }}
             className="w-40"
           />
-          <FieldHint id="narration-speed-hint">{t("narration_speed_hint")}</FieldHint>
+          <FieldHint id="narration-speed-hint">{t(capabilities?.supportsSpeed === false ? "project_narration_speed_unsupported" : "narration_speed_hint")}</FieldHint>
         </div>
       </ChannelCard>
 

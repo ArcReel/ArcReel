@@ -124,13 +124,20 @@ class TestRequest:
             await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, name=name))
         assert request_json(only_request(routes.synthesize))["input"]["format"] == expected
 
-    @pytest.mark.parametrize(("speed", "rate"), [(1.2, 1.2), (0.3, 0.5), (3.0, 2.0)])
+    @pytest.mark.parametrize(("speed", "rate"), [(1.2, 1.2), (0.5, 0.5), (2.0, 2.0)])
     async def test_speed_is_sent_as_rate_within_range(self, tmp_path: Path, speed: float, rate: float):
         with _routes() as routes:
             await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, speed=speed))
         body = request_json(only_request(routes.synthesize))["input"]
         assert body["rate"] == rate
         assert "speed" not in body
+
+    @pytest.mark.parametrize("speed", [0.3, 3.0])
+    async def test_speed_outside_range_is_rejected(self, tmp_path: Path, speed: float):
+        from lib.infra.api_errors import UnprocessableError
+
+        with pytest.raises(UnprocessableError, match="narration_tts_speed_out_of_range"):
+            await DashScopeSpeechSynthesizerBackend(api_key="sk").synthesize(_request(tmp_path, speed=speed))
 
     async def test_reports_token_usage_of_31_models(self, tmp_path: Path):
         usage = {"characters": 15, "input_tokens": 12, "output_tokens": 340, "total_tokens": 352}

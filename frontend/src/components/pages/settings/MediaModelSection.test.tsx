@@ -528,12 +528,49 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     const input = await screen.findByLabelText("旁白音色 ID");
-    await screen.findByText("从列表选择音色，或照所选供应商文档填写音色 id；留空使用默认音色");
+    await screen.findByText("从列表选择音色，或照所选供应商文档填写音色 id");
     expect(capabilities).toHaveBeenCalledWith("dashscope/qwen-audio-3.0-tts-plus", expect.anything());
     await user.clear(input);
     await user.click(input);
     await user.click(await screen.findByRole("option", { name: "longanlufeng · 龙安鲁风 · 明亮开朗音（男）" }));
     expect(input).toHaveValue("longanlufeng");
+  });
+
+  it("resets the voice and speed when switching audio models", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      options: { ...CONFIG.options, audio_backends: ["grok/grok-tts", "dashscope/qwen3-tts-flash"] },
+      settings: { ...CONFIG.settings, default_audio_backend: "grok/grok-tts", narration_voice: "eve", narration_speed: 1.4 },
+    } as never);
+    vi.spyOn(API, "getTtsModelCapabilities").mockImplementation(async (backend) => ({
+      supports_speed: backend.startsWith("grok/"),
+      voices: [{ id: backend.startsWith("grok/") ? "eve" : "Cherry", label: "Voice" }],
+    }));
+    render(<MediaModelSection />);
+    await user.click(await screen.findByRole("combobox", { name: "默认旁白配音模型" }));
+    await user.click(await screen.findByRole("option", { name: /qwen3-tts-flash/ }));
+    await waitFor(() => expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Cherry"));
+    expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
+    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(null);
+  });
+
+  it("pins the discovered custom audio model with the entered voice", async () => {
+    const user = userEvent.setup();
+    const model = "custom-2/relay";
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, audio: model });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      options: { ...CONFIG.options, audio_backends: [model] },
+      settings: { ...CONFIG.settings, default_audio_backend: "", narration_voice: "", narration_speed: null },
+    } as never);
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+    expect(await screen.findByRole("combobox", { name: "默认旁白配音模型" })).toHaveTextContent("relay");
+    expect(screen.getByText(/已发现自定义供应商的默认音频模型/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("旁白音色 ID"), "speaker");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(patch).toHaveBeenCalledWith({ default_audio_backend: model, narration_voice: "speaker", narration_speed: null });
   });
 
   it("does not ask for voices while the default audio model is auto-selected", async () => {

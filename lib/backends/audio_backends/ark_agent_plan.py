@@ -32,11 +32,12 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.backends.audio_backends.profiles import endpoint_profile
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.backends.providers import PROVIDER_ARK_AGENT_PLAN
 from lib.backends.transport_layer import TransportLayer
-from lib.infra.api_errors import BadGatewayError, UnprocessableError
+from lib.infra.api_errors import BadGatewayError
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -55,29 +56,11 @@ _ACCESS_DENIED_STATUSES = frozenset({401, 403})
 
 _HTTP_TIMEOUT_SECONDS = 300.0
 
-_MIN_SPEED = 0.5
-_MAX_SPEED = 2.0
 
 _SAMPLE_RATE = 24000
 _PCM_SAMPLE_WIDTH = 2
 _PCM_CHANNELS = 1
 _FORMAT_BY_SUFFIX = {"mp3": "mp3", "ogg": "ogg_opus", "opus": "ogg_opus", "pcm": "pcm"}
-
-_VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
-    VoiceOption(id=f"zh_{voice}_uranus_bigtts", label=f"voice_label_ark_agent_plan_{voice.split('_', 1)[1]}")
-    for voice in (
-        "female_vv",
-        "female_gaolengyujie",
-        "male_cixingjieshuonan",
-        "male_xuanyijieshuo",
-        "female_wenroushunv",
-        "male_ruyaqingnian",
-        "male_baqiqingshu",
-        "female_shaoergushi",
-        "female_zhixingnv",
-        "male_yuanboxiaoshu",
-    )
-)
 
 
 @dataclass(frozen=True)
@@ -237,13 +220,10 @@ class ArkAgentPlanAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG)
+        return list(endpoint_profile("ark-agent-plan-tts", self._model).voices)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        if request.speed is not None and not _MIN_SPEED <= request.speed <= _MAX_SPEED:
-            raise UnprocessableError(
-                "narration_tts_speed_out_of_range", speed=request.speed, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-            )
+        endpoint_profile("ark-agent-plan-tts", self._model).validate(request.voice, request.speed)
         upstream_format, wrap_wav = _format_for(request.output_path)
         try:
             artifact, billed_characters = await self._request_speech(request, upstream_format, wrap_wav)

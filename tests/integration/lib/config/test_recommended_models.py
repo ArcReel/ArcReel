@@ -38,6 +38,7 @@ from lib.db.models.catalog_official_sync import CatalogOfficialSync
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.catalog_user_entry_repo import CatalogUserEntryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.infra.api_errors import UnprocessableError
 from lib.video_runtime.image_resolution import ImageRuntime
 from lib.video_runtime.resolution import VideoRuntime
 from tests.catalog_support import (
@@ -177,6 +178,48 @@ class TestSeedProviderRecommendations:
         assert await _seen(session_factory) == {
             f"ark:{media}": _recommended("ark", media) for media in ("image", "text", "video")
         }
+
+    @pytest.mark.parametrize("has_voices", [True, False])
+    async def test_audio_recommendation_requires_complete_group(self, session_factory, monkeypatch, has_voices):
+        model = "qwen3-tts-flash" if has_voices else "relay-tts"
+        data = catalog.factory_snapshot()
+        listing = data.builtin_providers["dashscope"]
+        original = next(m for m in listing.models if m.api_model_name == "qwen3-tts-flash")
+        if not has_voices:
+            listing = replace(listing, models=(*listing.models, replace(original, api_model_name=model)))
+            data = replace(data, builtin_providers={**data.builtin_providers, "dashscope": listing})
+        install_catalog(monkeypatch, with_recommendation(data, "dashscope", "audio", model))
+        await _mark_frozen(session_factory)
+        await _configure(session_factory, "dashscope")
+        await _seed(session_factory, "dashscope")
+        settings = await _settings(session_factory)
+        if has_voices:
+            assert settings["narration_voice"] == "Cherry"
+            assert settings["default_audio_backend"] == f"dashscope/{model}"
+            assert (await _seen(session_factory))["dashscope:audio"] == model
+        else:
+            assert not settings.get("default_audio_backend")
+            assert not settings.get("narration_voice")
+            assert "dashscope:audio" not in await _seen(session_factory)
+        async with session_factory() as session:
+            if has_voices:
+                svc = ConfigService(session)
+                await svc.set_setting("narration_voice", "user-clone")
+                await svc.set_setting("narration_speed", "1.4")
+                await acknowledge_recommendation(session, "dashscope", "audio", model, apply=True)
+                await session.commit()
+            else:
+                with pytest.raises(UnprocessableError, match="narration_tts_voice_required"):
+                    await acknowledge_recommendation(session, "dashscope", "audio", model, apply=True)
+        if has_voices:
+            applied = await _settings(session_factory)
+            assert (applied["narration_voice"], applied["narration_speed"]) == ("Cherry", "")
+        assert bool(await _changes(session_factory)) is (not has_voices)
+        async with session_factory() as session:
+            await acknowledge_recommendation(session, "dashscope", "audio", model, apply=False)
+            await session.commit()
+        assert not await _changes(session_factory)
+        assert (await _settings(session_factory)).get("default_audio_backend") == settings.get("default_audio_backend")
 
     async def test_a_second_provider_only_fills_what_is_still_empty(self, session_factory):
         await _mark_frozen(session_factory)
@@ -333,6 +376,23 @@ async def test_a_new_recommendation_is_suggested_when_the_default_is_empty(sessi
 
 
 class TestFreezeEffectiveDefaults:
+    @pytest.mark.parametrize(
+        ("configured", "voice", "expected"),
+        [(True, "my-clone", "my-clone"), (True, "", "Cherry"), (False, "orphan", "")],
+    )
+    async def test_audio_freeze_precedes_orphan_cleanup(self, session_factory, configured, voice, expected):
+        if configured:
+            await _configure(session_factory, "dashscope")
+        async with session_factory() as session:
+            svc = ConfigService(session)
+            await svc.set_setting("narration_voice", voice)
+            await svc.set_setting("narration_speed", "1.2")
+            await session.commit()
+        await _upgrade(session_factory, REVISION_0_36)
+        saved = await _settings(session_factory)
+        assert saved.get("narration_voice", "") == expected
+        assert saved.get("narration_speed", "") == ("1.2" if configured else "")
+
     async def test_a_recommendation_hidden_from_the_old_version_does_not_take_over(
         self, session_factory, monkeypatch, request
     ):

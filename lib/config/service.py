@@ -18,7 +18,6 @@ from lib.infra.schema_guards import is_int
 
 DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3.8-flash"
 DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
-_DEFAULT_NARRATION_VOICE = "Cherry"
 MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
 DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
@@ -226,8 +225,7 @@ class ConfigService:
 
     async def get_narration_voice(self) -> str:
         raw = await self._setting_repo.get("narration_voice", "")
-        voice = raw.strip()
-        return voice or _DEFAULT_NARRATION_VOICE
+        return raw.strip()
 
     async def get_narration_speed(self) -> float | None:
         """旁白语速（全局 setting）。未设置/损坏值返回 None，由各 audio backend 按自身能力处理。"""

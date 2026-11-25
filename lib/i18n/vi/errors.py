@@ -180,6 +180,8 @@ MESSAGES = {
     "text_default_model_not_set": "Chưa đặt mô hình văn bản mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp nào, hãy thêm trong Cài đặt → Nhà cung cấp trước",
     "audio_default_model_not_set": "Chưa đặt mô hình lồng tiếng thuyết minh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói, hãy thêm trong Cài đặt → Nhà cung cấp trước",
     "narration_tts_model_invalid": "Mô hình TTS đã chọn không khả dụng; hãy chọn mô hình của nhà cung cấp tổng hợp giọng nói",
+    "narration_tts_clear_conflict": "Khi xóa mô hình thuyết minh, hãy xóa cả giọng nói và tốc độ",
+    "narration_tts_voice_invalid": "Chọn giọng nói mà mô hình TTS này hỗ trợ",
     "narration_tts_voice_required": "Khi chọn lồng tiếng TTS, cần nhập giọng đọc thuyết minh",
     "narration_tts_speed_invalid": "Tốc độ giọng đọc phải là số dương",
     "narration_tts_speed_out_of_range": "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ {minimum} đến {maximum}, giá trị hiện tại là {speed}. Hãy thay đổi hoặc xóa tốc độ giọng đọc",

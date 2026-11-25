@@ -70,7 +70,7 @@ class TestDefaultNarrationTts:
             await session.commit()
         resolver = ConfigResolver(db_factory)
         _backend, voice, speed = await default_narration_tts(resolver)
-        assert voice == "Cherry"
+        assert voice == ""
         assert speed is None
 
 
@@ -82,12 +82,12 @@ class TestServiceDefaultAudioBackend:
 
 
 class TestServiceNarrationVoice:
-    async def test_blank_setting_falls_back_to_default(self, db_factory):
+    async def test_blank_setting_has_no_voice(self, db_factory):
         async with db_factory() as session:
             svc = ConfigService(session)
             await svc.set_setting("narration_voice", "  ")
             await session.commit()
-            assert await svc.get_narration_voice() == "Cherry"
+            assert await svc.get_narration_voice() == ""
 
             await svc.set_setting("narration_voice", "Ethan")
             await session.commit()

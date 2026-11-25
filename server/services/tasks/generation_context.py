@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.backends.audio_backends.base import AudioCapability, VoiceOption
+from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import (
     effective_image_quality,
@@ -141,35 +141,6 @@ async def _audio_backend_for_target(target: AudioTarget):
         generation=target.generation,
         spec=target.spec,
     )
-
-
-async def _audio_backend_for(provider_id: str, model_id: str, resolver: ConfigResolver):
-    """构造（或取缓存的）指定音频 backend。供应商未配置或模型不可用时原样抛出构造错误。"""
-    target = await AudioRuntime(resolver, capture_generation=_backend_cache.generation).for_identity(
-        ProviderModel(provider_id, model_id)
-    )
-    return await _audio_backend_for_target(target)
-
-
-@dataclass(frozen=True)
-class AudioBackendProfile:
-    """指定音频 backend 声明的能力与音色表（音色按 backend 给出的顺序）。"""
-
-    capabilities: frozenset[AudioCapability]
-    voices: tuple[VoiceOption, ...]
-
-
-async def audio_backend_profile(provider_id: str, model_id: str) -> AudioBackendProfile:
-    """指定音频 backend 的能力与音色表，供设置页判断配音语速是否生效、列出该模型所用端点的音色。"""
-    from lib.db import async_session_factory
-
-    backend = await _audio_backend_for(provider_id, model_id, ConfigResolver(async_session_factory))
-    return AudioBackendProfile(capabilities=frozenset(backend.capabilities), voices=tuple(backend.list_voices()))
-
-
-async def audio_backend_voice_ids(provider_id: str, model_id: str, resolver: ConfigResolver) -> tuple[str, ...]:
-    """指定音频 backend 的音色 id，按 backend 给出的顺序，供新建项目预填与模型相符的音色。"""
-    return tuple(v.id for v in (await _audio_backend_for(provider_id, model_id, resolver)).list_voices())
 
 
 @dataclass(frozen=True)

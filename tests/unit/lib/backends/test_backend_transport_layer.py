@@ -62,8 +62,8 @@ def _video(tmp_path: Path) -> VideoGenerationRequest:
     return VideoGenerationRequest(prompt="一只猫走过屋顶", output_path=tmp_path / "out.mp4", duration_seconds=5)
 
 
-def _speech(tmp_path: Path) -> AudioSynthesisRequest:
-    return AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice="Cherry")
+def _speech(tmp_path: Path, voice: str = "Cherry") -> AudioSynthesisRequest:
+    return AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice=voice)
 
 
 _CALLS: dict[str, Call] = {
@@ -120,7 +120,7 @@ _CALLS: dict[str, Call] = {
     ).synthesize(_speech(tmp_path)),
     "gemini-tts": lambda layer, tmp_path: GeminiAudioBackend(
         api_key="k", base_url=BASE, transport_layer=layer
-    ).synthesize(_speech(tmp_path)),
+    ).synthesize(_speech(tmp_path, "Kore")),
     "openai-video": lambda layer, tmp_path: OpenAIVideoBackend(
         api_key="k", model="sora-2", base_url=f"{BASE}/v1", transport_layer=layer
     ).generate(_video(tmp_path)),

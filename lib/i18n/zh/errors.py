@@ -175,6 +175,8 @@ MESSAGES = {
     "text_default_model_not_set": "还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择；还没有配置供应商时，先在「全局设置 → 供应商」配置",
     "audio_default_model_not_set": "还没有设置旁白配音的默认模型：请在「全局设置 → 默认模型」中选择；还没有配置支持语音合成的供应商时，先在「全局设置 → 供应商」配置",
     "narration_tts_model_invalid": "所选 TTS 模型不可用：请选择语音合成供应商下的模型",
+    "narration_tts_clear_conflict": "清空旁白配音模型时，请同时清空音色和配音语速",
+    "narration_tts_voice_invalid": "请选择该 TTS 模型支持的音色",
     "narration_tts_voice_required": "选择 TTS 配音时必须填写旁白音色",
     "narration_tts_speed_invalid": "配音语速必须是正数",
     "narration_tts_speed_out_of_range": "所选 TTS 模型的配音语速范围是 {minimum}～{maximum}，当前为 {speed}。请调整或清空配音语速",

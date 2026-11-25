@@ -19,10 +19,10 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.backends.audio_backends.profiles import endpoint_profile
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.grok_shared import resolve_grok_api_key
 from lib.backends.providers import PROVIDER_GROK
-from lib.infra.api_errors import UnprocessableError
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -34,8 +34,6 @@ DEFAULT_MODEL = "grok-tts"
 
 _HTTP_TIMEOUT_SECONDS = 900.0
 
-_MIN_SPEED = 0.7
-_MAX_SPEED = 1.5
 
 _SUPPORTED_CODECS = frozenset({"mp3", "wav", "pcm"})
 _FALLBACK_CODEC = "wav"
@@ -50,40 +48,6 @@ _LANGUAGE_CODES = {
     "italian": "it",
 }
 _AUTO_LANGUAGE = "auto"
-
-_VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
-    VoiceOption(id=voice_id, label=voice_id.capitalize())
-    for voice_id in (
-        "eve",
-        "ara",
-        "rex",
-        "sal",
-        "leo",
-        "carina",
-        "zagan",
-        "helix",
-        "orion",
-        "luna",
-        "iris",
-        "altair",
-        "zenith",
-        "perseus",
-        "helios",
-        "lux",
-        "kepler",
-        "rigel",
-        "cosmo",
-        "celeste",
-        "ursa",
-        "sirius",
-        "lumen",
-        "castor",
-        "naksh",
-        "atlas",
-        "aurora",
-        "liora",
-    )
-)
 
 
 def _codec_for(output_path: Path) -> str:
@@ -127,13 +91,10 @@ class GrokAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG)
+        return list(endpoint_profile("grok-tts", self._model).voices)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        if request.speed is not None and not _MIN_SPEED <= request.speed <= _MAX_SPEED:
-            raise UnprocessableError(
-                "narration_tts_speed_out_of_range", speed=request.speed, minimum=_MIN_SPEED, maximum=_MAX_SPEED
-            )
+        endpoint_profile("grok-tts", self._model).validate(request.voice, request.speed)
         audio = await self._request_speech(request)
         await run_noninterruptible_sync(request.output_path.write_bytes, audio)
         logger.info("xAI 语音合成完成: %s", request.output_path)

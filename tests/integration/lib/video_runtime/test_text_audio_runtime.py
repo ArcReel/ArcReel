@@ -16,6 +16,7 @@ from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError
 from lib.config.resolver import ConfigResolver, ProviderModel, VisionCapabilityError
 from lib.config.service import ConfigService
+from lib.config.tts import model_profile
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capability_view import (
     OverrideRejected,
@@ -29,7 +30,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.video_runtime.audio import AudioRuntime, AudioTarget, assemble_audio
 from lib.video_runtime.text import TextRuntime, assemble_text
 from server.services.tasks import generation_context
-from server.services.tasks.generation_context import audio_backend_profile, audio_backend_voice_ids
 from tests.catalog_support import install_catalog, with_entry_changes
 from tests.fakes import bind_session_factory
 
@@ -349,15 +349,11 @@ class TestAudioRuntimeAndAssembly:
             no_default_pid, "tts-only-disabled"
         )
 
-        profile = await audio_backend_profile(pid, audio_model)
-        assert AudioCapability.TEXT_TO_SPEECH in profile.capabilities
-        assert len(profile.voices) > 0
-
-        voice_ids = await audio_backend_voice_ids(pid, audio_model, ConfigResolver(db_factory))
-        assert voice_ids == tuple(v.id for v in profile.voices)
-
-        openai_profile = await audio_backend_profile(pid, "tts-1")
-        assert AudioCapability.SPEECH_SPEED in openai_profile.capabilities
+        async with db_factory() as session:
+            profile = await model_profile(session, pid, audio_model)
+            assert profile.voices
+            openai_profile = await model_profile(session, pid, "tts-1")
+            assert openai_profile.supports_speed
 
         install_catalog(
             monkeypatch,

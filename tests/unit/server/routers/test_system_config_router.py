@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_without_state
-from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
@@ -294,6 +293,7 @@ class TestPatchSystemConfig:
         app.dependency_overrides[get_config_service] = lambda: mock_svc
 
         mock_session = AsyncMock()
+        mock_session.get_bind = MagicMock()
         mock_session.commit = AsyncMock()
 
         _exec_result = MagicMock()
@@ -517,7 +517,13 @@ class TestPatchSystemConfig:
                 assert res.status_code == 422, raw
 
     def test_patch_clears_narration_speed_with_null(self):
-        mock_svc = _make_mock_svc(settings={"narration_speed": "1.5"})
+        mock_svc = _make_mock_svc(
+            settings={
+                "default_audio_backend": "gemini-aistudio/gemini-3.8-flash-tts",
+                "narration_voice": "Zephyr",
+                "narration_speed": "1.5",
+            }
+        )
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
@@ -525,6 +531,43 @@ class TestPatchSystemConfig:
             )
         assert res.status_code == 200
         assert res.json()["settings"]["narration_speed"] is None
+
+    def test_atomic_audio_group_transitions(self):
+        app = _make_app_with_mock(_make_mock_svc())
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            url = "/api/v1/system/config"
+
+            def patch(**fields):
+                return client.patch(url, json=fields)
+
+            assert (
+                patch(default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts", narration_speed=1.4).status_code
+                == 200
+            )
+            for invalid in (
+                {"narration_voice": "unknown"},
+                {"default_audio_backend": "minimax/speech-2.8-hd", "narration_speed": 2.1},
+                {"default_audio_backend": "custom-8/no-suggestions"},
+                {"default_audio_backend": None, "narration_voice": "Zephyr"},
+                {"narration_voice": ""},
+            ):
+                assert patch(**invalid).status_code == 422
+                settings = client.get(url).json()["settings"]
+                assert (
+                    settings["default_audio_backend"],
+                    settings["narration_voice"],
+                    settings["narration_speed"],
+                ) == ("gemini-aistudio/gemini-3.8-flash-tts", "Zephyr", 1.4)
+            switched = patch(default_audio_backend="dashscope/qwen3-tts-flash").json()["settings"]
+            assert (switched["narration_voice"], switched["narration_speed"]) == ("Cherry", None)
+            assert patch(narration_voice="my-cloned-voice").status_code == 200
+            cleared = patch(default_audio_backend=None).json()["settings"]
+            assert (cleared["default_audio_backend"], cleared["narration_voice"], cleared["narration_speed"]) == (
+                "",
+                "",
+                None,
+            )
 
     def test_patch_rejects_invalid_audio_backend(self):
         mock_svc = _make_mock_svc()
@@ -638,10 +681,8 @@ class TestTtsModelCapabilities:
             resp = client.get("/api/v1/system/tts-model-capabilities", params={"backend": "dashscope"})
         assert resp.status_code == 422
 
-    def test_model_not_in_catalog_asks_to_reselect(self, monkeypatch):
+    def test_model_not_in_catalog_asks_to_reselect(self):
         """所选语音模型已不在供应商清单中：返回要求重新选择模型的 400，不说成「语音模型无效」。"""
-        error = ModelNotInCatalogError(provider_id="minimax", model_id="speech-retired", media_type="audio")
-        monkeypatch.setattr(system_config_router, "audio_backend_profile", AsyncMock(side_effect=error))
         app = _make_app_with_mock(_make_mock_svc())
         register_error_handlers(app)
         with TestClient(app) as client:

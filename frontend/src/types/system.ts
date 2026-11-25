@@ -57,7 +57,7 @@ export interface GetSystemConfigResponse {
 
 export type GenerationTypeBucket = "t2i" | "i2i" | "i2v" | "r2v";
 
-export type AutoBackendsResponse = Record<GenerationTypeBucket | "text", string | null>;
+export type AutoBackendsResponse = Record<GenerationTypeBucket | "text", string | null> & { audio?: string | null };
 
 export interface RecommendationChange {
   media_type: "text" | "image" | "video" | "audio";
