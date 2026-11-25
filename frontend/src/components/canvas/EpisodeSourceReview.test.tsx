@@ -338,7 +338,6 @@ describe("EpisodeSourceReview", () => {
   it("guides non-blockingly at 15,001 unsaved episode source chars, never at 15,000 or from long instructions", async () => {
     const exactLimit = "夜".repeat(15_000);
     vi.spyOn(API, "getSourceContent").mockResolvedValue(exactLimit);
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written({ episode: 6 }));
     const plan = vi
       .spyOn(API, "planScript")

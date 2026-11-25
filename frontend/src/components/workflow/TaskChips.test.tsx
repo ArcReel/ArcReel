@@ -43,13 +43,13 @@ describe("TaskChips", () => {
       expect(screen.getByLabelText(/已运行.*12/)).toBeInTheDocument();
       const update = (event: TaskProgress) => act(() => useTasksStore.getState().receiveProgress(event));
       update({ task_id: task.task_id, seq: 1, phase: "waiting", model: "Gemini" });
-      expect(screen.getByText("正在等待 Gemini 响应")).toBeInTheDocument();
+      expect(screen.getByText("正在等待 Gemini 响应…")).toBeInTheDocument();
       update({ task_id: task.task_id, seq: 2, phase: "receiving", thinking: true, characters: 0 });
-      expect(screen.getByText("模型思考中")).toBeInTheDocument();
+      expect(screen.getByText("模型思考中…")).toBeInTheDocument();
       update({ task_id: task.task_id, seq: 3, phase: "receiving", thinking: false, characters: 180 });
-      expect(screen.getByText("正在接收生成内容 · 已接收约 180 字")).toBeInTheDocument();
+      expect(screen.getByText("正在接收生成内容 · 已接收约 180 字…")).toBeInTheDocument();
       update({ task_id: task.task_id, seq: 4, phase: "retrying", attempt: 2, max_attempts: 3, error: "503" });
-      expect(screen.getByText("正在重试（第 2/3 次尝试）")).toBeInTheDocument();
+      expect(screen.getByText("正在重试（第 2/3 次尝试）…")).toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(3_000));
       expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();

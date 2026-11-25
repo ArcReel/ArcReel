@@ -557,8 +557,8 @@ describe("UsageRecordsSection records", () => {
 
       expect(screen.getByText("project-a")).toBeInTheDocument();
       expect(screen.getByText("project-b")).toBeInTheDocument();
-      expect(screen.getByText("正在接收生成内容 · 已接收约 540 字")).toBeInTheDocument();
-      expect(screen.getByText("正在等待 gpt-5 响应")).toBeInTheDocument();
+      expect(screen.getByText("正在接收生成内容 · 已接收约 540 字…")).toBeInTheDocument();
+      expect(screen.getByText("正在等待 gpt-5 响应…")).toBeInTheDocument();
       expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(3_000));

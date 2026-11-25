@@ -10,7 +10,8 @@ from lib.backends.text_backends.streaming import TextTaskContext, bind_text_task
 
 
 class TaskProgressTable:
-    def __init__(self) -> None:
+    def __init__(self, *, scheduler: asyncio.AbstractEventLoop | None = None) -> None:
+        self._scheduler = scheduler
         self._latest: dict[str, dict[str, Any]] = {}
         self.publish: Callable[[str, dict[str, Any]], None] | None = None
 
@@ -19,7 +20,7 @@ class TaskProgressTable:
 
     @contextmanager
     def track(self, project: str, task_id: str, task_type: str) -> Generator[Callable[[TextProgress], None]]:
-        loop = asyncio.get_running_loop()
+        loop = self._scheduler or asyncio.get_running_loop()
         last_sent = 0.0
         timer: asyncio.TimerHandle | None = None
         active = True

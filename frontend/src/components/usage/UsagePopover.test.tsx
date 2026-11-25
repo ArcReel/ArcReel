@@ -364,7 +364,7 @@ describe("UsagePopover", () => {
       openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI }) });
 
       const running = screen.getByRole("region", { name: "进行中" });
-      expect(within(running).getByText("正在等待 claude-sonnet-4 响应")).toBeInTheDocument();
+      expect(within(running).getByText("正在等待 claude-sonnet-4 响应…")).toBeInTheDocument();
       expect(within(running).getByLabelText(/已运行.*10/)).toBeInTheDocument();
 
       act(() =>
@@ -376,7 +376,7 @@ describe("UsagePopover", () => {
           characters: 0,
         }),
       );
-      expect(within(running).getByText("模型思考中")).toBeInTheDocument();
+      expect(within(running).getByText("模型思考中…")).toBeInTheDocument();
 
       act(() =>
         useTasksStore.getState().receiveProgress({
@@ -387,7 +387,7 @@ describe("UsagePopover", () => {
           characters: 850,
         }),
       );
-      expect(within(running).getByText("正在接收生成内容 · 已接收约 850 字")).toBeInTheDocument();
+      expect(within(running).getByText("正在接收生成内容 · 已接收约 850 字…")).toBeInTheDocument();
 
       act(() =>
         useTasksStore.getState().receiveProgress({
@@ -399,7 +399,7 @@ describe("UsagePopover", () => {
           error: "429",
         }),
       );
-      expect(within(running).getByText("正在重试（第 2/3 次尝试）")).toBeInTheDocument();
+      expect(within(running).getByText("正在重试（第 2/3 次尝试）…")).toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(5_000));
       expect(within(running).queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();

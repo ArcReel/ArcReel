@@ -77,7 +77,7 @@ describe("ScriptPlanStart", () => {
       ]);
     renderStart();
 
-    expect(screen.getByRole("status")).toHaveTextContent("AI 正在规划脚本。");
+    expect(screen.getByText("AI 正在规划脚本。")).toBeVisible();
     expect(screen.queryByRole("button", { name: "AI 规划" })).not.toBeInTheDocument();
   });
 
@@ -113,23 +113,24 @@ describe("ScriptPlanStart", () => {
       renderStart();
 
       const status = screen.getByRole("status");
-      expect(status).toHaveTextContent("AI 正在规划脚本。");
+      expect(screen.getByText("AI 正在规划脚本。")).toBeVisible();
       expect(screen.getByLabelText(/已运行.*10/)).toBeInTheDocument();
       const update = (event: TaskProgress) => act(() => useTasksStore.getState().receiveProgress(event));
       update({ task_id: task.task_id, seq: 1, phase: "waiting", model: "Claude" });
-      expect(status).toHaveTextContent("正在等待 Claude 响应");
+      expect(status).toHaveTextContent("正在等待 Claude 响应…");
       update({ task_id: task.task_id, seq: 2, phase: "receiving", thinking: true, characters: 0 });
-      expect(status).toHaveTextContent("模型思考中");
+      expect(status).toHaveTextContent("模型思考中…");
       update({ task_id: task.task_id, seq: 3, phase: "receiving", thinking: false, characters: 320 });
-      expect(status).toHaveTextContent("正在接收生成内容 · 已接收约 320 字");
+      expect(status).toHaveTextContent(/^正在接收生成内容…$/);
+      expect(screen.getByText(/已接收约 320 字/)).toBeVisible();
       update({ task_id: task.task_id, seq: 4, phase: "retrying", attempt: 2, max_attempts: 3, error: "RateLimitError" });
-      expect(status).toHaveTextContent("正在重试（第 2/3 次尝试）");
+      expect(status).toHaveTextContent("正在重试（第 2/3 次尝试）…");
 
       act(() => vi.advanceTimersByTime(5_000));
-      expect(status).not.toHaveTextContent("长文本通常需要数十秒至数分钟");
+      expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(1_000));
-      expect(status).toHaveTextContent("长文本通常需要数十秒至数分钟，可先切换处理其他页面。");
+      expect(screen.getByText(/长文本通常需要数十秒至数分钟/)).toHaveAttribute("aria-live", "polite");
     } finally {
       vi.useRealTimers();
     }
