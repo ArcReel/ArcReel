@@ -1275,10 +1275,12 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
 
 
 def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_path: Path) -> None:
-    project_dir, project, _script_plan, _script = _project(tmp_path)
+    project_dir, project, _script_plan, script = _project(tmp_path)
     raw_name = "  阿离  "
     project["characters"] = {raw_name: project["characters"]["阿离"]}
+    script["segments"][0].update({"novel_text": "雨夜", "duration_seconds": 4, "characters_in_segment": [raw_name]})
     _write_json(project_dir / "project.json", project)
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
 
     migrate_project_dir(project_dir)
 

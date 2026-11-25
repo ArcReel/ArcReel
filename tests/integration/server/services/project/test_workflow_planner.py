@@ -415,13 +415,26 @@ async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, m
     assert plan.next_action.args["task_ids"] == ["grid-task"]
 
 
-@pytest.mark.parametrize(("task_type", "name"), [("character", "张三"), ("character_derivative", "张三/战损")])
+@pytest.mark.parametrize(
+    ("task_type", "sheet_name", "task_resource_id", "requested_ids"),
+    [
+        ("character", "张三", "张三", []),
+        ("character_derivative", "张三/战损", "张三/战损", ["张三/战损"]),
+        ("character", "张三/战损", "张三", ["张三", "张三/战损"]),
+    ],
+)
 async def test_asset_sheet_plan_waits_for_active_asset_task(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, task_type: str, name: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    task_type: str,
+    sheet_name: str,
+    task_resource_id: str,
+    requested_ids: list[str],
 ) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
     status = _status(action="generate_asset_sheets")
-    status.artifacts["asset_sheets"] = {"character": {"missing_ids": [name]}}
+    status.next_action.requested_ids = requested_ids
+    status.artifacts["asset_sheets"] = {"character": {"missing_ids": [sheet_name]}}
     monkeypatch.setattr(
         pm,
         "load_project",
@@ -441,12 +454,12 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
         if kwargs["task_type"] != task_type:
             return []
-        assert kwargs["resource_ids"] == [name]
+        assert kwargs["resource_ids"] == [task_resource_id]
         return [
             {
                 "task_id": "character-task",
                 "batch_id": "asset-batch",
-                "resource_id": name,
+                "resource_id": task_resource_id,
                 "task_type": task_type,
                 "status": "running",
             }

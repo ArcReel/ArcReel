@@ -16,9 +16,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.project.asset_derivatives import derivative_artifact_id, derivative_table
-from lib.project.asset_types import resolve_asset_key
+from lib.project.asset_types import asset_name_comparison_key, resolve_asset_key
 from lib.references.reference_catalog import build_reference_catalog, split_derivative_reference
 from lib.script.script_references import payload_reference_names
+
+
+def _resolve_bucket_key(bucket: object, name: str) -> str | None:
+    key = resolve_asset_key(bucket, name)
+    if key is not None or not isinstance(bucket, Mapping):
+        return key
+    target = asset_name_comparison_key(name)
+    found: str | None = None
+    for raw in bucket:
+        if isinstance(raw, str) and asset_name_comparison_key(raw) == target:
+            found = raw
+    return found
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +56,7 @@ def episode_referenced_assets(
         if entry is None:
             continue
         bucket = project.get(entry.spec.bucket_key)
-        owner_key = resolve_asset_key(bucket, entry.asset_name)
+        owner_key = _resolve_bucket_key(bucket, entry.asset_name)
         if owner_key is None:
             continue
         _base, derivative_name = split_derivative_reference(entry.name)
@@ -53,7 +65,7 @@ def episode_referenced_assets(
         if not derivative_name:
             continue
         table = derivative_table(bucket.get(owner_key) if isinstance(bucket, Mapping) else None)
-        derivative_key = resolve_asset_key(table, derivative_name)
+        derivative_key = _resolve_bucket_key(table, derivative_name)
         if derivative_key is None:
             continue
         referenced.add(

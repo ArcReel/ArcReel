@@ -224,11 +224,20 @@ function EpisodeList({
 
   useEffect(() => {
     const controller = new AbortController();
-    API.getEpisodeNextSteps(projectName, { signal: controller.signal })
-      .then((res) => setSteps(new Map(res.episodes.map((step) => [step.episode, step]))))
-      .catch(() => {
-        if (!controller.signal.aborted) setSteps(new Map());
-      });
+    async function loadSteps() {
+      let cursor: string | undefined;
+      const loaded = new Map<number, EpisodeNextStep>();
+      do {
+        const page = await API.getEpisodeNextSteps(projectName, { signal: controller.signal, cursor });
+        if (controller.signal.aborted) return;
+        for (const step of page.episodes) loaded.set(step.episode, step);
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      setSteps(loaded);
+    }
+    void loadSteps().catch(() => {
+      if (!controller.signal.aborted) setSteps(new Map());
+    });
     return () => controller.abort();
   }, [projectName, snapshotRevision]);
 
