@@ -8,7 +8,7 @@ import json
 import os
 import tempfile
 import wave
-from collections import defaultdict, deque
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -30,12 +30,6 @@ class TextResponses(BaseModel):
     responses: list[str]
 
 
-class DowngradeV20WithRetiredDraft(BaseModel):
-    episode: int = 1
-    retired_draft_filename: str = "script_plan_segments.invalid.json"
-    retired_draft_content: str = '{"legacy": "retired-draft"}'
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
@@ -55,19 +49,17 @@ def main() -> None:
 
 
 def serve(port: int, data_dir: str) -> None:
-    from fastapi import APIRouter, FastAPI
+    from fastapi import APIRouter, FastAPI, HTTPException
 
     from lib.config.env_keys import PROVIDER_SECRET_KEYS
 
     for key in PROVIDER_SECRET_KEYS:
         os.environ.pop(key, None)
 
-    from lib.backends import text_generator as text_generator_module
-    from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
     from lib.db import async_session_factory
     from lib.db.base import DEFAULT_USER_ID
     from lib.db.models.task import Task
-    from lib.episode.episode_paths import episode_drafts_dir
+    from lib.episode.episode_paths import NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME, episode_drafts_dir
     from lib.generation.generation_worker import GenerationWorker
     from lib.infra.app_data_dir import app_data_dir
     from lib.infra.json_io import atomic_write_json
@@ -80,47 +72,48 @@ def serve(port: int, data_dir: str) -> None:
         raise RuntimeError("Playwright backend data directory is not isolated")
 
     releases: dict[str, asyncio.Future[str]] = {}
-    text_responses: dict[str, deque[str]] = defaultdict(deque)
+    text_responses: deque[str] = deque()
     control = APIRouter(prefix="/__playwright", include_in_schema=False)
-
-    class FixtureTextBackend:
-        name = "gemini"
-        model = "gemini-3-flash-preview"
-
-        def __init__(self, project_name: str | None) -> None:
-            self.capabilities: set[TextCapability] = set()
-            self._project_name = project_name or ""
-
-        async def generate(self, _request: TextGenerationRequest) -> TextGenerationResult:
-            queue = text_responses[self._project_name]
-            if not queue:
-                raise RuntimeError(f"No scripted text response queued for project {self._project_name!r}")
-            return TextGenerationResult(
-                text=queue.popleft(),
-                provider=self.name,
-                model=self.model,
-                input_tokens=20,
-                output_tokens=10,
-            )
-
-    async def fake_text_backend(_task_type: object, project_name: str | None = None) -> tuple[FixtureTextBackend, str]:
-        return FixtureTextBackend(project_name), "gemini-aistudio"
-
-    text_generator_module.create_text_backend_for_task = fake_text_backend
 
     @control.post("/text-responses/{project_name}")
     async def queue_text_responses(project_name: str, request: TextResponses) -> None:
-        text_responses[project_name].extend(request.responses)
+        del project_name
+        text_responses.clear()
+        text_responses.extend(request.responses)
+
+    @control.post("/gemini/v1beta/models/{model_action:path}")
+    async def gemini_generate_content(model_action: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not model_action.endswith(":generateContent"):
+            raise HTTPException(status_code=404, detail=f"Unsupported Gemini action: {model_action}")
+        if not payload.get("contents"):
+            raise HTTPException(status_code=400, detail="Missing contents in Gemini request")
+        if not text_responses:
+            raise HTTPException(status_code=500, detail="No scripted Gemini text response queued")
+        return {
+            "candidates": [
+                {
+                    "content": {"role": "model", "parts": [{"text": text_responses.popleft()}]},
+                    "finishReason": "STOP",
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 20,
+                "candidatesTokenCount": 10,
+                "totalTokenCount": 30,
+            },
+        }
 
     @control.post("/downgrade-v20/{project_name}")
-    async def downgrade_v20(project_name: str, request: DowngradeV20WithRetiredDraft) -> None:
+    async def downgrade_v20(project_name: str) -> None:
         pm = get_project_manager()
 
         def _downgrade() -> None:
             project_dir = pm.get_project_path(project_name)
-            drafts_dir = episode_drafts_dir(project_dir, request.episode)
+            drafts_dir = episode_drafts_dir(project_dir, 1)
             drafts_dir.mkdir(parents=True, exist_ok=True)
-            (drafts_dir / request.retired_draft_filename).write_text(request.retired_draft_content, encoding="utf-8")
+            (drafts_dir / NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME).write_text(
+                '{"legacy": "retired-quarantine-bytes"}', encoding="utf-8"
+            )
             project_file = project_dir / "project.json"
             data = json.loads(project_file.read_bytes())
             data["schema_version"] = 20

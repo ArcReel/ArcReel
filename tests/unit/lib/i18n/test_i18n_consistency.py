@@ -234,8 +234,6 @@ def test_every_event_label_key_is_translated():
         "overview",
         "episode",
         "script_plan",
-        "draft_normalized_script",
-        "draft_segment_splitting",
     }
     assert _event_label_keys(zh_events.MESSAGES) == emitted
 

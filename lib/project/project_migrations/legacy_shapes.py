@@ -550,7 +550,7 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
         paths = [_bound_path(work.project_dir, entry.get("script_file"))]
         drafts_dir = episode_drafts_dir(work.project_dir, episode)
         if drafts_dir.is_dir() and not drafts_dir.is_symlink():
-            paths.extend(sorted(drafts_dir.glob("*.json")))
+            paths.extend(path for path in sorted(drafts_dir.glob("*.json")) if not path.name.endswith(".invalid.json"))
         for path in paths:
             if path is None or path in scanned or path.is_symlink() or not path.is_file():
                 continue

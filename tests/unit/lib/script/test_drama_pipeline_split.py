@@ -19,7 +19,7 @@ from lib.script.script_models import (
     DramaSceneContent,
     DramaSceneVisual,
     DramaVisualScript,
-    build_drama_normalized_script_model,
+    build_drama_script_plan_model,
 )
 
 
@@ -122,7 +122,7 @@ class TestDramaSceneContent:
 
 class TestDramaNormalizedDurationEnum:
     def test_duration_constrained_to_supported(self):
-        model = build_drama_normalized_script_model([4, 6, 8])
+        model = build_drama_script_plan_model([4, 6, 8])
         model.model_validate({"title": "t", "scenes": [_content_scene(duration_seconds=6)]})
         with pytest.raises(ValidationError):
             model.model_validate({"title": "t", "scenes": [_content_scene(duration_seconds=5)]})

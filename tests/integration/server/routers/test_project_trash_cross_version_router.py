@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.edit_timeline.store import read_timeline_document
+from lib.episode.episode_ledger import discover_product_episode_nums, has_downstream_products
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
@@ -185,9 +186,12 @@ def test_retired_drafts_from_old_and_migrated_records_restore_original_bytes(
     record_file = project_trash.trash_dir(project_dir) / historical.id / "record.json"
     record_file.write_text(json.dumps({**json.loads(record_file.read_bytes()), "schema_version": 20}), encoding="utf-8")
     path.write_bytes(b"broken\xff")
+    orphan = project_dir / "drafts/episode_02/script_plan_segments.invalid.json"
+    orphan.parent.mkdir()
+    orphan.write_bytes(b"padded")
     assert migrate_project_dir(project_dir)
     records = _trash(cross_version_client, project_dir.name)
-    assert len(records) == 2
+    assert len(records) == 3
     assert not path.exists()
     assert not migrate_project_dir(project_dir)
     for record in sorted(records, key=lambda item: item["id"] != historical.id):
@@ -195,11 +199,17 @@ def test_retired_drafts_from_old_and_migrated_records_restore_original_bytes(
         assert response.status_code == 200, response.text
         assert not response.json()["degraded"]
         [restored] = response.json()["restored"]
+        if restored["path"] == orphan.relative_to(project_dir).as_posix():
+            assert orphan.read_bytes() == b"padded"
+            continue
         assert (project_dir / restored["path"]).read_bytes() == (
             b'{"owner":"agent"}\r\n' if record["id"] == historical.id else b"broken\xff"
         )
     assert path.read_bytes() == b'{"owner":"agent"}\r\n'
     assert _trash(cross_version_client, project_dir.name) == []
+    assert 2 not in discover_product_episode_nums(project_dir)
+    orphan.parent.rename(project_dir / "drafts/episode_2")
+    assert not has_downstream_products(project_dir, 2, {})
 
 
 @pytest.mark.parametrize("from_zip", [False, True], ids=["in-place", "archive"])
@@ -225,7 +235,7 @@ def test_legacy_quarantine_files_survive_upgrade_and_public_restore(
     assert report.complete
     assert report.to_schema_version == 21
     expected = {
-        "script_plan_normalized_script.invalid.json": b'{"owner":"agent"}',
+        "script_plan_normalized_script.invalid.json": b'{"content":{"scenes":[{"characters_in_scene":["ALICE"]}]}}',
         "script_plan_segments.invalid.json": b"corrupt\xff",
         "script_plan_reference_units.invalid.json": b'{"owner":"model"}',
         "prompt_authoring_reference_script.invalid.json": b"prompt draft",
@@ -238,6 +248,7 @@ def test_legacy_quarantine_files_survive_upgrade_and_public_restore(
     assert json.loads((project_dir / "project.json").read_bytes())["metadata"]["updated_at"] == "2026-02-01T12:00:00Z"
     assert not migrate_project_dir(project_dir)
     records = _trash(cross_version_client, project_dir.name)
+    assert {record["origin"] for record in records} == {"migration"}
     assert sorted(record["files"] for record in records) == sorted([rel] for rel in rels)
     assert all(not (project_dir / rel).exists() for rel in rels)
     if from_zip:

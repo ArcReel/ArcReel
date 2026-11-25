@@ -1949,15 +1949,16 @@ def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object])
 
 
 def write_legacy_quarantine_project(root: Path) -> Path:
-    project_dir = write_legacy_storyboard_project(root, schema_version=7)
+    project_dir = write_legacy_storyboard_project(root, schema_version=5)
     project_file = project_dir / "project.json"
     project = json.loads(project_file.read_bytes())
+    project["characters"] = {"Alice": {"description": "A"}, "ALICE": {"description": "B"}}
     project["metadata"] = {"updated_at": "2026-02-01T12:00:00Z"}
     _write_json(project_file, project)
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     for name, data in {
-        "step1_normalized_script.invalid.json": b'{"owner":"agent"}',
+        "step1_normalized_script.invalid.json": b'{"content":{"scenes":[{"characters_in_scene":["ALICE"]}]}}',
         "step1_segments.invalid.json": b"old name conflict",
         "script_plan_segments.invalid.json": b"corrupt\xff",
         "step1_reference_units.invalid.json": b'{"owner":"model"}',

@@ -103,8 +103,6 @@ export default {
   'file_content_load_failed': '获取文件内容失败',
   'file_replace_failed': '替换文件失败',
   'file_delete_failed': '删除文件失败',
-  'stage_file_load_failed': '获取阶段文件失败',
-  'stage_file_save_failed': '保存阶段文件失败',
   'credential_upload_failed': '上传凭证失败',
   'market_icon_load_failed': '获取条目图标失败',
   'event_stream_connect_failed': '事件流连接失败',

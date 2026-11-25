@@ -1,15 +1,4 @@
-"""产出违约的条目类型与报告渲染，三条 script_plan 路线共用。
-
-违约是「机器产物没过内容约束」这一件事的通用形状：一条 ``code``（违约类的机读标识）、一个
-``label``（定位前缀，如 ``unit E1U02`` / ``segment E1S03``）、一段面向 Agent 的消息，外加可选的
-行号与发声准入定位。参考生视频、drama、narration 的判定各不相同，但条目形状与「一次判定收齐多条
-再渲染成报告」的口径完全相同，故收在本模块——路线中立层（``lib`` 顶层）。
-
-草稿信封（``lib.script.draft_quarantine``）与三条路线都无关，却要落盘与渲染违约条目；类型住在
-参考生视频子包里会让它反向依赖一条具体路线。本模块是这些类型的定义处，各路线的校验器与信封
-都只依赖它；``lib.script.reference_video.draft_validation`` 原样再导出这些名字，参考生视频的既有导入
-路径不变。
-"""
+"""三条脚本规划路线共用的违约条目与报告。"""
 
 from __future__ import annotations
 
@@ -176,7 +165,7 @@ class DraftViolations(DraftViolation):
 
 
 def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
+    """把单条或聚合的违约一律摊平成条目列表。"""
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 

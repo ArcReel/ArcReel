@@ -103,8 +103,6 @@ export default {
   'file_content_load_failed': 'Не удалось загрузить содержимое файла',
   'file_replace_failed': 'Не удалось заменить файл',
   'file_delete_failed': 'Не удалось удалить файл',
-  'stage_file_load_failed': 'Не удалось загрузить черновик этапа',
-  'stage_file_save_failed': 'Не удалось сохранить черновик этапа',
   'credential_upload_failed': 'Не удалось загрузить учётные данные',
   'market_icon_load_failed': 'Не удалось загрузить значок элемента',
   'event_stream_connect_failed': 'Не удалось подключиться к потоку событий',

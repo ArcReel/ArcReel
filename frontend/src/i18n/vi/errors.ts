@@ -103,8 +103,6 @@ export default {
   'file_content_load_failed': 'Không tải được nội dung tệp',
   'file_replace_failed': 'Không thay thế được tệp',
   'file_delete_failed': 'Không xóa được tệp',
-  'stage_file_load_failed': 'Không tải được tệp giai đoạn',
-  'stage_file_save_failed': 'Không lưu được tệp giai đoạn',
   'credential_upload_failed': 'Không tải lên được thông tin xác thực',
   'market_icon_load_failed': 'Không tải được biểu tượng mục',
   'event_stream_connect_failed': 'Không kết nối được luồng sự kiện',

@@ -520,11 +520,10 @@ class TestReferenceVideoRouter:
             assert resp.status_code == 200
             assert resp.json()["content"]["units"][0]["text"] == "@[阿离] 立于屋檐下。"
 
-    def test_retired_episode_drafts_routes_not_mounted(self):
+    def test_retired_draft_routes_not_mounted(self):
         from server.app import app
 
-        paths = {getattr(route, "path", "") for route in app.routes}
-        assert not any("/episodes/{episode}/drafts" in path for path in paths)
+        assert all("drafts" not in path.split("/") for path in app.openapi()["paths"])
 
 
 async def test_blocked_first_generation_and_regeneration_transaction(tmp_path, monkeypatch, video_request_facts):

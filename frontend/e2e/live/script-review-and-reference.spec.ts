@@ -25,14 +25,18 @@ async function put<T>(request: APIRequestContext, path: string, data: unknown) {
   return await response.json() as T;
 }
 
-async function configureFixtureProviders(request: APIRequestContext) {
+async function configureFixtureProviders(request: APIRequestContext, baseURL: string) {
   await post(request, `${API}/onboarding/seen`, {});
-  await post(request, `${API}/providers/gemini-aistudio/credentials`, {
+  const cred = await post<{ id: number }>(request, `${API}/providers/gemini-aistudio/credentials`, {
     name: "Local text fixture",
     api_key: "local-smoke-key",
+    base_url: `${baseURL}/__playwright/gemini`,
   });
+  const activate = await request.post(`${API}/providers/gemini-aistudio/credentials/${cred.id}/activate`);
+  expect(activate.ok(), await activate.text()).toBe(true);
   await patch(request, `${API}/providers/ark/config`, { api_key: "local-smoke-key" });
   await patch(request, `${API}/system/config`, {
+    default_text_backend: "gemini-aistudio/gemini-3-flash-preview",
     default_video_backend_i2v: "ark/doubao-seedance-2-0-260128",
     default_video_backend_r2v: "ark/doubao-seedance-2-0-260128",
   });
@@ -42,6 +46,26 @@ async function queueTextResponses(request: APIRequestContext, project: string, r
   await post(request, `/__playwright/text-responses/${project}`, {
     responses: responses.map((item) => (typeof item === "string" ? item : JSON.stringify(item))),
   });
+}
+
+async function createReferenceEpisode(request: APIRequestContext, project: string) {
+  const partOne = "山雨初歇，林夕推开茶馆木窗，";
+  const partTwo = "看见街角亮起一盏马灯。";
+  const sourceText = `${partOne}${partTwo}`;
+  await post(request, `${API}/projects`, {
+    name: project,
+    title: "参考生视频内容确认联验",
+    content_mode: "narration",
+    generation_mode: "reference_video",
+  });
+  await post(request, `${API}/projects/${project}/characters`, { name: "林夕", description: "茶馆老板娘。" });
+  const upload = await request.post(`${API}/projects/${project}/upload/character`, {
+    params: { name: "林夕" },
+    multipart: { file: createReadStream(PNG) },
+  });
+  await expect(upload).toBeOK();
+  await post(request, `${API}/projects/${project}/episodes`, { title: "第一集", source_text: sourceText });
+  return { partOne, partTwo };
 }
 
 function watchProtocolHealth(page: Page) {
@@ -72,9 +96,9 @@ function watchProtocolHealth(page: Page) {
   };
 }
 
-test("drama script review loads blocking issues inline, unlocks confirm after saving fixes, and materializes the formal script", async ({ page, request }) => {
+test("drama script review loads blocking issues inline, unlocks confirm after saving fixes, and materializes the formal script", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request);
+  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-drama-review";
   const sourceText = "山雨初歇，林夕推开茶馆木窗，望着青石街尽头亮起的马灯。";
@@ -150,27 +174,12 @@ test("drama script review loads blocking issues inline, unlocks confirm after sa
   await health.assertClean();
 });
 
-test("reference video script review resolves blocking issues inline and materializes pending video units", async ({ page, request }) => {
+test("reference video script review resolves blocking issues inline and materializes pending video units", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request);
+  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-ref-review";
-  const partOne = "山雨初歇，林夕推开茶馆木窗，";
-  const partTwo = "看见街角亮起一盏马灯。";
-  const sourceText = `${partOne}${partTwo}`;
-  await post(request, `${API}/projects`, {
-    name: project,
-    title: "参考生视频内容确认联验",
-    content_mode: "narration",
-    generation_mode: "reference_video",
-  });
-  await post(request, `${API}/projects/${project}/characters`, { name: "林夕", description: "茶馆老板娘。" });
-  const upload = await request.post(`${API}/projects/${project}/upload/character`, {
-    params: { name: "林夕" },
-    multipart: { file: createReadStream(PNG) },
-  });
-  await expect(upload).toBeOK();
-  await post(request, `${API}/projects/${project}/episodes`, { title: "第一集", source_text: sourceText });
+  const { partOne, partTwo } = await createReferenceEpisode(request, project);
 
   await queueTextResponses(request, project, [
     {
@@ -234,26 +243,12 @@ test("reference video script review resolves blocking issues inline and material
   await health.assertClean();
 });
 
-test("reference video units persist partial prompt authoring outcome across reload and allow retrying failed units", async ({ page, request }) => {
+test("reference video units persist partial prompt authoring outcome across reload and allow retrying failed units", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request);
+  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-ref-partial";
-  const partOne = "山雨初歇，林夕推开茶馆木窗，";
-  const partTwo = "看见街角亮起一盏马灯。";
-  await post(request, `${API}/projects`, {
-    name: project,
-    title: "参考生视频部分完成联验",
-    content_mode: "narration",
-    generation_mode: "reference_video",
-  });
-  await post(request, `${API}/projects/${project}/characters`, { name: "林夕", description: "茶馆老板娘。" });
-  const upload = await request.post(`${API}/projects/${project}/upload/character`, {
-    params: { name: "林夕" },
-    multipart: { file: createReadStream(PNG) },
-  });
-  await expect(upload).toBeOK();
-  await post(request, `${API}/projects/${project}/episodes`, { title: "第一集", source_text: `${partOne}${partTwo}` });
+  const { partOne, partTwo } = await createReferenceEpisode(request, project);
 
   const reviewBase = `${API}/projects/${project}/episodes/1/script-review`;
   await put(request, `${reviewBase}/content`, {
@@ -310,9 +305,9 @@ test("reference video units persist partial prompt authoring outcome across relo
   await health.assertClean();
 });
 
-test("v20 project migrated to v21 moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request }) => {
+test("v20 project migrated to v21 moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request);
+  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-v20-migrated";
   const sourceText = "山雨初歇，旧城青石板泛着微光。";
@@ -337,11 +332,7 @@ test("v20 project migrated to v21 moves retired invalid drafts to trash and proc
     ],
     new_assets: [],
   });
-  await post(request, `/__playwright/downgrade-v20/${project}`, {
-    episode: 1,
-    retired_draft_filename: "script_plan_segments.invalid.json",
-    retired_draft_content: '{"legacy": "retired-quarantine-bytes"}',
-  });
+  await post(request, `/__playwright/downgrade-v20/${project}`);
 
   await post(request, `${API}/projects/${project}/migration/retry`, {});
 

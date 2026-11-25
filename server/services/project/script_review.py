@@ -220,9 +220,6 @@ class ScriptReviewService:
         schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
         退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
-        调用方须已持有 ``self.pm.file_lock(path)``；reference_video 还须先持 prompt_authoring 草稿锁，
-        统一锁序为「下游草稿 → 正式 script_plan」。本函数只做读改写，不自行加锁，避免与调用方
-        （如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
         """
         content = _read_json(path)
         if content is None or script_review.script_plan_kind(project) != "reference_video":
@@ -537,7 +534,6 @@ class ScriptReviewService:
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
         已确认的脚本规划只读，保存抛 ``script_plan_confirmed``、不落盘；重跑脚本规划写出新内容后恢复可保存。
-        Agent 的可编辑草稿在场时，正式规划也只读，保存抛 ``draft_agent_owned``。
 
         ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
         现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
@@ -613,7 +609,7 @@ class ScriptReviewService:
     ) -> dict[str, Any]:
         """确认该集 script_plan：整份转为正式脚本，并在同一次写入里记录确认指纹，放行 prompt_authoring。
 
-        无 script_plan / 不适用 / 集条目缺失 / script_plan 内容结构非法 / 有草稿待处置 / 转换准入
+        无 script_plan / 不适用 / 集条目缺失 / script_plan 内容结构非法 / 转换准入
         不满足时抛 ScriptReviewError，由 router 映射 4xx。该集已有正式脚本时，``overwrite_revision``
         须等于其覆盖清单的 ``revision``（调用方认可覆盖的正是这一份）；缺失或不符时抛
         ``overwrite_required``，携带当前的覆盖清单，不写正式脚本与确认记录。
@@ -706,7 +702,7 @@ class ScriptReviewService:
         episode: int,
         supported_durations: list[int] | None,
     ) -> str:
-        """``confirm`` 的同步前半：待处置草稿校验、读时收编、结构校验，返回待确认内容的指纹。"""
+        """``confirm`` 的同步前半：读时收编、结构校验，返回待确认内容的指纹。"""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
         if path is None:

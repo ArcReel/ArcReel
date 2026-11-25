@@ -24,8 +24,6 @@ export default {
   "label.overview": "项目概览",
   "label.episode": "{{episode_name}}",
   "label.script_plan": "{{episode_name}}的脚本规划",
-  "label.draft_normalized_script": "{{episode_name}}的规范化脚本",
-  "label.draft_segment_splitting": "{{episode_name}}的分镜拆分",
 
   "entity.project": "项目",
   "entity.character": "角色",

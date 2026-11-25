@@ -1,21 +1,11 @@
-"""script_plan 中间态文件名与 episode 剧本路径的单一真相源。
-
-内容确认、状态计算、web 草稿读写层、剧本生成器与 SDK 文本工具统一消费本模块的路径映射。
-内容确认找不到 script_plan 文件时按 ``no_script_plan`` 放行 prompt_authoring（文件不存在不等于故障），因此所有读写侧
-必须共享同一组文件名与目录。新增走结构化两段式的 content_mode 只需在
-``SCRIPT_PLAN_FILENAMES`` 登记结构化文件名，内容确认、状态计算、web 读取与写盘便会保持一致。
-
-以下语义差异必须保留：
-
-- 内容确认只认结构化 ``.json``（``SCRIPT_PLAN_FILENAMES`` / ``script_plan_filename``）；
-- 状态计算与 web 读取层额外兼认旧版 ``.md`` 别名（``SCRIPT_PLAN_LEGACY_FILENAMES`` /
-  ``script_plan_read_candidates``），令存量在制品仍被识别 / 可浏览——「是否分过段」与「格式迁移」
-  是两回事。
-"""
+"""脚本规划的正式文件名、历史别名和分集路径。"""
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+EPISODE_DRAFT_DIR_PATTERN = re.compile(r"episode_(0*[1-9][0-9]*)")
 
 SCRIPT_PLAN_FILENAMES: dict[str, str] = {
     "drama": "script_plan_normalized_script.json",
@@ -55,6 +45,17 @@ def script_plan_read_candidates(content_mode: str) -> tuple[str, ...]:
     if primary is None:
         return ()
     return (primary, *SCRIPT_PLAN_LEGACY_FILENAMES.get(content_mode, ()))
+
+
+SCRIPT_PLAN_PRODUCT_FILENAMES = tuple(
+    dict.fromkeys(
+        (
+            *(name for mode in SCRIPT_PLAN_FILENAMES for name in script_plan_read_candidates(mode)),
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+            REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+        )
+    )
+)
 
 
 def episode_drafts_dir(project_path: Path, episode: int) -> Path:

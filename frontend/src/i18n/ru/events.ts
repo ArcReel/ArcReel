@@ -24,8 +24,6 @@ export default {
   "label.overview": 'Обзор проекта',
   "label.episode": '{{episode_name}}',
   "label.script_plan": 'План сценария серии «{{episode_name}}»',
-  "label.draft_normalized_script": 'Нормализованный сценарий серии «{{episode_name}}»',
-  "label.draft_segment_splitting": 'Разбиение серии «{{episode_name}}» на сегменты',
 
   "entity.project": 'проекты',
   "entity.character": 'персонажи',

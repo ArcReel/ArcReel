@@ -1313,12 +1313,7 @@ def use_active_tasks_lookup(monkeypatch, lookup: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.admission.video_batch_admission.get_active_tasks_for_resources", lookup)
 
 
-def use_project_json_write(monkeypatch, write: Callable[..., Any]) -> None:
-    """``ProjectManager`` 的 JSON 文件系统写入边界改调 *write*。"""
-    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", write)
-
-
-def fail_project_json_write(monkeypatch, project_file: Path) -> None:
+def fail_project_json_write(monkeypatch, project_file: Path, *, after_write: bool = False) -> None:
     """``ProjectManager`` 写 *project_file* 时抛 ``OSError("injected project write failure")``，其余文件照常写。
 
     文件系统边界上的失败注入：用来验证 project.json 写失败时清单与磁盘文件保持一致。
@@ -1329,10 +1324,12 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
 
     def _fail_project_write(path, data):
         if path == project_file:
+            if after_write:
+                real_write(path, data)
             raise OSError("injected project write failure")
         return real_write(path, data)
 
-    use_project_json_write(monkeypatch, _fail_project_write)
+    monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
 
 
 def use_generation_queue(monkeypatch, queue: Any) -> None:

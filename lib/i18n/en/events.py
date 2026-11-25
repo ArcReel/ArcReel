@@ -24,6 +24,4 @@ MESSAGES = {
     "event_label_overview": "Project overview",
     "event_label_episode": "Episode (id={episode})",
     "event_label_script_plan": "Script plan for episode (id={episode})",
-    "event_label_draft_normalized_script": "Normalized script for episode (id={episode})",
-    "event_label_draft_segment_splitting": "Segment splitting for episode (id={episode})",
 }

@@ -239,50 +239,6 @@ async def test_deleting_an_episode_own_source_broadcasts_as_webui(env: _Env) -> 
     assert _sources(batches) == {"webui"}
 
 
-async def test_saving_a_new_plain_draft_broadcasts_as_webui(env: _Env) -> None:
-    (env.project_path / "drafts" / "episode_1" / "script_plan_segments.json").unlink()
-
-    with env.reads_held():
-        response = await env.client.put(
-            "/projects/demo/drafts/1/script_plan",
-            content=json.dumps({"segments": [_SEGMENT]}, ensure_ascii=False),
-            headers={"content-type": "text/plain"},
-        )
-    assert response.status_code == 200
-
-    batches = await env.batches_until(_is("draft", "created", "episode_1_script_plan"))
-
-    assert _sources(batches) == {"webui"}
-
-
-async def test_deleting_a_plain_draft_broadcasts_as_webui(env: _Env) -> None:
-    with env.reads_held():
-        response = await env.client.delete("/projects/demo/drafts/1/script_plan")
-    assert response.status_code == 200
-
-    batches = await env.batches_until(_is("trash", "updated"))
-
-    assert _sources(batches) == {"webui"}
-
-
-async def test_saving_a_reference_plan_broadcasts_as_webui(env: _Env) -> None:
-    env.pm.update_project("demo", lambda project: project.update(generation_mode="reference_video"))
-    await env.batches_until(lambda change: True)
-
-    with env.reads_held():
-        response = await env.client.put(
-            "/projects/demo/drafts/1/script_plan",
-            content=json.dumps({"units": [{"unit_id": "E1U01", "text": "镜头描述", "duration_seconds": 8}]}),
-            headers={"content-type": "text/plain"},
-        )
-    assert response.status_code == 200
-    assert response.json()["path"] == "drafts/episode_1/script_plan_reference_units.json"
-
-    batches = await env.batches_until(_is("draft", "created", "episode_1_script_plan"))
-
-    assert _sources(batches) == {"webui"}
-
-
 _UNITS = "/projects/demo/reference-videos/episodes/1/units"
 
 

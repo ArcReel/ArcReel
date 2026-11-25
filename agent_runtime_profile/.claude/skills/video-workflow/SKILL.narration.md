@@ -113,7 +113,7 @@ dispatch prompt 通用参数：项目名称、项目路径、目标集的集 ID�
 
 **本集新增资产随规划产出**：资产识别在逐集脚本规划里完成。子智能体以已登记资产的名字、别名与描述认人，本集未登记的角色 / 场景 / 道具写进 script_plan 顶层的 `new_assets`，每项带处理决定（`register` 登记为新资产 / `merge` 归到已有资产 / `derivative` 登记为角色衍生 / `skip` 不登记）与一句依据。资产表为空时照常 dispatch 脚本规划。
 
-**内容确认后的内容修改在正式脚本上做**：内容确认把脚本规划整集转为正式脚本 `scripts/episode_{N}.json`，此后正式脚本是该集内容的唯一真相源，脚本规划只读（Web 端保存，以及 Agent 取回、修改、晋升编辑副本，都返回 `script_plan_confirmed`）。
+**内容确认后的内容修改在正式脚本上做**：内容确认把脚本规划整集转为正式脚本 `scripts/episode_{N}.json`，此后正式脚本是该集内容的唯一真相源，脚本规划只读（Web 保存与 Agent 调用 `patch_script_plan` 均返回 `script_plan_confirmed`）。
 
 - **修改内容**：用户要改分镜旁白正文 `novel_text`，或参考生视频单元正文 `text` 与对应原文 `source_text` 时，先 `mcp__arcreel__get_episode_script` 取正文与 revision，再用一次 `mcp__arcreel__patch_episode_script` 的 `update` 写回，不改脚本规划、不重跑编写。写入的非空对应原文须是本集源文 `source/episode_{N}.txt` 的逐字子串（空白归一后比对，可截取首尾、中间不得删改；本集源文缺失时比对项目源文），项目有源文时服务端校验，不符以 `source_text_not_verbatim` 拒绝；清空对应原文不校验。分镜改了旁白正文后若要让提示词跟上，由用户决定是否用 `generate_episode_script` 带 `entry_ids` 与 `rewrite: true` 显式重写这几条；参考生视频的编写会改写单元正文，对刚改过正文的单元显式重写会覆盖这次修改，须先向用户说明
 - **整集重做**：只有用户要推倒整集时，才重新 dispatch 脚本规划子智能体（操作类型写「整集重做」）重跑脚本规划。新的脚本规划写出后本集内容确认回到待确认（计划的 `gates.script_plan_review.state` 为 `pending`），但旧正式脚本仍在用，计划不会停在 `confirm_script_plan`，`next_action` 照常指向旧正式脚本的下游动作；整集重做时不要跟随它，也不要调 `generate_episode_script`——它会去编写即将被覆盖的旧正式脚本，按下述流程直接调 `confirm_script_review`。该集已有正式脚本时确认就是覆盖：`confirm_script_review` 返回 `script_overwrite_required`，回执正文是服务端生成的丢失清单（与 Web 确认框同一份文本，含配音、尾帧、宫格归属）。先把清单原文转述给用户，得到明确同意后，才以 `overwrite_revision=params.script_overwrite.revision` 重新确认；覆盖后全部条目待编写

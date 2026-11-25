@@ -863,9 +863,9 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     """_parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型
     校验并补全默认字段；超出枚举的 duration 触发 fail-loud（抛 ValueError），而非被静态模型(ge=1,le=60)
     静默放行、也不降级保留未校验内容写盘。"""
-    from lib.script.script_models import build_drama_normalized_script_model
+    from lib.script.script_models import build_drama_script_plan_model
 
-    model = build_drama_normalized_script_model([4, 6, 8])
+    model = build_drama_script_plan_model([4, 6, 8])
     base_scene = {
         "scene_id": "E1S01",
         "duration_seconds": 8,

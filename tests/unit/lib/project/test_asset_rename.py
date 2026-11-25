@@ -50,7 +50,7 @@ from lib.script.script_review import (
     review_status,
     script_plan_path,
 )
-from tests.fakes import use_project_json_write
+from tests.fakes import fail_project_json_write
 
 
 def _narration_script(**overrides: Any) -> dict[str, Any]:
@@ -619,15 +619,9 @@ class TestRenameAssetCascade:
         )
         adapter.put_entry(old_key, old_entry)
         project_before = (project_dir / "project.json").read_bytes()
-        original_atomic_write_json = atomic_write_json
+        fail_project_json_write(monkeypatch, project_dir / "project.json", after_write=True)
 
-        def _write_project_then_fail(path: Path, payload: object) -> None:
-            original_atomic_write_json(path, payload)
-            raise OSError("project write failed")
-
-        use_project_json_write(monkeypatch, _write_project_then_fail)
-
-        with pytest.raises(OSError, match="project write failed"):
+        with pytest.raises(OSError, match="injected project write failure"):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert adapter.get_entry(old_key) == old_entry

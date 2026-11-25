@@ -102,8 +102,6 @@ export default {
   'file_content_load_failed': 'Couldn\'t load the file content',
   'file_replace_failed': 'Couldn\'t replace the file',
   'file_delete_failed': 'Couldn\'t delete the file',
-  'stage_file_load_failed': 'Couldn\'t load the stage file',
-  'stage_file_save_failed': 'Couldn\'t save the stage file',
   'credential_upload_failed': 'Couldn\'t upload the credential',
   'market_icon_load_failed': 'Couldn\'t load the entry icon',
   'event_stream_connect_failed': 'Couldn\'t connect to the event stream',
