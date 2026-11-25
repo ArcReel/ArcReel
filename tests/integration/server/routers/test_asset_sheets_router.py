@@ -214,3 +214,20 @@ async def test_status_reports_every_sheet_blocked_when_the_manifest_is_unreadabl
         "character/Alice/战损": ("blocked", False),
         "character/Alice/雨夜": ("blocked", True),
     }
+
+
+async def test_derivative_references_report_positive_evidence_and_unreadable_scripts(sheet_client, sheet_projects):
+    _seed_pending_cast(sheet_projects)
+    sheet_projects.update_project(
+        PROJECT, lambda p: p.update(episodes=[{"episode": 1, "script_file": "scripts/a.json"}])
+    )
+    script = sheet_projects.get_project_path(PROJECT) / "scripts" / "a.json"
+    script.write_text('{"segments":[{"characters_in_scene":["Alice/战损"]}]}')
+    path = f"/api/v1/projects/{PROJECT}/asset-sheets/status?include=derivative_references"
+    rows = (await sheet_client.get(path)).json()["assets"]
+    assert {r["derivative"]: r["referenced"] for r in rows if r["derivative"]} == {"战损": True, "雨夜": False}
+    sheet_projects.update_project(
+        PROJECT, lambda p: p["episodes"].append({"episode": 2, "script_file": "scripts/missing.json"})
+    )
+    rows = (await sheet_client.get(path)).json()["assets"]
+    assert {r["derivative"]: r["referenced"] for r in rows if r["derivative"]} == {"战损": True, "雨夜": None}

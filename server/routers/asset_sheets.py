@@ -24,7 +24,10 @@ from lib.db import async_session_factory
 from lib.generation.generation_queue import get_generation_queue
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import split_derivative_artifact_id
+from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import get_project_manager
+from lib.references.reference_catalog import derivative_reference
+from lib.script.script_references import payload_reference_names
 from server.auth import CurrentUser
 from server.services.admission.asset_sheet_batch import (
     DERIVATIVE_OWNER_SHEET_MISSING,
@@ -105,7 +108,7 @@ async def _plan(project_name: str, request: AssetSheetBatchRequest, user_id: str
 
 
 @router.get("/projects/{project_name}/asset-sheets/status")
-async def get_asset_sheet_status(project_name: str):
+async def get_asset_sheet_status(project_name: str, include: Literal["derivative_references"] | None = None):
     def _sync() -> list[dict[str, Any]]:
         manager = get_project_manager()
         try:
@@ -117,7 +120,23 @@ async def get_asset_sheet_status(project_name: str):
         except ArtifactManifestError:
             logger.exception("asset sheet status: artifact manifest unreadable for project %s", project_name)
             resolver = None
-        return asset_sheet_statuses(project, resolver)
+        rows = asset_sheet_statuses(project, resolver)
+        if include:
+            names: set[str] = set()
+            complete = True
+            for entry in project.get("episodes", []):
+                if filename := entry.get("script_file"):
+                    try:
+                        names.update(payload_reference_names(manager.load_script_readonly(project_name, filename)))
+                    except (OSError, ValueError):
+                        complete = False
+            for row in rows:
+                if derivative := row["derivative"]:
+                    ref = derivative_reference(
+                        asset_name_comparison_key(row["name"]), asset_name_comparison_key(derivative)
+                    )
+                    row["referenced"] = True if ref in names else False if complete else None
+        return rows
 
     return {"assets": await asyncio.to_thread(_sync)}
 

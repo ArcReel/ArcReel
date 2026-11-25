@@ -7,9 +7,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
+from pydantic import BaseModel, Field
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from server.services.project.project_events import ProjectEventService
@@ -42,6 +44,28 @@ async def _project_events_service(
     except ValueError as exc:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     return service
+
+
+class ItemLocationBatch(BaseModel):
+    item_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(max_length=200)
+
+
+class ItemLocation(BaseModel):
+    episode: int | None
+    item_id: str
+    position: int | None
+    status: Literal["found", "deleted", "ambiguous", "unloaded"]
+
+
+class ItemLocations(BaseModel):
+    items: list[ItemLocation]
+
+
+@router.post("/projects/{project_name}/item-locations", response_model=ItemLocations)
+async def locate_project_items(
+    project_name: str, batch: ItemLocationBatch, service: ProjectEventService = Depends(_project_events_service)
+):
+    return {"items": service.locate_items(project_name, batch.item_ids)}
 
 
 @router.get(

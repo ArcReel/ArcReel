@@ -210,3 +210,52 @@ class TestProjectsRouter:
 
         reasons = [r.json()["project"]["status"]["repair_reason"] for r in responses]
         assert reasons == [expected("zh"), expected("zh"), expected("en")]
+
+
+def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from lib.artifacts.artifact_planner import TargetStatePlanner
+    from lib.workflow.workflow_state import WorkflowStateService
+    from server.routers import projects
+    from tests.integration.lib.project.test_project_summary import (
+        _make_project,
+        _plan_one_episode,
+        _valid_video_unit,
+        _write_registered_script,
+        _write_source,
+    )
+
+    manager, project_dir = _make_project(tmp_path, "ad", generation_mode="reference_video")
+    _write_source(manager, project_dir, "原文")
+    _plan_one_episode(manager, project_dir, "原文")
+    _write_registered_script(
+        project_dir,
+        {
+            "episode": 1,
+            "title": "Test",
+            "content_mode": "ad",
+            "video_units": [_valid_video_unit(text="", duration_seconds=0, needs_replan=True)],
+        },
+    )
+    with build_projects_client(monkeypatch, manager, WorkflowStateService(manager)) as client:
+        with monkeypatch.context() as guards:
+            for owner, method in [(TargetStatePlanner, "__init__"), (projects, "annotate_derivative_references")]:
+                guards.setattr(owner, method, Mock(side_effect=AssertionError(method)))
+            load = Mock(wraps=manager.load_project)
+            guards.setattr(manager, "load_project", load)
+            response = client.get("/api/v1/projects/demo/workspace")
+            assert load.call_count == 1
+        data = response.json()
+        assert response.status_code == 200
+        assert set(data) == {"project", "summary", "asset_fingerprints"}
+        assert '"video_units":' not in response.text
+        assert '"stale":' not in response.text
+        row = data["summary"]["episodes"][0]
+        assert data["summary"]["currency"] == "registered"
+        assert (row["needs_replan"], row["videos"], row["status"]) == (1, {"total": 1, "available": 0}, "scripted")
+        load_script = Mock(wraps=manager.load_script)
+        monkeypatch.setattr(manager, "load_script", load_script)
+        monkeypatch.setattr(manager, "load_script_readonly", Mock(side_effect=AssertionError("duplicate read")))
+        assert client.get("/api/v1/projects/demo").status_code == 200
+        assert load_script.call_count == 1

@@ -60,12 +60,14 @@ def take_script_entry(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -
     versions = VersionManager(project_dir)
     require_live_episode(project_dir, episode, entry_id)
     landed: dict[str, str] = {}
+    restored_position = 0
     landed_paths: dict[str, str] = {}
 
     def land(landing: Landing) -> Mapping[str, Any]:
         require_live_episode(project_dir, episode, entry_id)
 
         def insert(script: dict) -> None:
+            nonlocal restored_position
             current, current_id_field, current_kind = resolve_items(script)
             if current_kind != kind or current_id_field != id_field:
                 raise _failed(entry_id)
@@ -93,6 +95,7 @@ def take_script_entry(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -
             ids = [item.get(id_field) if isinstance(item, dict) else None for item in current]
             position = ids.index(previous) + 1 if previous in ids else (0 if previous is None else len(current))
             script[kind] = [*current[:position], restored, *current[position:]]
+            restored_position = position + 1
             landed["id"] = new_id
 
         script_path = project_dir / "scripts" / script_file
@@ -111,7 +114,7 @@ def take_script_entry(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -
                         for key, claim in claims.items()
                     },
                 )
-        return {**obj, "id": landed["id"]}
+        return {**obj, "id": landed["id"], "item_id": landed["id"], "position": restored_position}
 
     return Restoration(
         land=land,

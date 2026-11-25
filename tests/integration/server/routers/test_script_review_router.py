@@ -295,6 +295,7 @@ class TestScriptReviewRouter:
             assert put.status_code == 409
             detail = put.json()["detail"]
             assert detail["unit_id"] == "E1S01"
+            assert (detail["episode"], detail["item_id"], detail["position"]) == (1, "E1S01", None)
             assert detail["problems"][0]["code"] == "mixed_speech"
             assert client.get(base).json()["content"] == original
 

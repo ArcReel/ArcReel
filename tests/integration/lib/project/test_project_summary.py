@@ -977,3 +977,27 @@ def test_an_unchanged_video_stays_current_after_export_and_import(
     imported = service.import_project_archive(archive_path, uploaded_filename="demo.zip", confirm_report=True)
 
     assert _video_counts(pm, imported.project_name) == {"total": 1, "available": 1, "stale": 0}
+
+
+def test_workspace_reuses_script_for_strict_completion(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source(pm, project_path, "完整原文")
+    _episode_with_media(pm, project_path)
+    service = WorkflowStateService(pm)
+    reader = Mock(wraps=pm.load_script_readonly)
+    monkeypatch.setattr(pm, "load_script_readonly", reader)
+
+    def summarize():
+        reader.reset_mock()
+        summary = service.get_project_summary("demo", currency="registered", workspace=True)
+        assert reader.call_count == 1
+        return summary.episodes[0]
+
+    assert summarize().status == "completed"
+    timeline = next((project_path / "edit_timelines" / "episode_1").glob("*.json"))
+    timeline.write_text("{")
+    row = summarize()
+    assert row.videos.available == 1
+    assert row.status == "in_production"

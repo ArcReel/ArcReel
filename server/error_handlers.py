@@ -28,7 +28,7 @@ from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
 from server.i18n import get_translator, request_display_names
-from server.services.project.episode_display import present_request_diagnostics
+from server.services.project.episode_display import item_location, present_request_diagnostics, with_problem_locations
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +98,14 @@ def register_error_handlers(
             content["code"] = exc.key
         if exc.diagnostic is not None:
             content["diagnostic"] = exc.diagnostic
+        content.update(item_location(request, exc.params))
         content = await present_request_diagnostics(content, request, _t)
         return JSONResponse(status_code=exc.status_code, content=content)
 
     @app.exception_handler(HTTPException)
     async def _handle_http_error(request: Request, exc: HTTPException) -> JSONResponse:
         detail = await present_request_diagnostics(exc.detail, request, get_translator(request))
+        detail = with_problem_locations(request, detail)
         return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=exc.headers)
 
     @app.exception_handler(RequestValidationError)

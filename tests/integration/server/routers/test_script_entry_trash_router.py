@@ -112,6 +112,8 @@ def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_med
 
         assert restored.status_code == 200, restored.text
         assert (restored.json()["object"]["id"], restored.json()["degraded"]) == ("E1S04", False)
+        obj = restored.json()["object"]
+        assert (obj["episode"], obj["item_id"], obj["position"]) == (1, "E1S04", 2)
         segments = _segments(manager)
         assert [s["segment_id"] for s in segments] == ["E1S01", "E1S04", "E1S03"]
         assert segments[1]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S04.png"
