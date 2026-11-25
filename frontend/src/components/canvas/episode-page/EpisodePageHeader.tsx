@@ -72,7 +72,11 @@ export function EpisodePageHeader({
             )}
           </TabsList>
         </Tabs>
-        <div className="relative flex min-w-0 flex-1 overflow-x-auto scroll-fade-x">
+        <div
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 操作栏按钮全部置灰时，超宽进度提示仍需键盘聚焦以横向滚动
+          tabIndex={0}
+          className="focus-ring relative flex min-w-0 flex-1 overflow-x-auto scroll-fade-x"
+        >
           <div ref={onActionsSlot} className="ml-auto flex shrink-0 items-center gap-1.5" />
         </div>
       </div>

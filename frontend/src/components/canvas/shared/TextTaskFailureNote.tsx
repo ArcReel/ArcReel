@@ -29,12 +29,15 @@ export function TextTaskFailureNote({
   isAd?: boolean;
   hasScript?: boolean;
 }) {
-  const { t } = useTranslation(["dashboard", "common"]);
+  const { t } = useTranslation(["dashboard", "common", "errors"]);
   const failure = useTasksStore(useShallow((s) => latestEpisodeTextTaskFailure(selectRecentTasks(s), projectName, episode)));
   const [dismissedTaskId, setDismissedTaskId] = useState<string | null>(null);
   if (failure === null || failure.task.task_id === dismissedTaskId) return null;
   const truncation = outputTruncationOf(failure.task);
-  const reason = failure.task.error_message ?? t("script_plan_failed_unknown");
+  const reason =
+    failure.task.error_code === "text_wait_timeout"
+      ? t("errors:text_wait_timeout")
+      : (failure.task.error_message ?? t("script_plan_failed_unknown"));
   const adScript =
     failure.kind === "text_episode_script" && isAd && (!hasScript || isAdScriptTask(failure.task));
   return (

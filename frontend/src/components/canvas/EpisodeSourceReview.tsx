@@ -22,6 +22,7 @@ import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite"
 import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
+import { episodeSourceCharCount } from "@/utils/text-task-progress";
 
 
 
@@ -158,6 +159,7 @@ function SourceEditor({
   episodes,
   saved,
   onSaved,
+  onCharCountChange,
   editRef,
 }: {
   projectName: string;
@@ -165,6 +167,7 @@ function SourceEditor({
   episodes: EpisodeMeta[];
   saved: SourceValue;
   onSaved: (text: string) => void;
+  onCharCountChange: (count: number) => void;
   editRef: RefObject<SourceEditHandle | null>;
 }) {
   const { t } = useTranslation("dashboard");
@@ -212,6 +215,10 @@ function SourceEditor({
 
   const saveUnit = unit.save;
   const saving = unit.status === "saving";
+  const currentText = unit.value.text;
+  useEffect(() => {
+    onCharCountChange(episodeSourceCharCount(currentText));
+  }, [currentText, onCharCountChange]);
   useEffect(() => {
     editRef.current = {
       save: async () => {
@@ -297,12 +304,14 @@ function EpisodeSource({
   episodes,
   meta,
   editRef,
+  onCharCountChange,
 }: {
   projectName: string;
   episode: number;
   episodes: EpisodeMeta[];
   meta: EpisodeMeta | undefined;
   editRef: RefObject<SourceEditHandle | null>;
+  onCharCountChange: (count: number) => void;
 }) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
@@ -331,6 +340,11 @@ function EpisodeSource({
   const saved = useMemo<SourceValue>(() => ({ text: text ?? "", kind: savedKind }), [text, savedKind]);
   const handleSaved = useCallback((value: string) => setFetched({ key: fetchKey, text: value }), [fetchKey]);
 
+  useEffect(() => {
+    if (editable || loading) return;
+    onCharCountChange(text ? episodeSourceCharCount(text) : 0);
+  }, [editable, loading, text, onCharCountChange]);
+
   let body;
   if (loading) {
     body = (
@@ -347,6 +361,7 @@ function EpisodeSource({
         episodes={episodes}
         saved={saved}
         onSaved={handleSaved}
+        onCharCountChange={onCharCountChange}
         editRef={editRef}
       />
     );
@@ -394,6 +409,13 @@ export function EpisodeSourceReview({
   const guide = hasGuide(meta);
   const sourceRef = useRef<SourceEditHandle | null>(null);
   const saveSource = useCallback(() => sourceRef.current?.save() ?? Promise.resolve(true), []);
+  const episodeKey = `${projectName}::${episode}`;
+  const [reportedSource, setReportedSource] = useState<{ key: string; count: number } | null>(null);
+  const handleCharCountChange = useCallback(
+    (count: number) => setReportedSource({ key: episodeKey, count }),
+    [episodeKey],
+  );
+  const sourceCharCount = reportedSource?.key === episodeKey ? reportedSource.count : 0;
   return (
     <div className="@container/plan-start relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
       <div
@@ -408,10 +430,18 @@ export function EpisodeSourceReview({
             projectName={projectName}
             episode={episode}
             savedInstructions={meta?.script_plan_instructions ?? ""}
+            sourceCharCount={sourceCharCount}
             prepare={saveSource}
           />
           {guide && <GuideCollapsible key={episode} meta={meta} className="@min-[860px]/plan-start:hidden" />}
-          <EpisodeSource projectName={projectName} episode={episode} episodes={episodes} meta={meta} editRef={sourceRef} />
+          <EpisodeSource
+            projectName={projectName}
+            episode={episode}
+            episodes={episodes}
+            meta={meta}
+            editRef={sourceRef}
+            onCharCountChange={handleCharCountChange}
+          />
         </div>
         {guide && (
           <GuideRail

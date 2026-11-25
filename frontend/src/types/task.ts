@@ -7,7 +7,7 @@ export type TaskStatus =
   | "succeeded"
   | "failed"
   | "cancelled";
-export type TaskMediaType = "image" | "video" | "audio" | "render";
+export type TaskMediaType = "image" | "video" | "audio" | "text" | "render";
 
 export type TaskProgress = { task_id: string; seq: number } & (
   | { phase: "waiting"; model: string }

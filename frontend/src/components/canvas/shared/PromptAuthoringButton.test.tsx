@@ -26,6 +26,13 @@ it("shows the live phase and elapsed time for this episode", () => {
     expect(screen.getByText(/已接收约 63 字/)).toBeInTheDocument();
     update({ task_id, seq: 4, phase: "retrying", attempt: 2, max_attempts: 3, error: "RateLimitError" });
     expect(screen.getByText(/第 2\/3 次尝试/)).toBeInTheDocument();
+    expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(7_000));
+    expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByText(/长文本通常需要数十秒至数分钟/)).toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }

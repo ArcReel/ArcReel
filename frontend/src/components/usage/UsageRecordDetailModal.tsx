@@ -275,7 +275,10 @@ export function UsageRecordDetailModal({
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
   const registeredErrorKey = (value: string) =>
     [`errors:${value}`, `errors:task_fail_${value}`].find((key) => i18n.exists(key));
-  const domainKey = detail?.error_code && detail.error_params ? registeredErrorKey(detail.error_code) : undefined;
+  const domainKey =
+    detail?.error_code && (detail.error_params || detail.error_code === "text_wait_timeout")
+      ? registeredErrorKey(detail.error_code)
+      : undefined;
   const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
   const domainParams = { ...detail?.error_params };
   const { limit, count } = domainParams;
@@ -360,13 +363,15 @@ export function UsageRecordDetailModal({
                   <Group title={t("dashboard:usage_detail_group_failure")}>
                     <div className="flex flex-col gap-1 rounded-md border border-destructive/20 bg-destructive/10 p-3">
                       <p className="text-sm text-destructive">
-                        {phraseKey
-                          ? t(`dashboard:${phraseKey}`)
-                          : domainKey
-                            ? [t(domainKey, domainParams), previousStoryboardHint].filter(Boolean).join(" ")
-                            : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
+                        {detail.error_code === "text_wait_timeout" && domainKey
+                          ? t(domainKey)
+                          : phraseKey
+                            ? t(`dashboard:${phraseKey}`)
+                            : domainKey
+                              ? [t(domainKey, domainParams), previousStoryboardHint].filter(Boolean).join(" ")
+                              : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
-                      {phraseKey && detail.error_message && !messageIsDomainKey && (
+                      {phraseKey && detail.error_code !== "text_wait_timeout" && detail.error_message && !messageIsDomainKey && (
                         <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>
                       )}
                       {typeof retryAfter === "number" && (
