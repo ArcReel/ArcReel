@@ -27,12 +27,9 @@ from lib.project.resource_paths import resource_relative_path
 from lib.project.video_unit_owner import resolve_video_unit_owner
 from lib.script.script_editor import resolve_items
 from lib.speech.audio_utils import probe_existing_media_duration_seconds, probe_existing_video_duration_seconds
-from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
-    TtsSettingsResolver,
-    TtsSynthesisSettings,
     build_narration_audio_basis,
 )
 from lib.speech.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
@@ -53,7 +50,6 @@ from server.services.currency.video_artifact_currency import build_current_video
 
 DurationProbe = Callable[[Path], Awaitable[float | None]]
 ContentDigest = Callable[[Path], str]
-SettingsResolverFactory = Callable[[str, Path], TtsSettingsResolver]
 
 
 class PresentationUnavailableError(ValueError):
@@ -124,16 +120,12 @@ class PresentationReadModelService:
         self,
         project_manager: ProjectManager,
         *,
-        settings_resolver_factory: SettingsResolverFactory | None = None,
         duration_probe: DurationProbe | None = None,
         video_duration_probe: DurationProbe = probe_existing_video_duration_seconds,
         audio_duration_probe: DurationProbe = probe_existing_media_duration_seconds,
         content_digest: ContentDigest = media_content_digest,
     ) -> None:
         self._project_manager = project_manager
-        self._settings_resolver_factory = settings_resolver_factory or (
-            lambda _project_name, _project_path: ProjectTtsSettingsResolver()
-        )
         self._video_duration_probe = duration_probe or video_duration_probe
         self._audio_duration_probe = duration_probe or audio_duration_probe
         self._content_digest = content_digest
@@ -215,7 +207,6 @@ class PresentationReadModelService:
         if variant == USE_TTS and admission.mode is not SpeechMode.NARRATOR_VOICEOVER:
             raise PresentationUnavailableError("use_tts presentation requires narrator voiceover")
 
-        settings = await self._resolve_settings(project_name, project_path, project)
         video_currency = await asyncio.to_thread(
             self._video_currency,
             project_path=project_path,
@@ -257,7 +248,6 @@ class PresentationReadModelService:
             audio_currency = self._audio_currency(
                 preparation=admission.preparation,
                 selected=selected_audio,
-                settings=settings,
             )
             audio_content_digest = await asyncio.to_thread(
                 self._require_current_manifest_selection,
@@ -580,18 +570,6 @@ class PresentationReadModelService:
             raise PresentationUnavailableError(f"script unit is unavailable: {resource_id}")
         return item, kind
 
-    async def _resolve_settings(
-        self,
-        project_name: str,
-        project_path: Path,
-        project: dict[str, Any],
-    ) -> TtsSynthesisSettings | None:
-        resolver = self._settings_resolver_factory(project_name, project_path)
-        try:
-            return await resolver.resolve_tts_synthesis_settings(project)
-        except ValueError:
-            return None
-
     @staticmethod
     def _video_currency(
         *,
@@ -621,13 +599,10 @@ class PresentationReadModelService:
         *,
         preparation: Any,
         selected: _SelectedVersion,
-        settings: TtsSynthesisSettings | None,
     ) -> MediaCurrency:
         if selected.target is None:
             raise PresentationUnavailableError("audio currency requires typed presentation provenance")
-        if settings is None:
-            return "stale"
-        expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
+        expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation))
         return "current" if expected == selected.target.basis else "stale"
 
     async def _materialize_media(

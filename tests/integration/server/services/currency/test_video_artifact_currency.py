@@ -30,7 +30,7 @@ from lib.script.reference_video.request_projection import (
     resolve_reference_assets,
     unit_reference_declarations,
 )
-from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     build_video_duration_basis,
     build_video_speech_basis,
@@ -727,8 +727,7 @@ def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) ->
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
     preparation = admit_script_unit("segments", script["segments"][0]).preparation
-    settings = TtsSynthesisSettings(provider_id="p", model_id="m", voice="v", speed=1.0)
-    descriptor = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
+    descriptor = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation))
     VersionManager(project_path).add_version(
         "audio",
         "E1S01",

@@ -28,7 +28,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
-from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES, VideoExecutionShape, project_video_basis_components
+from lib.artifacts.media_artifact_currency import VideoExecutionShape, project_video_basis_components
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json_digest
@@ -36,6 +36,7 @@ from lib.infra.json_io import atomic_write_json, load_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import MigrationSkippedArtifact
+from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES
 from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.execution_checkpoint import CHECKPOINT_SCHEMA_VERSION
 from lib.script.script_editor import ScriptEditError, resolve_items

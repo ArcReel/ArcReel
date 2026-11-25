@@ -130,7 +130,8 @@ from lib.generation.generation_result import (
 from lib.generation.task_failure_encoding import is_database_failure, is_provider_refusal
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.api_errors import UnprocessableError
+from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import (
     OPTIONAL_PREFIXED_DIGEST_PATTERN,
@@ -201,9 +202,9 @@ from lib.script.source_loader import (
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.speech.narration_config import (
     POST_PRODUCTION,
+    TTS_GROUP_FIELDS,
     NarrationConfigError,
     NarrationDelivery,
-    validate_project_narration_config,
 )
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.operation_admission import admit_plan_episodes, whole_source_present
@@ -221,7 +222,11 @@ from server.services.admission.prompt_preview import ItemPromptPreview, ScriptIt
 from server.services.admission.video_batch_admission import generation_action_for
 from server.services.project.asset_identity import merge_project_asset, rename_project_asset
 from server.services.project.episode_id_records import recorded_episode_ids_on
-from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
+from server.services.project.narration_settings import (
+    NarrationSettingsInput,
+    apply_project_tts_patch,
+    new_project_narration_fields,
+)
 from server.services.project.script_review import ScriptPlanContent, ScriptReviewError, ScriptReviewService
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.episode_activity import episode_has_active_tasks
@@ -3392,6 +3397,7 @@ def _patch_project_sync(
     request: ToolRequest[PatchProjectRequest],
     scope: ProjectScope,
     services: Services,
+    bridge: EventLoopBridge,
 ) -> ToolOutcome[PatchProjectResult]:
     value = request.value
     try:
@@ -3432,22 +3438,25 @@ def _patch_project_sync(
                     raise ValueError(
                         f"{EPISODE_TARGET_DURATION_FIELD} 不适用广告/短片项目（整集体量按 target_duration 预算规划）"
                     )
+                previous = {key: project_data[key] for key in coerced if key in project_data}
+                apply_project_tts_patch(
+                    project_data,
+                    coerced,
+                    lambda provider, model: bridge.run(services.capabilities.audio_model_profile(provider, model)),
+                )
                 for key, field_value in coerced.items():
-                    current = project_data.get(key)
-                    if field_value is None:
-                        diagnostics[key] = ("clear", None) if key in project_data else ("noop", None)
-                        project_data.pop(key, None)
-                    elif current == field_value:
-                        diagnostics[key] = ("noop", current)
+                    if key not in TTS_GROUP_FIELDS:
+                        if field_value is None:
+                            project_data.pop(key, None)
+                        else:
+                            project_data[key] = field_value
+                    saved = project_data.get(key)
+                    if key in previous and key not in project_data:
+                        diagnostics[key] = ("clear", None)
+                    elif saved != previous.get(key):
+                        diagnostics[key] = ("set", saved)
                     else:
-                        diagnostics[key] = ("set", field_value)
-                        project_data[key] = field_value
-                try:
-                    validate_project_narration_config(project_data)
-                except NarrationConfigError as exc:
-                    raise ValueError(
-                        f"项目的旁白交付方式是 TTS 配音，TTS 快照必须完整，本次修改被拒绝（{exc.code}）"
-                    ) from exc
+                        diagnostics[key] = ("noop", saved)
 
             services.projects.update_project(scope.project_name, mutate_settings)
             return ToolOutcome(
@@ -3461,6 +3470,10 @@ def _patch_project_sync(
         return ToolOutcome(
             value=PatchProjectResult(message=_format_upsert(value.table, changes), operation="assets", changes=changes)
         )
+    except NarrationConfigError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS.get(exc.code, exc.code)))
+    except UnprocessableError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("patch_project", exc))
 
@@ -3471,7 +3484,7 @@ async def patch_project(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[PatchProjectResult]:
-    return await _run_sync_transaction(_patch_project_sync, request, scope, services)
+    return await _run_sync_transaction(_patch_project_sync, request, scope, services, EventLoopBridge.capture())
 
 
 def _patch_episode_meta_sync(

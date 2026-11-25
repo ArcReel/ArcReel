@@ -1,14 +1,4 @@
-"""项目的旁白交付配置（``docs/adr/0089``）。
-
-旁白交付方式是必填的项目配置，取值「TTS 配音」或「后期配音」。TTS 配音项目在 ``project.json``
-上保存 TTS 模型、音色与配音语速的快照：创建时以全局默认值预填，之后不再继承全局默认。
-
-快照与交付方式相互独立：改为后期配音后快照保留，已有旁白配音的生成依据照旧可以复算，时效不变；
-只有生成旁白配音要求项目当前选的是 TTS 配音。旁白配音的时效按当前快照复算，修改快照后，
-按旧设置生成的配音读作 stale。
-
-本模块只依赖标准库，``lib.project`` 等底层模块可以直接引用。
-"""
+"""项目旁白交付方式与可选的整组配音覆盖。"""
 
 from __future__ import annotations
 
@@ -25,13 +15,13 @@ NARRATION_DELIVERY_FIELD = "narration_delivery"
 TTS_BACKEND_FIELD = "audio_backend"
 TTS_VOICE_FIELD = "narration_voice"
 TTS_SPEED_FIELD = "narration_speed"
-NARRATION_CONFIG_FIELDS = (NARRATION_DELIVERY_FIELD, TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD)
-PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION = 16
+TTS_GROUP_FIELDS = (TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD)
+NARRATION_CONFIG_FIELDS = (NARRATION_DELIVERY_FIELD, *TTS_GROUP_FIELDS)
 
 
 @dataclass(frozen=True, slots=True)
 class TtsSynthesisSettings:
-    """Resolved paid-synthesis inputs that participate in TTS currency."""
+    """Model and parameters used by a single narration synthesis."""
 
     provider_id: str
     model_id: str
@@ -94,7 +84,7 @@ def project_narration_delivery(project: Mapping[str, object]) -> NarrationDelive
 
 
 def project_tts_settings(project: Mapping[str, object]) -> TtsSynthesisSettings | None:
-    """项目的 TTS 快照；模型或音色缺失、语速损坏时返回 None。不读取交付方式。"""
+    """读取项目配音覆盖；无覆盖或字段不完整时返回 None。"""
 
     backend = parse_tts_backend(project.get(TTS_BACKEND_FIELD))
     voice = project.get(TTS_VOICE_FIELD)
@@ -107,8 +97,8 @@ def project_tts_settings(project: Mapping[str, object]) -> TtsSynthesisSettings 
     return TtsSynthesisSettings(provider_id=backend[0], model_id=backend[1], voice=voice.strip(), speed=speed)
 
 
-def tts_snapshot_fields(settings: TtsSynthesisSettings) -> dict[str, object]:
-    """把 TTS 设置写成 project.json 快照字段；``narration_speed`` 为 None 时调用方删除该键。"""
+def tts_group_fields(settings: TtsSynthesisSettings) -> dict[str, object]:
+    """把执行组编码成项目配音字段；``narration_speed`` 为 None 时调用方删除该键。"""
 
     return {
         TTS_BACKEND_FIELD: f"{settings.provider_id}/{settings.model_id}",
@@ -117,7 +107,7 @@ def tts_snapshot_fields(settings: TtsSynthesisSettings) -> dict[str, object]:
     }
 
 
-def _missing_snapshot_code(project: Mapping[str, object]) -> str:
+def _invalid_tts_group_code(project: Mapping[str, object]) -> str:
     if parse_tts_backend(project.get(TTS_BACKEND_FIELD)) is None:
         return "narration_tts_model_required"
     voice = project.get(TTS_VOICE_FIELD)
@@ -127,10 +117,10 @@ def _missing_snapshot_code(project: Mapping[str, object]) -> str:
 
 
 def validate_project_narration_config(project: Mapping[str, object]) -> None:
-    """TTS 配音项目必须带完整的 TTS 快照。"""
+    """项目可继承全局配音设置。显式覆盖时须同时指定模型、音色。"""
 
-    if project_narration_delivery(project) == USE_TTS and project_tts_settings(project) is None:
-        raise NarrationConfigError(_missing_snapshot_code(project))
+    if any(k in project for k in TTS_GROUP_FIELDS) and project_tts_settings(project) is None:
+        raise NarrationConfigError(_invalid_tts_group_code(project))
 
 
 def require_project_tts_generation(project: Mapping[str, object]) -> TtsSynthesisSettings:
@@ -140,38 +130,27 @@ def require_project_tts_generation(project: Mapping[str, object]) -> TtsSynthesi
         raise NarrationConfigError("narration_delivery_post_production")
     settings = project_tts_settings(project)
     if settings is None:
-        raise NarrationConfigError(_missing_snapshot_code(project))
+        raise NarrationConfigError(_invalid_tts_group_code(project))
     return settings
-
-
-class ProjectTtsSettingsResolver:
-    """按项目快照回答当前 TTS 设置；快照不完整时抛 ValueError（读侧视为未配置）。"""
-
-    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
-        settings = project_tts_settings(project)
-        if settings is None:
-            raise ValueError("project has no complete TTS snapshot")
-        return settings
 
 
 __all__ = [
     "NARRATION_CONFIG_FIELDS",
     "NARRATION_DELIVERY_FIELD",
     "POST_PRODUCTION",
-    "PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION",
     "TTS_BACKEND_FIELD",
+    "TTS_GROUP_FIELDS",
     "TTS_SPEED_FIELD",
     "TTS_VOICE_FIELD",
     "USE_TTS",
     "NarrationConfigError",
     "NarrationDelivery",
-    "ProjectTtsSettingsResolver",
     "TtsSynthesisSettings",
     "parse_tts_backend",
     "parse_tts_speed",
     "project_narration_delivery",
     "project_tts_settings",
     "require_project_tts_generation",
-    "tts_snapshot_fields",
+    "tts_group_fields",
     "validate_project_narration_config",
 ]

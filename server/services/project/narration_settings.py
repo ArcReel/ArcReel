@@ -6,8 +6,10 @@ Web 创建向导与 Agent 建项工具共用：TTS 配音项目省略的模型�
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from lib.backends.audio_profiles import AudioProfile
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel
@@ -16,6 +18,7 @@ from lib.speech.narration_config import (
     NARRATION_DELIVERY_FIELD,
     POST_PRODUCTION,
     TTS_BACKEND_FIELD,
+    TTS_GROUP_FIELDS,
     TTS_SPEED_FIELD,
     TTS_VOICE_FIELD,
     USE_TTS,
@@ -133,8 +136,44 @@ async def new_project_narration_fields(
     return fields
 
 
+def apply_project_tts_patch(
+    project: dict, patch: Mapping[str, object], profile_for: Callable[[str, str], AudioProfile]
+) -> None:
+    if not any(k in patch for k in TTS_GROUP_FIELDS):
+        return
+    previous = project.get(TTS_BACKEND_FIELD)
+    backend = patch.get(TTS_BACKEND_FIELD, previous)
+    if not backend:
+        if TTS_BACKEND_FIELD not in patch:
+            raise NarrationConfigError("narration_tts_model_required")
+        if patch.get(TTS_VOICE_FIELD) or patch.get(TTS_SPEED_FIELD) is not None:
+            raise NarrationConfigError("narration_tts_clear_conflict")
+        for key in TTS_GROUP_FIELDS:
+            project.pop(key, None)
+        return
+    if not isinstance(backend, str):
+        raise NarrationConfigError("narration_tts_model_invalid")
+    normalized = validate_tts_backend(backend)
+    provider, model = normalized.split("/", 1)
+    profile = profile_for(provider, model)
+    same = previous == normalized
+    raw_voice = patch.get(TTS_VOICE_FIELD, project.get(TTS_VOICE_FIELD) if same else profile.first_voice)
+    raw_speed = patch.get(TTS_SPEED_FIELD, project.get(TTS_SPEED_FIELD) if same else None)
+    voice = raw_voice.strip() if isinstance(raw_voice, str) else ""
+    speed = parse_tts_speed(raw_speed)
+    if raw_speed is not None and speed is None:
+        raise NarrationConfigError("narration_tts_speed_invalid")
+    profile.validate(voice, speed)
+    project.update({TTS_BACKEND_FIELD: normalized, TTS_VOICE_FIELD: voice})
+    if speed is None:
+        project.pop(TTS_SPEED_FIELD, None)
+    else:
+        project[TTS_SPEED_FIELD] = speed
+
+
 __all__ = [
     "NarrationSettingsInput",
+    "apply_project_tts_patch",
     "new_project_narration_fields",
     "validate_tts_backend",
     "validate_tts_speed",

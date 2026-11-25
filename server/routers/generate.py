@@ -49,7 +49,7 @@ from lib.script.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
 )
-from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
+from lib.speech.narration_config import NarrationConfigError, TtsSynthesisSettings, tts_group_fields
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from lib.video_runtime.resolution import read_video_request_facts
@@ -343,11 +343,13 @@ async def _require_audio_provider_configured(project: dict) -> str:
     return resolved.provider_id
 
 
-def _require_project_tts(project: dict) -> str:
-    """旁白配音只为选了 TTS 配音、快照完整的项目生成；返回快照里的 provider_id 供入队复用。"""
+async def _require_project_tts(project: dict) -> TtsSynthesisSettings:
+    """冻结当前项目生效的旁白执行组，单条与批量入队共用。"""
 
     try:
-        return require_project_tts_generation(project).provider_id
+        from lib.db import async_session_factory
+
+        return await ConfigResolver(async_session_factory).resolve_tts_synthesis_settings(project)
     except NarrationConfigError as exc:
         raise BadRequestError(exc.code) from exc
 
@@ -358,13 +360,14 @@ async def _enqueue_tts_segment(
     segment_id: str,
     script_file: str,
     user_id: str,
-    provider_id: str | None,
+    settings: TtsSynthesisSettings,
 ) -> dict:
     spec = TaskSpec.from_request(
         task_type="tts",
         media_type="audio",
         resource_id=segment_id,
         script_file=script_file,
+        extra_payload={"tts_settings": tts_group_fields(settings)},
     )
 
     queue = get_generation_queue()
@@ -377,7 +380,7 @@ async def _enqueue_tts_segment(
         payload=spec.payload,
         source="webui",
         user_id=user_id,
-        provider_id=provider_id,
+        provider_id=settings.provider_id,
     )
 
 
@@ -413,14 +416,14 @@ async def generate_tts(
 
     project, _segment = await run_sync_transaction(_sync)
 
-    provider_id = _require_project_tts(project)
+    settings = await _require_project_tts(project)
 
     result = await _enqueue_tts_segment(
         project_name=project_name,
         segment_id=segment_id,
         script_file=req.script_file,
         user_id=user.id,
-        provider_id=provider_id,
+        settings=settings,
     )
 
     return {
@@ -464,7 +467,7 @@ async def generate_tts_batch(
         return _project, missing
 
     project, missing_ids = await run_sync_transaction(_sync)
-    provider_id = _require_project_tts(project)
+    settings = await _require_project_tts(project)
 
     if not missing_ids:
         return {
@@ -484,7 +487,7 @@ async def generate_tts_batch(
             segment_id=seg_id,
             script_file=req.script_file,
             user_id=user.id,
-            provider_id=provider_id,
+            settings=settings,
         )
         task_ids.append(result["task_id"])
         task_ids_by_segment[seg_id] = result["task_id"]

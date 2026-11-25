@@ -10,7 +10,7 @@ from lib.speech.narration_config import (
     project_narration_delivery,
     project_tts_settings,
     require_project_tts_generation,
-    tts_snapshot_fields,
+    tts_group_fields,
     validate_project_narration_config,
 )
 
@@ -115,7 +115,7 @@ class TestRequireProjectTtsGeneration:
 
 def test_snapshot_fields_round_trip():
     settings = TtsSynthesisSettings(provider_id="custom-3", model_id="tts-1", voice="alloy", speed=None)
-    fields = tts_snapshot_fields(settings)
+    fields = tts_group_fields(settings)
     assert fields == {"audio_backend": "custom-3/tts-1", "narration_voice": "alloy", "narration_speed": None}
     stored = {"narration_delivery": "use_tts", **{key: value for key, value in fields.items() if value is not None}}
     assert project_tts_settings(stored) == settings

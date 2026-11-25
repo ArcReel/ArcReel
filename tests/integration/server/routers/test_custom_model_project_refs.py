@@ -68,6 +68,7 @@ def _project(model_refs_pm: ProjectManager, name: str, ref: str) -> None:
     def _mutate(p: dict) -> None:
         for key in PROJECT_MODEL_SETTING_KEYS:
             p[key] = ref
+        p.update(narration_voice="voice-clone", narration_speed=1.25)
         p["model_settings"] = {ref: {"resolution": "1080p"}, "other/keep": {"resolution": "720p"}}
 
     model_refs_pm.update_project(name, _mutate)
@@ -98,6 +99,8 @@ async def _provider(db_factory, models: list[dict]) -> str:
 async def _set_globals(db_factory, ref: str) -> None:
     async with db_factory() as session:
         svc = ConfigService(session)
+        await svc.set_setting("narration_voice", "voice-clone")
+        await svc.set_setting("narration_speed", "1.25")
         for key in GLOBAL_MODEL_SETTING_KEYS:
             await svc.set_setting(key, ref)
         await session.commit()
@@ -114,6 +117,7 @@ def _assert_deleted_model_refs_cleared(model_refs_pm: ProjectManager, name: str,
     refs = _refs(model_refs_pm, name)
     assert all(key not in refs or refs[key] is None for key in CLEARED_ON_DELETE), refs
     assert all(refs[key] == ref for key in VIDEO_BUCKET_KEYS), refs
+    assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(model_refs_pm.load_project(name))
     assert _model_settings_keys(model_refs_pm, name) == ["other/keep"]
 
 
@@ -174,11 +178,21 @@ async def test_rename_leaves_other_providers_and_models_untouched(model_refs_cli
 async def test_delete_model_clears_project_refs_except_video_buckets(model_refs_client, db_factory, model_refs_pm):
     pid = await _provider(db_factory, [_model("keep", default=True), _model("del-b")])
     _project(model_refs_pm, "pb", f"{pid}/del-b")
+    _project(model_refs_pm, "switched", f"{pid}/keep")
     await _set_globals(db_factory, f"{pid}/del-b")
 
     assert model_refs_client.delete(f"/api/v1/providers/{pid}/models/del-b").status_code == 204
 
+    switched = model_refs_pm.load_project("switched")
+    assert (switched["audio_backend"], switched["narration_voice"], switched["narration_speed"]) == (
+        f"{pid}/keep",
+        "voice-clone",
+        1.25,
+    )
     _assert_deleted_model_refs_cleared(model_refs_pm, "pb", pid, "del-b")
+    async with db_factory() as session:
+        saved = await ConfigService(session).get_all_settings()
+        assert not any(saved[key] for key in ("default_audio_backend", "narration_voice", "narration_speed"))
     assert not any(v == f"{pid}/del-b" for k, v in (await _globals(db_factory)).items() if k not in _GLOBAL_BUCKETS)
     for key in VIDEO_BUCKET_KEYS:
         assert _refs(model_refs_pm, "pb")[key] == f"{pid}/del-b"
@@ -190,7 +204,15 @@ _GLOBAL_BUCKETS = ("default_video_backend_i2v", "default_video_backend_r2v")
 async def test_delete_model_then_readd_same_id_is_not_taken_over(model_refs_client, db_factory, model_refs_pm):
     pid = await _provider(db_factory, [_model("keep", default=True), _model("del-b")])
     _project(model_refs_pm, "pb", f"{pid}/del-b")
+    await _set_globals(db_factory, f"{pid}/keep")
     assert model_refs_client.delete(f"/api/v1/providers/{pid}/models/del-b").status_code == 204
+    async with db_factory() as session:
+        saved = await ConfigService(session).get_all_settings()
+        assert tuple(saved[key] for key in ("default_audio_backend", "narration_voice", "narration_speed")) == (
+            f"{pid}/keep",
+            "voice-clone",
+            "1.25",
+        )
     _assert_not_hijacked_by_readded(model_refs_client, model_refs_pm, "pb", pid, "del-b")
 
 
@@ -250,4 +272,5 @@ async def test_delete_provider_clears_model_settings_of_its_models(model_refs_cl
     db_id = int(pid.removeprefix("custom-"))
     assert model_refs_client.delete(f"/api/v1/custom-providers/{db_id}").status_code == 204
 
+    assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(model_refs_pm.load_project("pd"))
     assert _model_settings_keys(model_refs_pm, "pd") == ["other/keep"]

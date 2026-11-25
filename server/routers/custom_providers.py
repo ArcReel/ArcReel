@@ -512,11 +512,17 @@ async def _clear_global_provider_refs(
     from lib.config.service import ConfigService
 
     svc = ConfigService(session)
+    from lib.config.repository import SystemSettingRepository
+
+    await SystemSettingRepository(session).lock_audio_group()
     prefix = f"{make_provider_id(provider_id)}/"
     for key in _BACKEND_SETTING_KEYS:
         val = await svc.get_setting(key, "")
         if val.startswith(prefix) and (model_ids is None or val[len(prefix) :] in model_ids):
             await svc.set_setting(key, "")
+            if key == "default_audio_backend":
+                await svc.set_setting("narration_voice", "")
+                await svc.set_setting("narration_speed", "")
 
 
 async def _rename_global_provider_refs(session: AsyncSession, provider_id: int, old_id: str, new_id: str) -> None:
@@ -562,6 +568,9 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...], model_ids:
         for key in setting_keys:
             if _hits(p.get(key, "")):
                 p.pop(key, None)
+                if key == "audio_backend":
+                    p.pop("narration_voice", None)
+                    p.pop("narration_speed", None)
         model_settings = p.get("model_settings")
         if isinstance(model_settings, dict):
             for ref in [r for r in model_settings if _hits(r)]:

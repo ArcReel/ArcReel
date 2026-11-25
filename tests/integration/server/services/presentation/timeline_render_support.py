@@ -122,7 +122,7 @@ def _install_narration(project_path: Path, item: dict[str, Any], seconds: float)
     audio.parent.mkdir(parents=True, exist_ok=True)
     audio.write_bytes(wav_bytes(seconds, tone_hz=440))
     preparation = admit_script_unit("segments", item).preparation
-    audio_basis = build_narration_audio_basis(preparation, _SETTINGS)
+    audio_basis = build_narration_audio_basis(preparation)
     VersionManager(project_path).add_version(
         "audio",
         segment_id,

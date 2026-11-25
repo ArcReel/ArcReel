@@ -26,7 +26,6 @@ from lib.generation.video_request_facts import (
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
-    TtsSynthesisSettings,
     build_narration_audio_basis,
 )
 from lib.speech.speech_composition import admit_script_unit
@@ -387,9 +386,7 @@ class TestGenerationTasks:
         ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
             ArtifactKey.episode_audio(1, "E1S01"),
             artifact_path="audio/segment_E1S01.wav",
-            basis=build_narration_audio_basis(
-                preparation, TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
-            ),
+            basis=build_narration_audio_basis(preparation),
         )
         fake_generator = FakeGenerator()
         seen_lane_requests: list[dict] = []

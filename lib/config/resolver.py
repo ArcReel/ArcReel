@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator, Mapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import DurationConstraints
+from lib.backends.audio_profiles import AudioProfile
 from lib.backends.input_limits import InputLimit
 from lib.backends.providers import is_custom_provider
 from lib.capabilities.kernel import video_bucket_unmet
@@ -33,6 +34,13 @@ from lib.config.service import (
 )
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.speech.character_voice import CharacterVoiceBinding
+from lib.speech.narration_config import (
+    TTS_GROUP_FIELDS,
+    USE_TTS,
+    TtsSynthesisSettings,
+    project_narration_delivery,
+    require_project_tts_generation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -679,6 +687,26 @@ class ConfigResolver:
         async with self._open_session() as (_session, svc):
             return await svc.get_default_text_backend()
 
+    async def audio_model_profile(self, provider: str, model: str) -> AudioProfile:
+        from lib.config.tts import model_profile
+
+        async with self._open_session() as (session, _):
+            return await model_profile(session, provider, model)
+
+    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
+        if project_narration_delivery(project) != USE_TTS or any(key in project for key in TTS_GROUP_FIELDS):
+            return require_project_tts_generation(project)
+        async with self._open_session() as (_, svc):
+            saved = await svc.get_all_settings()
+        return require_project_tts_generation(
+            {
+                "narration_delivery": USE_TTS,
+                "audio_backend": saved.get("default_audio_backend"),
+                "narration_voice": saved.get("narration_voice"),
+                "narration_speed": saved.get("narration_speed") or None,
+            }
+        )
+
     async def narration_defaults(self) -> tuple[str, float | None]:
         """返回全局默认旁白音色与配音语速。"""
         async with self._open_session() as (_session, svc):
@@ -748,6 +776,10 @@ class ConfigResolver:
 
     async def configured_audio_identity(self, project: dict | None, payload: dict | None) -> ProviderModel | None:
         if payload:
+            frozen = payload.get("tts_settings")
+            if isinstance(frozen, dict):
+                settings = require_project_tts_generation({**frozen, "narration_delivery": USE_TTS})
+                return ProviderModel(settings.provider_id, settings.model_id)
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))
             if provider_id is not None:
                 model = _payload_model(payload.get("audio_model"))

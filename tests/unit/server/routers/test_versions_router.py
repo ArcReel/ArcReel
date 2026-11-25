@@ -263,14 +263,8 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
     basis = ArtifactBasisDescriptor.from_basis(
         ArtifactBasis.build(
             "narration-delivery/tts-audio",
-            kind_version=1,
-            inputs={
-                "text": "旁白",
-                "provider_id": "dashscope",
-                "model_id": "qwen3-tts-flash",
-                "voice": "Cherry",
-                "speed": None,
-            },
+            kind_version=2,
+            inputs={"text": "旁白"},
         )
     )
     manager = VersionManager(project_path)

@@ -61,7 +61,10 @@ class _CapturingBatch:
 
 
 @pytest.fixture(autouse=True)
-def tts_project(fake_ctx: ToolHarness) -> None:
+def tts_project(fake_ctx: ToolHarness, concurrent_session_factory) -> None:
+    from lib.config.resolver import ConfigResolver
+
+    fake_ctx.config_resolver = ConfigResolver(concurrent_session_factory)
     fake_ctx.pm.project_payload.update(
         {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}
     )
@@ -84,7 +87,15 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     spec = batch.specs[0]
     assert spec.task_type == "tts"
     assert spec.media_type == "audio"
-    assert spec.payload == {"prompt": None, "script_file": "episode_1.json"}
+    assert spec.payload == {
+        "prompt": None,
+        "script_file": "episode_1.json",
+        "tts_settings": {
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
+            "narration_speed": None,
+        },
+    }
     result = read_generation_result(out)
     assert result.succeeded == ["E1S01"]
     assert result.items[0].artifact_path == "audio/segment_E1S01.wav"

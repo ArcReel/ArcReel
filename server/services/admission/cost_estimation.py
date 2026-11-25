@@ -67,7 +67,6 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.speech.narration_config import USE_TTS, project_narration_delivery, project_tts_settings
 from lib.speech.speech_composition import video_unit_replan_problems
 from lib.video_runtime.builtin import builtin_video_metered_usage
 from lib.video_runtime.resolution import read_video_facts_pair
@@ -453,9 +452,10 @@ class CostEstimationService:
                         bucket_provider, bucket_model = "unknown", "unknown"
                 video_identity[generation_type] = bucket_provider, bucket_model
 
-            tts_settings = (
-                project_tts_settings(project_data) if project_narration_delivery(project_data) == USE_TTS else None
-            )
+            try:
+                tts_settings = await r.resolve_tts_synthesis_settings(project_data)
+            except ValueError:
+                tts_settings = None
             audio_provider, audio_model = (
                 (tts_settings.provider_id, tts_settings.model_id)
                 if tts_settings is not None

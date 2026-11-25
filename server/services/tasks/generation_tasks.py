@@ -115,9 +115,11 @@ from lib.speech.audio_utils import (
     probe_existing_audio_duration_seconds,
 )
 from lib.speech.narration_config import (
+    USE_TTS,
     NarrationConfigError,
-    project_tts_settings,
+    project_narration_delivery,
     require_project_tts_generation,
+    tts_group_fields,
 )
 from lib.speech.narration_delivery import (
     build_narration_audio_basis,
@@ -627,29 +629,35 @@ async def execute_tts_task(
         formal_input_claims,
     ) = await run_sync_transaction(_prepare)
 
-    settings = require_project_tts_generation(project)
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
+
+    frozen = payload.get("tts_settings")
+    settings = (
+        require_project_tts_generation({**frozen, "narration_delivery": project_narration_delivery(project)})
+        if isinstance(frozen, dict)
+        else await ConfigResolver(async_session_factory).resolve_tts_synthesis_settings(project)
+    )
     voice = settings.voice
     speed = settings.speed
     ctx = await resolve_generation_context(
         project_name,
         None,
-        project=project,
+        project={**project, **tts_group_fields(settings)},
         user_id=user_id,
         audio=AudioLaneRequest(),
     )
     ensure_dispatch_provider(claimed_provider_id, ctx.audio.provider_model.provider_id)
-    if ctx.audio.backend_model != settings.model_id:
+    if (ctx.audio.provider_model.provider_id, ctx.audio.backend_model) != (settings.provider_id, settings.model_id):
         raise NarrationConfigError("narration_tts_model_invalid")
     generator = ctx.generator
-    basis = build_narration_audio_basis(preparation, settings) if preparation is not None else None
+    parent_version = await asyncio.to_thread(generator.versions.get_current_version, "audio", resource_id)
+    basis = build_narration_audio_basis(preparation) if preparation is not None else None
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
     tts_selection_errors: list[BaseException] = []
     selected_current = True
-
-    class _TtsSelectionResolutionFailed(RuntimeError):
-        pass
 
     async def _measure_staged(staged_path: Path) -> None:
         nonlocal duration_seconds
@@ -723,7 +731,6 @@ async def execute_tts_task(
                 project_path=project_path,
                 episode=committed_episode,
                 preparation=committed_preparation,
-                settings=settings,
             )
 
         def _activate(_script_path: Path) -> None:
@@ -735,6 +742,7 @@ async def execute_tts_task(
                     staged_file=staged_path,
                     current_file=output_path,
                     select_current=lambda: should_select,
+                    expected_current_version=parent_version,
                     on_select=_register_basis,
                     **version_metadata,
                 )
@@ -756,10 +764,6 @@ async def execute_tts_task(
             ) as current_script:
                 if not guarded_project:
                     raise RuntimeError("TTS commit guard did not expose the current project")
-                current_commit_settings = project_tts_settings(guarded_project[-1])
-                if current_commit_settings is None:
-                    tts_selection_errors.append(ValueError("project TTS snapshot is no longer complete"))
-                    raise _TtsSelectionResolutionFailed
                 items, id_field, current_kind = _resolve_tts_task_items(
                     current_script,
                     reference_video_route=reference_video_route,
@@ -773,16 +777,17 @@ async def execute_tts_task(
                     None,
                 )
                 current_basis = None
-                if not tts_selection_errors and item is not None:
+                if project_narration_delivery(guarded_project[-1]) == USE_TTS and item is not None:
                     current_admission = admit_script_unit(current_kind, item)
                     try:
-                        current_basis = build_narration_audio_basis(
-                            current_admission.preparation,
-                            current_commit_settings,
-                        )
+                        current_basis = build_narration_audio_basis(current_admission.preparation)
                     except ValueError:
                         current_basis = None
-                should_select = current_basis is not None and current_basis.digest == committed_basis.digest
+                should_select = (
+                    current_basis is not None
+                    and current_basis.digest == committed_basis.digest
+                    and generator.versions.get_current_version("audio", resource_id) == parent_version
+                )
                 if should_select:
                     assert item is not None
                     assets = item.get("generated_assets")
@@ -793,7 +798,7 @@ async def execute_tts_task(
                         item["generated_assets"] = assets
                     assets["narration_audio"] = audio_rel
                     pm.update_scene_status(item)
-        except (EpisodeScriptReboundError, _TtsSelectionResolutionFailed):
+        except EpisodeScriptReboundError:
             committed_outcome.append(_archive_paid_history())
         except BaseException as failure:
             if staged_path.is_file():

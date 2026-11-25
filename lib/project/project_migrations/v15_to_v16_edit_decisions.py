@@ -100,10 +100,8 @@ from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStateP
 from lib.artifacts.artifact_version_provenance import (
     VIDEO_CURRENCY_DURATION_FIELD,
     parse_typed_media_version_target,
-    read_v1_audio_target,
 )
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.artifacts.version_manager import selected_manual_upload_snapshot
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import (
@@ -138,6 +136,7 @@ from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES, legacy_narrated_duration, read_v1_audio_target
 from lib.project.project_schema import parse_project_schema_version
 from lib.script.script_skeleton import SKELETONS
 from lib.speech.narration_config import (
@@ -146,7 +145,7 @@ from lib.speech.narration_config import (
     TTS_SPEED_FIELD,
     USE_TTS,
     TtsSynthesisSettings,
-    tts_snapshot_fields,
+    tts_group_fields,
 )
 from lib.speech.speech_artifact_provenance import (
     RenditionVariant,
@@ -183,6 +182,7 @@ def _plan_before_rewrite(project_dir: Path, view: Mapping[str, Any]) -> Artifact
     project_bytes = (project_dir / "project.json").read_bytes()
     plan = TargetStatePlanner(
         project_dir,
+        duration_override=legacy_narrated_duration,
         audio_rules=V1_AUDIO_RULES,
         project_bytes=json.dumps(view).encode(),
         allow_stale_formal_targets=True,
@@ -196,6 +196,7 @@ def _plan_after_rewrite(project_dir: Path, migrated: Mapping[str, Any]) -> Artif
     project_bytes = (project_dir / "project.json").read_bytes()
     after = TargetStatePlanner(
         project_dir,
+        duration_override=legacy_narrated_duration,
         audio_rules=V1_AUDIO_RULES,
         project_bytes=json.dumps(migrated).encode(),
         allow_stale_formal_targets=True,
@@ -276,7 +277,10 @@ def _uploaded_basis_digest(project_dir: Path, kind: ArtifactKind, artifact_path:
 def _register_uploaded_media(project_dir: Path, migrated: Mapping[str, Any]) -> None:
     project_bytes = (project_dir / "project.json").read_bytes()
     target = TargetStatePlanner(
-        project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=json.dumps(migrated).encode()
+        project_dir,
+        duration_override=legacy_narrated_duration,
+        audio_rules=V1_AUDIO_RULES,
+        project_bytes=json.dumps(migrated).encode(),
     ).plan()
     assert_artifact_target_state_plan_unchanged(project_dir, target, expected_project_bytes=project_bytes)
     versions = _load_object(project_dir / "versions" / "versions.json") or {}
@@ -637,7 +641,7 @@ def _narration_delivery_fields(project_dir: Path, project: Mapping[str, Any]) ->
     settings = _latest_registered_tts_settings(project_dir)
     if settings is None:
         return {**project, NARRATION_DELIVERY_FIELD: POST_PRODUCTION}
-    migrated = {**project, NARRATION_DELIVERY_FIELD: USE_TTS, **tts_snapshot_fields(settings)}
+    migrated = {**project, NARRATION_DELIVERY_FIELD: USE_TTS, **tts_group_fields(settings)}
     if settings.speed is None:
         del migrated[TTS_SPEED_FIELD]
     return migrated
@@ -702,7 +706,10 @@ def migrate_v15_to_v16(
         _rebase_script_plan_entries(project_dir, before, after)
         _register_uploaded_media(project_dir, migrated_project)
         target = TargetStatePlanner(
-            project_dir, audio_rules=V1_AUDIO_RULES, project_bytes=json.dumps(migrated_project).encode()
+            project_dir,
+            duration_override=legacy_narrated_duration,
+            audio_rules=V1_AUDIO_RULES,
+            project_bytes=json.dumps(migrated_project).encode(),
         ).plan()
         sync_source_snapshots(project_dir, migrated_project, snapshot_texts)
         atomic_write_json(project_file, migrated_project)

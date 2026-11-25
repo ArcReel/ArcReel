@@ -85,9 +85,9 @@ async def test_bare_providers_resolve_to_the_models_used_before_the_upgrade(
     assert migrated["video_backend"] == f"ark/{VIDEO_0_36}"
     assert migrated["image_provider_t2i"] == f"openai/{IMAGE_0_36}"
     assert migrated["text_backend_complex"] == f"grok/{TEXT_0_36}"
-    assert (migrated["video_provider_r2v"], migrated["audio_backend"], migrated["default_image_backend"]) == (
+    assert (migrated["video_provider_r2v"], migrated.get("audio_backend"), migrated["default_image_backend"]) == (
         "openai",
-        "custom-3",
+        None,
         "openai/gpt-image-2",
     )
     assert [path.name for path in project_dir.glob("project.json.bak.v19-*")]

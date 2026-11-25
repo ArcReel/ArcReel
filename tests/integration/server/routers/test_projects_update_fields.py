@@ -114,9 +114,9 @@ class TestProjectsRouter:
     @pytest.mark.parametrize(
         ("patch", "status"),
         [
-            ({"narration_delivery": "use_tts"}, 422),
+            ({"narration_voice": "Cherry"}, 422),
             ({"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"}, 400),
-            ({"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"}, 422),
+            ({"audio_backend": None, "narration_voice": "Cherry"}, 422),
             ({"narration_delivery": None}, 422),
         ],
     )
@@ -130,7 +130,7 @@ class TestProjectsRouter:
             assert "narration_delivery" not in fake_pm.project_data["ready"]
             assert "audio_backend" not in fake_pm.project_data["ready"]
 
-    def test_tts_project_cannot_clear_model_or_voice(self, tmp_path, monkeypatch):
+    def test_tts_project_clears_model_and_voice_together(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.project_data["ready"].update(
             narration_delivery="use_tts",
@@ -139,10 +139,13 @@ class TestProjectsRouter:
         )
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
-            assert client.patch("/api/v1/projects/ready", json={"audio_backend": None}).status_code == 422
             assert client.patch("/api/v1/projects/ready", json={"narration_voice": "  "}).status_code == 422
             assert fake_pm.project_data["ready"]["audio_backend"] == "dashscope/qwen3-tts-flash"
             assert fake_pm.project_data["ready"]["narration_voice"] == "Cherry"
+
+            assert client.patch("/api/v1/projects/ready", json={"audio_backend": None}).status_code == 200
+            assert "narration_voice" not in fake_pm.project_data["ready"]
+            assert "audio_backend" not in fake_pm.project_data["ready"]
 
     def test_update_project_clears_tts_speed(self, tmp_path, monkeypatch):
         """语速 null = 不向供应商传语速，从快照中移除，不回落全局默认。"""

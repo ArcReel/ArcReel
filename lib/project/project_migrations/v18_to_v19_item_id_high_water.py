@@ -38,12 +38,12 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.media_artifact_currency import V1_AUDIO_RULES
 from lib.artifacts.visual_artifact_provenance import ASSET_NAME_FREE_IMAGE_BASIS_KINDS, without_asset_names
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.project.item_id_history import max_used_item_numbers
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.legacy_audio import V1_AUDIO_RULES
 from lib.project.project_schema import parse_project_schema_version
 from lib.script.item_ids import raise_item_id_high_water
 

@@ -29,7 +29,6 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_editor import resolve_items
 from lib.speech.narration_config import NarrationConfigError
 from lib.speech.narration_delivery import (
-    TtsSynthesisSettings,
     build_narration_audio_basis,
     register_narration_audio_transactionally,
 )
@@ -137,6 +136,9 @@ class _FakeAudioGenerator:
         self.rejected_versions: list[int] = []
         self.version_records: list[dict[str, Any]] = []
         self.current_version = 0
+
+    def get_current_version(self, resource_type, resource_id):
+        return self.current_version
 
     async def generate_audio_async(self, **kwargs):
         if before_submit := kwargs.get("before_submit"):
@@ -448,14 +450,8 @@ class TestExecuteTtsTask:
         assert gen.version_records[-1]["tts_actual_duration_seconds"] == 5.25
         assert gen.version_records[-1]["execution_script_file"] == "episode_1.json"
 
-        settings = TtsSynthesisSettings(
-            provider_id="dashscope",
-            model_id="qwen3-tts-flash",
-            voice="Cherry",
-            speed=None,
-        )
         items, _id_field, kind = resolve_items(pm.script)
-        basis = build_narration_audio_basis(admit_script_unit(kind, items[0]).preparation, settings)
+        basis = build_narration_audio_basis(admit_script_unit(kind, items[0]).preparation)
         comparison = ArtifactManifest(ProjectArtifactManifestAdapter(pm.project_path)).compare(
             ArtifactKey.episode_audio(1, "E1S01"),
             artifact_path="audio/segment_E1S01.wav",
@@ -540,12 +536,10 @@ class TestExecuteTtsTask:
             "status": "pending",
         }
         items, _id_field, kind = resolve_items(pm.script)
-        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
         register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
-            settings=settings,
         )
         adapter = ProjectArtifactManifestAdapter(pm.project_path)
         prior_entry = adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01"))
@@ -579,8 +573,19 @@ class TestExecuteTtsTask:
         }
         assert adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01")) == prior_entry
 
-    async def test_tts_settings_change_before_commit_keeps_paid_history_without_taking_current(
+    @pytest.mark.parametrize(
+        ("patch", "parent_changed", "selected"),
+        [
+            ({"narration_voice": "Ada"}, False, True),
+            ({"narration_delivery": "post_production"}, False, False),
+            ({}, True, False),
+        ],
+    )
+    async def test_commit_rechecks_delivery_and_keeps_frozen_voice(
         self,
+        patch,
+        parent_changed,
+        selected,
         tts_env,
         monkeypatch: pytest.MonkeyPatch,
     ):
@@ -593,22 +598,22 @@ class TestExecuteTtsTask:
             "status": "pending",
         }
         items, _id_field, kind = resolve_items(pm.script)
-        initial_settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
         register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
-            settings=initial_settings,
         )
         adapter = ProjectArtifactManifestAdapter(pm.project_path)
         prior_entry = adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01"))
         synthesize = gen.generate_audio_async
 
-        async def _voice_changed_during_synthesis(**kwargs):
-            pm.project["narration_voice"] = "Ada"
+        async def change_during_synthesis(**kwargs):
+            pm.project.update(patch)
+            if parent_changed:
+                gen.current_version += 1
             return await synthesize(**kwargs)
 
-        monkeypatch.setattr(gen, "generate_audio_async", _voice_changed_during_synthesis)
+        monkeypatch.setattr(gen, "generate_audio_async", change_during_synthesis)
 
         result = await generation_tasks.execute_tts_task(
             "demo",
@@ -616,8 +621,8 @@ class TestExecuteTtsTask:
             {"script_file": "episode_1.json"},
         )
 
-        assert result["selected_current"] is False
-        assert formal.read_bytes() == b"paid-old-audio"
+        assert result["selected_current"] is selected
+        assert formal.read_bytes() == (b"RIFF-current-audio" if selected else b"paid-old-audio")
         assert (pm.project_path / result["file_path"]).read_bytes() == b"RIFF-current-audio"
         assert gen.version_records[-1]["tts_voice"] == "Cherry"
         assert adapter.get_entry(ArtifactKey.episode_audio(1, "E1S01")) == prior_entry
@@ -650,7 +655,7 @@ class TestExecuteTtsTask:
         assert isinstance(result["tts_basis_digest"], str)
         assert pm.script["video_units"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1U2.wav"
 
-    async def test_synthesis_follows_project_snapshot_and_records_it_as_basis(self, tts_env, monkeypatch):
+    async def test_synthesis_uses_project_override_and_registers_text_basis(self, tts_env, monkeypatch):
         pm, gen = tts_env
         pm.project.update({"audio_backend": "dashscope/qwen-tts-latest", "narration_voice": "Ethan"})
         use_generation_context(
@@ -665,20 +670,38 @@ class TestExecuteTtsTask:
 
         assert gen.audio_calls[0]["voice"] == "Ethan"
         assert gen.audio_calls[0]["tts_model_id"] == "qwen-tts-latest"
-        settings = TtsSynthesisSettings(
-            provider_id="dashscope",
-            model_id="qwen-tts-latest",
-            voice="Ethan",
-            speed=None,
-        )
         items, _id_field, kind = resolve_items(pm.script)
-        basis = build_narration_audio_basis(admit_script_unit(kind, items[0]).preparation, settings)
+        basis = build_narration_audio_basis(admit_script_unit(kind, items[0]).preparation)
         comparison = ArtifactManifest(ProjectArtifactManifestAdapter(pm.project_path)).compare(
             ArtifactKey.episode_audio(1, "E1S01"),
             artifact_path="audio/segment_E1S01.wav",
             basis=basis,
         )
         assert comparison.status is ArtifactStatus.CURRENT
+
+    async def test_queued_audio_keeps_dispatched_model_voice_and_speed(self, tts_env):
+        pm, generator = tts_env
+        pm.project.update(audio_backend="openai/tts-1", narration_voice="alloy", narration_speed=1.5)
+        result = await generation_tasks.execute_tts_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "tts_settings": {
+                    "audio_backend": "dashscope/qwen3-tts-flash",
+                    "narration_voice": "Cherry",
+                    "narration_speed": 0.8,
+                },
+            },
+        )
+        assert result["selected_current"]
+        record = generator.version_records[-1]
+        assert (record["tts_provider_id"], record["tts_model_id"], record["tts_voice"], record["tts_speed"]) == (
+            "dashscope",
+            "qwen3-tts-flash",
+            "Cherry",
+            0.8,
+        )
 
     async def test_post_production_project_is_rejected_before_provider_call(self, tts_env):
         pm, gen = tts_env
@@ -703,12 +726,10 @@ class TestExecuteTtsTask:
         formal.write_bytes(b"paid-old-audio")
         pm.script["segments"][0].setdefault("generated_assets", {})["narration_audio"] = "audio/segment_E1S01.wav"
         items, _id_field, kind = resolve_items(pm.script)
-        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
         old_basis = register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=admit_script_unit(kind, items[0]).preparation,
-            settings=settings,
         )
         pm.script["segments"][0]["novel_text"] = "这次后端写出了无法测量的音频。"
 
@@ -750,12 +771,10 @@ class TestExecuteTtsTask:
         pm.script["segments"][0].setdefault("generated_assets", {})["narration_audio"] = "audio/segment_E1S01.wav"
         items, _id_field, kind = resolve_items(pm.script)
         old_preparation = admit_script_unit(kind, items[0]).preparation
-        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
         old_basis = register_narration_audio_transactionally(
             project_path=pm.project_path,
             episode=1,
             preparation=old_preparation,
-            settings=settings,
         )
         pm.script["segments"][0]["novel_text"] = "这是本次重生的新旁白。"
 
@@ -779,6 +798,39 @@ class TestExecuteTtsTask:
             basis=old_basis,
         )
         assert comparison.status is ArtifactStatus.CURRENT
+
+    async def test_inherited_project_synthesizes_with_global_group_and_reports_missing_voice(
+        self, tts_env, db_factory, monkeypatch
+    ):
+        from lib.config.service import ConfigService
+        from tests.fakes import bind_session_factory
+
+        bind_session_factory(monkeypatch, db_factory)
+        pm, gen = tts_env
+        from lib.project.project_migrations.runner import migrate_project_dir
+
+        project_file = pm.project_path / "project.json"
+        half_group = {**pm.project, "schema_version": 20, "narration_speed": 1.2}
+        del half_group["narration_voice"]
+        project_file.write_text(json.dumps(half_group))
+        migrate_project_dir(pm.project_path)
+        pm.project = json.loads(project_file.read_bytes())
+        assert pm.project["narration_delivery"] == "use_tts"
+        assert {"audio_backend", "narration_voice", "narration_speed"}.isdisjoint(pm.project)
+        async with db_factory() as session:
+            service = ConfigService(session)
+            await service.set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+            await service.set_setting("narration_voice", "")
+            await session.commit()
+        with pytest.raises(NarrationConfigError, match="narration_tts_voice_required"):
+            await generation_tasks.execute_tts_task("demo", "E1S01", {"script_file": "episode_1.json"})
+        assert not gen.audio_calls
+        async with db_factory() as session:
+            await ConfigService(session).set_setting("narration_voice", "voice-clone")
+            await session.commit()
+        result = await generation_tasks.execute_tts_task("demo", "E1S01", {"script_file": "episode_1.json"})
+        assert result["selected_current"]
+        assert gen.version_records[-1]["tts_voice"] == "voice-clone"
 
     async def test_narration_speed_passed_to_generator(self, tts_env):
         pm, gen = tts_env
