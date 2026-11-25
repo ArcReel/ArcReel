@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
-import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -21,9 +19,14 @@ from lib.infra.json_io import atomic_write_json
 from lib.infra.project_write_journal import HISTORY_UNDO_RELATIVE_PATH, is_history_database_name
 from lib.project.project_migration_report import MigrationAdjustment, extend_migration_report
 from lib.project.project_migrations.audio_delivery import upgrade_audio_delivery
-from lib.project.project_migrations.backups import ensure_versioned_backup, kept_copy_name, set_aside_as_kept_copy
+from lib.project.project_migrations.backups import (
+    allocate_kept_copy_path,
+    ensure_versioned_backup,
+    is_kept_copy_for,
+    set_aside_as_kept_copy,
+)
 from lib.project.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES
-from lib.project.project_schema import parse_project_schema_version
+from lib.project.project_schema import SQLITE_HISTORY_SCHEMA_VERSION, parse_project_schema_version
 from lib.project.project_trash import record_deletion, trash_dir
 
 _RETIRED_NAMES = (
@@ -53,6 +56,11 @@ _CONFLICT_MARKER = ".history-conflict-v20.pending.json"
 _HISTORY_MARKER = ".history-v20.pending.json"
 
 
+def _assert_no_history_symlinks(*paths: Path) -> None:
+    if any(path.is_symlink() for path in paths):
+        raise ValueError("unexpected version history symlink")
+
+
 def _preserve_conflicting_database(history: SQLiteHistory, adjustments: list[MigrationAdjustment] | None) -> None:
     path = history.path
     marker = history.project / _CONFLICT_MARKER
@@ -64,15 +72,11 @@ def _preserve_conflicting_database(history: SQLiteHistory, adjustments: list[Mig
         raise ValueError("unexpected conflict marker symlink")
     if marker.exists():
         name = json.loads(marker.read_bytes())
-        if not isinstance(name, str) or not re.fullmatch(re.escape(path.name) + r"\.kept\.v20-\d+", name):
+        if not isinstance(name, str) or not is_kept_copy_for(name, path.name, 20):
             raise ValueError("invalid history conflict marker")
         kept = path.with_name(name)
     elif members:
-        ts = int(time.time())
-        kept = path.with_name(kept_copy_name(path.name, 20, ts))
-        while kept.exists():
-            ts += 1
-            kept = path.with_name(kept_copy_name(path.name, 20, ts))
+        kept = allocate_kept_copy_path(path, 20)
         atomic_write_json(marker, kept.name)
     else:
         return
@@ -100,8 +104,7 @@ def prepare_legacy_history(project_dir: Path, version: int, adjustments: list[Mi
     with project_metadata_lock(project_dir, journal=False):
         if (project_dir / _HISTORY_MARKER).exists():
             return
-        if history.path.parent.is_symlink() or history.path.is_symlink() or source.is_symlink():
-            raise ValueError("unexpected version history symlink")
+        _assert_no_history_symlinks(history.path.parent, history.path, source)
         if version == 20:
             ensure_versioned_backup(project_dir / "project.json", version)
         if source.exists():
@@ -117,13 +120,12 @@ def migrate_v20_to_v21(
     project_file = project_dir / "project.json"
     with project_metadata_lock(project_dir, journal=False):
         project = json.loads(project_file.read_bytes())
-        if parse_project_schema_version(project) >= 21:
+        if parse_project_schema_version(project) >= SQLITE_HISTORY_SCHEMA_VERSION:
             return
         history = SQLiteHistory(project_dir)
         source = history.path.with_name("versions.json")
         pending = project_dir / _HISTORY_MARKER
-        if any(path.is_symlink() for path in (source, pending, history.path.parent, history.path)):
-            raise ValueError("unexpected version history symlink")
+        _assert_no_history_symlinks(source, pending, history.path.parent, history.path)
         ensure_versioned_backup(project_file, 20)
         ensure_versioned_backup(source, 20)
         if pending.exists():
@@ -159,20 +161,19 @@ def migrate_v20_to_v21(
             records = history.read_exchange(source) if source.exists() else {}
             history.create(records)
         source.unlink(missing_ok=True)  # hard-delete: infra -- versioned backup preserves the legacy history
-        atomic_write_json(project_file, {**project, "schema_version": 21})
+        atomic_write_json(project_file, {**project, "schema_version": SQLITE_HISTORY_SCHEMA_VERSION})
 
 
 def activate_current_history(project_dir: Path) -> bool:
     history = SQLiteHistory(project_dir)
     source = history.path.with_name("versions.json")
     with project_metadata_lock(project_dir, journal=False):
-        if any(path.is_symlink() for path in (history.path.parent, history.path, source)):
-            raise ValueError("unexpected version history symlink")
+        _assert_no_history_symlinks(history.path.parent, history.path, source)
         if not source.exists():
             if not history.is_enabled():
                 raise ValueError("missing v21 version history: versions/history.sqlite3")
             return False
-        ensure_versioned_backup(source, 21)
+        ensure_versioned_backup(source, SQLITE_HISTORY_SCHEMA_VERSION)
         if not history.is_enabled():
             history.create(history.read_exchange(source))
         else:
@@ -181,17 +182,21 @@ def activate_current_history(project_dir: Path) -> bool:
             except ValueError:
                 duplicate = False
             if not duplicate:
-                kept = set_aside_as_kept_copy(source, 21)
-                extend_migration_report(
-                    project_dir,
-                    adjusted=[
-                        MigrationAdjustment(
-                            code="history_conflict_preserved",
-                            file=source.relative_to(project_dir).as_posix(),
-                            backup=kept.relative_to(project_dir).as_posix(),
-                        )
-                    ],
-                )
+                kept = set_aside_as_kept_copy(source, SQLITE_HISTORY_SCHEMA_VERSION)
+                try:
+                    extend_migration_report(
+                        project_dir,
+                        adjusted=[
+                            MigrationAdjustment(
+                                code="history_conflict_preserved",
+                                file=source.relative_to(project_dir).as_posix(),
+                                backup=kept.relative_to(project_dir).as_posix(),
+                            )
+                        ],
+                    )
+                except Exception:
+                    kept.replace(source)
+                    raise
                 return True
         source.unlink()  # hard-delete: infra -- versioned backup preserves the exchange history
         return True

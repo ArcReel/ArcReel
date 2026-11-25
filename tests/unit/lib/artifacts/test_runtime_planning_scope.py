@@ -40,21 +40,58 @@ def test_runtime_releases_each_episode_and_its_evidence(tmp_path: Path) -> None:
 
 def test_single_sheet_avoids_unrelated_asset_entries(tmp_path: Path) -> None:
     class DirectLookup(dict):
+        sealed = False
+
+        def _check(self):
+            if self.sealed:
+                raise AssertionError("single-sheet lookup enumerated the project asset bucket")
+
+        def __iter__(self):
+            self._check()
+            return super().__iter__()
+
+        def keys(self):
+            self._check()
+            return super().keys()
+
+        def values(self):
+            self._check()
+            return super().values()
+
         def items(self):
-            raise AssertionError("single-sheet lookup enumerated the project asset bucket")
+            self._check()
+            return super().items()
 
     characters = DirectLookup({str(i): {} for i in range(400)})
     characters["hero"] = {"description": "traveller", "character_sheet": "characters/hero.png"}
+    characters["Cafe\u0301"] = {"description": "traveller", "character_sheet": "characters/Café.png"}
     project = {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "characters": characters}
     resolver = ArtifactCurrencyResolver(tmp_path, project=project)
+    characters.sealed = True
     assert resolver.resolve_basis(ArtifactKey.asset_sheet("character", "hero")) is not None
+    assert resolver.resolve_basis(ArtifactKey.asset_sheet("character", "Café")) is not None
+    assert resolver.resolve_basis(ArtifactKey.asset_sheet("character", "absent")) is None
 
 
-@pytest.mark.parametrize("appeared", ["characters/hero.png", "scripts/added.json", "grids/grid_123456789abc.json"])
+@pytest.mark.parametrize(
+    "appeared",
+    ["characters/hero.png", "scripts/added.json", "grids/grid_123456789abc.json", "bgm/bgm-12345678.mp3"],
+)
 def test_preflight_refuses_new_input(tmp_path: Path, appeared: str) -> None:
     metadata = {
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "characters": {"hero": {"description": "hero", "character_sheet": "characters/hero.png"}},
+        "bgm": {
+            "bgm-12345678": {
+                "name": "Theme",
+                "file": "bgm/bgm-12345678.mp3",
+                "duration_us": 10_000_000,
+                "integrated_lufs": -16.0,
+                "gain_db": 0.0,
+                "content_digest": "sha256:" + "0" * 64,
+                "uploaded_at": "2026-11-25T00:00:00Z",
+            }
+        },
     }
     (tmp_path / "project.json").write_text(json.dumps(metadata))
     plan = TargetStatePlanner(tmp_path).plan()

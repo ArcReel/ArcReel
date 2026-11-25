@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 CURRENT_PROJECT_SCHEMA_VERSION = 21
+SQLITE_HISTORY_SCHEMA_VERSION = 21
 
 
 def parse_project_schema_version(project: Mapping[str, object]) -> int:
@@ -29,6 +30,7 @@ def project_schema_is_current(project: Mapping[str, object]) -> bool:
 
 __all__ = [
     "CURRENT_PROJECT_SCHEMA_VERSION",
+    "SQLITE_HISTORY_SCHEMA_VERSION",
     "parse_project_schema_version",
     "project_schema_is_current",
 ]

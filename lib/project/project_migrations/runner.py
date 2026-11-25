@@ -71,7 +71,11 @@ from lib.project.project_migrations.v20_to_v21_retired_drafts import (
     migrate_v20_to_v21,
     prepare_legacy_history,
 )
-from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
+from lib.project.project_schema import (
+    CURRENT_PROJECT_SCHEMA_VERSION,
+    SQLITE_HISTORY_SCHEMA_VERSION,
+    parse_project_schema_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +197,11 @@ def migrate_project_dir(
         return False
     if version >= CURRENT_SCHEMA_VERSION:
         changed = False
-        if version == 21 and not restoring_snapshot and _current_history_needs_activation(project_dir):
+        if (
+            version == SQLITE_HISTORY_SCHEMA_VERSION
+            and not restoring_snapshot
+            and _current_history_needs_activation(project_dir)
+        ):
             changed = activate_current_history(project_dir)
         _finish_unfinished_report(project_dir)
         return changed
@@ -365,7 +373,9 @@ def run_project_migrations(
         if version < 0:
             continue
         try:
-            if version >= CURRENT_SCHEMA_VERSION and not (version == 21 and _current_history_needs_activation(child)):
+            if version >= CURRENT_SCHEMA_VERSION and not (
+                version == SQLITE_HISTORY_SCHEMA_VERSION and _current_history_needs_activation(child)
+            ):
                 clear_migration_failure(child)
                 _finish_unfinished_report(child)
                 summary.skipped.append(child.name)
@@ -397,7 +407,9 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (
                 project_dir / "versions" / "versions.json",
-                (*project_backup_versions, 21) if schema_version == 21 else project_backup_versions,
+                (*project_backup_versions, SQLITE_HISTORY_SCHEMA_VERSION)
+                if schema_version >= SQLITE_HISTORY_SCHEMA_VERSION
+                else project_backup_versions,
             ),
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),

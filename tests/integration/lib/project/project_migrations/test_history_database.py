@@ -101,7 +101,7 @@ def test_current_archive_requires_valid_exchange_history(tmp_path, history):
     assert projects.list_projects() == []
 
 
-def test_current_native_project_prefers_its_database_and_retires_conflicting_exchange(tmp_path):
+def test_current_native_project_prefers_its_database_and_retires_conflicting_exchange(tmp_path, monkeypatch):
     (tmp_path / "project.json").write_text('{"schema_version":21}')
     store = SQLiteHistory(tmp_path)
     store.path.parent.mkdir()
@@ -110,6 +110,16 @@ def test_current_native_project_prefers_its_database_and_retires_conflicting_exc
     assert migrate_project_dir(tmp_path)
     assert store.snapshot() == {"videos": {}}
     source.write_text('{"audio":{}}')
+
+    def report_unavailable(*args, **kwargs):
+        raise OSError("report unavailable")
+
+    with monkeypatch.context() as fault:
+        fault.setattr(step, "extend_migration_report", report_unavailable)
+        with pytest.raises(OSError, match="report unavailable"):
+            migrate_project_dir(tmp_path)
+    assert json.loads(source.read_bytes()) == {"audio": {}}
+
     assert migrate_project_dir(tmp_path)
     assert not source.exists()
     assert store.snapshot() == {"videos": {}}

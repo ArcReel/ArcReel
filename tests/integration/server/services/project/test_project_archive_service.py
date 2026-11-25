@@ -319,6 +319,7 @@ class TestProjectArchiveService:
 
         _write_text(pm.get_project_path("demo") / "versions/versions.json.bak.v20-1", "old")
         _write_text(pm.get_project_path("demo") / "versions/versions.json", "invalid stale history")
+        _write_text(pm.get_project_path("demo") / "source/history.sqlite3-notes.txt", "notes")
         monkeypatch.setattr(SQLiteHistory, "snapshot", reject_bulk_read)
         archive_path, download_name = service.export_project("demo")
         assert download_name.startswith("demo-")
@@ -328,7 +329,10 @@ class TestProjectArchiveService:
             names = set(archive.namelist())
             assert f"demo/{ARCHIVE_MANIFEST_NAME}" in names
             assert "demo/versions/versions.json" in names
-            assert not any("history.sqlite3" in name or ".bak.v" in name or ".history-undo" in name for name in names)
+            assert archive.read("demo/source/history.sqlite3-notes.txt") == b"notes"
+            assert not any(
+                "demo/versions/history.sqlite3" in name or ".bak.v" in name or ".history-undo" in name for name in names
+            )
             assert "demo/project.json" in names
             assert "demo/source/chapter.txt" in names
             assert "demo/scripts/episode_1.json" in names
@@ -2120,23 +2124,9 @@ class TestProjectArchiveService:
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
-        _write_json(
-            project_dir / "versions" / "versions.json",
-            {
-                "audio": {
-                    "E1S01": {
-                        "current_version": 1,
-                        "versions": [
-                            {
-                                "version": 1,
-                                "file": "versions/audio/E1S01_v1.wav",
-                                "prompt": "旁白",
-                                "created_at": "2024-01-01",
-                            }
-                        ],
-                    }
-                }
-            },
+        SQLiteHistory(project_dir).append_selected(
+            ("audio", "E1S01"),
+            {"version": 1, "file": "versions/audio/E1S01_v1.wav", "prompt": "旁白", "created_at": "2024-01-01"},
         )
         _write_bytes(project_dir / "versions" / "audio" / "E1S01_v1.wav", b"wav-v1")
         _write_json(
@@ -2706,3 +2696,35 @@ def test_claims_the_migration_chain_rekeys_keep_their_archived_content_digests(t
 
 
 _BOB_SHEET = ArtifactKey.asset_sheet("character", "Bob")
+
+
+def test_export_snapshot_rejects_concurrent_sqlite_history_mutation(tmp_path: Path, monkeypatch) -> None:
+    from lib.artifacts.artifact_manifest import ArtifactManifestError
+    from lib.artifacts.sqlite_history import SQLiteHistory
+    from lib.artifacts.version_manager import VersionManager
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    project_dir = pm.get_project_path("demo")
+    sheet = project_dir / "characters" / "hero.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"v1")
+    vm = VersionManager(project_dir)
+    vm.add_version("characters", "hero", "", source_file=sheet)
+
+    original_backup = SQLiteHistory.backup_to
+    counter = {"n": 0}
+
+    def mutate_during_backup(self: SQLiteHistory, target: SQLiteHistory) -> None:
+        original_backup(self, target)
+        counter["n"] += 1
+        batch = self.resources([("characters", "hero")])
+        batch["characters"]["hero"]["versions"][0]["prompt"] = f"mutated-{counter['n']}"
+        self.save(batch)
+
+    monkeypatch.setattr(SQLiteHistory, "backup_to", mutate_during_backup)
+    service = ProjectArchiveService(pm)
+    with pytest.raises(ArtifactManifestError, match="project changed repeatedly"):
+        service.export_project("demo", scope="full")
+    assert counter["n"] == 3

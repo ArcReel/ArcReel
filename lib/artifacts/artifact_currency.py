@@ -132,6 +132,7 @@ class ArtifactCurrencyResolver:
         )
         if not project_schema_is_current(root_planner.project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
+        self._runtime.index_asset_names(root_planner.project)
         self.manifest_snapshot = root_planner.adapter.read_snapshot()
         root_planner.manifest_snapshot = self.manifest_snapshot
         root_planner.shared_observations = {}

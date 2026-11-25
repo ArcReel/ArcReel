@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping
@@ -36,6 +35,7 @@ from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import atomic_write_json
 from lib.infra.project_write_journal import is_history_database_name
 from lib.project import project_trash
+from lib.project.project_migrations.backups import is_migration_copy_name
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_trash import RestoredFile, RestoreResult, TrashRecord
 from lib.script.source_loader.migration import migrate_project_source_encoding
@@ -45,7 +45,6 @@ __all__ = ["Landing", "Restoration", "RestoreBlocked", "TakeRule", "restore_stru
 logger = logging.getLogger(__name__)
 
 _COPIED_SUFFIXES = frozenset({".json", ".md", ".txt"})
-_MIGRATION_COPY_RE = re.compile(r"\.(?:bak|kept)\.v\d+-\d+")
 
 
 class RestoreBlocked(ConflictError):
@@ -211,7 +210,7 @@ def _non_structure_files(staged: Path) -> list[str]:
     for dirpath, dirnames, filenames in os.walk(staged):
         top = Path(dirpath) == staged
         dirnames[:] = sorted(
-            name for name in dirnames if not (top and name.startswith(".")) and not _MIGRATION_COPY_RE.search(name)
+            name for name in dirnames if not (top and name.startswith(".")) and not is_migration_copy_name(name)
         )
         for name in sorted(filenames):
             path = Path(dirpath) / name
@@ -219,7 +218,7 @@ def _non_structure_files(staged: Path) -> list[str]:
             if (
                 (top and name.startswith("."))
                 or (path.parent == staged / "versions" and is_history_database_name(name))
-                or _MIGRATION_COPY_RE.search(name)
+                or is_migration_copy_name(name)
                 or path.is_symlink()
                 or not path.is_file()
                 or project_trash.is_structure_file(rel)
