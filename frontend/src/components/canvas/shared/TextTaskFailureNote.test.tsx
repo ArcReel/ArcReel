@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Router } from "wouter";
@@ -46,7 +47,7 @@ describe("TextTaskFailureNote", () => {
     await i18n.changeLanguage("en");
     const summary = "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.";
     const report = "❌ 产出有 5 处违约；open_draft(...)；patch_draft 携带 base_revision";
-    useTasksStore.setState({ tasks: [failed({ task_type: taskType, resource_id: "episode-1", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: report })] });
+    seedTaskState({ tasks: [failed({ task_type: taskType, resource_id: "episode-1", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: report })] });
     renderNote();
     expect(screen.getByRole("alert")).toHaveTextContent(summary);
     expect(screen.getByRole("alert")).not.toHaveTextContent("open_draft");
@@ -57,9 +58,8 @@ describe("TextTaskFailureNote", () => {
   it.each([
     ["text_narration_script_plan", "episode-1", "上一次 AI 规划脚本失败"],
     ["text_episode_script", "episode-1", "上一次编写提示词失败"],
-    ["text_draft_repair", "episode-1-narration_script_plan", "上一次 AI 修复失败"],
   ])("sends a truncated custom model of %s to its entry in settings", (taskType, resourceId, lead) => {
-    useTasksStore.setState({ tasks: [truncated({ task_type: taskType, resource_id: resourceId }, true)] });
+    seedTaskState({ tasks: [truncated({ task_type: taskType, resource_id: resourceId }, true)] });
     const location = renderNote();
 
     expect(screen.getByRole("alert")).toHaveTextContent(`${lead}：${TRUNCATED}`);
@@ -68,15 +68,15 @@ describe("TextTaskFailureNote", () => {
     expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
   });
 
-  it.each(["text_episode_script", "text_draft_repair", "text_narration_script_plan"])("links a missing default model in %s to Default models", (taskType) => {
-    useTasksStore.setState({ tasks: [failed({ task_type: taskType, resource_id: taskType === "text_draft_repair" ? "episode-1-narration_script_plan" : "episode-1", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+  it.each(["text_episode_script", "text_narration_script_plan"])("links a missing default model in %s to Default models", (taskType) => {
+    seedTaskState({ tasks: [failed({ task_type: taskType, resource_id: "episode-1", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
     const location = renderNote();
     fireEvent.click(screen.getByRole("link", { name: "设置默认模型" }));
     expect(location.history.at(-1)).toBe("/app/settings?section=default-models");
   });
 
   it("asks to switch models when a built-in model is truncated", () => {
-    useTasksStore.setState({ tasks: [truncated({ task_type: "text_episode_script", resource_id: "episode-1" }, false)] });
+    seedTaskState({ tasks: [truncated({ task_type: "text_episode_script", resource_id: "episode-1" }, false)] });
     renderNote();
 
     expect(screen.getByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe("TextTaskFailureNote", () => {
 
   it("keeps the problem code, params and server text of a localized failure behind its details", () => {
     const summary = "custom-2/I2V_H3 不支持参考生视频；请在设置中为「参考生视频」单独指定支持该用途的模型，或更换默认视频模型";
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         failed({
           task_type: "text_reference_script_plan",
@@ -110,7 +110,7 @@ describe("TextTaskFailureNote", () => {
   });
 
   it("shows only the latest text task of this episode, until it is dismissed", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         failed({ task_id: "old", task_type: "text_episode_script", resource_id: "episode-1", error_message: "旧的失败" }),
         failed({
@@ -137,7 +137,7 @@ describe("TextTaskFailureNote", () => {
   });
 
   it("stays away once the latest text task of this episode has not failed", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         failed({ task_type: "text_episode_script", resource_id: "episode-1" }),
         makeTask({
@@ -145,6 +145,7 @@ describe("TextTaskFailureNote", () => {
           task_type: "text_episode_script",
           resource_id: "episode-1",
           status: "running",
+          task_id: "next-generation",
           queued_at: "2026-10-01T11:00:00Z",
         }),
       ],
@@ -159,7 +160,7 @@ describe("TextTaskFailureNote", () => {
     ["有正式脚本时按违约失败的标记认出整份生成", { hasScript: true }, { error_code: "ad_script_rejected" }],
     ["有正式脚本时按整份重做的标记认出整份生成", { hasScript: true }, { payload: { regenerate: true } }],
   ])("labels an ad whole-script generation failure: %s", (_name, ad, overrides) => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         failed({
           task_type: "text_episode_script",
@@ -175,7 +176,7 @@ describe("TextTaskFailureNote", () => {
   });
 
   it("keeps prompt authoring failures of an ad episode with a script as prompt authoring", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [failed({ task_type: "text_episode_script", resource_id: "episode-1", error_message: "模型超时" })],
     });
     renderNote(1, { hasScript: true });

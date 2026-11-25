@@ -47,13 +47,12 @@ from lib.episode.episode_paths import episode_script_relpath, episode_source_pat
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
     CutPlacement,
+    EpisodeFileArchives,
     SourceOrigin,
-    archive_episode_file_path,
     changed_outside_service,
     cut_episode_placements,
     cut_insert_index,
     discover_sources,
-    source_snapshot_path,
     sync_source_snapshots,
     whole_source_files,
 )
@@ -387,12 +386,10 @@ def _check_fingerprints(project_dir: Path, project: dict[str, Any], docs: list[S
         project[SOURCE_FINGERPRINTS_KEY] = recorded
 
 
-def _write_derived(project_dir: Path, episode: int, text: str, *, fresh: bool) -> None:
+def _write_derived(project_dir: Path, episode: int, text: str) -> None:
     path = episode_source_path(project_dir, episode)
-    if path.is_symlink() and not fresh:
+    if path.is_symlink():
         raise ManualSplitError("episode_source_symlink", f"集（id={episode}）的集文件是符号链接，拒绝写入")
-    if fresh and (path.exists() or path.is_symlink()):
-        path.rename(archive_episode_file_path(path))
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -447,10 +444,10 @@ def _apply(
 
     text = layout.text
     for episode, (start, end) in edit.ranges.items():
-        _write_derived(project_dir, episode, text[start:end], fresh=False)
+        _write_derived(project_dir, episode, text[start:end])
     if new_episode is not None and edit.new_range is not None:
         start, end = edit.new_range
-        _write_derived(project_dir, new_episode, text[start:end], fresh=True)
+        _write_derived(project_dir, new_episode, text[start:end])
     for episode in edit.dropped:
         _remove_derived(project_dir, episode)
     sync_source_snapshots(project_dir, project, {doc.rel_path: doc.text for doc in layout.docs}, refreshed=())
@@ -484,10 +481,11 @@ def _run(
     if dry_run or _needs_confirmation(impact):
         return ManualSplitConfirmationRequired(impact=impact)
 
-    planned_new_id = episode_id_high_water(project) + 1
-    touched = {*edit.ranges, *edit.dropped, planned_new_id}
+    new_ids = [episode_id_high_water(project) + 1] if edit.new_range is not None else []
+    touched = {*edit.ranges, *edit.dropped, *new_ids}
+    source_files = whole_source_files(project)
     formal_paths = [episode_source_path(project_dir, episode) for episode in sorted(touched)]
-    formal_paths.extend(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project))
+    archives = EpisodeFileArchives(project_dir, new_ids, formal_paths, source_files=source_files)
     committed: dict[str, Any] = {}
 
     def _commit(p: dict[str, Any]) -> None:
@@ -497,15 +495,19 @@ def _run(
         if _needs_confirmation(locked_impact):
             raise _NeedsConfirmation(locked_impact)
         locked_touched = {*locked_edit.ranges, *locked_edit.dropped}
-        if locked_edit.new_range is not None:
-            locked_touched.add(episode_id_high_water(p) + 1)
-        if not locked_touched <= touched:
+        locked_new_ids = [episode_id_high_water(p) + 1] if locked_edit.new_range is not None else []
+        if (
+            not locked_touched <= touched
+            or locked_new_ids != new_ids
+            or not set(whole_source_files(p)) <= set(source_files)
+        ):
             raise ManualSplitError("conflict", "分集账本刚被改动，本次调整没有执行")
+        archives.apply()
         committed["episode"] = _apply(project_dir, p, locked_layout, locked_edit, locked_impact)
         committed["impact"] = locked_impact
 
     try:
-        pm.update_project(project_name, _commit, formal_paths=formal_paths)
+        pm.update_project(project_name, _commit, formal_paths=archives.prepare_protected_paths)
     except _NeedsConfirmation as exc:
         return ManualSplitConfirmationRequired(impact=exc.impact)
     result_impact: ManualSplitImpact = committed["impact"]

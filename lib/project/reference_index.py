@@ -31,12 +31,9 @@ from lib.artifacts.artifact_manifest import ArtifactKind, ProjectArtifactManifes
 from lib.bgm.library import PROJECT_BGM_FIELD
 from lib.episode.episode_ids import item_id_episode
 from lib.episode.episode_paths import (
-    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-    SCRIPT_PLAN_FILENAMES,
+    SCRIPT_PLAN_PRODUCT_FILENAMES,
     episode_drafts_dir,
     episode_source_relpath,
-    script_plan_read_candidates,
 )
 from lib.episode.episode_sources import (
     SOURCE_SNAPSHOTS_DIR,
@@ -48,7 +45,6 @@ from lib.episode.episode_sources import (
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, normalize_asset_name
 from lib.project.project_migrations.backups import is_versioned_backup_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
-from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
 
 __all__ = ["FileOwner", "FileReference", "FileRole", "ReferenceIndex", "is_infrastructure_path"]
@@ -121,16 +117,6 @@ _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "s
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
 _ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
-_EPISODE_DRAFT_FILENAMES = tuple(
-    dict.fromkeys(
-        (
-            *QUARANTINE_FILENAMES,
-            *(name for mode in SCRIPT_PLAN_FILENAMES for name in script_plan_read_candidates(mode)),
-            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-            REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-        )
-    )
-)
 
 
 def is_infrastructure_path(rel: str) -> bool:
@@ -314,7 +300,7 @@ class ReferenceIndex:
         for entry in _ledger(project):
             episode = entry["episode"]
             owner = FileOwner("episode", episode=episode)
-            for filename in _EPISODE_DRAFT_FILENAMES:
+            for filename in SCRIPT_PLAN_PRODUCT_FILENAMES:
                 draft = episode_drafts_dir(project_dir, episode) / filename
                 self._mark(draft.relative_to(project_dir).as_posix(), FileRole.STRUCTURE, owner)
             script_file = _normalize(entry.get("script_file"))

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssetSheetBatchDialog } from "./AssetSheetBatchDialog";
+import { hasActiveAssetName, hasActiveDerivativeId } from "./assetBusyGuard";
 import { pendingSheetCounts } from "./useAssetSheetStatus";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
@@ -21,7 +22,9 @@ export function AssetSheetBatchControls({
   const activeOwners = useActiveResourceIds(assetType, projectName);
   const activeDerivatives = useActiveResourceIds("character_derivative", projectName);
   const { generatable, missingDescription } = pendingSheetCounts(rows, assetType, (row) =>
-    row.derivative === null ? activeOwners.has(row.name) : activeDerivatives.has(`${row.name}/${row.derivative}`),
+    row.derivative === null
+      ? hasActiveAssetName(activeOwners, row.name)
+      : hasActiveDerivativeId(activeDerivatives, `${row.name}/${row.derivative}`),
   );
 
   return (

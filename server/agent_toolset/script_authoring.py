@@ -9,29 +9,19 @@ from __future__ import annotations
 from typing import Any
 
 from lib.generation.generation_batch import GenerationBatchReadModel
-from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from server.agent_toolset.declaration import BLOCKED, TEXT_OUTPUT_TRUNCATED_NOTE, ToolDeclaration
 from server.agent_toolset.envelope import json_value
 from server.tool_runtime import (
     ConfirmScriptReviewRequest,
-    DiscardDraftRequest,
-    DraftLocator,
     GenerateEpisodeScriptRequest,
     GenerateScriptPlanRequest,
-    PatchDraftRequest,
-    PromoteDraftRequest,
     confirm_script_review,
-    discard_draft,
     generate_episode_script,
     generate_script_plan,
-    open_draft,
-    patch_draft,
-    promote_draft,
 )
 
 _TEXT_GENERATION = "text_generation"
 _GENERATION_BATCH = "generation_batch"
-_DRAFT = "draft"
 
 
 def _text_generation_structured(value: Any) -> dict[str, Any]:
@@ -94,67 +84,15 @@ CONFIRM_SCRIPT_REVIEW = ToolDeclaration(
     handler=confirm_script_review,
 )
 
-OPEN_DRAFT = ToolDeclaration(
-    name=OPEN_DRAFT_TOOL_NAME,
-    description=(
-        "读取指定草稿；草稿不存在时从对应正式文档创建编辑副本。返回完整正文、上一轮产出或晋升判定的违约、"
-        "canonical revision，以及正式文档的 formal_revision（与 get_script_plan_content、"
-        "制作计划给出的 revision 同一写法）。"
-    ),
-    request_model=DraftLocator,
-    migration=BLOCKED,
-    domain_key=_DRAFT,
-    handler=open_draft,
-)
-
-PATCH_DRAFT = ToolDeclaration(
-    name="patch_draft",
-    description=(
-        "按 canonical revision 原子替换草稿正文；revision 冲突时拒绝且不写入。"
-        "给出 accept_formal_revision 即接受正式文档的并发修改，给出 source 即更新重判范围，二者显式传 null 同样生效。"
-        "回执带新正文与 revision，不含违约：本工具不重判，修改后的违约以 promote_draft 的全量重判为准。"
-    ),
-    request_model=PatchDraftRequest,
-    migration=BLOCKED,
-    domain_key=_DRAFT,
-    handler=patch_draft,
-)
-
-PROMOTE_DRAFT = ToolDeclaration(
-    name=PROMOTE_TOOL_NAME,
-    description="重新全量校验指定草稿；通过则晋升为正式文件并清除草稿，不通过则刷新违约报告。可反复调用。",
-    request_model=PromoteDraftRequest,
-    migration=BLOCKED,
-    domain_key=_DRAFT,
-    handler=promote_draft,
-)
-
-DISCARD_DRAFT = ToolDeclaration(
-    name="discard_draft",
-    description="按 canonical revision 丢弃指定草稿，草稿移入项目回收站；正式文档保持不变。",
-    request_model=DiscardDraftRequest,
-    migration=BLOCKED,
-    domain_key=_DRAFT,
-    handler=discard_draft,
-)
-
 SCRIPT_AUTHORING_TOOLS = (
     GENERATE_EPISODE_SCRIPT,
     GENERATE_SCRIPT_PLAN,
     CONFIRM_SCRIPT_REVIEW,
-    OPEN_DRAFT,
-    PATCH_DRAFT,
-    PROMOTE_DRAFT,
-    DISCARD_DRAFT,
 )
 
 __all__ = [
     "CONFIRM_SCRIPT_REVIEW",
-    "DISCARD_DRAFT",
     "GENERATE_EPISODE_SCRIPT",
     "GENERATE_SCRIPT_PLAN",
-    "OPEN_DRAFT",
-    "PATCH_DRAFT",
-    "PROMOTE_DRAFT",
     "SCRIPT_AUTHORING_TOOLS",
 ]

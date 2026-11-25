@@ -46,8 +46,8 @@ from server.services.tasks.image_edit_tasks import (
 from tests.fakes import (
     bind_session_factory,
     stage_and_commit,
-    use_backend_assembler,
     use_generation_context,
+    use_image_assembler,
     use_project_manager,
 )
 
@@ -976,37 +976,34 @@ class TestImageSizeResolutionEquivalence:
         (pm.projects_dir / "demo").mkdir(parents=True)
         use_project_manager(monkeypatch, pm)
 
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _EchoBackend(name=provider_id, model=model_id or "default-model")
+        async def _assemble(spec):
+            return _EchoBackend(name=spec.snapshot.provider_id, model=spec.snapshot.model_id)
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         generation_context.invalidate_backend_cache()
         yield
         generation_context.invalidate_backend_cache()
 
     @staticmethod
     async def _old_image_size(patched_session_factory, project, payload):
-        """旧执行层口径：resolve_image_backend(i2i) 得 provider/model，再按 model_id 查 resolution。"""
+        from lib.config.resolver import project_resolution
+        from lib.video_runtime.image_resolution import ImageRuntime
+
         resolver = ConfigResolver(patched_session_factory)
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, payload, generation_type="i2i")
-            return await r.resolve_resolution(project, resolved.provider_id, resolved.model_id)
+            resolved, default_res = await ImageRuntime(r).read_identity(project, "i2i", payload=payload)
+            return project_resolution(project, resolved.provider_id, resolved.model_id) or default_res
 
     @pytest.mark.usefixtures("_ctx_env")
     async def test_model_settings_override(self, patched_session_factory):
+        from lib.catalog import query as catalog
+
+        model = catalog.default_model("gemini-aistudio", "image")
+        assert model is not None
+        key = f"gemini-aistudio/{model}"
         project = {
-            "image_provider_i2i": "gemini-aistudio/gemini-image",
-            "model_settings": {"gemini-aistudio/gemini-image": {"resolution": "2048x2048"}},
+            "image_provider_i2i": key,
+            "model_settings": {key: {"resolution": "2048x2048"}},
         }
         old = await self._old_image_size(patched_session_factory, project, None)
         ctx = await resolve_generation_context(
@@ -1017,7 +1014,11 @@ class TestImageSizeResolutionEquivalence:
 
     @pytest.mark.usefixtures("_ctx_env")
     async def test_default_falls_back_to_none(self, patched_session_factory):
-        project = {"image_provider_i2i": "gemini-aistudio/gemini-image"}
+        from lib.catalog import query as catalog
+
+        model = catalog.default_model("gemini-aistudio", "image")
+        assert model is not None
+        project = {"image_provider_i2i": f"gemini-aistudio/{model}"}
         old = await self._old_image_size(patched_session_factory, project, None)
         ctx = await resolve_generation_context(
             "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i")

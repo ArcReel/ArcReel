@@ -457,7 +457,7 @@ async def test_end_frame_duration_is_refused_without_changing_selected_seconds(m
             excluded_durations=((8, "end_frame"),),
         )
 
-    monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", facts)
+    monkeypatch.setattr(admission_mod, "read_video_request_facts", facts)
     item = {"duration_seconds": duration, "end_frame_image": "end_frames/E1S01.png"}
     result = await admit_storyboard_video_batch(
         project_name="demo",

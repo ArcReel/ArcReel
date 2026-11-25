@@ -38,7 +38,6 @@ from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
     VoiceConsistency,
-    builtin_video_audio_track,
     derive_voice_consistency,
 )
 from lib.config.service import ConfigService, ProviderConfigValueError
@@ -56,11 +55,7 @@ from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator, load_display_names_or_builtin
 from server.routers._validators import split_video_backend_query
-from server.services.tasks.video_caps import (
-    annotate_end_frame_tiers,
-    capability_request_facts,
-    duration_constraints_payload,
-)
+from server.services.tasks.video_caps import resolve_project_video_capabilities
 
 if TYPE_CHECKING:
     from lib.db.models.credential import ProviderCredential
@@ -352,18 +347,13 @@ def _build_field(
     return FieldInfo(**field)
 
 
-def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
-    """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
-
-    `VideoCapabilities` 是 backend 侧声明（唯一真相源），目录的模型信息不复制第二份——
-    与 `lib/config/resolver.py::_resolve_video_caps_for_model` 的做法一致。router 层（非
-    lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
-    """
+def _video_model_caps(provider_id: str, model_id: str):
+    if catalog.get_model(provider_id, model_id, media_type="video") is None:
+        return None
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id)
+        return builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
-        return "none"
-    return caps.reference_audio_mode.value
+        return None
 
 
 def _image_quality_options(provider_id: str, model_id: str) -> list[str]:
@@ -387,11 +377,10 @@ async def list_providers(
         models: dict[str, ModelInfoResponse] = {}
         for mid, minfo in (s.models or {}).items():
             silent = VideoAudioMode.ALWAYS_OFF.value
-            audio_track = builtin_video_audio_track(s.name, mid, generation_type="i2v") or silent
-            reference_route_audio_track = builtin_video_audio_track(s.name, mid, generation_type="r2v") or silent
-            reference_audio_mode = (
-                _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
-            )
+            vcaps = _video_model_caps(s.name, mid) if minfo.get("media_type") == "video" else None
+            audio_track = vcaps.audio_track_for_route("i2v").value if vcaps is not None else silent
+            reference_route_audio_track = vcaps.audio_track_for_route("r2v").value if vcaps is not None else silent
+            reference_audio_mode = vcaps.reference_audio_mode.value if vcaps is not None else "none"
             models[mid] = ModelInfoResponse(
                 **minfo,
                 qualities=_image_quality_options(s.name, mid) if minfo.get("media_type") == "image" else [],
@@ -439,26 +428,12 @@ async def get_model_video_capabilities(
     generation_type = "r2v" if uses_reference_images else "i2v"
     candidate_project = {f"video_provider_{generation_type}": f"{provider_id}/{model_id}"}
     try:
-        await resolver.resolve_video_backend(candidate_project, None, generation_type=generation_type)
-        caps = await resolver.video_capabilities_for_model(provider_id, model_id, None, generation_type=generation_type)
-        if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
-            raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
-        request_facts = await capability_request_facts(
+        return await resolve_project_video_capabilities(
             candidate_project,
             generation_type=generation_type,
             config_resolver=resolver,
             resolution_override=ResolutionOverride(resolution or None),
         )
-        caps["duration_constraints"] = duration_constraints_payload(request_facts)
-        await annotate_end_frame_tiers(
-            caps,
-            candidate_project,
-            generation_type=generation_type,
-            config_resolver=resolver,
-            without_end_frame=request_facts,
-            resolution_override=ResolutionOverride(resolution or None),
-        )
-        return caps
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except VideoRequestFactsError as exc:

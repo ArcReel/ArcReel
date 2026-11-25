@@ -1,0 +1,42 @@
+{
+  "method": "PUT",
+  "path": "/api/v1/projects/demo/episodes/2/script-review/content",
+  "status": 200,
+  "body": {
+    "blocking_issues": [
+      {
+        "code": "video_capability_unavailable",
+        "label": "",
+        "message": "无法解析 i2v 视频能力，请检查供应商与模型配置",
+        "line": null,
+        "params": {
+          "capability": "i2v"
+        }
+      }
+    ],
+    "soft_violations": [],
+    "revision": "sha256-v1:a2446d6e178e71de1110a98808e988a84300dcf6925e8a6a28c4fc07644590b1",
+    "episode": 2,
+    "content_mode": "narration",
+    "status": "pending_review",
+    "fingerprint": "a2446d6e178e71de1110a98808e988a84300dcf6925e8a6a28c4fc07644590b1",
+    "confirmed_at": null,
+    "content": {
+      "segments": [
+        {
+          "novel_text": "山雨初歇。",
+          "duration_seconds": 4,
+          "segment_break": false,
+          "characters_in_segment": [],
+          "scenes": [],
+          "props": [],
+          "segment_id": "E2S01"
+        }
+      ]
+    },
+    "supported_durations": null,
+    "episode_target_duration": null,
+    "script_overwrite": null,
+    "duration_tiers": null
+  }
+}

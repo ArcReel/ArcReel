@@ -80,13 +80,15 @@ class TestTextProviderBilling:
 
 class TestFactoryWiring:
     async def test_text_factory_uses_openai_backend_with_minimax_provider(self):
-        """provider=minimax 经 text 工厂 → assemble_backend → OpenAI 后端，base_url 派生 /v1，provider_name 透传。"""
+        """provider=minimax 经文本运行时装配 → OpenAI 后端，base_url 派生 /v1，provider_name 透传。"""
         import lib.backends.text_backends.registry as text_registry
-        from lib.backends.text_backends import factory
+        from lib.backends.text_backends.base import TextTaskType
+        from lib.config.resolver import ProviderModel
+        from lib.video_runtime import text as text_runtime
 
         resolver = MagicMock()
         session_cm = MagicMock()
-        session_cm.text_backend_for_task = AsyncMock(return_value=(PROVIDER_MINIMAX, "MiniMax-M2.7"))
+        session_cm.configured_text_identity = AsyncMock(return_value=ProviderModel(PROVIDER_MINIMAX, "MiniMax-M2.7"))
         session_cm.provider_config_with_credential = AsyncMock(
             return_value=({"api_key": "sk-mm", "base_url": None}, None)
         )
@@ -101,10 +103,10 @@ class TestFactoryWiring:
             return MagicMock()
 
         with (
-            patch.object(factory, "ConfigResolver", return_value=resolver),
+            patch.object(text_runtime, "ConfigResolver", return_value=resolver),
             patch.object(text_registry, "create_backend", side_effect=_fake_create_backend),
         ):
-            await factory.create_text_backend_for_task("script")
+            await text_runtime.resolve_and_assemble_text(TextTaskType.SCRIPT)
 
         assert captured["backend_name"] == "openai"
         assert captured["provider_name"] == PROVIDER_MINIMAX

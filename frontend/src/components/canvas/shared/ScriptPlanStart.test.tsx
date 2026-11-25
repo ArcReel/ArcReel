@@ -1,8 +1,8 @@
+import { seedTasks } from "@/test/task-state";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { makePlan, makeStatus, makeTask } from "@/test/factories";
 import { ScriptPlanStart } from "./ScriptPlanStart";
@@ -14,7 +14,7 @@ function renderStart(savedInstructions = "") {
 describe("ScriptPlanStart", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     useAssistantStore.getState().setInput("");
     useWorkflowStore.setState({ plan: null, planKey: null });
   });
@@ -70,9 +70,7 @@ describe("ScriptPlanStart", () => {
   });
 
   it("replaces the form with a status line while this episode is being planned", () => {
-    useTasksStore
-      .getState()
-      .setTasks([
+    seedTasks([
         makeTask({ project_name: "p", task_type: "text_script_plan", resource_id: "episode-1", status: "running" }),
       ]);
     renderStart();

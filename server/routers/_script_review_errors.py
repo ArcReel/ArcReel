@@ -19,14 +19,12 @@ _ERROR_STATUS: dict[str, int] = {
     "no_script_plan": 409,
     "invalid_content": 422,
     "episode_not_found": 404,
-    "quarantined": 409,
     "conflict": 409,
     "speech_admission": 409,
 }
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
     "no_script_plan": "script_review_no_script_plan",
-    "quarantined": "script_review_quarantined",
     "conflict": "script_review_conflict",
 }
 
@@ -49,10 +47,10 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise UnprocessableError(exc.problem.code, **exc.problem.parameters())
     if exc.code == "foreign_formal_script":
         raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")
+    if exc.code == "conflict":
+        raise ConflictError("script_review_conflict").with_diagnostic({"code": "revision_conflict"})
     if exc.code == "script_plan_confirmed":
         raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
-    if exc.code == "draft_agent_owned":
-        raise ConflictError("draft_agent_owned").with_diagnostic({"code": exc.code})
     if exc.code == "conversion_conflict":
         raise ConflictError("script_conversion_conflict")
     status = _ERROR_STATUS.get(exc.code, 400)

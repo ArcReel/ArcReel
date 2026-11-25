@@ -68,21 +68,29 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
     <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">
       {capabilities.displayed.map((key) => {
         const label = t(`pm_cap_${key}`);
-        if (!editable.has(key)) {
+        const protocol = key === "audio_switch_controllable" || key === "reference_route_audio_switch_controllable";
+        if (protocol || !editable.has(key)) {
+          const effective = key in capabilities.effective ? capabilities.effective[key] : capabilities.base[key];
+          const text = protocol
+            ? t(effective ? "pm_cap_value_supported" : "pm_cap_value_unsupported")
+            : key === "durations" && capabilities.base.duration_fixed
+              ? t("supported_durations_fixed_placeholder")
+              : capabilityValueText(t, key, effective);
           return (
             <li key={key} className={cn("flex items-center gap-2 px-3 py-2", key === "duration_constraints" && "pl-6")}>
               <span className="w-36 shrink-0 text-sm">{label}</span>
               <span className="min-w-0 flex-1">
                 <TruncatedText
                   className="text-sm text-subtle-foreground"
-                  text={capabilityValueText(t, key, key in capabilities.effective ? capabilities.effective[key] : capabilities.base[key])}
+                  text={text}
                 />
               </span>
             </li>
           );
         }
         const overridden = key in value;
-        const base = capabilities.base[key];
+        const inherits = key === "reference_route_has_audio_track" && !overridden;
+        const base = inherits ? value.has_audio_track ?? capabilities.base.has_audio_track : capabilities.base[key];
         return (
           <li
             key={key}
@@ -96,7 +104,7 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
                   overridden ? "text-muted-foreground line-through" : "text-subtle-foreground",
                 )}
               >
-                {capabilityValueText(t, key, base)}
+                {inherits ? t("pm_cap_inherit_audio", { value: capabilityValueText(t, key, base) }) : capabilityValueText(t, key, base)}
               </span>
               {overridden ? (
                 <Button variant="ghost" size="xs" aria-label={t("pm_cap_restore_named", { name: label })} onClick={() => set(key, undefined)}>
@@ -170,19 +178,18 @@ export function CapabilityValueEditor({ dimension, label, value, resolutions, hi
           if (next[0]) onChange(next[0] === "on");
         }}
       >
-        <ToggleGroupItem value="on">{t("pm_cap_value_supported")}</ToggleGroupItem>
-        <ToggleGroupItem value="off">{t("pm_cap_value_unsupported")}</ToggleGroupItem>
+        <ToggleGroupItem value="on">{capabilityValueText(t, dimension, true)}</ToggleGroupItem>
+        <ToggleGroupItem value="off">{capabilityValueText(t, dimension, false)}</ToggleGroupItem>
       </ToggleGroup>
     );
   }
   const options = ENUM_OPTIONS[dimension];
   if (options) {
-    const prefix = dimension === "reference_audio_mode" ? "audio_mode" : "audio_track";
     return (
       <Select<string>
         value={String(value)}
         onValueChange={(next) => next && onChange(next)}
-        items={options.map((option) => ({ value: option, label: t(`pm_cap_option_${prefix}_${option}`) }))}
+        items={options.map((option) => ({ value: option, label: t(`pm_cap_option_audio_mode_${option}`) }))}
       >
         <SelectTrigger aria-label={editLabel} className="w-56">
           <SelectValue />
@@ -190,7 +197,7 @@ export function CapabilityValueEditor({ dimension, label, value, resolutions, hi
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option} value={option}>
-              {t(`pm_cap_option_${prefix}_${option}`)}
+              {t(`pm_cap_option_audio_mode_${option}`)}
             </SelectItem>
           ))}
         </SelectContent>

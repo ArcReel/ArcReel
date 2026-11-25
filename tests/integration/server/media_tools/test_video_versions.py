@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.project.project_manager import ProjectManager
 from server.services.project.project_events import ProjectEventService
 from tests.factories import add_typed_video_version
@@ -46,13 +46,20 @@ def _harness(tmp_path: Path, *, reference: bool) -> ToolHarness:
         (True, "reference_videos", "E1U1", Path("reference_videos/E1U1.mp4")),
     ],
 )
+@pytest.mark.parametrize("source", ["generated", MANUAL_UPLOAD_VERSION_SOURCE])
 async def test_selecting_an_older_version_makes_it_current(
-    tmp_path: Path, reference: bool, resource_type: str, unit_id: str, media: Path
+    tmp_path: Path, reference: bool, resource_type: str, unit_id: str, media: Path, source: str
 ) -> None:
     ctx = _harness(tmp_path, reference=reference)
-    add_typed_video_version(ctx.project_path, resource_type, unit_id, content=b"first")
-    add_typed_video_version(ctx.project_path, resource_type, unit_id, content=b"second")
     versions = VersionManager(ctx.project_path)
+    if source == MANUAL_UPLOAD_VERSION_SOURCE:
+        current = ctx.project_path / media
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"first")
+        versions.add_version(resource_type, unit_id, "", source_file=current, source=source)
+    else:
+        add_typed_video_version(ctx.project_path, resource_type, unit_id, content=b"first")
+    add_typed_video_version(ctx.project_path, resource_type, unit_id, content=b"second")
     assert versions.get_current_version(resource_type, unit_id) == 2
 
     assert (await run_declared_tool("select_video_version", ctx, {"unit_id": unit_id, "version": 2})).problem is None
@@ -67,10 +74,14 @@ async def test_selecting_an_older_version_makes_it_current(
         async with events.stream_events(ctx.project_name, idle_timeout=10) as stream:
             assert (await anext(stream))[0] == "snapshot"
             outcome = await run_declared_tool("select_video_version", ctx, {"unit_id": unit_id, "version": 1})
+            assert outcome.problem is None, outcome.problem
             async with asyncio.timeout(5):
                 event_name, payload = await anext(stream)
             assert event_name == "changes"
             change = next(change for change in payload["changes"] if change["entity_id"] == unit_id)
+            assert change["action"] == "video_ready"
+            assert change["episode"] == 1
+            assert change["script_file"] == "episode_1.json"
             assert change["entity_type"] == ("reference_unit" if reference else "segment")
             assert change["asset_fingerprints"] == {
                 media.as_posix(): (ctx.project_path / media).stat().st_mtime_ns,
@@ -79,7 +90,7 @@ async def test_selecting_an_older_version_makes_it_current(
     finally:
         await events.shutdown()
 
-    assert outcome.problem is None, outcome.problem
+    assert not (ctx.project_path / thumbnail).exists()
     assert outcome.value["current_version"] == 1
     assert outcome.value["file_path"] == media.as_posix()
     assert versions.get_current_version(resource_type, unit_id) == 1
@@ -106,12 +117,12 @@ async def test_unknown_unit_is_reported_as_missing_unit(tmp_path: Path) -> None:
     assert problem.code == "video_unit_not_found"
 
 
-async def test_version_without_restore_descriptor_is_rejected(tmp_path: Path) -> None:
+async def test_generated_version_without_restore_descriptor_is_rejected(tmp_path: Path) -> None:
     ctx = _harness(tmp_path, reference=False)
     media = ctx.project_path / "videos" / "scene_E1S01.mp4"
     media.parent.mkdir(parents=True, exist_ok=True)
-    media.write_bytes(b"manual")
-    VersionManager(ctx.project_path).add_version("videos", "E1S01", "manual", source_file=media, source="manual_upload")
+    media.write_bytes(b"legacy generated video")
+    VersionManager(ctx.project_path).add_version("videos", "E1S01", "legacy prompt", source_file=media)
 
     problem = problem_of(await run_declared_tool("select_video_version", ctx, {"unit_id": "E1S01", "version": 1}))
 

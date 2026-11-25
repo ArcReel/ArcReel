@@ -48,13 +48,11 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     end_frame_duration_failure,
-    evaluate_video_request_facts,
 )
 from lib.prompts.prompt_utils import (
     is_structured_video_prompt,
@@ -74,6 +72,7 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import StoryboardImageUnavailable
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
+from lib.video_runtime.resolution import read_video_facts_pair, read_video_request_facts
 from server.services.admission.cost_estimation import quote_video_request
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.tasks.video_caps import (
@@ -699,6 +698,7 @@ async def admit_storyboard_video_batch(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+    end_frame_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
@@ -717,26 +717,14 @@ async def admit_storyboard_video_batch(
         user_id=user_id,
         queue=queue,
     )
-    generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
     catalog = build_reference_catalog(project)
-    if items and video_request_facts is None:
-        video_request_facts = await evaluate_video_request_facts(
+    has_end_frame = any(item.get("end_frame_image") for _, item in items)
+    if items and (video_request_facts is None or (has_end_frame and end_frame_facts is None)):
+        video_request_facts, end_frame_facts = await storyboard_video_request_facts(
             project,
-            route="storyboard",
-            generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver or ConfigResolver(async_session_factory),
-        )
-
-    end_frame_facts = None
-    if any(item.get("end_frame_image") for _, item in items):
-        end_frame_facts = await evaluate_video_request_facts(
-            project,
-            route="storyboard",
-            generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver or ConfigResolver(async_session_factory),
-            uses_end_frame=True,
+            config_resolver,
+            has_end_frame=has_end_frame,
+            base=video_request_facts,
         )
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     for resource_id, item in items:
@@ -964,17 +952,28 @@ def build_storyboard_video_specs(
 
 
 async def storyboard_video_request_facts(
-    project: dict[str, Any], config_resolver: ConfigResolver | None = None
-) -> VideoRequestFacts | VideoRequestFactsFailure:
-    """分镜图生视频按项目当前配置的视频请求事实：准入与报价读同一份。"""
-
-    return await evaluate_video_request_facts(
-        project,
-        route="storyboard",
-        generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
-        identity=CONFIGURED_VIDEO_IDENTITY,
-        resolver=config_resolver or ConfigResolver(async_session_factory),
+    project: dict[str, Any],
+    config_resolver: ConfigResolver | None,
+    *,
+    has_end_frame: bool,
+    base: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+) -> tuple[VideoRequestFacts | VideoRequestFactsFailure, VideoRequestFacts | VideoRequestFactsFailure | None]:
+    resolver = config_resolver or ConfigResolver(async_session_factory)
+    bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
+    if base is None:
+        return await read_video_facts_pair(
+            project, route="storyboard", generation_type=bucket, resolver=resolver, include_end_frame=has_end_frame
+        )
+    if isinstance(base, VideoRequestFactsFailure):
+        return base, base if has_end_frame else None
+    end = (
+        await read_video_request_facts(
+            project, route="storyboard", generation_type=bucket, resolver=resolver, uses_end_frame=True
+        )
+        if has_end_frame
+        else None
     )
+    return base, end
 
 
 async def admit_storyboard_video_request(
@@ -992,6 +991,7 @@ async def admit_storyboard_video_request(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+    end_frame_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
@@ -1009,9 +1009,11 @@ async def admit_storyboard_video_request(
         if item is None:
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item))
-    request_facts = (
-        (video_request_facts or await storyboard_video_request_facts(project, config_resolver)) if specs else None
-    )
+    request_facts = video_request_facts
+    if specs and request_facts is None:
+        request_facts, end_frame_facts = await storyboard_video_request_facts(
+            project, config_resolver, has_end_frame=any(item.get("end_frame_image") for _, item in targets)
+        )
     conflict = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
         project_name=project_name,
@@ -1025,6 +1027,7 @@ async def admit_storyboard_video_request(
         queue=queue,
         config_resolver=config_resolver,
         video_request_facts=request_facts,
+        end_frame_facts=end_frame_facts,
     )
     if conflict is None:
         return admission

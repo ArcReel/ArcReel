@@ -56,8 +56,10 @@ async def test_bare_provider_without_default_keeps_failure_provider(db_factory, 
     execute = asyncio.Event()
 
     async def resolve_before_generation(_task, *, claimed_provider_id):
+        from lib.video_runtime.image_resolution import ImageRuntime
+
         await execute.wait()
-        await ConfigResolver(db_factory).resolve_image_backend(project, {}, generation_type="t2i")
+        await ImageRuntime(ConfigResolver(db_factory)).read_identity(project, "t2i", payload={})
         raise AssertionError("unavailable default must fail before generation")
 
     worker = GenerationWorker(

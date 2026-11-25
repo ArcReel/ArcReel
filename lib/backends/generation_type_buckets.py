@@ -10,8 +10,7 @@
   自定义供应商 endpoint 的系统判定）与模型条目两侧求值、再叠加能力覆盖的结果，i2v 取 ``first_frame``、r2v 取
   参考图上限的生效值（未收录或大于 0 即接受；条目显式记为 0 张时不进 r2v 桶）。ComfyUI 端点不看条目。
 
-桶承诺的是「选中的组合执行得了」，故与执行闸门读同一个求值结果。视频两维的判定式本身由
-``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
+视频候选与解析闸共用纯能力内核的桶判定。
 
 判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，
 配进去的组合执行期一样必败，不如不出现在下拉里。
@@ -22,32 +21,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
-from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_capabilities import (
-    builtin_channel_capabilities,
-    builtin_channel_reference_limit,
-    custom_image_model_capabilities,
-    effective_image_capabilities,
-    entry_reference_limit,
-    image_reference_limit,
-    image_reference_override,
-    intersect_image_capabilities,
-)
-from lib.backends.input_limits import LimitState
-from lib.catalog.query import CatalogModel, user_added_capability_overrides
-from lib.config.resolver import video_capability_satisfied
-from lib.custom_provider.capabilities import synthesize_video_capabilities
+from lib.backends.backend_assembly.specs import builtin_video_snapshot
+from lib.backends.image_capabilities import builtin_image_snapshot
+from lib.capabilities.kernel import CapabilitySnapshot, bucket_fit
+from lib.catalog.query import CatalogModel
+from lib.custom_provider.capabilities import custom_image_snapshot, custom_video_snapshot
 from lib.custom_provider.endpoints import (
     EndpointSpec,
-    endpoint_reference_image_limit,
-    endpoint_to_image_capabilities,
     endpoint_to_media_type,
-    get_endpoint_spec,
 )
 
 GenerationTypeBucket = Literal["t2i", "i2i", "i2v", "r2v"]
@@ -81,37 +66,15 @@ class BucketFit:
         return cls(media_type, dict.fromkeys(BUCKETS_BY_MEDIA_TYPE.get(media_type, ()), ()))
 
 
-def _image_fit(
-    caps: Iterable[ImageCapability], *, entry_limit: int | None, channel_limit: int | None, override: int | None = None
-) -> BucketFit:
-    caps = frozenset(caps)
-    unmet: dict[GenerationTypeBucket, tuple[BucketDimension, ...]] = {}
-    if ImageCapability.TEXT_TO_IMAGE not in caps:
-        unmet["t2i"] = ("text_to_image",)
-    reference = image_reference_limit(
-        capabilities=caps, entry_limit=entry_limit, channel_limit=channel_limit, override=override
-    )
-    if not reference.accepts_input:
-        unmet["i2i"] = ("image_to_image",) if reference.state == LimitState.UNSUPPORTED else ("max_reference_images",)
-    return BucketFit("image", unmet)
-
-
-_VIDEO_BUCKET_DIMENSION: dict[GenerationTypeBucket, BucketDimension] = {
-    "i2v": "first_frame",
-    "r2v": "max_reference_images",
-}
-
-
-def _video_fit(has_i2v: bool, max_reference_images: int | None) -> BucketFit:
+def _image_fit(snapshot: CapabilitySnapshot | None) -> BucketFit:
     return BucketFit(
-        "video",
-        {
-            generation_type: (_VIDEO_BUCKET_DIMENSION[generation_type],)
-            for generation_type in ("i2v", "r2v")
-            if not video_capability_satisfied(
-                generation_type=generation_type, first_frame=has_i2v, max_reference_images=max_reference_images
-            )
-        },
+        "image", cast(dict[GenerationTypeBucket, tuple[BucketDimension, ...]], bucket_fit("image", snapshot))
+    )
+
+
+def _video_fit(snapshot: CapabilitySnapshot | None) -> BucketFit:
+    return BucketFit(
+        "video", cast(dict[GenerationTypeBucket, tuple[BucketDimension, ...]], bucket_fit("video", snapshot))
     )
 
 
@@ -124,24 +87,18 @@ def builtin_model_bucket_fit(provider_id: str, model_id: str, model_info: Catalo
     """内置模型对各任务类型桶的判定，连同不进桶的原因。"""
     if model_info.media_type == "image":
         try:
-            channel = builtin_channel_capabilities(provider_id, model_id)
-            channel_limit = builtin_channel_reference_limit(provider_id, model_id)
+            image_caps = builtin_image_snapshot(provider_id, model_id, base_model=model_info)
         except ValueError:
-            return BucketFit.undetermined("image")
-        return _image_fit(
-            effective_image_capabilities(channel, model_id=model_id, builtin_provider=provider_id),
-            entry_limit=model_info.max_reference_images,
-            override=image_reference_override(user_added_capability_overrides(provider_id, model_id)),
-            channel_limit=channel_limit,
-        )
+            return _image_fit(None)
+        return _image_fit(image_caps)
     if model_info.media_type != "video":
         return BucketFit(model_info.media_type)
 
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id)
+        caps = builtin_video_snapshot(provider_id, model_id)
     except ValueError:
-        return BucketFit.undetermined("video")
-    return _video_fit(caps.first_frame, caps.max_reference_images)
+        return _video_fit(None)
+    return _video_fit(caps)
 
 
 def custom_model_buckets(
@@ -177,28 +134,22 @@ def custom_model_bucket_fit(
         return BucketFit("")
 
     if media_type == "image":
-        caps = (
-            endpoint_spec.image_capabilities if endpoint_spec is not None else endpoint_to_image_capabilities(endpoint)
-        )
-        if caps is None:
-            return BucketFit.undetermined("image")
-        spec = endpoint_spec or get_endpoint_spec(endpoint)
-        model_caps = custom_image_model_capabilities(
-            model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
-        )
-        return _image_fit(
-            intersect_image_capabilities(caps, model_caps),
-            entry_limit=entry_reference_limit(
-                model_id, builtin_provider=None, endpoint_kind=spec.kind, entry_binding=entry_binding
-            ),
-            channel_limit=endpoint_reference_image_limit(spec),
-            override=image_reference_override(capability_overrides, endpoint_kind=spec.kind),
-        )
+        try:
+            image_caps = custom_image_snapshot(
+                endpoint=endpoint,
+                model_id=model_id,
+                overrides=capability_overrides,
+                endpoint_spec=endpoint_spec,
+                entry_binding=entry_binding,
+            )
+        except ValueError:
+            return _image_fit(None)
+        return _image_fit(image_caps)
     if media_type != "video":
         return BucketFit(media_type)
 
     try:
-        video_caps = synthesize_video_capabilities(
+        video_caps = custom_video_snapshot(
             endpoint=endpoint,
             model_id=model_id,
             overrides=capability_overrides,
@@ -206,5 +157,5 @@ def custom_model_bucket_fit(
             entry_binding=entry_binding,
         )
     except ValueError:
-        return BucketFit.undetermined("video")
-    return _video_fit(video_caps.first_frame, video_caps.max_reference_images)
+        return _video_fit(None)
+    return _video_fit(video_caps)

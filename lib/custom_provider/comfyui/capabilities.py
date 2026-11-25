@@ -31,6 +31,7 @@ from arcreel_market_core.comfyui.bindings import (
 )
 from arcreel_market_core.comfyui.graph import class_type_of, link_of
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
+from lib.capabilities.kernel import AudioProtocol, DurationMode, Endpoint, EndpointDurations, FixedDuration
 
 from .inference_rules import AudioTrackSource, load_inference_rules
 
@@ -236,24 +237,6 @@ def native_duration(definition: Mapping[str, Any]) -> int | None:
     return seconds
 
 
-def keeps_its_own_frame_count(definition: Mapping[str, Any]) -> bool:
-    """帧数入口都写着自己的帧数（字面值 > 1），而这些值凑不出一档原生时长。
-
-    这种图对外的声明正是「时长不由 ArcReel 驱动」——``endpoint_durations`` 为空、界面只读禁用、
-    规划层借一个默认秒数过关。填值层因此也不该按那个借来的时长改写帧数：81 帧 @ 24fps 换算成
-    4 秒会被写成 97 帧，一边说不驱动一边把片长改掉。两处对同一件事要给同一个答案。
-
-    ``length`` 还是 1 这类占位值不算「自己的帧数」：那种图没有片长可保，帧数照常由请求驱动。
-    """
-    bindings: Mapping[str, Any] = definition["bindings"]
-    workflow: Mapping[str, Any] = definition["workflow"]
-    targets = targets_of(bindings.get("frames"))
-    if not targets:
-        return False
-    literals = [value for target in targets if (value := int_literal_of(workflow, target)) is not None and value > 1]
-    return len(literals) == len(targets) and native_duration(definition) is None
-
-
 def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """ComfyUI 视频模型行的 ``supported_durations`` 默认集：只含这份 workflow 的原生时长。
 
@@ -267,3 +250,41 @@ def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """
     native = native_duration(definition)
     return [] if native is None or native <= 0 else [native]
+
+
+def comfyui_description(definition: Mapping[str, Any], media: str) -> Endpoint:
+    bindings = definition["bindings"]
+    if media == "image":
+        count = len(targets_of(bindings.get("reference_images")))
+        slots = {"image_to_image", "reference_images"} if count else {"text_to_image"}
+        return Endpoint("image", frozenset(slots), limits={"max_reference_images": count}, binding_owned=True)
+    if media != "video":
+        raise ValueError(media)
+    caps = derive_video_capabilities(definition)
+    slots = {key for key in ("text_to_video", "first_frame", "last_frame") if getattr(caps, key)}
+    if caps.max_reference_images:
+        slots.add("reference_images")
+    if caps.max_reference_audio_count:
+        slots.add("reference_audio")
+    seconds = default_supported_durations(definition)
+    mode: DurationMode
+    if seconds:
+        mode = EndpointDurations(tuple(seconds))
+    elif duration_is_fixed(bindings):
+        mode = FixedDuration("no_frames")
+    elif frame_rate_is_missing(definition):
+        mode = FixedDuration("missing_fps")
+    else:
+        mode = FixedDuration("no_whole_seconds")
+    return Endpoint(
+        "video",
+        frozenset(slots),
+        limits={
+            "max_reference_images": caps.max_reference_images,
+            "max_reference_audio_count": caps.max_reference_audio_count,
+        },
+        defaults={"reference_audio_mode": "direct" if caps.max_reference_audio_count else "none"},
+        audio=AudioProtocol.SILENT if caps.audio_track == "always_off" else AudioProtocol.NO_SWITCH,
+        duration=mode,
+        binding_owned=True,
+    )

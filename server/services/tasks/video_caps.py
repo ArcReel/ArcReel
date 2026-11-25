@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -24,13 +25,11 @@ from lib.config.resolver import (
 )
 from lib.db import async_session_factory
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     ResolutionOverride,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
-    evaluate_video_request_facts,
-    require_video_request_facts,
+    project_video_capabilities_with_facts,
 )
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import (
@@ -42,6 +41,7 @@ from lib.script.reference_video.unit_capabilities import (
     reference_unit_capability_payloads,
 )
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.video_runtime.resolution import VideoRuntime, read_video_request_facts
 
 logger = logging.getLogger(__name__)
 
@@ -49,24 +49,92 @@ logger = logging.getLogger(__name__)
 async def storyboard_request_facts(
     project: dict, config_resolver: ConfigResolver | None = None
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
-    """分镜路线读侧的视频请求事实：按项目生成模式定桶，以当前配置解析出的执行模型为身份。
-
-    剧本规划与拆分工具读这一处取可选时长，与分镜预检、执行同一份收窄结果。
-    """
-    return await evaluate_video_request_facts(
+    """分镜路线读侧的视频请求事实：按项目生成模式定桶，消费单次解析能力快照与纯同步求值。"""
+    return await read_video_request_facts(
         project,
         route="storyboard",
         generation_type=video_bucket_for_generation_mode(caps_generation_mode(project)),
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=config_resolver or ConfigResolver(async_session_factory),
     )
 
 
+async def resolve_project_video_capabilities_and_facts(
+    project: dict | None,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+    include_planning: bool = False,
+) -> tuple[dict[str, Any], VideoRequestFacts]:
+    """单次解析视频能力快照并同步投影项目级能力、时长档位、尾帧档位与主桶事实。"""
+    read = await VideoRuntime(config_resolver).read_bucket(project, generation_type)
+    return project_video_capabilities_with_facts(
+        read.snapshot,
+        project,
+        generation_type=generation_type,
+        requested_audio=read.requested_audio,
+        resolution_override=resolution_override,
+        include_planning=include_planning,
+    )
+
+
+async def resolve_project_video_capabilities(
+    project: dict | None,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+    include_planning: bool = False,
+) -> dict[str, Any]:
+    """单次解析视频能力快照并同步投影项目级能力、时长档位与尾帧档位。"""
+    payload, _ = await resolve_project_video_capabilities_and_facts(
+        project,
+        generation_type=generation_type,
+        config_resolver=config_resolver,
+        resolution_override=resolution_override,
+        include_planning=include_planning,
+    )
+    return payload
+
+
+async def resolve_agent_video_capabilities(
+    project: dict,
+    *,
+    config_resolver: ConfigResolver,
+    projects: ProjectManager,
+    project_name: str,
+) -> dict[str, Any]:
+    """在单次设置快照会话内投影项目视频能力并标注参考生视频分桶档位，复用已解析主桶事实。"""
+    generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
+    async with config_resolver.session(snapshot_settings=True) as resolver:
+        payload, facts = await resolve_project_video_capabilities_and_facts(
+            project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+        )
+        await annotate_reference_unit_tiers(
+            payload,
+            project,
+            config_resolver=resolver,
+            projects=projects,
+            project_name=project_name,
+            initial_facts={generation_type: facts},
+        )
+    return payload
+
+
 def reference_request_facts_lookup(
-    project: dict, config_resolver: ConfigResolver | None = None
+    project: dict,
+    config_resolver: ConfigResolver | None = None,
+    *,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] | None = None,
 ) -> ReferenceRequestFactsLookup:
     """读侧按桶的视频请求事实查找；同一次请求内共用一份，每个桶至多求值一次。"""
-    return configured_reference_request_facts(project, config_resolver or ConfigResolver(async_session_factory))
+    return configured_reference_request_facts(
+        project,
+        config_resolver or ConfigResolver(async_session_factory),
+        initial_facts=initial_facts,
+    )
 
 
 async def reference_unit_capabilities(
@@ -115,74 +183,6 @@ def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsF
     return isinstance(result, VideoRequestFacts) and result.duration_endpoint_fixed
 
 
-def duration_constraints_payload(facts: VideoRequestFacts) -> dict:
-    """能力载荷里的 ``duration_constraints``：该桶视频请求事实的请求分辨率、收窄档位与剔除成因。"""
-    return {
-        "resolution": facts.resolution,
-        "uses_reference_images": facts.generation_type == "r2v",
-        "allowed": list(facts.allowed_durations),
-        "excluded": dict(facts.excluded_durations),
-    }
-
-
-async def capability_request_facts(
-    project: dict,
-    *,
-    generation_type: VideoGenerationType,
-    config_resolver: ConfigResolver,
-    resolution_override: ResolutionOverride | None = None,
-) -> VideoRequestFacts:
-    """能力查询所答那个桶的视频请求事实（以当前配置解析执行模型），载荷的 ``duration_constraints`` 由它给出。
-
-    ``resolution_override`` 只由设置页与创建向导的能力预览传入。求值失败抛
-    :class:`~lib.generation.video_request_facts.VideoRequestFactsError`。
-    """
-    route = (
-        "reference_video"
-        if generation_type == "r2v" or project.get("generation_mode") == "reference_video"
-        else "storyboard"
-    )
-    return require_video_request_facts(
-        await evaluate_video_request_facts(
-            project,
-            route=route,
-            generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver,
-            resolution_override=resolution_override,
-        )
-    )
-
-
-async def annotate_end_frame_tiers(
-    payload: dict,
-    project: dict,
-    *,
-    generation_type: VideoGenerationType,
-    config_resolver: ConfigResolver,
-    without_end_frame: VideoRequestFacts,
-    resolution_override: ResolutionOverride | None = None,
-) -> None:
-    """规划期与首尾帧路径各自的档位；尾帧路径失败不影响普通规划。"""
-    with_end_frame = await evaluate_video_request_facts(
-        project,
-        route=without_end_frame.route,
-        generation_type=generation_type,
-        identity=CONFIGURED_VIDEO_IDENTITY,
-        resolver=config_resolver,
-        resolution_override=resolution_override,
-        uses_end_frame=True,
-    )
-    payload["end_frame_unit_durations"] = {
-        "without_end_frame": list(without_end_frame.allowed_durations),
-        "with_end_frame": list(with_end_frame.allowed_durations)
-        if isinstance(with_end_frame, VideoRequestFacts)
-        else [],
-        "excluded": dict(with_end_frame.excluded_durations),
-        "problem": None if isinstance(with_end_frame, VideoRequestFacts) else video_facts_problem(with_end_frame),
-    }
-
-
 async def annotate_reference_unit_tiers(
     payload: dict,
     project: dict,
@@ -190,6 +190,7 @@ async def annotate_reference_unit_tiers(
     config_resolver: ConfigResolver | None,
     projects: ProjectManager,
     project_name: str,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] | None = None,
 ) -> None:
     """Add effective duration tiers only for episode reference-video units.
 
@@ -204,13 +205,15 @@ async def annotate_reference_unit_tiers(
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations and not payload.get("duration_endpoint_fixed"):
         return
-    request_facts = reference_request_facts_lookup(project, config_resolver)
+    request_facts = reference_request_facts_lookup(project, config_resolver, initial_facts=initial_facts)
     with_ref_facts = await request_facts("r2v")
     without_ref_facts = await request_facts("i2v")
-    units = await asyncio.to_thread(reference_script_units, projects, project_name, project)
+    project_path, units = await asyncio.to_thread(
+        lambda: (projects.get_project_path(project_name), reference_script_units(projects, project_name, project))
+    )
     unit_capabilities = await reference_unit_capabilities(
         project,
-        projects.get_project_path(project_name),
+        project_path,
         units,
         request_facts=request_facts,
     )
@@ -250,8 +253,13 @@ async def project_video_caps(
     ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
     resolver = ConfigResolver(async_session_factory)
+    bucket = generation_type or video_bucket_for_generation_mode(caps_generation_mode(project))
     try:
-        return await resolver.video_capabilities_for_project(project, generation_type=generation_type)
+        return await resolve_project_video_capabilities(
+            project,
+            generation_type=bucket,
+            config_resolver=resolver,
+        )
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         caps: dict = {}
@@ -288,11 +296,10 @@ async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGen
 
     resolver = ConfigResolver(async_session_factory)
     try:
-        result = await evaluate_video_request_facts(
+        result = await read_video_request_facts(
             project,
             route="reference_video" if project.get("generation_mode") == "reference_video" else "storyboard",
             generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=resolver,
         )
         if isinstance(result, VideoRequestFactsFailure) or audio_switch_conflict(result) is None:

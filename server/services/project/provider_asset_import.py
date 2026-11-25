@@ -32,6 +32,7 @@ from lib.asset_library import links as link_service
 from lib.asset_library.importing import ProviderImage, fetch_provider_image
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
+from lib.generation.asset_admission import AssetTarget, asset_admission_locks, require_asset_idle
 from lib.infra.api_errors import BadRequestError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
@@ -194,11 +195,12 @@ async def import_provider_asset(
         raise NotFoundError("asset_library_account_not_found")
     manager = manager or get_project_manager()
     if resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE:
+        target = AssetTarget("character", names[0], "derivative_image", names[1])
         install = await _derivative_install(manager, project_name, names[0], names[1], change_source)
     else:
-        install = await _asset_sheet_install(
-            manager, project_name, IMPORTABLE_ASSET_TYPES[resource_type], names[0], change_source
-        )
+        asset_type = IMPORTABLE_ASSET_TYPES[resource_type]
+        target = AssetTarget(asset_type, names[0], "image")
+        install = await _asset_sheet_install(manager, project_name, asset_type, names[0], change_source)
 
     image = await fetch_provider_image(account, asset_id)
 
@@ -215,14 +217,17 @@ async def import_provider_asset(
     def _on_commit(content_version: ContentVersion) -> None:
         recorded.append(bridge.run(_record_link(content_version)))
 
-    try:
-        await run_noninterruptible_async(install(image, _on_commit))
-    except BaseException:
-        if recorded:
-            await _discard_orphan(session, recorded[0].link)
-        else:
-            await session.rollback()
-        raise
+    async with asset_admission_locks(project_name, target):
+        try:
+            async with AsyncSession(bind=session.bind, expire_on_commit=False) as check_session:
+                await require_asset_idle(check_session, project_name, target)
+            await run_noninterruptible_async(install(image, _on_commit))
+        except BaseException:
+            if recorded:
+                await _discard_orphan(session, recorded[0].link)
+            else:
+                await session.rollback()
+            raise
     if not recorded:
         raise RuntimeError("provider asset import committed without recording its link")
     return recorded[0]

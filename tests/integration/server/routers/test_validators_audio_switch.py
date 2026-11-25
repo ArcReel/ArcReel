@@ -127,6 +127,6 @@ class TestResolutionFailurePassesThrough:
         async def _fail(*_args, **_kwargs):
             raise SQLAlchemyError("db down")
 
-        monkeypatch.setattr("server.services.tasks.video_caps.evaluate_video_request_facts", _fail)
+        monkeypatch.setattr("server.services.tasks.video_caps.read_video_request_facts", _fail)
 
         assert await require_audio_switch_supported({}, "i2v") is None

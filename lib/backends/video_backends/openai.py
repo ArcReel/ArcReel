@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from types import EllipsisType
 
 from openai import AsyncOpenAI
 
@@ -14,7 +15,6 @@ from arcreel_market_core.video_backend_contract import (
     TERMINAL_PROVIDER_STATUSES,
     ProviderJobStatus,
     ResumeExpiredError,
-    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -36,7 +36,9 @@ from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import (
     EntryBoundCapabilities,
 )
+from lib.backends.video_capabilities import VideoEndpointCapabilities
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import AudioProtocol, Endpoint
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -87,7 +89,9 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
-def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entry: CatalogEntry | None = None) -> str:
+def _resolve_size(
+    model: str, resolution: str | None, aspect_ratio: str, *, entry: CatalogEntry | EllipsisType | None
+) -> str:
     """按条目上的分辨率与端点合法尺寸吸附，比例优先；未收录时只受端点约束。"""
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
@@ -95,7 +99,9 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
     from lib.backends.video_capabilities import entry_video_facts
     from lib.catalog import query as catalog
 
-    facts = entry_video_facts(entry or catalog.find_entry(model, media_type="video"))
+    facts = entry_video_facts(
+        catalog.find_entry(model, media_type="video") if isinstance(entry, EllipsisType) else entry
+    )
     ceiling = max(
         (resolution_to_short_edge(r, tier_map=VIDEO_TIER_SHORT_EDGE) for r in facts.resolutions), default=1080
     )
@@ -127,7 +133,7 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
     return chosen
 
 
-class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+class OpenAIVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """OpenAI Sora 视频生成后端。"""
 
     def __init__(
@@ -151,23 +157,23 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """Sora 调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
-
-        input_reference 为单张首帧图，参考图与首帧共享这一个槽位，通道一次只能承载 1 张；不收尾帧与参考音频。
-        各型号接受哪些输入记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
-        instance property 委托至此，保持 backend 为单一真相源。
-
-        音轨恒有声：Sora 成片自带音轨，``generate`` 组装的 kwargs 里没有音轨开关字段，用户的
-        关闭意图无处可下发。
-        """
-        del model, entry
-        return VideoCapabilities(max_reference_images=_INPUT_REFERENCE_SLOTS, audio_track=VideoAudioMode.ALWAYS_ON)
+    @classmethod
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "reference_images"}),
+            audio=AudioProtocol.NO_SWITCH,
+            limits={"max_reference_images": _INPUT_REFERENCE_SLOTS},
+            exclusive_inputs=(frozenset({"first_frame", "reference_images"}),),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model, self._catalog_entry)
+
+    @property
+    def catalog_entry(self) -> CatalogEntry | None:
+        return self._request_entry(self._model)
 
     @property
     def _request_base_url(self) -> str:
@@ -192,7 +198,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         request: VideoGenerationRequest,
         result: VideoGenerationResult | None = None,
         *,
-        entry: CatalogEntry | None = None,
+        entry: CatalogEntry | EllipsisType | None = ...,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
@@ -243,7 +249,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             self._model,
             request.resolution,
             request.aspect_ratio,
-            entry=self._catalog_entry,
+            entry=self.catalog_entry,
         )
 
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)

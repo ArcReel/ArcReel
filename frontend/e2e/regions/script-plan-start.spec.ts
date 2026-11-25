@@ -6,7 +6,7 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SOURCE_PATH = "GET /api/v1/projects/demo/source/episode_1.txt";
-const TASKS_PATH = "GET /api/v1/tasks?page_size=200&project_name=demo";
+const TASKS_PATH = "GET /api/v1/tasks/active?project_name=demo";
 
 
 interface RecordedProject {
@@ -133,9 +133,7 @@ const PLANNING_RUNNING: ApiOverrides = {
           updated_at: FIXED_NOW,
         },
       ],
-      total: 1,
-      page: 1,
-      page_size: 200,
+      truncated: false,
     },
   },
 };
@@ -144,7 +142,10 @@ const NO_PLAN = {
   episode: 1,
   content_mode: "narration",
   fingerprint: null,
+  revision: null,
   confirmed_at: null,
+  blocking_issues: [],
+  soft_violations: [],
   quarantine: null,
   supported_durations: null,
   duration_tiers: null,

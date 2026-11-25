@@ -8,9 +8,6 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from lib.custom_provider.capabilities import (
-    CAPABILITY_OVERRIDE_FIELDS,
-    capability_type_name,
-    capability_value_matches,
     filter_valid_overrides,
     synthesize_video_capabilities,
     synthesize_video_capabilities_with_overrides,
@@ -23,34 +20,6 @@ from tests.factories import comfyui_endpoint_definition
 
 
 class TestOverrideFieldSchema:
-    def test_schema_covers_every_video_capabilities_field(self):
-        """覆盖 schema 通用支持 VideoCapabilities 全部字段，键名严格对齐 dataclass。"""
-        assert set(CAPABILITY_OVERRIDE_FIELDS) == {
-            "text_to_video",
-            "first_frame",
-            "last_frame",
-            "max_reference_images",
-            "reference_audio_mode",
-            "max_reference_audio_count",
-            "max_reference_audio_total_seconds",
-            "reference_audio_per_image",
-            "max_prompt_chars",
-            "first_frame_ratio_adaptive_only",
-            "audio_track",
-            "reference_route_audio_track",
-        }
-        assert CAPABILITY_OVERRIDE_FIELDS["last_frame"] is bool
-        assert CAPABILITY_OVERRIDE_FIELDS["text_to_video"] is bool
-        assert CAPABILITY_OVERRIDE_FIELDS["max_reference_images"] is int
-        assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_mode"] is ReferenceAudioMode
-        assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"] is int
-        assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"] == (float | None)
-        assert CAPABILITY_OVERRIDE_FIELDS["max_prompt_chars"] == (int | None)
-        assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_per_image"] is bool
-        assert CAPABILITY_OVERRIDE_FIELDS["first_frame_ratio_adaptive_only"] is bool
-        assert CAPABILITY_OVERRIDE_FIELDS["audio_track"] is VideoAudioMode
-        assert CAPABILITY_OVERRIDE_FIELDS["reference_route_audio_track"] == (VideoAudioMode | None)
-
     def test_open_dimensions_cover_both_kinds(self):
         """能力覆盖开放模型事实与通道事实两类维度，通道事实含音轨形态（``docs/adr/0104``）。"""
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
@@ -72,6 +41,8 @@ class TestOverrideFieldSchema:
             "max_reference_audio_count",
             "max_reference_audio_total_seconds",
             "max_prompt_chars",
+            "has_audio_track",
+            "reference_route_has_audio_track",
             "audio_track",
             "reference_route_audio_track",
         } == CAPABILITY_OVERRIDE_ALLOWLIST
@@ -152,23 +123,6 @@ class TestCapabilitiesFromDefinition:
 class TestOptionalDimensionSchema:
     """可选维度（``T | None``）的注解不是 ``type``，消费 schema 的各处都不能假设它是。"""
 
-    def test_type_name_renders_optional_annotation_without_crashing(self):
-        """展示名对 types.UnionType 也要给得出——校验失败分支不该比被校验的值更脆。"""
-        assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"]) == "int"
-        assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"]) == "float | None"
-
-    @pytest.mark.parametrize("value", [15.0, 15, 0, None])
-    def test_optional_float_accepts_none_and_non_negative_numbers(self, value):
-        """None 表示「该后端不声明这项约束」；JSON 的 15 与 15.0 是同一个数，都收。"""
-        assert capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"])
-
-    @pytest.mark.parametrize("value", [-1.0, True, "15", [15]])
-    def test_optional_float_rejects_negative_bool_and_non_numeric(self, value):
-        assert not capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"])
-
-    def test_none_rejected_on_non_optional_dimension(self):
-        assert not capability_value_matches(None, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"])
-
     def test_invalid_optional_float_override_is_dropped_with_warning(self, caplog):
         """存量脏行 / 非 API 写入路径的坏值走降级日志，不抛 AttributeError。"""
         with caplog.at_level(logging.WARNING):
@@ -178,13 +132,13 @@ class TestOptionalDimensionSchema:
                 overrides={"max_reference_audio_total_seconds": "15"},
             )
         assert applied == {}
-        assert "float | None" in caplog.text
+        assert "max_reference_audio_total_seconds" in caplog.text
 
     def test_integer_override_is_coerced_to_float_on_merge(self):
         """校验放行整数字面量后，合并须还原成 float，字段不留 int。"""
         caps = synthesize_video_capabilities(
-            endpoint="vidu-video-q3-turbo",
-            model_id="viduq3",
+            endpoint="ark-seedance-2",
+            model_id="doubao-seedance-2-0-260128",
             overrides={"max_reference_audio_total_seconds": 12},
         )
         assert caps.max_reference_audio_total_seconds == 12.0
@@ -265,11 +219,11 @@ class TestSynthesize:
         assert caps.last_frame is False
         assert caps.first_frame is True
 
-    def test_int_field_override(self):
+    def test_reference_image_override_cannot_expand_single_wire_slot(self):
         caps = synthesize_video_capabilities(
             endpoint="openai-video", model_id="sora-2", overrides={"max_reference_images": 3}
         )
-        assert caps.max_reference_images == 3
+        assert caps.max_reference_images == 1
 
     def test_system_capabilities_not_mutated_across_calls(self):
         """合成返回新实例，不得就地改写系统判定（caps_fn 可能返回共享对象）。"""
@@ -384,15 +338,6 @@ class TestComfyuiOverridesAreIgnored:
 class TestReferenceAudioOverrideGuards:
     """音频维度的三守卫：EndpointSpec 运输声明、合并后不变式、枚举值两侧同判定。"""
 
-    def test_enum_value_matches_accepts_declared_literal(self):
-        assert capability_value_matches("direct", ReferenceAudioMode)
-        assert capability_value_matches("none", ReferenceAudioMode)
-
-    @pytest.mark.parametrize("value", ["DIRECT", "Direct", "native", "", True, 1, None])
-    def test_enum_value_matches_rejects_everything_else(self, value):
-        """词表外的值一律判否——不做大小写归一，也不猜近义词。"""
-        assert not capability_value_matches(value, ReferenceAudioMode)
-
     def test_direct_override_applies_on_audio_capable_endpoint(self):
         caps = synthesize_video_capabilities(
             endpoint="ark-seedance-2",
@@ -445,7 +390,7 @@ class TestReferenceAudioOverrideGuards:
 
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
-        assert "max_reference_audio_count" in caplog.text
+        assert "reference_audio_mode" in caplog.text
 
     def test_zero_count_override_disables_audio_on_capable_model(self):
         """反向凑法同样收敛：系统判定 direct，用户把上限压成 0，模式随之降到 none。"""

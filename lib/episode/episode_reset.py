@@ -4,7 +4,7 @@
 相对顺序不变（见 ``docs/adr/0031``）。
 
 账本坐标绑定具体源文内容，源文被替换或账本被写坏后，规划入口会因坐标越界 / 范围无效而永久失败。
-全量重置（不指定集）是这种局面的唯一出路：**零前置校验**——不读旧坐标、不解析范围，账本处于任何
+全量重置（不指定集）是这种局面的唯一出路：**零前置校验**——旧坐标无效时也能继续，账本处于任何
 损坏状态都必须执行成功，执行后切出集不再占用整本源文、源文指纹与快照清除，``plan_episodes`` 可从头
 重新规划。
 
@@ -22,9 +22,8 @@
 逃生口不能因供应商未配置而失效。写入与 ``EpisodePlanner`` 共用同一把项目锁
 （``ProjectManager.update_project``），提交纪律一致。
 
-被清除的切出集的集文件按「是否可从账本重造」分流：带 ``source_range`` 的
-``source/episode_N.txt`` 是派生物，直接删除；无 ``source_range`` 的集文件可能是
-老项目原件（含手工内容，无坐标可重造），改名留底而非删除。下游产物（剧本 JSON、
+被清除的切出集的集文件按「是否可从账本重造」分流：逐个比对集文件与账本切片的字节，
+一致时删除；无法重造的文件改名留底。下游产物（剧本 JSON、
 script_plan 中间文件、媒体）一律不删，产物清单不动。
 """
 
@@ -48,14 +47,14 @@ from lib.episode.episode_ledger import (
 )
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
-    SOURCE_SNAPSHOTS_DIR,
     SourceOrigin,
     archive_episode_file_path,
     discover_sources,
     episode_entry,
     first_cut_episode_id,
     is_cut_episode,
-    source_snapshot_path,
+    source_snapshot_transaction_paths,
+    span_text,
     sync_source_snapshots,
     whole_source_files,
 )
@@ -111,14 +110,13 @@ class _ResetPlan:
 _FULL_RESET_HINT = "请改用不带 episode_id 的全量重置"
 
 
-def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
-    """entry 的 source_range 是否携带足以重造派生文件的坐标结构。
-
-    只看坐标结构是否完整、不读源文校验数值是否越界——重置零前置校验，范围合法性判断
-    是 plan 的职责。坐标结构不完整的损坏条目按「不可重造」处理，其集文件走留底
-    而非删除：删除不可逆，证据不足时偏保守。
-    """
-    return parse_source_range(entry) is not None
+def _matches_derived_bytes(path: Path, expected: bytes | None) -> bool:
+    if expected is None or path.is_symlink():
+        return False
+    try:
+        return path.read_bytes() == expected
+    except OSError:
+        return False
 
 
 def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[int] = frozenset()) -> _ResetPlan:
@@ -145,6 +143,9 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         entries.setdefault(num, entry)
         entries_by_num.setdefault(num, []).append(entry)
 
+    _assert_source_directory_safe(project_dir)
+    texts = {doc.rel_path: doc.text for doc in discover_sources(project_dir, project)}
+    order = whole_source_files(project)
     episode_file_aliases = discover_episode_file_aliases(project_dir)
     product_nums = discover_product_episode_nums(project_dir)
     consumed: list[int] = []
@@ -173,9 +174,13 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         paths = episode_file_aliases.get(num) or []
         if not paths:
             continue
-        can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
-        target = deletes if can_recreate else archives
-        target.extend(paths)
+        spans = {parse_source_range(entry) for entry in dupes}
+        span = spans.pop() if len(spans) == 1 else None
+        content = span_text(texts, order, span) if span is not None else None
+        expected = content.encode("utf-8") if content is not None else None
+        for path in paths:
+            target = deletes if _matches_derived_bytes(path, expected) else archives
+            target.append(path)
     episode_nums = [num for num in sorted(entries) if _in_scope(num)]
     return _ResetPlan(episode_nums=episode_nums, consumed=consumed, deletes=deletes, archives=archives)
 
@@ -452,12 +457,7 @@ def reset_episode_planning(
         transaction_paths = [*commit_plan.deletes, remaining]
         for source, target in archive_targets.items():
             transaction_paths.extend((source, target))
-        snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
-        if snapshot_dir.is_dir() and not snapshot_dir.is_symlink():
-            transaction_paths.extend(path for path in snapshot_dir.iterdir() if path.is_file())
-        transaction_paths.extend(
-            source_snapshot_path(project_dir, rel) for rel in whole_source_files(committed_project)
-        )
+        transaction_paths.extend(source_snapshot_transaction_paths(project_dir, whole_source_files(committed_project)))
 
         with formal_write_transaction(*transaction_paths):
             deleted, archived = _apply_files(

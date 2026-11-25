@@ -1,8 +1,10 @@
+import { seedTaskState, seedTasks } from "@/test/task-state";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import {
+  defaultTaskStats,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
@@ -11,6 +13,7 @@ import {
 import {
   enqueueAssetSheetBatch,
   enqueueCharacter,
+  enqueueCharacterVoiceSample,
   enqueueEpisodeNarration,
   enqueueGrid,
   enqueueGridRegenerate,
@@ -32,31 +35,33 @@ import { makeTask } from "@/test/factories";
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
 function occupied(projectName: string, resourceKind: ResourceKind, resourceId: string): boolean {
-  const { tasks, optimisticActive } = useTasksStore.getState();
-  return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
+  const state = useTasksStore.getState();
+  return selectActiveResourceIds(state, resourceKind, projectName).has(resourceId);
 }
 
 function scriptFileOccupied(projectName: string, taskType: string, scriptFile: string): boolean {
-  const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+  const state = useTasksStore.getState();
   return selectHasActiveTaskForScriptFile(
-    tasks,
+    state,
     taskType,
     scriptFile,
     projectName,
-    optimisticActiveScriptFile,
   );
 }
 
 function markCounts(): { resource: number; scriptFile: number } {
   const s = useTasksStore.getState();
-  return { resource: s.optimisticActive.size, scriptFile: s.optimisticActiveScriptFile.size };
+  const marks = [...s.optimisticMarks.values()];
+  return {
+    resource: marks.filter((mark) => mark.target.kind === "resource").length,
+    scriptFile: marks.filter((mark) => mark.target.kind === "script").length,
+  };
 }
 
 beforeEach(() => {
-  useTasksStore.setState({
+  seedTaskState({
     tasks: [],
-    optimisticActive: new Set(),
-    optimisticActiveScriptFile: new Set(),
+    optimisticMarks: new Map(),
   });
   useAppStore.setState({ toast: null });
 });
@@ -157,6 +162,13 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
       resourceId: "Hero",
     },
     {
+      label: "voice sample",
+      run: () => enqueueCharacterVoiceSample("demo", "Hero", "试听", "Cherry"),
+      method: "generateCharacterVoiceSample" as const,
+      kind: "voice_sample" as const,
+      resourceId: "Hero",
+    },
+    {
       label: "scene",
       run: () => enqueueScene("demo", "Temple"),
       method: "generateProjectScene" as const,
@@ -232,15 +244,13 @@ describe("enqueueEpisodeNarration", () => {
 
     await enqueueEpisodeNarration("demo", "episode_1.json");
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "tts",
-        resource_id: "E1S01",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "tts",
+      resource_id: "E1S01",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "tts", "E1S01")).toBe(false);
     expect(occupied("demo", "tts", "E1S02")).toBe(true);
@@ -314,15 +324,13 @@ describe("enqueueGrid", () => {
 
     await enqueueGrid("demo", 1, "episode_1.json");
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "grid",
-        resource_id: "g1",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "grid",
+      resource_id: "g1",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "grid", "g1")).toBe(false);
     expect(occupied("demo", "grid", "g2")).toBe(true);
@@ -416,7 +424,7 @@ describe("enqueuePromptAuthoring", () => {
     status: "succeeded" | "failed" = "succeeded",
     taskId = "t-author",
   ): void {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: taskId,
@@ -467,6 +475,43 @@ describe("enqueuePromptAuthoring", () => {
     finish({ message: "没有待编写的条目", no_pending_authoring: true });
 
     expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("有成员结果不可用时继续等待其他成员，收尾后释放全部跟踪", async () => {
+    const missingId = "t-missing";
+    const noopId = "t-noop";
+    vi.spyOn(API, "authorPrompts").mockResolvedValue({
+      batch: {
+        batch_id: "b1",
+        members: [{ unit_id: "part-1", task_id: missingId }, { unit_id: "part-2", task_id: noopId }],
+      },
+    });
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    vi.spyOn(API, "lookupTasks")
+      .mockResolvedValueOnce({
+        items: [makeTask({ task_id: noopId, project_name: "demo", status: "running" })],
+        missing_ids: [missingId],
+      })
+      .mockResolvedValueOnce({
+        items: [makeTask({
+          task_id: noopId, project_name: "demo", status: "succeeded", result: { no_pending_authoring: true },
+        })],
+        missing_ids: [],
+      });
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_queued"));
+    expect(useTasksStore.getState().tracked.has(missingId)).toBe(false);
+    expect(useTasksStore.getState().tracked.get(noopId)?.status).toBe("pending");
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_nothing_pending"));
+    expect(useTasksStore.getState().tracked.has(noopId)).toBe(false);
   });
 
   it("任务结束后停止跟踪：同一任务行再次刷新不重复提示", async () => {
@@ -558,15 +603,13 @@ describe("enqueueReferenceVideoBatch", () => {
       unit_ids: ["E1U1", "E1U2"],
     });
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "reference_video",
-        resource_id: "E1U1",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "reference_video",
+      resource_id: "E1U1",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "reference_video", "E1U1")).toBe(false);
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);

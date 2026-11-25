@@ -1,4 +1,5 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { seedTaskState } from "@/test/task-state";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -9,7 +10,6 @@ import { API } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { Character, CharacterDerivative, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
 
@@ -60,7 +60,7 @@ function Harness() {
   );
 }
 
-async function openCharacter(user: ReturnType<typeof userEvent.setup>) {
+async function openCharacter(user: ReturnType<typeof userEvent.setup>, name = "林夕") {
   render(
     <Router hook={memoryLocation({ path: "/" }).hook}>
       <LeaveGuardProvider>
@@ -68,8 +68,8 @@ async function openCharacter(user: ReturnType<typeof userEvent.setup>) {
       </LeaveGuardProvider>
     </Router>,
   );
-  await user.click(screen.getByRole("button", { name: "林夕" }));
-  return screen.findByRole("dialog", { name: "林夕" });
+  await user.click(screen.getByRole("button", { name }));
+  return screen.findByRole("dialog", { name });
 }
 
 function rowOf(sheet: HTMLElement, name: string) {
@@ -84,11 +84,11 @@ describe("角色详情的衍生区块", () => {
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: structuredClone(server) });
     vi.spyOn(API, "getProject").mockImplementation(() => Promise.resolve({ project: structuredClone(server), scripts: {} }));
     vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({ assets: [] });
-    vi.spyOn(API, "getCharacterDerivativeSheets").mockImplementation(() =>
+    vi.spyOn(API, "getCharacterDerivativeSheets").mockImplementation((_project, character) =>
       Promise.resolve({
         success: true,
         derivatives: Object.fromEntries(
-          Object.entries(derivativesOf("林夕")).map(([name, d]) => [name, { ...d, stale: false }]),
+          Object.entries(derivativesOf(character)).map(([name, d]) => [name, { ...d, stale: false }]),
         ),
       }),
     );
@@ -104,7 +104,7 @@ describe("角色详情的衍生区块", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   });
 
@@ -300,7 +300,7 @@ describe("角色详情的衍生区块", () => {
     expect(API.deleteCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "战斗装");
   });
 
-  it("disables the confirmed deletion while the character becomes busy after the confirmation opens", async () => {
+  it.each(["character", "image_edit"])("disables derivative deletion when %s on the owner starts after confirmation opens", async (task_type) => {
     const user = userEvent.setup();
     vi.spyOn(API, "deleteCharacterDerivative").mockImplementation((_p, _c, name) => {
       delete derivativesOf("林夕")[name];
@@ -312,15 +312,74 @@ describe("角色详情的衍生区块", () => {
     await user.click(await screen.findByRole("menuitem", { name: "删除" }));
     const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
     act(() =>
-      useTasksStore.setState({
-        tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],
+      seedTaskState({
+        tasks: [makeTask({ project_name: "demo", task_type, resource_type: null, payload: { resource_type: "character" }, media_type: "image", resource_id: "林夕", status: "running" })],
       }),
     );
     expect(within(confirm).getByRole("button", { name: "删除" })).toBeDisabled();
 
-    act(() => useTasksStore.setState({ tasks: [] }));
+    act(() => seedTaskState({ tasks: [] }));
     await user.click(within(confirm).getByRole("button", { name: "删除" }));
     await waitFor(() => expect(API.deleteCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "战斗装"));
+  });
+
+  it.each(["character_derivative", "image_edit"])("lets a sibling generate while %s occupies another derivative", async (task_type) => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "generateCharacterDerivative").mockResolvedValue({ success: true, task_id: "casual", deduped: false, message: "queued" });
+    const sheet = await openCharacter(user);
+    act(() => seedTaskState({
+      tasks: [makeTask({
+        project_name: "demo", task_type, resource_type: "character_derivative",
+        resource_id: "林夕/战斗装", status: "running",
+      })],
+    }));
+
+    expect(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "生成中…" })).toBeDisabled();
+    const generate = within(rowOf(sheet, "便装")).getByRole("button", { name: "生成衍生图" });
+    expect(generate).toBeEnabled();
+    await user.click(generate);
+    await waitFor(() => expect(within(rowOf(sheet, "便装")).getByRole("button", { name: "生成中…" })).toBeDisabled());
+    expect(API.generateCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "便装");
+    expect(within(sheet).getByRole("button", { name: "添加别名" })).toBeEnabled();
+  });
+
+  it("disables and rechecks derivative rename when an equivalent Unicode task arrives", async () => {
+    const user = userEvent.setup();
+    const rename = vi.spyOn(API, "renameCharacterDerivative");
+    const owner = "Café";
+    const derivative = "Gia\u0301p";
+    server.characters[owner] = {
+      description: "剑客",
+      character_sheet: "characters/Café.png",
+      derivatives: { [derivative]: { description: "换上铠甲", character_sheet: SHEET_PATH } },
+    };
+    useProjectsStore.setState({ currentProjectData: structuredClone(server) });
+    const sheet = await openCharacter(user, owner);
+    await user.click(within(rowOf(sheet, derivative)).getByRole("button", { name: `「${derivative}」的更多操作` }));
+    await user.click(await screen.findByRole("menuitem", { name: "重命名衍生" }));
+    const input = await within(sheet).findByRole("textbox", { name: `「${derivative}」的新名称` });
+    await user.clear(input);
+    await user.type(input, "黑甲");
+    const form = input.closest("form")!;
+    const submit = within(form).getByRole("button", { name: "确认重命名" });
+    expect(submit).toBeEnabled();
+
+    act(() => {
+      seedTaskState({
+        tasks: [makeTask({
+          project_name: "demo", task_type: "image_edit", resource_type: "character_derivative",
+          resource_id: "Cafe\u0301/Giáp", status: "running",
+        })],
+      });
+      expect(submit).toBeEnabled();
+      fireEvent.submit(form);
+    });
+
+    expect(submit).toBeDisabled();
+    expect(rename).not.toHaveBeenCalled();
+    expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法修改衍生");
+
+    expect(within(form.closest("li") as HTMLElement).getByRole("button", { name: "生成中…" })).toBeDisabled();
   });
 
   it("drops the row's unsaved appearance change together with the derivative it deletes", async () => {

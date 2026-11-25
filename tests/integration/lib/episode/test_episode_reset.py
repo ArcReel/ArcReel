@@ -619,13 +619,18 @@ def test_reset_processes_all_padding_aliases_of_same_episode(tmp_path: Path) -> 
     alias_a = project_dir / "source" / "episode_1.txt"
     alias_a.write_text(SOURCE[:10], encoding="utf-8")
     alias_b = project_dir / "source" / "episode_01.txt"
-    alias_b.write_text(SOURCE[:10], encoding="utf-8")
+    alias_b.write_bytes(b"legacy")
+    matching_alias = project_dir / "source" / "episode_001.txt"
+    matching_alias.write_bytes(alias_a.read_bytes())
 
     result = reset_episode_planning(project_dir)
 
     assert isinstance(result, EpisodeResetResult)
     assert not alias_a.exists()
     assert not alias_b.exists()
+    assert result.deleted_files == ["source/episode_001.txt", "source/episode_1.txt"]
+    assert result.archived_files == [("source/episode_01.txt", "source/_episode_01.txt.bak")]
+    assert (project_dir / result.archived_files[0][1]).read_bytes() == b"legacy"
     assert discover_episode_files(project_dir) == {}
 
 

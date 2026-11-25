@@ -11,7 +11,9 @@ import pytest
 from arcreel_catalog_core import endpoint_version_floor
 from lib.backends.audio_backends import AudioCapability, AudioSynthesisRequest
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_spec, infer_builtin_endpoint
+from lib.backends.backend_assembly.specs import builtin_model_spec
+from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
+from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.generation.task_failure import render_failure
@@ -26,8 +28,11 @@ _MODEL = "grok-tts"
 
 
 def _backend(model: str | None = _MODEL):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = builtin_model_spec("grok", "audio", model)
-    return spec.build_backend(
+    return build_builtin_backend(
+        spec,
         LoadedConfig(credentials={"api_key": "xai-key"}, provider_meta=PROVIDER_REGISTRY["grok"], rate_limiter=None),
         model,
     )

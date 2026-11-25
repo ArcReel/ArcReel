@@ -148,6 +148,11 @@ class DataRootLayout:
         return self.runtime_dir / "generation-admission-locks"
 
     @property
+    def project_names_lock_path(self) -> Path:
+        """新建和恢复项目时共同持有的项目名分配锁。"""
+        return self.runtime_dir / "project-names.lock"
+
+    @property
     def session_import_marker_path(self) -> Path:
         """本地 SDK 会话导入完成标记。"""
         return self.runtime_dir / "session-store-import.done"

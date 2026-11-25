@@ -1,23 +1,40 @@
-"""产出违约的条目类型与报告渲染，三条 script_plan 路线共用。
-
-违约是「机器产物没过内容约束」这一件事的通用形状：一条 ``code``（违约类的机读标识）、一个
-``label``（定位前缀，如 ``unit E1U02`` / ``segment E1S03``）、一段面向 Agent 的消息，外加可选的
-行号与发声准入定位。参考生视频、drama、narration 的判定各不相同，但条目形状与「一次判定收齐多条
-再渲染成报告」的口径完全相同，故收在本模块——路线中立层（``lib`` 顶层）。
-
-草稿信封（``lib.script.draft_quarantine``）与三条路线都无关，却要落盘与渲染违约条目；类型住在
-参考生视频子包里会让它反向依赖一条具体路线。本模块是这些类型的定义处，各路线的校验器与信封
-都只依赖它；``lib.script.reference_video.draft_validation`` 原样再导出这些名字，参考生视频的既有导入
-路径不变。
-"""
+"""三条脚本规划路线共用的违约条目与报告。"""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import ValidationError
+
+
+class _EnumValue(Protocol):
+    @property
+    def value(self) -> str: ...
+
+
+class _SpeechProblemLocation(Protocol):
+    @property
+    def path(self) -> Sequence[str | int]: ...
+
+    @property
+    def line(self) -> int | None: ...
+
+
+class _SpeechProblemLike(Protocol):
+    @property
+    def code(self) -> _EnumValue: ...
+
+    @property
+    def reason(self) -> _EnumValue: ...
+
+    @property
+    def action(self) -> _EnumValue: ...
+
+    @property
+    def locations(self) -> Sequence[_SpeechProblemLocation]: ...
+
 
 DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
 
@@ -77,6 +94,28 @@ class DraftViolation(ValueError):
         self.params = params
 
 
+def speech_problem_violation(problem: _SpeechProblemLike, *, label: str) -> DraftViolation:
+    locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
+        for location in problem.locations
+    )
+    display_locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
+        for location in problem.locations
+    )
+    line = problem.locations[0].line if len(problem.locations) == 1 else None
+    return DraftViolation(
+        f"{label} 发声准入未通过（{problem.reason.value}，定位：{locations}）；下一步：{problem.action.value}",
+        code=problem.code.value,
+        label=label,
+        line=line,
+        locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
+        reason=problem.reason.value,
+        action=problem.action.value,
+        params={"label": label, "location": display_locations},
+    )
+
+
 def schema_violations(
     exc: ValidationError, content: dict[str, Any], root: str, id_field: str | None = None
 ) -> list[DraftViolation]:
@@ -126,7 +165,7 @@ class DraftViolations(DraftViolation):
 
 
 def violation_items(exc: DraftViolation) -> list[DraftViolation]:
-    """把单条或聚合的违约一律摊平成条目列表，供报告渲染与待修复草稿落盘取用。"""
+    """把单条或聚合的违约一律摊平成条目列表。"""
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 
@@ -174,6 +213,32 @@ def locate_violations_by_id(violations: Iterable[DraftViolation], item_ids: Sequ
             violation.item_index = positions[violation.item_id]
 
 
+def violation_entries(violations: Sequence[DraftViolation]) -> list[dict[str, Any]]:
+    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + 定位前缀 + 消息 + 可选行号与条目定位）。"""
+    entries: list[dict[str, Any]] = []
+    for violation in violations:
+        entry: dict[str, Any] = {
+            "code": violation.code,
+            "label": violation.label,
+            "message": str(violation),
+            "line": violation.line,
+        }
+        if violation.locations:
+            entry["locations"] = list(violation.locations)
+        if violation.reason is not None:
+            entry["reason"] = violation.reason
+        if violation.action is not None:
+            entry["action"] = violation.action
+        if violation.item_index is not None:
+            entry["item_index"] = violation.item_index
+        if violation.item_id is not None:
+            entry["item_id"] = violation.item_id
+        if violation.params is not None:
+            entry["params"] = violation.params
+        entries.append(entry)
+    return entries
+
+
 def render_violation_report(violations: Sequence[DraftViolation]) -> str:
     """把违约条目渲染成逐条编号的报告文本（一行一条，带违约类标注）。"""
     lines: list[str] = []
@@ -193,5 +258,6 @@ __all__ = [
     "locate_violations",
     "locate_violations_by_id",
     "render_violation_report",
+    "violation_entries",
     "violation_items",
 ]

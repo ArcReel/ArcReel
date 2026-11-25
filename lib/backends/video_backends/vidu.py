@@ -17,7 +17,6 @@ from pathlib import Path
 
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
-    ReferenceAudioMode,
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
@@ -38,6 +37,7 @@ from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import VideoEndpointCapabilities, audio_protocol
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,
@@ -49,6 +49,7 @@ from lib.backends.vidu_shared import (
     vidu_failure_reason,
 )
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import DurationCorrection, Endpoint, ModelDurations
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -79,6 +80,10 @@ class ViduEndpoint:
     native_audio: bool = False
     default_duration: int | None = None
     reference_aspect_ratios: frozenset[str] = frozenset()
+
+    @property
+    def duration_correction(self) -> DurationCorrection:
+        return DurationCorrection(self.durations, fallback=5, preferred=self.default_duration)
 
     @property
     def audio_track(self) -> VideoAudioMode:
@@ -184,7 +189,7 @@ VIDU_Q3_AD = ViduEndpoint(
 _ENDPOINTS_WITH_ASPECT_RATIO = frozenset({"/text2video", "/reference2video"})
 
 
-class ViduVideoBackend(EntryBoundCapabilities):
+class ViduVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
     """Vidu 视频生成后端，按 request 字段分派到不同端点。"""
 
     endpoint = VIDU_Q3_TURBO
@@ -211,30 +216,27 @@ class ViduVideoBackend(EntryBoundCapabilities):
         return self._model
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """Vidu 调用通道的声明（通道事实）—— 纯计算，不构造 client。
-
-        通道按请求字段分派到 /text2video、/img2video、/start-end2video、/reference2video 四个端点，对任何型号都
-        发得出文生、首帧、首尾帧与参考图。各型号接受哪些输入记在模型条目上，与本声明两侧求值
-        （``lib.backends.video_capabilities``，docs/adr/0104）。参考图与首尾帧在 Vidu 上是互斥模式：
-        _select_endpoint 见参考图即切 /reference2video，该端点不收首尾帧，_build_request 拒绝两者同带的请求。
-
-        音轨开关、子路径时长、参考图张数、参考音频段数与提示词上限都由所选端点声明（``_build_request`` 同读），
-        与型号名无关。``model`` 与 ``entry`` 是能力契约的统一入参，本通道不读。
-        """
-        del model, entry
-        endpoint = cls.endpoint
-        return VideoCapabilities(
-            text_to_video=True,
-            first_frame=True,
-            last_frame=True,
-            max_reference_images=endpoint.max_reference_images,
-            max_prompt_chars=endpoint.declared_prompt_limit,
-            audio_track=endpoint.audio_track,
-            reference_audio_mode=(
-                ReferenceAudioMode.DIRECT if endpoint.max_reference_audio else ReferenceAudioMode.NONE
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        profile = cls.endpoint
+        slots = frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"})
+        if profile.max_reference_audio:
+            slots |= {"reference_audio"}
+        if not profile.max_reference_images:
+            slots -= {"reference_images"}
+        return Endpoint(
+            "video",
+            slots,
+            audio=audio_protocol(profile.audio_track),
+            duration=ModelDurations(profile.duration_correction),
+            exclusive_inputs=(
+                frozenset({"first_frame", "reference_images"}),
+                frozenset({"last_frame", "reference_images"}),
             ),
-            max_reference_audio_count=endpoint.max_reference_audio,
+            limits={
+                "max_prompt_chars": profile.declared_prompt_limit,
+                "max_reference_images": profile.max_reference_images,
+                "max_reference_audio_count": profile.max_reference_audio,
+            },
         )
 
     @property
@@ -467,26 +469,17 @@ def _reference_images(request: VideoGenerationRequest) -> list[Path]:
 
 def _coerce_duration(profile: ViduEndpoint, endpoint: str, requested: int | None) -> int:
     """按调用端点在各子路径的合法集合，把请求时长校正到最近值。"""
-    allowed = profile.durations.get(endpoint)
-    if not allowed:
-        return int(requested) if requested else 5
-    if requested is None:
-        default = profile.default_duration
-        if default is not None and default in allowed:
-            return default
-        return allowed[0] if 5 not in allowed else 5
-    if requested in allowed:
-        return int(requested)
-    nearest = min(allowed, key=lambda v: abs(v - requested))
-    logger.warning(
-        "Vidu duration %s 不在 model=%s endpoint=%s 合法集合 %s，使用最近值 %s",
-        requested,
-        profile.key,
-        endpoint,
-        allowed,
-        nearest,
-    )
-    return int(nearest)
+    duration = profile.duration_correction.correct(endpoint, requested)
+    if requested is not None and duration != requested:
+        logger.warning(
+            "Vidu duration %s 不在 model=%s endpoint=%s 合法集合 %s，使用最近值 %s",
+            requested,
+            profile.key,
+            endpoint,
+            profile.durations.get(endpoint),
+            duration,
+        )
+    return duration
 
 
 class ViduGenericVideoBackend(ViduVideoBackend):

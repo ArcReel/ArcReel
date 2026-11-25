@@ -1,4 +1,6 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route, Router } from "wouter";
@@ -398,6 +400,100 @@ describe("StudioCanvasRouter", () => {
     expect(screen.queryByTestId("character-gallery")).not.toBeInTheDocument();
   });
 
+  it("waits for the linked episode script before focusing a storyboard and replaces the original URL", () => {
+    const path = "/demo/episodes/1?view=board&unit=SEG-1&t=0&from=agent";
+    const { hook, history } = memoryLocation({ path, record: true });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+    });
+    render(
+      <StrictMode>
+        <Router hook={hook}>
+          <Route path="/:projectName" nest>
+            <StudioCanvasRouter />
+          </Route>
+        </Router>
+      </StrictMode>,
+    );
+    expect(history).toEqual([path]);
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+
+    act(() => useProjectsStore.setState({ currentScripts: { "episode_1.json": makeScript() } }));
+
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "segment", id: "SEG-1" });
+    expect(useAppStore.getState().playbackStart).toMatchObject({
+      resource_type: "videos",
+      resource_id: "SEG-1",
+      seconds: 0,
+    });
+    expect(history).toEqual(["/demo/episodes/1?view=board&from=agent"]);
+  });
+
+  it.each([
+    ["", null],
+    ["&t=4.5", 4.5],
+  ])("focuses a reference video unit once on initial mount with optional time %s", (timeQuery, seconds) => {
+    const { hook, history } = memoryLocation({ path: `/demo/episodes/1?unit=E1U2${timeQuery}`, record: true });
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ generation_mode: "reference_video" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    const onPlaybackStart = vi.fn();
+    const unsubscribe = useAppStore.subscribe((state, previous) => {
+      if (state.playbackStart && state.playbackStart !== previous.playbackStart) onPlaybackStart(state.playbackStart);
+    });
+    render(
+      <StrictMode>
+        <Router hook={hook}>
+          <Route path="/:projectName" nest>
+            <StudioCanvasRouter />
+          </Route>
+        </Router>
+      </StrictMode>,
+    );
+    unsubscribe();
+
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "reference_unit", id: "E1U2" });
+    expect(onPlaybackStart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      resource_type: "reference_videos",
+      resource_id: "E1U2",
+      seconds,
+    }));
+    expect(history).toEqual(["/demo/episodes/1"]);
+  });
+
+  it("keeps a cross-project unit link until the project in the URL is loaded", () => {
+    const path = "/other/episodes/1?unit=SEG-1";
+    const { hook, history } = memoryLocation({ path, record: true });
+    const currentScripts = { "episode_1.json": makeScript() };
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ generation_mode: "reference_video" }),
+      currentScripts,
+    });
+    render(
+      <Router hook={hook}>
+        <Route path="/:projectName" nest>
+          <StudioCanvasRouter />
+        </Route>
+      </Router>,
+    );
+    expect(history).toEqual([path]);
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+
+    act(() => useProjectsStore.setState({
+      currentProjectName: "other",
+      currentProjectData: makeProjectData(),
+      currentScripts,
+    }));
+
+    expect(useAppStore.getState().scrollTarget).toMatchObject({ type: "segment", id: "SEG-1" });
+    expect(useAppStore.getState().playbackStart).toMatchObject({ resource_type: "videos", seconds: null });
+    expect(history).toEqual(["/other/episodes/1"]);
+  });
+
   it("routes characters/scenes/props/episodes views correctly", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -784,8 +880,8 @@ describe("StudioCanvasRouter", () => {
       expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero");
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "character", "demo").has("Hero")).toBe(true);
     });
   });
 
@@ -832,8 +928,8 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-scene"));
     await waitFor(() => {
       expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "scene", "demo", optimisticActive).has("Temple")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "scene", "demo").has("Temple")).toBe(true);
     });
   });
 
@@ -854,8 +950,8 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-prop"));
     await waitFor(() => {
       expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "prop", "demo", optimisticActive).has("Sword")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "prop", "demo").has("Sword")).toBe(true);
     });
   });
 
@@ -881,11 +977,11 @@ describe("StudioCanvasRouter", () => {
       expect(generateSpy).toHaveBeenCalledWith("demo", "Phone");
       expect(useAppStore.getState().toast?.text).toContain("资产图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "product", "demo").has("Phone")).toBe(true);
     });
 
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
@@ -1363,8 +1459,8 @@ describe("StudioCanvasRouter", () => {
         "drama image prompt",
         "episode_1.json",
       );
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "storyboard", "demo", optimisticActive).has("SEG-1")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "storyboard", "demo").has("SEG-1")).toBe(true);
     });
   });
 
@@ -1736,9 +1832,9 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(await screen.findByText("generate-grid"));
     await waitFor(() => {
       expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
-      const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+      const state = useTasksStore.getState();
       expect(
-        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+        selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
       ).toBe(true);
     });
   });
@@ -1772,9 +1868,9 @@ describe("StudioCanvasRouter", () => {
       expect(useAppStore.getState().toast?.text).toBe("已提交 0 个多宫格分镜生成任务");
     });
 
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    const state = useTasksStore.getState();
     expect(
-      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+      selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
     ).toBe(false);
   });
 });

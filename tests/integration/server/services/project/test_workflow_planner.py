@@ -176,22 +176,6 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
             "episode-1",
         ),
         ("final_script", "ad", "storyboard", "text_episode_script", "final_script", "episode-1"),
-        (
-            "script_plan",
-            "drama",
-            "storyboard",
-            "text_draft_repair",
-            "script_plan_content",
-            "episode-1-drama_script_plan",
-        ),
-        (
-            "script_plan",
-            "narration",
-            "reference_video",
-            "text_draft_repair",
-            "final_script",
-            "episode-1-reference_prompt_authoring",
-        ),
     ],
 )
 async def test_recovered_plan_waits_for_active_text_task(
@@ -475,6 +459,8 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
 ) -> None:
     project_path = _project_dir(tmp_path)
     queue_pm = ProjectManager.for_project_dir(project_path)
+    queue_pm.add_product("demo", "杯子", "透明杯")
+    queue_pm.add_product("demo", "水壶", "银色水壶")
     planner_pm = _ProjectManager(project_path, _script())
     monkeypatch.setattr(
         planner_pm,
@@ -483,7 +469,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-            "products": {"杯子": {"description": "透明杯"}},
+            "products": {"杯子": {"description": "透明杯"}, "水壶": {"description": "银色水壶"}},
         },
     )
 
@@ -526,7 +512,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
         project_name="demo",
         task_type="product",
         media_type="image",
-        resource_id="杯子",
+        resource_id="水壶",
         source="mcp",
         user_id="caller-b",
         provider_id="test-provider",

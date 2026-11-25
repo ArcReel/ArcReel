@@ -50,12 +50,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import type { AssetSheetStatusRow, CharacterDerivative, CharacterDerivativeStatus } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { isAssetBusy, rejectIfAssetBusy } from "./assetBusyGuard";
+import { hasActiveDerivativeId, isAssetBusy, rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { hasUsableDescription } from "./AssetSheetStatusBadge";
 import type { GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
@@ -112,7 +112,7 @@ export function CharacterDerivativeRow({
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   const resourceId = derivativeResourceId(characterName, name);
-  const generating = useActiveResourceIds("character_derivative", projectName).has(resourceId);
+  const generating = hasActiveDerivativeId(useActiveResourceIds("character_derivative", projectName), resourceId);
   const token = derivativeToken(characterName, name);
   const qualified = `${characterName}/${name}`;
 
@@ -133,7 +133,8 @@ export function CharacterDerivativeRow({
     leaveTitle: t("assets:edit_leave_title", { name: qualified }),
   });
   const saving = unit.status === "saving";
-  const rowBusy = busy || generating || restoring || importing || pending;
+  const occupied = useAssetBusy("derivative_image", "character", projectName, resourceId);
+  const rowBusy = busy || occupied || saving || restoring || importing || pending;
 
   const handleImportingChange = (value: boolean) => {
     setImporting(value);
@@ -177,20 +178,11 @@ export function CharacterDerivativeRow({
       useAppStore.getState().pushToast(t("assets:derivative_busy_hint"), "info");
       return true;
     }
-    return (
-      rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint") ||
-      rejectIfAssetBusy("character_derivative", projectName, resourceId, t, "assets:derivative_busy_hint")
-    );
+    return rejectIfAssetBusy("derivative_image", "character", projectName, resourceId, t, "assets:derivative_busy_hint");
   };
 
   const handleGenerate = async () => {
-    if (
-      isAssetBusy("character", projectName, characterName) ||
-      isResourceBusy("character_derivative", projectName, resourceId)
-    ) {
-      useAppStore.getState().pushToast(t("assets:derivative_busy_hint"), "info");
-      return;
-    }
+    if (rejectIfAssetBusy("derivative_image", "character", projectName, resourceId, t, "assets:derivative_busy_hint")) return;
     try {
       await enqueueCharacterDerivative(projectName, characterName, name);
     } catch (err) {
@@ -349,7 +341,7 @@ export function CharacterDerivativeRow({
                 }}
                 className="h-7 min-w-0 flex-1"
               />
-              <Button type="submit" variant="ghost" size="icon-sm" disabled={pending} aria-label={t("assets:derivative_rename_confirm")}>
+              <Button type="submit" variant="ghost" size="icon-sm" disabled={rowBusy} aria-label={t("assets:derivative_rename_confirm")}>
                 {pending ? <Loader2 aria-hidden className="animate-spin" /> : <Check aria-hidden />}
               </Button>
               <Button
@@ -452,7 +444,7 @@ export function CharacterDerivativeRow({
             <GenerateButton
               onClick={generate}
               loading={generating}
-              disabled={rowBusy || saving || !ownerHasSheet || !describable}
+              disabled={rowBusy || !ownerHasSheet || !describable}
               label={
                 unit.dirty
                   ? t("common:save_and_generate")
@@ -534,9 +526,9 @@ export function CharacterDerivativeRow({
               await refreshAfterWrite(projectName, t);
               onSheetsChanged();
             }}
-            busy={busy || generating || importing || pending}
+            busy={busy || occupied || saving || importing || pending}
             onRestoringChange={setRestoring}
-            checkBusy={() => isAssetBusy("character_derivative", projectName, resourceId)}
+            checkBusy={() => isAssetBusy("derivative_image", "character", projectName, resourceId)}
           />
           <AlertDialog
             open={dialog === "delete"}

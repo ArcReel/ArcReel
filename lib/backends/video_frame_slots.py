@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Protocol
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.input_limits import InputLimit, excess_image_names
-from lib.backends.video_capabilities import reference_audio_count_limit, reference_image_limit
+from lib.backends.video_capabilities import (
+    projected_video_capabilities,
+    reference_audio_count_limit,
+    reference_image_limit,
+)
+from lib.capabilities.kernel import CapabilitySnapshot, IncompatibleInputsError, RequestConditions
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -30,6 +35,8 @@ __all__ = [
     "plan_frame_slots",
     "resolve_first_frame_aspect_ratio",
     "resolve_video_capabilities",
+    "snapshot_request_capabilities",
+    "video_request_conditions",
 ]
 
 FIRST_FRAME_ADAPTIVE_RATIO = "adaptive"
@@ -52,6 +59,8 @@ def resolve_video_capabilities(
     *,
     service_tier: str = "default",
     resolution: str | None = None,
+    bucket: str | None = None,
+    inputs: frozenset[str] | None = None,
 ) -> VideoCapabilities:
     """解析后端在本次请求档位下的视频能力。
 
@@ -61,8 +70,52 @@ def resolve_video_capabilities(
     """
     tier_aware = getattr(backend, "video_capabilities_for_tier", None)
     if tier_aware is not None:
+        if bucket is not None or inputs is not None:
+            try:
+                return tier_aware(
+                    service_tier,
+                    resolution=resolution,
+                    bucket=bucket or "i2v",
+                    inputs=inputs or frozenset(),
+                )
+            except TypeError:
+                pass
         return tier_aware(service_tier, resolution=resolution)
     return backend.video_capabilities
+
+
+def video_request_conditions(
+    *,
+    resolution: str | None = None,
+    service_tier: str = "default",
+    has_first_frame: bool = False,
+    has_last_frame: bool = False,
+    has_reference_images: bool = False,
+    has_reference_audio: bool = False,
+) -> RequestConditions:
+    inputs = frozenset(
+        name
+        for name, present in (
+            ("first_frame", has_first_frame),
+            ("last_frame", has_last_frame),
+            ("reference_images", has_reference_images),
+            ("reference_audio", has_reference_audio),
+        )
+        if present
+    )
+    return RequestConditions("r2v" if has_reference_images else "i2v", resolution, service_tier, inputs)
+
+
+def snapshot_request_capabilities(
+    snapshot: CapabilitySnapshot,
+    conditions: RequestConditions,
+    *,
+    model: str,
+) -> VideoCapabilities:
+    try:
+        return projected_video_capabilities(snapshot.for_request(conditions))
+    except IncompatibleInputsError as exc:
+        raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=model) from exc
 
 
 def resolve_first_frame_aspect_ratio(

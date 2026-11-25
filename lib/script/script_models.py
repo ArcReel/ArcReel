@@ -7,6 +7,8 @@ script_models.py - 剧本数据模型
 """
 
 import logging
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, get_args
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
@@ -316,11 +318,10 @@ class PlanNewAsset(BaseModel):
     asset_name: str = Field(default="", description="register：登记名；derivative：衍生名；留空即取 name")
 
 
-class NarrationScriptPlanSegment(BaseModel):
+class _NarrationPlanSegmentFields(BaseModel):
     """旁白/解说 script_plan（分镜拆分）产出的结构化分镜：内容层。
 
-    只承载 script_plan 已定的内容字段：分镜边界（segment_id / segment_break）、逐字 novel_text、
-    时长。视觉层（image_prompt / video_prompt）由 prompt_authoring 生成后按 segment_id 合并进来。
+    只承载脚本规划确定的内容字段。服务端另行分配 segment_id，提示词编写按该 ID 合并视觉层。
     characters_in_segment / scenes / props 由 script_plan 登记（内容层是资产引用的单一真相源）：
     prompt_authoring 视觉层 schema 不含资产字段、只读消费、不补登记不改写，故三者必填——无资产须显式写 []，
     缺字段即 fail-loud，杜绝把漏登记静默吞成空数组。合并后落到同一 NarrationSegment。
@@ -328,7 +329,6 @@ class NarrationScriptPlanSegment(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    segment_id: str = Field(pattern=r"^E[1-9]\d*S\d{2,}$", description="分镜 ID，格式 E{集}S##")
     novel_text: str = Field(min_length=1, description="小说原文（逐字保留，用于配音与透传）")
     duration_seconds: int = Field(ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -337,11 +337,30 @@ class NarrationScriptPlanSegment(BaseModel):
     props: list[str] = Field(description="出场道具名称列表；无则显式写 []")
 
 
+NARRATION_PLAN_SEGMENT_ID_PATTERN = r"^E[1-9]\d*S\d{2,}$"
+
+
+class NarrationScriptPlanSegment(_NarrationPlanSegmentFields):
+    segment_id: str = Field(pattern=NARRATION_PLAN_SEGMENT_ID_PATTERN, description="分镜 ID，格式 E{集}S##")
+
+
+class _NarrationModelOutputSegment(_NarrationPlanSegmentFields):
+    @model_validator(mode="before")
+    @classmethod
+    def discard_model_id(cls, value: Any) -> Any:
+        return _without_fields(value, "segment_id")
+
+
+def _without_fields(value: Any, *excluded: str) -> Any:
+    if isinstance(value, dict):
+        return {key: field for key, field in value.items() if key not in excluded}
+    return value
+
+
 class NarrationScriptPlanDraft(BaseModel):
     """旁白/解说 script_plan 结构化中间态（``drafts/episode_N/script_plan_segments.json`` 的 schema）。
 
-    顶层容忍附加字段（如 ``episode`` 头）：分镜拆分由子智能体经 Write 产出、非结构化输出
-    强约束，读时按本模型校验。
+    顶层容忍存量附加字段（如 ``episode``），并允许暂存空分镜列表。
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -522,7 +541,7 @@ class DramaEpisodeScript(BaseModel):
     scenes: list[DramaScene] = Field(description="分镜列表")
 
 
-class DramaSceneContent(BaseModel):
+class _DramaPlanSceneFields(BaseModel):
     """script_plan（normalize）产出的分镜内容层：除视觉层（image_prompt / video_prompt）外的全部字段。
 
     作为 prompt_authoring 视觉生成、以及后续 web 审阅 / 编辑的结构化中间态契约（落盘于
@@ -540,7 +559,6 @@ class DramaSceneContent(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
     characters_in_scene: list[str] = Field(description="出场角色名称列表")
@@ -554,7 +572,18 @@ class DramaSceneContent(BaseModel):
         description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列，逐字保留",
     )
     source_text: str = Field(default="", description="逐字原文摘录（追溯锚，不朗读、不出音，best-effort）")
+
+
+class DramaSceneContent(_DramaPlanSceneFields):
+    scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该分镜需要人工重新规划")
+
+
+class _DramaModelOutputScene(_DramaPlanSceneFields):
+    @model_validator(mode="before")
+    @classmethod
+    def discard_model_id(cls, value: Any) -> Any:
+        return _without_fields(value, "scene_id", "needs_replan")
 
 
 class DramaNormalizedScript(BaseModel):
@@ -738,6 +767,15 @@ class ReferenceResource(BaseModel):
     name: str = Field(description="商品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
 
 
+@dataclass(frozen=True)
+class ResolvedReferenceAsset:
+    """一个逻辑引用展开出的图片候选；可用性由注入的资产适配器判断。"""
+
+    path: Path
+    reference: ReferenceResource
+    kind: str = "asset"
+
+
 class ReferenceVideoUnit(BaseModel):
     """视频单元——一个视频文件的最小生成粒度。
 
@@ -843,8 +881,12 @@ class ReferenceScriptPlanDraft(BaseModel):
     )
 
 
+def _normalize_fullwidth_braces(value: object) -> object:
+    return value.translate(str.maketrans("｛｝", "{}")) if isinstance(value, str) else value
+
+
 class ReferenceScriptPlanFlatUnit(BaseModel):
-    """script_plan 的 LLM 产出单元：时长 + 原文锚 + 引用语法正文。"""
+    """参考生视频扁平单元的公共字段。"""
 
     model_config = _STRICT_CONFIG
 
@@ -854,7 +896,9 @@ class ReferenceScriptPlanFlatUnit(BaseModel):
         description="该单元时长（秒）",
     )
     source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
-    text: str = Field(min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
+    text: Annotated[str, BeforeValidator(_normalize_fullwidth_braces)] = Field(
+        min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号"
+    )
 
 
 class ReferenceScriptPlanFlatDraft(BaseModel):
@@ -889,6 +933,19 @@ class ReferencePromptAuthoringFlatScript(BaseModel):
     units: list[ReferencePromptAuthoringFlatUnit] = Field(
         min_length=1, description="与 script_plan units 一一对应、顺序不变"
     )
+
+
+class AuthoredReferenceUnit(BaseModel):
+    model_config = _STRICT_CONFIG
+
+    unit_id: str = Field(min_length=1)
+    text: Annotated[str, BeforeValidator(_normalize_fullwidth_braces)] = Field(min_length=1)
+
+
+class ReferenceAuthoringResponse(BaseModel):
+    """供应商按显式 ID 返回正文，单条坏数据留给业务层逐单元诊断。"""
+
+    units: list[AuthoredReferenceUnit | SkipJsonSchema[Any]]
 
 
 class AdReferenceFlatUnit(BaseModel):
@@ -994,22 +1051,45 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     )
 
 
-def build_drama_normalized_script_model(supported_durations: list[int]) -> type[BaseModel]:
-    """构造 script_plan 规范化剧本模型，``duration_seconds`` 被 ``supported_durations`` 枚举硬约束。
+class DramaScriptPlanOutput(BaseModel):
+    title: str = Field(description="剧集标题")
+    scenes: list[_DramaModelOutputScene] = Field(min_length=1, description="分镜内容列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
 
-    内容抽取前移后由 script_plan 决定分镜时长，故 duration 枚举约束加在内容层 ``DramaSceneContent`` 上
-    （与 ``build_episode_script_model`` 同口径，渲染为 response_schema 的 enum / const）；prompt_authoring 视觉层
-    不含 duration，沿用静态 ``DramaVisualScript``。
-    """
+
+class NarrationScriptPlanOutput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    segments: list[_NarrationModelOutputSegment] = Field(min_length=1, description="分镜列表")
+    new_assets: list[PlanNewAsset] = Field(
+        default_factory=list, description="本集规划引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
+    )
+
+
+def build_drama_script_plan_model(supported_durations: list[int]) -> type[BaseModel]:
     scene = _constrained_duration_item(
-        DramaSceneContent,
+        _DramaModelOutputScene,
         _duration_literal(supported_durations),
         "分镜时长（秒），必须取 supported_durations 中的值",
     )
     return create_model(
-        "DramaNormalizedScript",
-        __base__=DramaNormalizedScript,
-        scenes=(_list_of(scene), Field(description="分镜内容列表")),
+        "DramaScriptPlanOutput",
+        __base__=DramaScriptPlanOutput,
+        scenes=(_list_of(scene), Field(min_length=1, description="分镜内容列表")),
+    )
+
+
+def build_narration_script_plan_model(supported_durations: list[int]) -> type[BaseModel]:
+    segment = _constrained_duration_item(
+        _NarrationModelOutputSegment,
+        _duration_literal(supported_durations),
+        "分镜时长（秒），必须取 supported_durations 中的值",
+    )
+    return create_model(
+        "NarrationScriptPlanOutput",
+        __base__=NarrationScriptPlanOutput,
+        segments=(_list_of(segment), Field(min_length=1, description="分镜列表")),
     )
 
 
@@ -1044,7 +1124,7 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
     参考图数上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
 
     prompt_authoring 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
-    ``ReferencePromptAuthoringFlatScript``。
+    ``ReferenceAuthoringResponse``。
     """
     unit = _constrained_duration_item(
         ReferenceScriptPlanFlatUnit,

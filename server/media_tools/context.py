@@ -6,8 +6,10 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, Field
 
+from lib.generation.asset_admission import AssetResourceBusy
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.generation.generation_result import GenerationBatchResult, render_generation_result
+from lib.i18n import _ as translate
 from lib.infra.schema_guards import is_str
 from server.agent_toolset.envelope import json_value
 from server.tool_runtime import ToolOutcome, ToolProblem
@@ -15,6 +17,8 @@ from server.tool_runtime import ToolOutcome, ToolProblem
 
 def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> ToolOutcome[Any]:
     """Return a typed handler failure for host adapters to encode."""
+    if isinstance(exc, AssetResourceBusy):
+        return tool_problem(translate(exc.key), code=exc.key)
     msg = f"{name} 失败: {exc}"
     text = "\n".join([msg, *log]) if log else msg
     return ToolOutcome(problem=ToolProblem("internal_error", text))

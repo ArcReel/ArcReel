@@ -8,7 +8,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 
 export type AliasAssetType = "character" | "scene" | "prop";
@@ -49,7 +48,7 @@ export function AssetAliasesField({
   }, [aliases, name, busy, saving]);
 
   const save = async (target: string, next: string[]): Promise<"saved" | "stale" | "failed"> => {
-    if (latest.current.busy || latest.current.saving || rejectIfAssetBusy(assetType, projectName, target, t, "assets:gallery_busy_hint")) return "failed";
+    if (latest.current.busy || latest.current.saving) return "failed";
     setSaving(true);
     try {
       const refreshed = await track(
@@ -125,7 +124,7 @@ export function AssetAliasesField({
           open={adding}
           onOpenChange={(next) => {
             if (!next && saving) return;
-            if (next && rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
+            if (next && locked) return;
             setAdding(next);
             if (!next) setInput("");
           }}
@@ -154,7 +153,7 @@ export function AssetAliasesField({
                   disabled={saving}
                   className="min-w-0 flex-1"
                 />
-                <Button type="submit" size="sm" disabled={saving || input.trim().length === 0}>
+                <Button type="submit" size="sm" disabled={locked || input.trim().length === 0}>
                   {saving ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
                   {t("common:add")}
                 </Button>

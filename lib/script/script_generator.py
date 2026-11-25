@@ -10,9 +10,8 @@ import functools
 import hashlib
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,18 +44,17 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
 )
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     VideoRoute,
-    evaluate_video_request_facts,
+    plan_capability_inputs,
     planning_durations,
     reference_migration_durations,
     require_video_request_facts,
 )
 from lib.i18n import _ as translate
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
@@ -74,25 +72,8 @@ from lib.prompts.prompt_builders_script import (
     build_narration_prompt,
     render_drama_content_for_prompt_authoring,
 )
-from lib.script.draft_quarantine import (
-    PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    clear_quarantine,
-    draft_revision,
-    quarantine_and_report,
-    quarantine_path,
-    read_quarantine,
-)
-from lib.script.draft_violation import (
-    SCHEMA_ERROR_PARAM,
-    locate_violations,
-    locate_violations_by_id,
-    schema_violations,
-)
 from lib.script.item_excerpt import find_item
+from lib.script.item_ids import item_id_number
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
     NewAssetResolution,
@@ -121,6 +102,7 @@ from lib.script.reference_video.draft_validation import (
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.reference_video.request_projection import ReferenceUnitHydration
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
+from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_document import (
     build_materialized_script,
     episode_ledger_entry,
@@ -133,12 +115,14 @@ from lib.script.script_models import (
     AdEpisodeScript,
     AdReferenceFlatScript,
     AdVisualScript,
+    AuthoredReferenceUnit,
     DramaEpisodeScript,
     DramaSceneContent,
     DramaVisualScript,
     NarrationEpisodeScript,
     NarrationScriptPlanDraft,
     NarrationVisualEpisodeScript,
+    ReferenceAuthoringResponse,
     ReferencePromptAuthoringFlatScript,
     ReferenceScriptPlanDraft,
     ReferenceVideoScript,
@@ -163,15 +147,9 @@ from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items
 from lib.script.script_structure_validator import validate_script_structure
 from lib.speech.speech_composition import require_script_unit_admitted
 from lib.speech.speech_rate import project_speech_rate_override
+from lib.video_runtime.resolution import read_video_request_facts
 
 logger = logging.getLogger(__name__)
-
-
-class _UnsetExpectedFingerprint:
-    pass
-
-
-_UNSET_EXPECTED_FINGERPRINT = _UnsetExpectedFingerprint()
 
 _DURATION_ADAPTER = TypeAdapter(int)
 _DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
@@ -204,6 +182,16 @@ class PromptAuthoringTargetError(ValueError):
     """提示词编写的对象无效：该集尚无正式脚本，或 ``entry_ids`` 点名的条目不在正式脚本里。"""
 
 
+class ReferenceAuthoringFailed(ValueError):
+    def __init__(self, failed_units: list[dict[str, str]]) -> None:
+        self.failed_units = failed_units
+        super().__init__(
+            "；".join(
+                f"{unit['unit_id']}: {unit['message']} {unit.get('abort_reason', '')}".rstrip() for unit in failed_units
+            )
+        )
+
+
 class PromptAuthoringUnitRejected(ValueError):
     """提示词编写调用文本模型前，正式脚本里待编写单元的现值没有通过预判。
 
@@ -216,13 +204,6 @@ class PromptAuthoringUnitRejected(ValueError):
         super().__init__(message)
         self.code = code
         self.params = params
-
-
-_FORMAL_UNIT_PROMOTION_KEYS: dict[str, str] = {
-    "prompt_authoring_dialogue_overload": "draft_formal_unit_dialogue_overload",
-    "prompt_authoring_duration_off_tier": "draft_formal_unit_duration_off_tier",
-    "prompt_authoring_unit_invalid": "draft_formal_unit_invalid",
-}
 
 
 class UnitDurationOffTier(ValueError):
@@ -243,7 +224,7 @@ class UnitDurationOffTier(ValueError):
 
 
 class AdScriptRejected(ValueError):
-    """广告/短片整份生成的产出违约：不写正式脚本、不登记资产、不落待修复草稿。
+    """广告/短片整份生成的产出违约：不写正式脚本、不登记资产。
 
     ``problems`` 逐条说明违约，供任务失败原因展示；用户可以补充附加指令后重新生成。
     """
@@ -467,7 +448,7 @@ class ScriptGenerator:
         overwrite_revision: str | None = None,
         rewritten_entry_ids: list[str] | None = None,
         skipped_entry_ids: list[str] | None = None,
-        before_quarantine_commit: Callable[[], None] | None = None,
+        failed_units: list[dict[str, str]] | None = None,
         regenerate: bool = False,
         registered_assets: list[dict[str, str]] | None = None,
     ) -> Path:
@@ -550,8 +531,10 @@ class ScriptGenerator:
             )
 
         _require_overwrite_acknowledged(targets, formal_baseline, overwrite_revision)
+        if failed_units is not None:
+            failed_units.clear()
         if rewritten_entry_ids is not None:
-            rewritten_entry_ids[:] = targets.ids
+            rewritten_entry_ids[:] = () if targets.kind == "video_units" and self.content_mode != "ad" else targets.ids
         if skipped_entry_ids is not None:
             skipped_entry_ids[:] = targets.selection.skipped
         output_path = self.project_path / "scripts" / filename
@@ -574,7 +557,8 @@ class ScriptGenerator:
                 targets,
                 formal_baseline=formal_baseline,
                 instructions=instructions,
-                before_quarantine_commit=before_quarantine_commit,
+                written_ids=rewritten_entry_ids,
+                failed_units=failed_units,
             )
 
         if targets.kind == "scenes":
@@ -716,7 +700,7 @@ class ScriptGenerator:
     async def _load_plan_entries_for_materialization(self, episode: int) -> tuple[ScriptPlanKind, list[dict]]:
         """按项目路线读脚本规划并过物化的准入断言，返回 (变体, 条目)。
 
-        三条路线各自的加载器负责结构校验、待修复草稿守卫与规划指纹 / 输入登记的冻结；时长档位与
+        三条路线各自的加载器负责结构校验与规划指纹 / 输入登记的冻结；时长档位与
         发声准入按当前视频能力判定。参考生视频单元正文不按机器口径预判：单元以待编写落盘，正文由之后的
         提示词编写改写并在那里校验。
         """
@@ -748,6 +732,7 @@ class ScriptGenerator:
         expected_plan_revision: str,
         expected_script_fingerprint: str | None,
         project_update: Callable[[dict[str, Any]], None],
+        validate_locked: Callable[[dict[str, Any], Path], None] | None = None,
     ) -> ScriptPlanMaterializationReceipt:
         """内容确认时把脚本规划整份转为正式剧本：旧剧本（若有）整份被替换，不沿用任何条目。
 
@@ -775,7 +760,15 @@ class ScriptGenerator:
         if unregistered:
             raise UnregisteredReferencesError(unregistered)
 
+        plan_path = script_plan_path(self.project_path, self.project_json, episode)
+        if plan_path is None:
+            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
+
         def update_project(project: dict[str, Any]) -> None:
+            if validate_locked is not None:
+                validate_locked(project, plan_path)
+            if resolve_new_assets(project, self._script_plan_new_assets) != new_assets:
+                raise ValueError("本集新增资产的处理结果已变化，请刷新后重新确认")
             new_assets.apply_to_project(project)
             project_update(project)
 
@@ -787,9 +780,6 @@ class ScriptGenerator:
         id_field = entry_id_field(plan_kind)
         previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
-        plan_path = script_plan_path(self.project_path, self.project_json, episode)
-        if plan_path is None:
-            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
         claim = self._script_plan_input_claim
 
         def _commit() -> None:
@@ -1101,11 +1091,10 @@ class ScriptGenerator:
             route, buckets = "storyboard", (self._storyboard_bucket,)
         by_bucket: dict[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] = {}
         for bucket in buckets:
-            by_bucket[bucket] = await evaluate_video_request_facts(
+            by_bucket[bucket] = await read_video_request_facts(
                 self.project_json,
                 route=route,
                 generation_type=bucket,
-                identity=CONFIGURED_VIDEO_IDENTITY,
                 resolver=resolver,
             )
         return PlanningVideoFacts(by_bucket=by_bucket)
@@ -1198,7 +1187,7 @@ class ScriptGenerator:
             raise ValueError(f"formal script_plan artifact is not registered: {artifact_path}")
         self._script_plan_input_claim = claim
 
-    async def _generate_text(self, request: TextGenerationRequest) -> Any:
+    async def _generate_text(self, request: TextGenerationRequest, *, require_complete: bool = False) -> Any:
         """Call the paid text provider after one shared formal-input recheck."""
 
         assert self.generator is not None
@@ -1208,6 +1197,8 @@ class ScriptGenerator:
                 self.project_path,
                 (self._script_plan_input_claim,),
             )
+        if require_complete:
+            return await self.generator.generate(request, project_name=self.project_path.name, require_complete=True)
         return await self.generator.generate(request, project_name=self.project_path.name)
 
     def _freeze_ad_artifact_basis(self, episode: int, project: Mapping[str, Any]) -> None:
@@ -1252,12 +1243,6 @@ class ScriptGenerator:
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         script_plan_json = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         if not script_plan_json.exists():
             legacy_md = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME
             if legacy_md.exists():
@@ -1271,8 +1256,7 @@ class ScriptGenerator:
             )
 
         pm = ProjectManager.for_project_dir(self.project_path)
-        prompt_authoring_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        with pm.file_lock(prompt_authoring_path), pm.file_lock(script_plan_json):
+        with pm.file_lock(script_plan_json):
             try:
                 raw = json.loads(script_plan_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
@@ -1326,12 +1310,6 @@ class ScriptGenerator:
         仅存在结构化前的旧 ``script_plan_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}） script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         drafts_path = episode_drafts_dir(self.project_path, episode)
         narration_json = SCRIPT_PLAN_FILENAMES["narration"]
         script_plan_json = drafts_path / narration_json
@@ -1395,12 +1373,6 @@ class ScriptGenerator:
         须在此 fail-fast，否则坏 script_plan 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
         或在 render/merge 阶段抛内部异常而非明确的 script_plan 校验错误。
         """
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         raw = self._load_script_plan(episode)
         try:
             data = json.loads(raw)
@@ -1454,11 +1426,7 @@ class ScriptGenerator:
                 )
 
     def _assert_reference_units_authorable(self, units: list[dict], *, facts: PlanningVideoFacts) -> None:
-        """提示词编写付费调用前对待编写单元现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
-
-        产出路径与晋升路径（待修复草稿重判前）共用这一份：草稿在场期间用户可能在时间线上改过
-        单元，两处口径若分叉，就会出现「晋升放行、下次编写被拒」或反过来的死角。
-        """
+        """付费编写前验证所选单元的时长档位和正文。"""
         for unit, hydration in zip(units, self._hydrate_reference_units(units), strict=True):
             bucket = hydration.hydrated_generation_type
             facts.require(bucket)
@@ -1513,44 +1481,6 @@ class ScriptGenerator:
             "tiers": " / ".join(str(tier) for tier in exc.tiers),
         }
         return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_duration_off_tier", params=params)
-
-    def _formal_unit_promotion_violation(
-        self, targets: PromptAuthoringTargets, exc: DraftViolation | UnitDurationOffTier
-    ) -> DraftViolation:
-        """晋升前正式剧本单元没过预判时的违约：仍是 ``DraftViolation``（晋升照常报 ``draft_invalid``），按界面位置称呼单元。
-
-        问题码与参数沿用编写入口的同一份预判结果（``_unit_rejection`` / ``_duration_rejection``），换成草稿
-        晋升的文案 key：呈现层按 ``code`` 与 ``params`` 本地化。消息面向 Agent，同样按「视频单元 N」称呼，
-        不带内部单元 ID。违约定位不到正式剧本里的单元时原样保留消息。
-        """
-        rejection = (
-            self._duration_rejection(targets, exc)
-            if isinstance(exc, UnitDurationOffTier)
-            else self._unit_rejection(targets, exc)
-        )
-        if rejection is None:
-            return (
-                exc
-                if isinstance(exc, DraftViolation)
-                else DraftViolation(
-                    str(exc),
-                    code="duration_off_tier",
-                    params={"label": f"unit {exc.unit_id}", "duration": exc.duration_seconds, "tiers": exc.tiers},
-                )
-            )
-        params = {key: value for key, value in rejection.params.items() if key != "unit_id"}
-        unit_id = str(rejection.params["unit_id"])
-        code = _FORMAL_UNIT_PROMOTION_KEYS[rejection.code]
-        message = translate(code, **params)
-        if isinstance(exc, DraftViolation) and rejection.code == "prompt_authoring_unit_invalid":
-            label = f"视频单元 {params['position']}"
-            reasons = [
-                f"{label}{str(item)[len(item.label) :]}"
-                for item in violation_items(exc)
-                if item.item_id == unit_id and item.label and str(item).startswith(item.label)
-            ]
-            message += "".join(f"\n   - {reason}" for reason in reasons if unit_id not in reason)
-        return DraftViolation(message, code=code, params=params, item_id=unit_id)
 
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
@@ -1631,18 +1561,24 @@ class ScriptGenerator:
         *,
         formal_baseline: str | None,
         instructions: str | None,
-        before_quarantine_commit: Callable[[], None] | None,
+        written_ids: list[str] | None,
+        failed_units: list[dict[str, str]] | None,
     ) -> Path:
-        """参考生视频的提示词编写：只改写本次选中单元的正文，其余单元逐字不动。
-
-        LLM 只出引用语法正文（与待编写单元等长、同序）；违约不丢弃，连同逐条报告落待修复草稿，
-        修复后经草稿晋升重判写回正式剧本。重抽既烧钱又不收敛——同一个模型对同一份正文
-        大概率再犯同一类错。
-        """
         facts = await self._fetch_video_request_facts()
+        capability_inputs = plan_capability_inputs(self.project_json)
         units = list(targets.entries)
+        path = self.project_path / "scripts" / filename
 
-        def preflight() -> str | None:
+        def preflight() -> None:
+            ProjectManager.require_filename_episode_consistency(targets.script, filename)
+            structure = validate_script_structure(targets.script)
+            if not structure.valid:
+                raise PromptAuthoringTargetError("；".join(structure.errors))
+            ids = [unit["unit_id"] for unit in targets.items]
+            if len(set(ids)) != len(ids) or any(
+                not uid.startswith(f"E{episode}U") or item_id_number(uid, episode) is None for uid in ids
+            ):
+                raise PromptAuthoringTargetError("正式脚本的 unit_id 重复或格式错误")
             try:
                 self._assert_reference_units_authorable(units, facts=facts)
             except DraftViolation as exc:
@@ -1655,67 +1591,214 @@ class ScriptGenerator:
                 if rejection is None:
                     raise
                 raise rejection from exc
-            return self._reference_prompt_authoring_draft_revision(episode)
 
-        if await asyncio.to_thread(preflight) is not None:
-            raise DraftViolation(
-                "reference prompt_authoring 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
-                code="draft_revision_conflict",
-                params={},
-            )
-        max_refs = self._resolve_max_refs(facts)
-        logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
-        result = await self._generate_text(
-            TextGenerationRequest(
-                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
-                response_schema=ReferencePromptAuthoringFlatScript,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
-            )
-        )
-        response_text = result.text
+        await asyncio.to_thread(preflight)
+        written: set[str] = set()
+        failures: dict[str, dict[str, str]] = {}
+        round_targets = targets
+        reason = ""
+        conflict = "formal_revision_conflict: 正式脚本已变化，已停止写回"
+        caps_changed = "视频模型配置已变化，已停止写回，请重新发起编写"
 
-        async def quarantine(exc: DraftViolation) -> DraftViolation:
-            return await run_sync_transaction(
-                self._quarantine_reference_prompt_authoring,
-                episode,
-                response_text,
-                exc,
-                unit_ids=targets.ids,
-                base_fingerprint=formal_baseline,
-                expected_draft_revision=None,
-                before_commit=before_quarantine_commit,
-            )
+        def require_current_capabilities(project: dict[str, Any]) -> None:
+            if plan_capability_inputs(project) != capability_inputs:
+                raise PromptAuthoringTargetError(caps_changed)
 
-        def author() -> dict[str, Any]:
-            authored = self._merge_reference_visual(units, response_text, episode, max_refs=max_refs)
-            return self._authored_script(
-                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
-            )
+        def validate_response(
+            selected: PromptAuthoringTargets, response: str
+        ) -> tuple[dict[str, dict], dict[str, dict[str, str]]]:
+            require_current_capabilities(self._load_project_json())
+            return self._reference_response_units(selected, response, facts)
 
         try:
-            script_data = await asyncio.to_thread(author)
-        except DraftViolation as exc:
-            raise await quarantine(exc) from exc
-        try:
-            output_path = await run_sync_transaction(
-                self._save_reference_prompt_authoring_if_draft_unchanged,
-                episode,
-                None,
-                script_data,
-                filename,
-                formal_baseline,
-            )
-        except ScriptWriteConflict as exc:
-            raise await quarantine(
-                DraftViolation(
-                    "正式剧本在模型生成期间已变化；本次生成结果已保留为 prompt_authoring 草稿，请合并最新正式内容后再晋升",
-                    code="formal_revision_conflict",
-                    params={},
+            for attempt in range(2):
+                if await asyncio.to_thread(content_fingerprint, path) != formal_baseline:
+                    reason = conflict
+                    break
+                require_current_capabilities(await asyncio.to_thread(self._load_project_json))
+                prompt = self._build_reference_prompt_authoring_prompt(episode, round_targets, facts, instructions)
+                if attempt:
+                    feedback = [failures[uid] for uid in round_targets.ids]
+                    prompt += "\n请修正以下单元：" + json.dumps(feedback, ensure_ascii=False)
+                result = await self._generate_text(
+                    TextGenerationRequest(
+                        prompt=prompt,
+                        response_schema=ReferenceAuthoringResponse,
+                        max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+                    ),
+                    require_complete=True,
                 )
-            ) from exc
-        self._quality_probe(script_data, episode)
-        logger.info("剧本已保存至 %s", output_path)
-        return output_path
+
+                if await run_noninterruptible_async(self._fetch_video_request_facts()) != facts:
+                    raise PromptAuthoringTargetError(caps_changed)
+                accepted, round_failures = await run_noninterruptible_sync(
+                    validate_response, round_targets, result.text
+                )
+                failures.update(round_failures)
+                if not accepted and await run_noninterruptible_sync(content_fingerprint, path) != formal_baseline:
+                    reason = conflict
+                    break
+                if accepted:
+                    script, formal_baseline = await run_noninterruptible_sync(
+                        self._commit_reference_units,
+                        round_targets,
+                        accepted,
+                        filename,
+                        formal_baseline,
+                        episode,
+                        require_current_capabilities,
+                    )
+                    written.update(accepted)
+                    for uid in accepted:
+                        failures.pop(uid, None)
+                    round_targets = replace(round_targets, script=script)
+                retry_entries = tuple(
+                    entry
+                    for entry in round_targets.entries
+                    if (failure := round_failures.get(entry["unit_id"]))
+                    and failure["code"] != "invalid_response"
+                    and "abort_reason" not in failure
+                )
+                if not retry_entries:
+                    break
+                round_targets = replace(round_targets, entries=retry_entries)
+        except ScriptWriteConflict:
+            reason = conflict
+        except Exception as exc:
+            if not written:
+                raise
+            logger.warning("第 %d 集提示词补跑中止", episode, exc_info=True)
+            reason = f"{type(exc).__name__}: {exc}"
+
+        if reason:
+            for uid in targets.ids:
+                if uid not in written:
+                    failure = failures.setdefault(
+                        uid, {"unit_id": uid, "code": "formal_revision_conflict", "message": "未写入"}
+                    )
+                    failure["abort_reason"] = reason
+        for failure in failures.values():
+            failure["message"] += "；请用 entry_ids 点名重试（重写需重新认可覆盖），或用 patch_episode_script 修改"
+        if written_ids is not None:
+            written_ids[:] = [uid for uid in targets.ids if uid in written]
+        remaining = [failures[uid] for uid in targets.ids if uid in failures]
+        if failed_units is not None:
+            failed_units[:] = remaining
+        if not written:
+            raise ReferenceAuthoringFailed(remaining)
+        return path
+
+    def _commit_reference_units(
+        self,
+        targets: PromptAuthoringTargets,
+        accepted: dict[str, dict],
+        filename: str,
+        baseline: str | None,
+        episode: int,
+        check_project: Callable[[dict[str, Any]], None],
+    ) -> tuple[dict, str]:
+        script = dict(targets.script)
+        script["video_units"] = [accepted.get(item["unit_id"], item) for item in targets.items]
+        script["metadata"] = {
+            **(script.get("metadata") or {}),
+            "generator": self.generator.model if self.generator else "unknown",
+        }
+        self._save_script(script, filename, expected_fingerprint=baseline, project_update=check_project)
+        self._quality_probe(script, episode)
+        return script, content_fingerprint_of_data(script)
+
+    def _reference_response_units(
+        self, targets: PromptAuthoringTargets, response: str, facts: PlanningVideoFacts
+    ) -> tuple[dict[str, dict], dict[str, dict[str, str]]]:
+        try:
+            data = json.loads(strip_json_code_fences(response))
+        except ValueError:
+            data = None
+        rows = data.get("units") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return {}, {
+                uid: {"unit_id": uid, "code": "invalid_response", "message": "模型未返回单元列表"}
+                for uid in targets.ids
+            }
+        by_id: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            if isinstance(row, dict) and isinstance(row.get("unit_id"), str):
+                by_id[row["unit_id"]].append(row)
+        candidates = []
+        failures = {}
+        for unit in targets.entries:
+            uid = unit["unit_id"]
+            matches = by_id[uid]
+            try:
+                if len(matches) != 1:
+                    code = "duplicate_unit" if matches else "missing_unit"
+                    raise DraftViolation("模型重复返回单元" if matches else "模型漏返单元", code=code)
+                candidate = AuthoredReferenceUnit.model_validate(matches[0])
+                candidates.append((unit, {**unit, "text": candidate.text}))
+            except (ValidationError, DraftViolation) as exc:
+                failures[uid] = {
+                    "unit_id": uid,
+                    "code": exc.code if isinstance(exc, DraftViolation) else "schema_invalid",
+                    "message": str(exc),
+                }
+        project = self._load_project_json()
+        hydrations = hydrate_reference_units(project, self.project_path, (merged for _, merged in candidates))
+        accepted = {}
+        for (unit, merged), hydration in zip(candidates, hydrations, strict=True):
+            uid = unit["unit_id"]
+            try:
+                bucket = hydration.hydrated_generation_type
+                caps = facts.require(bucket)
+                label = f"unit {uid}"
+                validate_unit_text(
+                    label,
+                    merged["text"],
+                    project,
+                    max_refs=self._resolve_max_refs(facts),
+                    max_speakers=VoiceRenderSettings.from_request_facts(caps).planning_speaker_limit,
+                    tolerated_speakers=dialogue_speakers(unit["text"]),
+                )
+                assert_dialogue_preserved(label, unit["text"], merged["text"])
+                tiers = self._unit_duration_off_tier(unit["duration_seconds"], facts=facts, generation_type=bucket)
+                if tiers is not None:
+                    allowed_tiers = sorted(set(tiers))
+                    raise DraftViolation(
+                        f"{label} 时长不在当前生效档位 {allowed_tiers} 内",
+                        code="duration_off_tier",
+                        label=label,
+                        params={"label": label, "duration": unit["duration_seconds"], "tiers": allowed_tiers},
+                    )
+                merged.pop("pending_authoring", None)
+                merged.pop("needs_replan", None)
+                accepted[uid] = merged
+            except VideoRequestFactsError as exc:
+                failures[uid] = {
+                    "unit_id": uid,
+                    "code": exc.code,
+                    "message": exc.failure.summary(),
+                    "abort_reason": "视频模型能力不可用",
+                }
+            except DraftViolation as exc:
+                failures[uid] = {
+                    "unit_id": uid,
+                    "code": exc.code,
+                    "message": str(exc),
+                }
+                if exc.code == "speakers_over_limit" and not self._reference_dialogue_fits_a_bucket(unit, facts):
+                    failures[uid]["abort_reason"] = "原台词的说话人数和单元时长无法同时满足可用视频模型的要求"
+        return accepted, failures
+
+    def _reference_dialogue_fits_a_bucket(self, unit: dict, facts: PlanningVideoFacts) -> bool:
+        speaker_count = len(dialogue_speakers(unit["text"]))
+        for bucket, capability in facts.by_bucket.items():
+            if not isinstance(capability, VideoRequestFacts):
+                continue
+            limit = VoiceRenderSettings.from_request_facts(capability).planning_speaker_limit
+            if (limit is None or speaker_count <= limit) and self._unit_duration_off_tier(
+                unit["duration_seconds"], facts=facts, generation_type=bucket
+            ) is None:
+                return True
+        return False
 
     def _parse_unit_texts(self, response_text: str, episode: int) -> ReferencePromptAuthoringFlatScript:
         text = strip_json_code_fences(response_text)
@@ -1732,56 +1815,6 @@ class ScriptGenerator:
         except ValidationError as e:
             raise ValueError(f"prompt_authoring 提示词编写结构校验失败: {e}") from e
 
-    def _merge_reference_visual(
-        self,
-        units: list[dict],
-        response_text: str,
-        episode: int,
-        *,
-        max_refs: int | None,
-    ) -> list[dict]:
-        """参考路径提示词编写合并：LLM 只出引用语法正文，按位写回待编写单元，其余字段原样保留。
-
-        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都以单元现有正文为准，提示词编写
-        只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默接受：
-        台词配不上画面时正确的出路是在时间线上改单元正文，而不是让提示词编写自行改词。
-
-        逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
-        待修复草稿——单条抛出会让 Agent 每修一个 unit 就要重跑一次付费的展开。
-        """
-        flat = self._parse_unit_texts(response_text, episode)
-        if len(flat.units) != len(units):
-            raise DraftViolation(
-                f"prompt_authoring 产出的 unit 数（{len(flat.units)}）与待编写单元数（{len(units)}）不一致；"
-                "prompt_authoring 只做提示词编写，不得合并、拆分或增删 unit",
-                code="unit_count_changed",
-                params={"actual": len(flat.units), "expected": len(units)},
-            )
-
-        authored: list[dict] = []
-        violations: list[DraftViolation] = []
-        for index, (unit, flat_unit) in enumerate(zip(units, flat.units, strict=True)):
-            label = f"unit {unit['unit_id']}"
-            try:
-                validate_unit_text(
-                    label,
-                    flat_unit.text,
-                    self.project_json,
-                    max_refs=max_refs,
-                    tolerated_speakers=dialogue_speakers(str(unit.get("text") or "")),
-                )
-                assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
-            except DraftViolation as exc:
-                items = violation_items(exc)
-                locate_violations(items, item_index=index, item_id=str(unit["unit_id"]))
-                violations.extend(items)
-                continue
-            authored.append({**unit, "text": flat_unit.text})
-
-        if violations:
-            raise DraftViolations(violations)
-        return authored
-
     async def _author_ad_reference_units(
         self,
         episode: int,
@@ -1794,7 +1827,7 @@ class ScriptGenerator:
         """广告/短片参考生视频的提示词编写：按 brief、商品信息与前后单元写出待编写单元的正文。
 
         时长沿用单元现值（ad 单元编排时长不按供应商档位量化）；单元里已有的台词逐字保留。
-        与 ad 整份生成同口径不落待修复草稿，违约直接报错。
+        违约直接报错。
         """
         logger.info(
             "正在为第 %d 集编写提示词（ad video_units，%d/%d 个单元）...",
@@ -1875,262 +1908,6 @@ class ScriptGenerator:
             **self._ad_prompt_common(episode, instructions),
             units=[item for item in targets.items if isinstance(item, dict)],
             target_ids=targets.ids,
-        )
-
-    def _prompt_authoring_flat_content(self, response_text: str, episode: int) -> dict:
-        """把 prompt_authoring 响应还原成待修复草稿要装的扁平形状 ``{title, units: [{text}]}``。
-
-        与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
-        逐步同口径：待修复草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 Agent
-        改的正文与合并时读的正文形状不同。
-        """
-        return self._parse_unit_texts(response_text, episode).model_dump()
-
-    def _quarantine_reference_prompt_authoring(
-        self,
-        episode: int,
-        response_text: str,
-        exc: DraftViolation,
-        *,
-        unit_ids: Sequence[str],
-        base_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-        expected_draft_revision: str | None,
-        before_commit: Callable[[], None] | None = None,
-    ) -> DraftViolation:
-        """把违约的 prompt_authoring 产出与报告落待修复草稿，返回携带报告的违约异常（由调用方抛出）。
-
-        ``meta.unit_ids`` 记下这份产出对应的单元（按剧本顺序），晋升时按它从正式剧本取回同一批单元。
-
-        返回而不是自己抛：调用点用 ``raise ... from exc`` 保留原始违约链，异常在此被构造却在
-        彼处抛出会让 traceback 指向本函数而非合并逻辑。
-        """
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        formal_path = (
-            self.project_path / "scripts" / formal_script_filename(self.project_path, self.project_json, episode)
-        )
-        pm = ProjectManager.for_project_dir(self.project_path)
-        with pm.file_lock(draft_path), pm.file_lock(formal_path):
-            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            actual_draft_revision = draft_revision(current) if current is not None else None
-            if actual_draft_revision != expected_draft_revision:
-                return DraftViolation(
-                    "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
-                    code="draft_revision_conflict",
-                    params={},
-                )
-            if before_commit is not None:
-                before_commit()
-            violations = violation_items(exc)
-            locate_violations_by_id(violations, unit_ids)
-            report = quarantine_and_report(
-                self.project_path,
-                episode,
-                QUARANTINE_KIND_PROMPT_AUTHORING,
-                content=self._prompt_authoring_flat_content(response_text, episode),
-                violations=violations,
-                meta={
-                    "base_fingerprint": (
-                        content_fingerprint(formal_path)
-                        if isinstance(base_fingerprint, _UnsetExpectedFingerprint)
-                        else base_fingerprint
-                    ),
-                    "unit_ids": list(unit_ids),
-                },
-            )
-        return DraftViolation(report, code="quarantined", params={"count": len(violations)})
-
-    def _reference_prompt_authoring_draft_revision(self, episode: int) -> str | None:
-        path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        with ProjectManager.for_project_dir(self.project_path).file_lock(path):
-            draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            return draft_revision(draft) if draft is not None else None
-
-    def _save_reference_prompt_authoring_if_draft_unchanged(
-        self,
-        episode: int,
-        expected_draft_revision: str | None,
-        script_data: dict[str, Any],
-        filename: str,
-        formal_baseline: str | None,
-    ) -> Path:
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        pm = ProjectManager.for_project_dir(self.project_path)
-        with pm.file_lock(draft_path):
-            current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            actual_draft_revision = draft_revision(current) if current is not None else None
-            if actual_draft_revision != expected_draft_revision:
-                raise DraftViolation(
-                    "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
-                    code="draft_revision_conflict",
-                    params={},
-                )
-            return pm.save_script(
-                self.project_path.name,
-                script_data,
-                filename,
-                validate=True,
-                expected_fingerprint=formal_baseline,
-            )
-
-    def _promote_reference_prompt_authoring_draft_sync(
-        self,
-        episode: int,
-        facts: PlanningVideoFacts,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-        _prompt_authoring_lock_held: bool = False,
-    ) -> Path:
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        pm = ProjectManager.for_project_dir(self.project_path)
-        prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(draft_path)
-        with prompt_authoring_lock:
-            return self._promote_reference_prompt_authoring_draft_locked_sync(
-                episode,
-                facts,
-                output_filename,
-                expected_fingerprint=expected_fingerprint,
-            )
-
-    def _promote_reference_prompt_authoring_draft_locked_sync(
-        self,
-        episode: int,
-        facts: PlanningVideoFacts,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-    ) -> Path:
-        draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        if draft is None:
-            draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            raise FileNotFoundError(
-                f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
-                f"（{draft_path.relative_to(self.project_path).as_posix()} 缺失或内容不是合法信封）"
-            )
-
-        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
-        raw_unit_ids = draft.meta.get("unit_ids")
-        unit_ids = (
-            [unit_id for unit_id in raw_unit_ids if isinstance(unit_id, str)]
-            if isinstance(raw_unit_ids, list)
-            else None
-        )
-        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids, rewrite=True)
-        if targets is None:
-            raise FileNotFoundError(f"集（id={episode}）尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
-        if unit_ids is None:
-            targets = replace(targets, entries=tuple(item for item in targets.items if isinstance(item, dict)))
-        units = list(targets.entries)
-        try:
-            self._assert_reference_units_authorable(units, facts=facts)
-        except (DraftViolation, UnitDurationOffTier) as exc:
-            raise self._formal_unit_promotion_violation(targets, exc) from exc
-        max_refs = self._resolve_max_refs(facts)
-        try:
-            authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)
-            if unit_ids is None:
-                changed = [
-                    (unit, merged)
-                    for unit, merged in zip(units, authored, strict=True)
-                    if merged["text"] != unit.get("text")
-                ]
-                targets = replace(targets, entries=tuple(unit for unit, _ in changed))
-                authored = [merged for _, merged in changed]
-            script_data = self._authored_script(
-                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
-            )
-        except DraftViolation as exc:
-            violations = violation_items(exc)
-            locate_violations_by_id(violations, [str(unit.get("unit_id")) for unit in units])
-            raise DraftViolation(
-                quarantine_and_report(
-                    self.project_path,
-                    episode,
-                    QUARANTINE_KIND_PROMPT_AUTHORING,
-                    content=draft.content,
-                    violations=violations,
-                    meta=draft.meta,
-                ),
-                code="quarantined",
-            ) from exc
-        except ValueError as exc:
-            violations = (
-                schema_violations(exc.__cause__, draft.content, "units")
-                if isinstance(exc.__cause__, ValidationError)
-                else [
-                    DraftViolation(
-                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
-                        code="schema_invalid",
-                        params={
-                            "path": "content",
-                            "detail": "prompt_authoring",
-                            SCHEMA_ERROR_PARAM: {"type": "prompt_authoring_unreadable"},
-                        },
-                    )
-                ]
-            )
-            for violation in violations:
-                if violation.item_index is not None and violation.item_index < len(units):
-                    violation.item_id = str(units[violation.item_index]["unit_id"])
-            raise DraftViolation(
-                quarantine_and_report(
-                    self.project_path,
-                    episode,
-                    QUARANTINE_KIND_PROMPT_AUTHORING,
-                    content=draft.content,
-                    violations=violations,
-                    meta=draft.meta,
-                ),
-                code="quarantined",
-            ) from exc
-
-        pm = ProjectManager.for_project_dir(self.project_path)
-        if isinstance(expected_fingerprint, _UnsetExpectedFingerprint):
-            if "base_fingerprint" not in draft.meta:
-                raise DraftViolation(
-                    "reference prompt_authoring 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升",
-                    code="formal_revision_missing",
-                    params={},
-                )
-            resolved_expected_fingerprint = cast(str | None, draft.meta["base_fingerprint"])
-        else:
-            resolved_expected_fingerprint = expected_fingerprint
-        output_path = pm.save_script(
-            self.project_path.name,
-            script_data,
-            filename,
-            validate=True,
-            expected_fingerprint=resolved_expected_fingerprint,
-        )
-        clear_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        self._quality_probe(script_data, episode)
-        return output_path
-
-    async def promote_reference_prompt_authoring_draft(
-        self,
-        episode: int,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-        _prompt_authoring_lock_held: bool = False,
-    ) -> Path:
-        """按产出时那套校验器全量重判 prompt_authoring 待修复草稿，通过则晋升为正式剧本并清除草稿。
-
-        重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
-        同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。草稿对应的单元从正式剧本
-        重读——草稿在场期间用户可能在时间线上改过单元，保结构 diff 要对着现值判。
-
-        仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
-        无收敛轮次上限。
-        """
-        facts = await self._fetch_video_request_facts()
-        return await run_sync_transaction(
-            self._promote_reference_prompt_authoring_draft_sync,
-            episode,
-            facts,
-            output_filename,
-            expected_fingerprint=expected_fingerprint,
-            _prompt_authoring_lock_held=_prompt_authoring_lock_held,
         )
 
     def _parse_response(self, response_text: str, episode: int) -> dict:

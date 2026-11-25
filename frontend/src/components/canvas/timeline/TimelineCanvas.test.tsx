@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -171,7 +172,7 @@ describe("TimelineCanvas", () => {
       }),
       planKey: workflowPlanKey("demo", 1),
     });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "storyboard", resource_id: "SEG-2", status: "running" })],
     });
 

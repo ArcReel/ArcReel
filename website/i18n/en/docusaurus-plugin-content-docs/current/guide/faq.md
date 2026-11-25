@@ -181,6 +181,10 @@ The task panel does not have one retry button that works for every task type. Af
 
 There is one exception: when a video was generated successfully on the provider side but could not be downloaded, the task panel offers **Retry download**. This action resumes the original provider task and only re-fetches the output. It **does not resubmit the request and is not billed again**, so use it to recover this kind of failure instead of regenerating from the generation entry point. Regenerating creates a new paid task.
 
+Once the retry starts, Usage Records removes the previous failure entry in each open tab as the task status syncs.
+
+If the workspace reports that the service is temporarily unavailable, wait for it to come back online and select **Retry download** again.
+
 If part of a batch fails, you do not need to redo all successful content. Asset, storyboard, and full-episode video generation fill in missing items; successful results are not deleted because one item failed. After a service restart, safely recoverable video tasks with recorded upstream task IDs resume polling. Unrecoverable tasks are marked failed and wait for the user to decide whether to resubmit them.
 
 To avoid duplicate charges, ArcReel does not unconditionally requeue every running task. Check existing results and tasks in the provider console before regenerating.
@@ -243,6 +247,8 @@ Deleting a whole project moves it to **Deleted projects** on the project list pa
 ### What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}
 
 A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory. Available provider asset links of the images go along with the project ZIP; see [Project ZIPs and Provider Asset Links](./asset-storage.md#asset-library-in-project-zip) for how they are used after import.
+
+A current-version-only ZIP keeps the selected upload record and snapshot for a manually uploaded storyboard image. After import, changes to the storyboard prompt or project style leave the uploaded image current. For an AI-generated storyboard image, the ZIP includes only the current image file.
 
 The project trash is not included in a project ZIP, while a full data-root backup keeps its deletion records. For how to use the project trash, see [File View and Project Trash](./files-and-trash.md).
 

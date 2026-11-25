@@ -21,6 +21,13 @@ PROVIDER_KLING = "kling"
 PROVIDER_AGNES = "agnes"
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_OPENROUTER = "openrouter"
+CUSTOM_PROVIDER_PREFIX = "custom-"
+
+
+def is_custom_provider(provider_id: str) -> bool:
+    """判断是否为自定义供应商的 provider_id。"""
+    return provider_id.startswith(CUSTOM_PROVIDER_PREFIX)
+
 
 CallType = Literal["image", "video", "text", "audio"]
 CALL_TYPE_IMAGE: CallType = "image"
@@ -69,3 +76,14 @@ def require_provider_pair(kind: str, backend: object | None, provider_id: str | 
             f"{kind} backend 与 provider_id 必须成对提供："
             f"backend={'set' if backend is not None else 'None'}, provider_id={provider_id!r}"
         )
+
+
+_VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
+
+
+def video_audio_always_billed(provider_id: str | None) -> bool:
+    """该 provider 是否无视请求值恒按含音档出账。
+
+    AI Studio 与 Vertex 共用 Veo 通道，但只有 AI Studio 恒按有声档计费。
+    """
+    return provider_id is not None and provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS

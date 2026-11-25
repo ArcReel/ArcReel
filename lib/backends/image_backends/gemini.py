@@ -12,6 +12,7 @@ from PIL import Image
 
 from lib.backends.backend_runtime import read_reference_images
 from lib.backends.gemini_shared import (
+    GEMINI_DEFAULT_IMAGE_MODEL,
     VERTEX_SCOPES,
     RateLimiter,
     gemini_http_options,
@@ -39,7 +40,7 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
+DEFAULT_IMAGE_MODEL = GEMINI_DEFAULT_IMAGE_MODEL
 _GEMINI_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"})
 
 

@@ -20,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.generation.asset_admission import AssetResourceBusy
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
 from lib.generation.task_failure import failure_message_key
@@ -93,6 +94,8 @@ def register_error_handlers(
         _t = get_translator(request)
         names = await request_display_names(request)
         content: dict[str, object] = {"detail": render_generation_input_error(exc.key, exc.params, _t, names)}
+        if isinstance(exc, AssetResourceBusy):
+            content["code"] = exc.key
         if exc.diagnostic is not None:
             content["diagnostic"] = exc.diagnostic
         content = await present_request_diagnostics(content, request, _t)

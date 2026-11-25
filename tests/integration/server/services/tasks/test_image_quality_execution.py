@@ -8,7 +8,6 @@ from collections.abc import Callable
 import httpx
 import pytest
 import respx
-from sqlalchemy import update
 
 from lib.catalog import official_sync
 from lib.catalog import query as catalog
@@ -21,7 +20,7 @@ from lib.script.grid.models import GridGeneration
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.tasks import generation_context, generation_tasks
 from tests.catalog_support import install_catalog, with_dataset_version, with_entry_changes, with_entry_facts
-from tests.fakes import bind_safe_session_factory, bind_session_factory, use_project_manager
+from tests.fakes import bind_safe_session_factory, bind_session_factory, use_image_assembler, use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 from tests.integration.server.official_sync_support import (
@@ -195,12 +194,18 @@ async def test_request_quality_follows_the_estimate_after_official_sync(
 
 @pytest.mark.parametrize("outcome", ["applied", "unchanged", "failed"])
 async def test_backend_cache_is_kept_unless_the_sync_applies_new_data(relay_project, db_factory, monkeypatch, outcome):
-    """只有装入了新数据才重建后端：用改过的供应商地址区分请求来自缓存的实例还是重建的实例。"""
+    """只有装入了新数据才重建后端。"""
+    builds = 0
+    real_assemble = generation_context.assemble_image
+
+    async def _counted(spec):
+        nonlocal builds
+        builds += 1
+        return await real_assemble(spec)
+
+    use_image_assembler(monkeypatch, _counted)
     await _sent_image_request()
-    moved = "https://relay-moved.test/v1"
-    async with db_factory() as session:
-        await session.execute(update(CustomProvider).where(CustomProvider.id == relay_project).values(base_url=moved))
-        await session.commit()
+    assert builds == 1
 
     current = catalog.official_data()
     serve: Callable[[respx.MockRouter], None]
@@ -215,8 +220,8 @@ async def test_backend_cache_is_kept_unless_the_sync_applies_new_data(relay_proj
     }[outcome]
     await sync_as_app_starts_it(monkeypatch, db_factory, serve, done)
 
-    expected = moved if outcome == "applied" else _RELAY
-    assert str((await _sent_image_request(expected)).url) == f"{expected}/images/generations"
+    await _sent_image_request()
+    assert builds == (2 if outcome == "applied" else 1)
 
 
 @pytest.mark.parametrize("outcome", ["added", "removed", "unchanged", "failed"])
@@ -315,11 +320,19 @@ async def test_sync_rebuilds_cached_image_model_facts_and_builtin_video_entry(re
     resolver = ConfigResolver(db_factory)
 
     async def backends():
-        image = await generation_context._get_or_create_image_backend(
-            make_provider_id(relay_project), {"model": "relay-image"}, resolver
+        from lib.config.resolver import ProviderModel
+        from lib.video_runtime.image_resolution import ImageRuntime
+        from lib.video_runtime.resolution import VideoRuntime
+
+        image_runtime = ImageRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
+        image = await generation_context._image_backend_for(
+            await image_runtime.resolve(
+                {"image_provider_t2i": f"{make_provider_id(relay_project)}/relay-image"}, None, bucket="t2i"
+            )
         )
-        video, _ = await generation_context._get_or_create_video_backend(
-            "grok", {"model": "grok-imagine-video"}, resolver
+        runtime = VideoRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
+        video = await generation_context._video_backend_for(
+            await runtime.materialized(ProviderModel("grok", "grok-imagine-video"))
         )
         return image, video
 

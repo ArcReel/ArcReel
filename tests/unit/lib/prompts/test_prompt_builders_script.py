@@ -717,9 +717,9 @@ class TestBuildNarrationSplitPrompt:
         kwargs.update(overrides)
         return build_narration_split_prompt(**kwargs)
 
-    def test_injects_episode_prefix_assets_and_durations(self):
+    def test_injects_episode_assets_and_durations(self):
         text = self._prompt()
-        assert "E1S" in text
+        assert "第 1 集" in text
         assert "张三" in text
         assert "村口" in text
         assert "4, 6, 8" in text

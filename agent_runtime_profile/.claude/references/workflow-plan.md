@@ -48,7 +48,7 @@ mcp__arcreel__get_workflow_plan({
 | `problems[]` | 不属于任何步骤的项目级问题（目前只有数据升级失败），不重复步骤里的问题 |
 | `blockers[]` | 项目整体不可用（数据升级失败、project.json 或产物清单读不出、创作类型或生成模式非法），含 `code` / `path` / `reason` |
 | `status.issues[]` | 内容本身的数据问题（剧本读不出、字段非法、资产定义损坏等），同样含 `code` / `path` / `reason`；只阻止依赖该内容的操作 |
-| `status.content` | 内容现状：集数、整本源文与集原文在不在、目标集的草稿、正式脚本（`present` / `absent` / `invalid`）与条目数、待编写条目、需重新规划的视频单元、被引用却没有资产图的资产；`episode_plan_stale` 为真表示该集集规划 stale、脚本规划待重建 |
+| `status.content` | 内容现状：集数、整本源文与集原文在不在、正式脚本（`present` / `absent` / `invalid`）与条目数、待编写条目、需重新规划的视频单元、被引用却没有资产图的资产；`episode_plan_stale` 为真表示该集集规划 stale、脚本规划待重建 |
 | `status.operations` | 列出的 AI 操作的结构准入，键是动作名，值为 `state`（`admitted` / `refused` / `not_applicable`）与稳定理由码 `reason`（见「点名与继续」） |
 | `next_action` | 建议的下一步。用户说「继续」时按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
 | `next_alternatives[]` | 分岔处与 `next_action` 并列的备选；非空时由用户选 |
@@ -101,7 +101,6 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `draft_selling_points` | 用户要求时起草卖点，经 `mcp__arcreel__patch_project` 写回（ad） |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 原样传参（无 `episode_id` 即全量重置） |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
-| `resolve_draft` | 目标集上有草稿（`args.draft_kind`）：`args.needs_repair` 为真时是写入失败留下的待修复草稿，向用户说明并按其对应操作重跑；为假时是 Agent 的可编辑草稿，按对应 skill 接着完成 |
 | `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
 | `start_blank_script` | 引导用户在 Web 集页点「从空白开始」，在时间线上逐条手写这一集的正式脚本 |
 | `provide_episode_source` | 引导用户为这一集补上集原文（`source/episode_{集 ID}.txt`），之后即可 AI 规划脚本 |

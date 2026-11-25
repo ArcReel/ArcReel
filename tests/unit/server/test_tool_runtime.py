@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
-from pydantic import ValidationError
 
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.generation_queue import ActiveTaskRequestConflict
@@ -19,11 +18,10 @@ from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
-from server import draft_workflow, tool_runtime
 from server import text_generation as shared_text_generation
+from server import tool_runtime
 from server.tool_runtime import (
     CallerContext,
-    DraftLocator,
     EpisodeScriptRequest,
     GenerationBatchToolRequest,
     NoArguments,
@@ -48,7 +46,6 @@ from server.tool_runtime import (
     patch_episode_script,
     read_project_file,
 )
-from tests.factories import make_video_request_facts
 
 
 class _Projects:
@@ -88,10 +85,7 @@ class _Planner:
 
 
 class _Capabilities:
-    async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
-        assert project["generation_mode"] == "storyboard"
-        assert generation_type is None
-        return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+    pass
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -152,23 +146,12 @@ async def test_workflow_plan_returns_typed_domain_outcome() -> None:
     assert outcome.value.status.target.episode == 1
 
 
-async def test_video_capabilities_returns_typed_domain_outcome(set_video_request_facts) -> None:
-    set_video_request_facts(
-        make_video_request_facts(
-            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
-        )
-    )
-    project = {"generation_mode": "storyboard", "content_mode": "drama"}
-    projects = _Projects(project)
-    outcome = await get_video_capabilities(
-        ToolRequest(None),
-        ProjectScope("demo", Path("/projects")),
-        CallerContext(user_id="u1", source="embedded"),
-        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
-    )
+async def test_video_capabilities_returns_typed_domain_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
 
-    assert outcome.problem is None
-    assert outcome.value == {
+    from server import tool_runtime
+
+    expected = {
         "provider_id": "fake",
         "model": "video-1",
         "supported_durations": [4, 6],
@@ -185,13 +168,31 @@ async def test_video_capabilities_returns_typed_domain_outcome(set_video_request
             "excluded": {},
         },
     }
+    monkeypatch.setattr(tool_runtime, "resolve_agent_video_capabilities", AsyncMock(return_value=dict(expected)))
+    project = {"generation_mode": "storyboard", "content_mode": "drama"}
+    projects = _Projects(project)
+    outcome = await get_video_capabilities(
+        ToolRequest(None),
+        ProjectScope("demo", Path("/projects")),
+        CallerContext(user_id="u1", source="embedded"),
+        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+    )
+
+    assert outcome.problem is None
+    assert outcome.value == expected
     assert projects.project_loads == 1
 
 
-async def test_video_capabilities_model_not_in_catalog_guides_reselect() -> None:
-    class _RetiredCapabilities:
-        async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
-            raise ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")
+async def test_video_capabilities_model_not_in_catalog_guides_reselect(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from server import tool_runtime
+
+    monkeypatch.setattr(
+        tool_runtime,
+        "resolve_agent_video_capabilities",
+        AsyncMock(side_effect=ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")),
+    )
 
     outcome = await get_video_capabilities(
         ToolRequest(None),
@@ -200,7 +201,7 @@ async def test_video_capabilities_model_not_in_catalog_guides_reselect() -> None
         Services(
             projects=_Projects({"generation_mode": "storyboard"}),
             workflow_planner=_Planner(_status()),
-            capabilities=_RetiredCapabilities(),
+            capabilities=_Capabilities(),
         ),
     )
 
@@ -431,7 +432,7 @@ async def test_sync_transaction_finishes_worker_before_propagating_cancellation(
     assert finished.is_set()
 
 
-@pytest.mark.parametrize("module", [shared_text_generation, draft_workflow], ids=lambda module: module.__name__)
+@pytest.mark.parametrize("module", [shared_text_generation], ids=lambda module: module.__name__)
 def test_shared_text_and_draft_handlers_stay_host_independent(module) -> None:
     path = Path(module.__file__)
     shared_imports = _imported_modules(path)
@@ -484,6 +485,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
     assert all(thread != caller_thread for thread in mutation_threads)
 
 
+@pytest.mark.usefixtures("video_request_facts")
 async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
@@ -537,10 +539,11 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     assert script_plan.problem is None
     assert script_plan.value is not None
     assert script_plan.value.content["title"] == "第一集"
-    assert len(reader_threads) == 3
+    assert len(reader_threads) == 4
     assert all(thread != caller_thread for thread in reader_threads)
 
 
+@pytest.mark.usefixtures("video_request_facts")
 async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "demo"
     (project_dir / "source").mkdir(parents=True)
@@ -661,17 +664,6 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
 
     assert outcome.problem is not None
     assert outcome.problem.code == "file_too_large"
-
-
-@pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
-def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
-    with pytest.raises(ValidationError, match=r"DraftLocator\nepisode"):
-        DraftLocator(episode_id=episode, doc_type="reference_script_plan")
-
-
-def test_draft_locator_rejects_unknown_document_types() -> None:
-    with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
-        DraftLocator(episode_id=1, doc_type="unsupported")
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])

@@ -24,7 +24,6 @@ import httpx
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import (
-    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -48,9 +47,12 @@ from lib.backends.input_limits import excess_image_names
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
-from lib.backends.video_capabilities import entry_video_facts
+from lib.backends.video_capabilities import (
+    VideoEndpointCapabilities,
+    entry_video_facts,
+)
 from lib.billing.metering import Usage
-from lib.catalog import query as catalog
+from lib.capabilities.kernel import AudioProtocol, Endpoint
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -238,7 +240,7 @@ def _failure_reason(state: dict) -> str | None:
     return f"Agnes 视频生成失败: {message}"
 
 
-class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+class AgnesVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Agnes 视频后端（异步 submit/poll，裸 base64 图像，支持 resume）。"""
 
     endpoint: ClassVar[AgnesVideoEndpoint] = AgnesVideoEndpoint(v25=False)
@@ -267,12 +269,16 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return self._model
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """输入槽位与音轨由调用端点决定，不读取型号名。"""
-        return VideoCapabilities(
-            last_frame=True,
-            max_reference_images=None if cls.endpoint.v25 else _MAX_REFERENCE_IMAGES,
-            audio_track=VideoAudioMode.ALWAYS_ON if cls.endpoint.v25 else VideoAudioMode.ALWAYS_OFF,
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"}),
+            audio=AudioProtocol.NO_SWITCH if cls.endpoint.v25 else AudioProtocol.SILENT,
+            limits={} if cls.endpoint.v25 else {"max_reference_images": _MAX_REFERENCE_IMAGES},
+            exclusive_inputs=(
+                frozenset({"first_frame", "reference_images"}),
+                frozenset({"last_frame", "reference_images"}),
+            ),
         )
 
     @property
@@ -412,7 +418,7 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return payload
 
     def _normalize_v25_resolution(self, resolution: str | None) -> str:
-        facts = entry_video_facts(self._catalog_entry or catalog.find_entry(self._model, media_type="video"))
+        facts = entry_video_facts(self._request_entry(self._model))
         allowed = (
             {r.upper(): r.upper() for r in facts.resolutions if r.upper() in _V25_RESOLUTIONS}
             if facts.resolutions

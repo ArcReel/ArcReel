@@ -1,12 +1,12 @@
 import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
+import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AssetSheetBatchScope,
   AssetSheetBatchSubmitted,
   AuthorPromptsRequest,
-  DraftDocType,
   PlanningGap,
   PlanScriptRequest,
   GenerateAdScriptRequest,
@@ -22,7 +22,6 @@ import {
   type OptimisticHandle,
   type ResourceKind,
 } from "@/stores/tasks-store";
-import { isTerminalStatus } from "@/types/task";
 import { episodeItemLabel } from "@/utils/episode-display";
 
 function itemLabel(itemId: string): string {
@@ -192,7 +191,7 @@ export async function enqueueCharacterVoiceSample(
   voice: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
-    [markResource(projectName, "character", name, "voice_sample")],
+    [markResource(projectName, "voice_sample", name, "voice_sample")],
     () => API.generateCharacterVoiceSample(projectName, name, text, voice),
     oneTaskId,
   );
@@ -380,6 +379,10 @@ export async function enqueueAssetSheetBatch(
   scope: AssetSheetBatchScope,
 ): Promise<AssetSheetBatchSubmitted> {
   const res = await API.submitAssetSheetBatch(projectName, scope);
+  const members = res.members.filter((member) => member.status !== "blocked");
+  if (members.length > 0) {
+    useAssetSheetBatchStore.getState().track({ batchId: res.batch_id, projectName, members });
+  }
   let queued = 0;
   for (const member of res.members) {
     if (!member.task_id) continue;
@@ -409,6 +412,7 @@ export async function enqueuePromptAuthoring(
   episode: number,
   request: AuthorPromptsRequest,
 ): Promise<EnqueueResult> {
+  const scope = useTasksStore.getState().refreshScope;
   const res = await submit(
     [markResource(projectName, "text_episode_script", promptAuthoringResourceId(episode), "text_episode_script")],
     () => API.authorPrompts(projectName, episode, request),
@@ -421,26 +425,35 @@ export async function enqueuePromptAuthoring(
     i18n.t(request.rewrite ? "dashboard:prompt_authoring_rewrite_queued" : "dashboard:prompt_authoring_queued"),
     "info",
   );
-  if (!deduped) watchPromptAuthoringNoop(projectName, taskIds);
+  if (!deduped && scope?.projectName === projectName && useTasksStore.getState().refreshScope === scope) {
+    watchPromptAuthoringNoop(projectName, taskIds);
+  }
   return { taskIds, deduped };
 }
 
 function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[]): void {
-  const pending = new Set(taskIds);
-  if (pending.size === 0) return;
+  if (taskIds.length === 0) return;
+  const store = useTasksStore.getState();
+  const pending = new Map([...new Set(taskIds)].map((id) => [id, store.retainTask(projectName, id)]));
   const check = (state: ReturnType<typeof useTasksStore.getState>): void => {
-    if (state.refreshScope?.projectName !== projectName) {
+    if (state.refreshScope !== store.refreshScope) {
       unsubscribe();
+      for (const release of pending.values()) release();
       return;
     }
-    for (const task of state.tasks) {
-      if (!pending.has(task.task_id) || !isTerminalStatus(task.status)) continue;
-      pending.delete(task.task_id);
-      if (task.status === "succeeded" && task.result?.no_pending_authoring === true) {
+    const finished: Array<() => void> = [];
+    for (const [id, release] of pending) {
+      const status = state.tracked.get(id)?.status;
+      if (status !== "resolved" && status !== "missing") continue;
+      pending.delete(id);
+      finished.push(release);
+      const task = state.rowsById.get(id);
+      if (status === "resolved" && task?.status === "succeeded" && task.result?.no_pending_authoring === true) {
         useAppStore.getState().pushToast(i18n.t("dashboard:prompt_authoring_nothing_pending"), "info");
       }
     }
     if (pending.size === 0) unsubscribe();
+    for (const release of finished) release();
   };
   const unsubscribe = useTasksStore.subscribe(check);
   check(useTasksStore.getState());
@@ -525,27 +538,5 @@ export async function enqueueEpisodeReplanContinue(projectName: string, candidat
   const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, null);
-  return { taskIds, deduped };
-}
-
-export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
-  return `episode-${episode}-${docType}`;
-}
-
-export async function enqueueDraftRepair(
-  projectName: string,
-  episode: number,
-  docType: DraftDocType,
-  baseRevision: string,
-  instructions: string | null,
-): Promise<EnqueueResult> {
-  const res = await submit(
-    [markResource(projectName, "text_draft_repair", draftRepairResourceId(episode, docType), "text_draft_repair")],
-    () => API.repairEpisodeDraft(projectName, episode, docType, baseRevision, instructions),
-    (response) => memberTaskIds(response.batch),
-  );
-  const taskIds = memberTaskIds(res.batch);
-  const deduped = res.batch.members.some((member) => member.deduped === true);
-  notifyEnqueued(deduped, i18n.t("dashboard:draft_repair_queued"), "info");
   return { taskIds, deduped };
 }

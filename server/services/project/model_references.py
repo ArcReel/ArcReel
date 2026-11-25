@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from lib.config import resolver
 from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
+from lib.project.project_manager import get_project_manager
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ def project_model_references() -> list[ProjectModelReferences]:
 
     只读 JSON，不取锁、不迁移（``ProjectManager.load_project``），耗时与项目数成正比。同步文件 I/O，异步调用方放到线程里。
     """
-    pm = resolver.get_project_manager()
+    pm = get_project_manager()
     found: list[ProjectModelReferences] = []
     for name in pm.list_projects():
         try:

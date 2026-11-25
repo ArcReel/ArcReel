@@ -81,6 +81,7 @@ class MiniMaxImageBackend:
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _SUBJECT_REF_LIMIT
+    CHANNEL_REFERENCE_LIMIT_HARD: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -371,6 +372,7 @@ class MiniMaxH3ImageBackend:
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _H3_REFERENCE_LIMIT
+    CHANNEL_REFERENCE_LIMIT_HARD: ClassVar[bool] = True
 
     def __init__(
         self,

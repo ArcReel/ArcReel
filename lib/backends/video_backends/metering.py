@@ -6,7 +6,7 @@
 
 - ``result`` 为 ``None`` 时用于提交前预估：用量全部取自请求事实；需要换算的计量项（如方舟视频 token）由通道
   的估算函数给出，算不出就不上报，预估因此记为未定价。
-- 给出 ``result`` 时用于结算：输出秒数与是否有声取供应商回报的结果，供应商回报的用量（如方舟视频 token）
+- 给出 ``result`` 时用于结算：输出秒数取供应商回报的结果，计费音频档取请求的计量决策，供应商回报的用量（如方舟视频 token）
   覆盖估算值。
 
 计数类计量项如实上报（输出秒数、参考图张数、输入视频秒数、调用次数），价目表没有的那一项不计费；选择维度
@@ -40,7 +40,7 @@ def video_usage(
     ``audio`` 是按通道口径成片是否有声，通道不表达有声与否时为 ``None``；``reference_images`` 是发出的参考图
     张数，默认取请求的参考图张数；``reference_to_video`` 默认按是否发出参考图判断；``video_tokens`` 是通道估算
     或供应商回报的视频 token 数；``dimensions`` 是通道特有的其他维度。
-    结算时输出秒数与是否有声取 ``result``；回报的秒数非正或超出 ``MAX_BILLED_DURATION_SECONDS`` 时取发出的时长，
+    结算时输出秒数取 ``result``；回报的秒数非正或超出 ``MAX_BILLED_DURATION_SECONDS`` 时取发出的时长，
     与 ``api_calls.duration_seconds`` 的落库口径一致。
     """
     reported = result.duration_seconds if result is not None else None
@@ -54,6 +54,8 @@ def video_usage(
         audio = False
     if result is not None and result.generate_audio is not None:
         audio = result.generate_audio
+    if request.billed_audio is not None:
+        audio = request.billed_audio
     if reference_images is None:
         reference_images = len(request.reference_images or ())
     quantities: dict[str, float] = {

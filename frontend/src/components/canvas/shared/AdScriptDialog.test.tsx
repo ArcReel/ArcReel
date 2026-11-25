@@ -1,10 +1,10 @@
+import { seedTasks } from "@/test/task-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { API, ApiRequestError } from "@/api";
 import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { makeContent, makePlan, makeStatus, makeTask } from "@/test/factories";
 import type { ScriptOverwrite } from "@/types";
@@ -32,7 +32,7 @@ function renderBlankState() {
 }
 
 beforeEach(() => {
-  useTasksStore.getState().setTasks([]);
+  seedTasks([]);
   useAdScriptStore.getState().close();
   useAssistantStore.getState().setInput("");
 });
@@ -135,7 +135,7 @@ describe("重新生成脚本", () => {
 
 describe("有正式脚本时的生成结果", () => {
   it("整份生成完成后列出本次登记的待生成资产", () => {
-    useTasksStore.getState().setTasks([
+    seedTasks([
       makeTask({
         task_type: "text_episode_script",
         resource_id: "episode-1",
@@ -157,7 +157,7 @@ describe("有正式脚本时的生成结果", () => {
   });
 
   it("在跑的提示词编写任务不当作整份生成呈现", () => {
-    useTasksStore.getState().setTasks([
+    seedTasks([
       makeTask({
         task_type: "text_episode_script",
         resource_id: "episode-1",

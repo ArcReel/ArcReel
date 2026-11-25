@@ -43,6 +43,7 @@ from lib.db.models.object_storage import FormalObjectRef, RelayObject
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.generation.generation_queue import GenerationQueue
 from lib.infra.async_thread import run_sync_transaction
 from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING, formal_object_key
 from lib.material.work_files import cleanup_work_cache
@@ -1531,3 +1532,48 @@ _LOCAL_FAILURES_CONTRACT = (
 
 def test_local_failure_codes_match_the_frontend_contract():
     assert sorted(ingest.LOCAL_FAILURE_CODES) == json.loads(_LOCAL_FAILURES_CONTRACT.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("is_derivative", "enqueue_during_download"),
+    [(False, False), (True, False), (False, True)],
+    ids=["asset-sheet", "derivative-sheet", "enqueued-during-download"],
+)
+async def test_provider_image_import_preserves_the_busy_target(
+    api, sessions, project, public_dns, derivative, is_derivative, enqueue_during_download
+):
+    account_id = await _configure(sessions, object_storage=False)
+    original = solid_png_bytes((80, 30, 10), size=(400, 400))
+    if is_derivative:
+        _upload_derivative(api, original)
+        import_image, history = _import_derivative, _derivative_versions
+        sheet = project.get_project_path("demo") / DERIVATIVE_SHEET
+    else:
+        _upload_sheet(api, original)
+        import_image, history = _import, _versions
+        sheet = project.get_project_path("demo") / "characters" / "Alice.png"
+    before = sheet.read_bytes(), history(api), project.load_project("demo")
+    queue = GenerationQueue(project_manager=project, session_factory=sessions)
+
+    async def enqueue_conflict() -> None:
+        await queue.enqueue_task(
+            project_name="demo", task_type="character", resource_id="Alice", media_type="image", provider_id="test"
+        )
+
+    if not enqueue_during_download:
+        await enqueue_conflict()
+
+    async def download_asset(_request: httpx.Request) -> httpx.Response:
+        if enqueue_during_download:
+            await enqueue_conflict()
+        return httpx.Response(200, content=solid_png_bytes((10, 40, 80), size=(400, 400)))
+
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=ControlPlane(asset_status=[_active_image()]))
+        router.get(ASSET_URL).mock(side_effect=download_asset)
+        response = await asyncio.to_thread(import_image, api, account_id)
+
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "asset_resource_busy"
+    assert (sheet.read_bytes(), history(api), project.load_project("demo")) == before
+    assert await _all_links(sessions) == []

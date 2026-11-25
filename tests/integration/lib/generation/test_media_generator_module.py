@@ -157,8 +157,7 @@ class _FakeLedger:
 
 
 def _build_generator(tmp_path: Path) -> MediaGenerator:
-    gen = object.__new__(MediaGenerator)
-    gen.project_path = tmp_path / "projects" / "demo"
+    gen = MediaGenerator(tmp_path / "projects" / "demo")
     gen.project_path.mkdir(parents=True, exist_ok=True)
     write_generation_targets(gen.project_path, segments=("E1S01",), video_units=("E1U1",))
     gen.project_name = "demo"
@@ -1308,7 +1307,7 @@ class TestMediaGenerator:
         user_added_video_model("ark", {"last_frame": True})
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "ark"
-        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=True))
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
 
@@ -1341,7 +1340,9 @@ class TestMediaGenerator:
         user_added_video_model("dashscope", {"last_frame": True, "max_reference_images": 6})
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "dashscope"
-        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        gen._video_backend = _FakeVideoBackend(
+            video_capabilities=VideoCapabilities(last_frame=True, max_reference_images=1)
+        )
 
         await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S11")
 
@@ -1376,7 +1377,7 @@ class TestMediaGenerator:
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None):
-                return VideoCapabilities(last_frame=service_tier == "pro")
+                return VideoCapabilities(last_frame=service_tier == "pro", max_reference_images=1)
 
         user_added_video_model("kling", {"max_reference_images": 2}, entry_binding="kuaishou/kling-v3")
         gen = _build_generator(tmp_path)
@@ -1384,24 +1385,17 @@ class TestMediaGenerator:
         gen._video_backend = _TierAwareVideoBackend(video_capabilities=VideoCapabilities())
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
-        refs = []
-        for i in range(2):
-            ref = tmp_path / f"ref{i}.png"
-            Image.new("RGB", (8, 8)).save(ref)
-            refs.append(ref)
-
         await gen.generate_video_async(
             prompt="p",
             resource_type="videos",
             resource_id="E1S10",
             end_image=end_image,
-            reference_images=refs,
             service_tier="pro",
         )
 
         call = gen._video_backend.calls[0]
         assert call.end_image == end_image
-        assert len(call.reference_images) == 2
+        assert call.video_capabilities.max_reference_images == 2
 
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
@@ -2198,26 +2192,24 @@ _OPAQUE = "opaque-relay-model"
 
 async def _builtin_video_backend(provider_id: str, model_id: str, entry_binding: str | None):
     """内置供应商下的视频模型，经生产装配构造；``entry_binding`` 给出时作为用户添加的模型并绑定条目。"""
-    from lib.backends.backend_assembly.assembler import assemble_backend
     from lib.catalog import query as catalog
+    from lib.config.resolver import ProviderModel
+    from lib.video_runtime.assembly import assemble_video
+    from lib.video_runtime.resolution import builtin_video_spec
 
     if entry_binding is not None:
         catalog.install_user_added_models(
             [catalog.UserAddedModel(provider_id, model_id, "video", entry_binding=entry_binding)]
         )
-    return await assemble_backend(
-        provider_id=provider_id,
-        media_type="video",
-        model_id=model_id,
-        resolver=_BuiltinConfig(),
-    )
+    spec = await builtin_video_spec(_BuiltinConfig(), ProviderModel(provider_id, model_id), submitted=False)
+    return await assemble_video(spec)
 
 
 def _custom_video_backend(endpoint: str, model_id: str, entry_binding: str | None):
     """自定义供应商的视频模型，经生产工厂构造。"""
     from types import SimpleNamespace
 
-    from lib.custom_provider.factory import create_custom_backend
+    from tests.custom_backend_support import create_custom_backend
 
     provider = SimpleNamespace(provider_id="custom-9", base_url="https://relay.test", api_key="TEST-relay-key")
     return create_custom_backend(
@@ -2269,6 +2261,49 @@ class TestEntryBoundVideoRequests:
         body = request_json(only_request(submit))
         assert body["model_name"] == model
         assert "sound" not in body
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("audio_track", [None, "always_on"])
+    async def test_builtin_kling_720p_preserves_saved_audio_override(self, tmp_path, audio_track):
+        from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+        from lib.backends.backend_assembly.specs import builtin_video_snapshot
+        from lib.catalog import query as catalog
+        from lib.video_runtime.builtin import builtin_video_metered_usage
+
+        catalog.install_user_added_models(
+            [
+                catalog.UserAddedModel(
+                    "kling",
+                    _OPAQUE,
+                    "video",
+                    endpoint="kling-video-pro-audio",
+                    capability_overrides={"audio_track": audio_track} if audio_track else {},
+                )
+            ]
+        )
+        backend = await _builtin_video_backend("kling", _OPAQUE, None)
+        gen = self._generator(tmp_path, backend, "kling")
+        gen._config = FakeConfigResolver(requested_generate_audio=False)
+
+        with capture_http() as router:
+            submit = router.post(url__regex=r".*/v1/videos/text2video$").mock(
+                return_value=httpx.Response(400, json={"code": 1201, "message": "stop"})
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await gen.generate_video_async(
+                    prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds=5, resolution="720p"
+                )
+
+        assert request_json(only_request(submit)).get("sound") == ("on" if audio_track else None)
+        quote_request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "quote.mp4", duration_seconds=5, resolution="720p", generate_audio=False
+        )
+        assert builtin_video_metered_usage("kling", _OPAQUE, quote_request).dimensions["audio"] is bool(audio_track)
+
+        snapshot = builtin_video_snapshot("kling", _OPAQUE)
+        assert snapshot.audio_track("i2v", base=True) == "controllable"
+        assert snapshot.audio_track("i2v") == (audio_track or "controllable")
+        assert snapshot.audio_track("r2v") == "always_off"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("model", "binding"), [(_OPAQUE, "agnes/agnes-video-2.5"), ("agnes-video-2.5", None)])
@@ -2346,8 +2381,8 @@ class TestEntryBoundVideoRequests:
 
     def test_gemini_vertex_endpoint_keeps_the_audio_switch_with_or_without_a_bound_entry(self):
         """Vertex 端点声明音轨可控，绑定条目、官方型号与未收录的模型按同一规则求值。"""
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.catalog import query as catalog
-        from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
             [
@@ -2355,23 +2390,37 @@ class TestEntryBoundVideoRequests:
                 catalog.UserAddedModel("gemini-vertex", "veo-unbound-relay", "video"),
             ]
         )
-        assert builtin_video_audio_track("gemini-vertex", _OPAQUE, generation_type="i2v") == "controllable"
         assert (
-            builtin_video_audio_track("gemini-vertex", "veo-3.1-generate-001", generation_type="i2v") == "controllable"
+            builtin_video_capabilities_for_model("gemini-vertex", _OPAQUE).audio_track_for_route("i2v").value
+            == "controllable"
         )
-        assert builtin_video_audio_track("gemini-vertex", "veo-unbound-relay", generation_type="i2v") == "controllable"
+        assert (
+            builtin_video_capabilities_for_model("gemini-vertex", "veo-3.1-generate-001")
+            .audio_track_for_route("i2v")
+            .value
+            == "controllable"
+        )
+        assert (
+            builtin_video_capabilities_for_model("gemini-vertex", "veo-unbound-relay")
+            .audio_track_for_route("i2v")
+            .value
+            == "controllable"
+        )
 
     @pytest.mark.parametrize("model", [_OPAQUE, "veo-3.1-generate-001"])
     def test_gemini_aistudio_endpoint_keeps_audio_on_even_with_a_vertex_entry(self, model):
         """AI Studio 端点声明恒有声，绑定 Vertex 条目或使用其 API 型号名都不会改变音轨形态。"""
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.catalog import query as catalog
-        from lib.config.resolver import builtin_video_audio_track
 
         catalog.install_user_added_models(
             [catalog.UserAddedModel("gemini-aistudio", model, "video", entry_binding="google/veo-3.1-generate-001")]
         )
 
-        assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"
+        assert (
+            builtin_video_capabilities_for_model("gemini-aistudio", model).audio_track_for_route("i2v").value
+            == "always_on"
+        )
 
 
 @pytest.mark.parametrize("failed", [False, True])

@@ -15,7 +15,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_capabilities import (
     builtin_image_quality_options,
@@ -36,14 +35,11 @@ from lib.custom_provider.metering import CustomPriceSource, load_custom_price_so
 from lib.db.repositories.custom_provider_repo import CustomModelPricing
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     end_frame_duration_failure,
-    evaluate_video_request_facts,
 )
 from lib.infra.schema_guards import is_int
 from lib.project.asset_types import ASSET_SPECS
@@ -73,6 +69,8 @@ from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.speech.narration_config import USE_TTS, project_narration_delivery, project_tts_settings
 from lib.speech.speech_composition import video_unit_replan_problems
+from lib.video_runtime.builtin import builtin_video_metered_usage
+from lib.video_runtime.resolution import read_video_facts_pair
 
 logger = logging.getLogger(__name__)
 
@@ -86,21 +84,6 @@ _VIDEO_BUCKETS: tuple[VideoGenerationType, ...] = ("i2v", "r2v")
 
 _GENERATED_MEDIA_FIELDS = ("storyboard_image", "video_clip", "narration_audio")
 _SCRIPT_ITEM_KEYS = ("segments", "scenes", "shots", "video_units")
-
-
-@dataclass(frozen=True)
-class _VideoPricing:
-    """一个任务类型桶下的视频计价参数——解析出的模型身份、分辨率、有效 generate_audio 与自定义单价。
-
-    五项总是结伴传给三条估算路径，且必须同源于一次解析：分辨率与 generate_audio 都按模型身份
-    求值，混用不同桶的分项会算出任何一个模型都不会产生的价。
-    """
-
-    provider: str
-    model: str | None
-    resolution: str | None
-    generate_audio: bool
-    price: VideoPriceSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,20 +149,22 @@ def quote_video_request_from_price(facts: VideoRequestCostFacts, source: VideoPr
     价目表计价，计量取调用端点的声明或通用口径，对应不上条目时记为未定价。
     """
     if is_builtin_provider(facts.provider_id):
+        usage = builtin_video_metered_usage(facts.provider_id, facts.model_id, facts.provider_request())
         cost = price_builtin_call(
             provider=facts.provider_id,
             model=facts.model_id,
             media_type="video",
-            requests=(builtin_video_metered_usage(facts.provider_id, facts.model_id, facts.provider_request()),),
+            requests=(usage,),
             provider_multiplier=source.provider_multiplier,
             estimate=True,
         )
     else:
         custom = source.custom or CustomPriceSource(CustomModelPricing())
+        usage = custom.video_usage(facts.model_id, facts.provider_request())
         cost = custom.price(
             model=facts.model_id,
             media_type="video",
-            requests=(custom.video_usage(facts.model_id, facts.provider_request()),),
+            requests=(usage,),
             provider_multiplier=source.provider_multiplier,
             estimate=True,
         )
@@ -187,12 +172,13 @@ def quote_video_request_from_price(facts: VideoRequestCostFacts, source: VideoPr
         amount, currency, reason = round(cost.amount, 6), cost.currency, None
     else:
         amount, currency, reason = None, None, str(cost.reason)
+    duration = usage.dimensions.get("duration")
     return VideoRequestQuote(
         amount=amount,
         currency=currency,
         provider_id=facts.provider_id,
         model_id=facts.model_id,
-        request_duration_seconds=facts.duration_seconds,
+        request_duration_seconds=duration if type(duration) is int and duration > 0 else facts.duration_seconds,
         unpriced_reason=reason,
     )
 
@@ -427,33 +413,20 @@ class CostEstimationService:
                 if isinstance(evaluated, VideoRequestFacts):
                     reference_facts[generation_type] = evaluated
         async with self._resolver.session() as r:
-            storyboard_facts = (
-                await evaluate_video_request_facts(
+            if not is_reference_video:
+                storyboard_facts, end_frame_facts = await read_video_facts_pair(
                     project_data,
                     route="storyboard",
                     generation_type="i2v",
-                    identity=CONFIGURED_VIDEO_IDENTITY,
                     resolver=r,
+                    include_end_frame=_scripts_have_end_frame(episodes_meta, scripts),
                 )
-                if not is_reference_video
-                else None
-            )
-            if not is_reference_video and _scripts_have_end_frame(episodes_meta, scripts):
-                end_frame_identity = (
-                    ExecutionVideoIdentity(storyboard_facts.provider_id, storyboard_facts.model_id)
-                    if isinstance(storyboard_facts, VideoRequestFacts)
-                    else CONFIGURED_VIDEO_IDENTITY
-                )
-                end_frame_facts = await evaluate_video_request_facts(
-                    project_data,
-                    route="storyboard",
-                    generation_type="i2v",
-                    identity=end_frame_identity,
-                    resolver=r,
-                    uses_end_frame=True,
-                )
+            else:
+                storyboard_facts = None
             try:
-                resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
+                from lib.video_runtime.image_resolution import ImageRuntime
+
+                resolved_image, _ = await ImageRuntime(r).read_identity(project_data, "t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except (ValueError, SQLAlchemyError):
                 image_provider, image_model = "unknown", "unknown"
@@ -462,39 +435,23 @@ class CostEstimationService:
             image_quality = project_image_quality(project_data, image_provider, image_model)
             grid_allow_large = large_grid_allowed(image_resolution)
 
-            video_identity: dict[VideoGenerationType, tuple[str, str, str | None, bool]] = {}
-            for generation_type in _VIDEO_BUCKETS:
+            video_identity: dict[VideoGenerationType, tuple[str, str]] = {}
+            for generation_type in _VIDEO_BUCKETS if is_reference_video else ("i2v",):
                 bucket_facts = reference_facts.get(generation_type)
                 if generation_type == "i2v" and isinstance(storyboard_facts, VideoRequestFacts):
                     bucket_facts = storyboard_facts
                 if bucket_facts is not None:
                     bucket_provider = bucket_facts.provider_id
                     bucket_model = bucket_facts.model_id
-                    bucket_resolution = bucket_facts.resolution
-                    bucket_audio = bucket_facts.generate_audio
                 else:
                     try:
-                        resolved_video = await r.resolve_video_backend(
-                            project_data, None, generation_type=generation_type
-                        )
+                        from lib.video_runtime.resolution import VideoRuntime
+
+                        resolved_video = (await VideoRuntime(r).read_bucket(project_data, generation_type)).snapshot
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
                     except (ValueError, SQLAlchemyError):
                         bucket_provider, bucket_model = "unknown", "unknown"
-                    bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
-                    try:
-                        bucket_resolution = await r.resolve_resolution(
-                            project_data,
-                            bucket_provider,
-                            bucket_model or "",
-                        )
-                    except (ValueError, SQLAlchemyError):
-                        bucket_resolution = None
-                video_identity[generation_type] = (
-                    bucket_provider,
-                    bucket_model,
-                    bucket_resolution,
-                    bucket_audio,
-                )
+                video_identity[generation_type] = bucket_provider, bucket_model
 
             tts_settings = (
                 project_tts_settings(project_data) if project_narration_delivery(project_data) == USE_TTS else None
@@ -512,9 +469,7 @@ class CostEstimationService:
             audio_price = await load_custom_price_source(session, audio_provider, audio_model)
             audio_multiplier = await get_provider_multiplier(session, audio_provider)
             video_prices: dict[tuple[str, str], VideoPriceSource] = {}
-            price_identities = [
-                (bucket_provider, bucket_model) for bucket_provider, bucket_model, _, _ in video_identity.values()
-            ]
+            price_identities = list(video_identity.values())
             if isinstance(end_frame_facts, VideoRequestFacts):
                 price_identities.append((end_frame_facts.provider_id, end_frame_facts.model_id))
             for bucket_provider, bucket_model in price_identities:
@@ -523,22 +478,9 @@ class CostEstimationService:
                         session, bucket_provider, bucket_model
                     )
 
-        video_pricing: dict[VideoGenerationType, _VideoPricing] = {
-            generation_type: _VideoPricing(
-                provider=bucket_provider,
-                model=bucket_model,
-                resolution=bucket_resolution,
-                generate_audio=bucket_audio,
-                price=video_prices[(bucket_provider, bucket_model)],
-            )
-            for generation_type, (
-                bucket_provider,
-                bucket_model,
-                bucket_resolution,
-                bucket_audio,
-            ) in video_identity.items()
-        }
-        project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
+        project_video_provider, project_video_model = video_identity[
+            video_bucket_for_generation_mode(project_data.get("generation_mode"))
+        ]
 
         grid_enabled = grid_storyboard_enabled(project_data)
         aspect_ratio = _storyboard_aspect_ratio(project_data)
@@ -632,8 +574,6 @@ class CostEstimationService:
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
 
-            episode_video = video_pricing["i2v"]
-
             try:
                 raw_segments, id_key, _, _, _ = get_storyboard_items(script)
             except ScriptEditError as exc:
@@ -709,7 +649,7 @@ class CostEstimationService:
                                 aspect_ratio=video_aspect_ratio,
                                 has_first_frame=True,
                             ),
-                            video_prices.get((unit_facts.provider_id, unit_facts.model_id), episode_video.price),
+                            video_prices[(unit_facts.provider_id, unit_facts.model_id)],
                         )
                         if video_quote.amount is None or video_quote.currency is None:
                             estimate_unpriced["video", unit_facts.provider_id, unit_facts.model_id] += 1
@@ -858,7 +798,7 @@ class CostEstimationService:
             "project_name": project_name,
             "models": {
                 "image": {"provider": image_provider, "model": image_model},
-                "video": {"provider": project_video.provider, "model": project_video.model},
+                "video": {"provider": project_video_provider, "model": project_video_model},
                 "audio": {"provider": audio_provider, "model": audio_model},
             },
             "episodes": episodes_result,
@@ -1092,13 +1032,13 @@ async def _quote_image_lane(
     """一条生图通道上每张图的预估单价；通道解析不出、读库失败或未定价时返回 ``None``。"""
 
     try:
+        from lib.config.resolver import project_resolution
+        from lib.video_runtime.image_resolution import ImageRuntime
+
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            resolved, default_resolution = await ImageRuntime(r).read_identity(project, lane)
             provider, model = resolved.provider_id, resolved.model_id or ""
-            try:
-                resolution = await r.resolve_resolution(project, provider, model)
-            except (ValueError, SQLAlchemyError):
-                resolution = None
+            resolution = project_resolution(project, provider, model) or default_resolution
         async with session_factory() as session:
             return _quote_image(
                 provider,

@@ -36,11 +36,11 @@ from starlette.datastructures import FormData, UploadFile
 
 from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
-from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
@@ -58,14 +58,14 @@ from lib.custom_provider.endpoint_test import (
     TrialRunTarget,
     artifact_media_type,
     check_response,
-    model_ref_target,
     parse_response_body,
     stage_report_payload,
     support_for_kind,
     supports_test_mode,
     trial_run_manager,
 )
-from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, effective_path_overrides
+from lib.custom_provider.model_facts import model_entry
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -75,6 +75,11 @@ from lib.generation.task_failure import encode_failure, parse_failure, render_fa
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
+from lib.video_runtime.assembly import VideoAssemblySpec, assemble_video
+from lib.video_runtime.builtin import builtin_declarative_credentials
+from lib.video_runtime.image_assembly import assemble_image
+from lib.video_runtime.image_resolution import custom_image_spec
+from lib.video_runtime.resolution import builtin_video_spec, custom_video_spec
 from server.i18n import DisplayNamesCatalog, Translator
 
 logger = logging.getLogger(__name__)
@@ -499,7 +504,7 @@ def _run_response(run: TrialRun, translate: Translator, names: DisplayNames) -> 
     return TrialRunResponse(**payload)
 
 
-def _has_usable_credentials(meta: ProviderMeta, config: Mapping[str, str]) -> bool:
+def _has_usable_credentials(meta: ProviderMeta, config: Mapping[str, str | None]) -> bool:
     """凭证够不够装配用。分组语义与凭证表单一致：声明了 credential_groups 按二选一，否则
     required ∩ secret 全部必填；两者都给不出非空分组（如走文件上传的 vertex）时不在此设闸。"""
     groups = [
@@ -520,24 +525,32 @@ async def _model_ref_target(
 
     自定义供应商的模型行还带出它生效的路径覆盖（``docs/adr/0101``），渲染请求段与真发一致。
     """
+
+    def video_target(spec: VideoAssemblySpec, definition, entry):
+        async def build():
+            catalog.reject_discontinued_entry(model_ref.provider_id, model_ref.model_id, "video", entry)
+            return await assemble_video(spec)
+
+        return TrialRunTarget(model_ref.provider_id, model_ref.model_id, build, definition, snapshot=spec.snapshot)
+
     if not is_custom_provider(model_ref.provider_id):
-        info = catalog.get_model(model_ref.provider_id, model_ref.model_id)
-        if info is None:
-            raise NotFoundError("model_not_found")
-        if info.media_type != "video":
-            raise BadRequestError("endpoint_test_model_unavailable")
-        config = await resolver.provider_config(model_ref.provider_id)
+        identity = ProviderModel(model_ref.provider_id, model_ref.model_id)
+        try:
+            builtin = await builtin_video_spec(resolver, identity, submitted=True)
+        except ModelNotInCatalogError as exc:
+            if catalog.get_model(identity.provider_id, identity.model_id) is None:
+                raise NotFoundError("model_not_found") from exc
+            raise BadRequestError("endpoint_test_model_unavailable") from exc
+        config = builtin.config.credentials
         if not _has_usable_credentials(PROVIDER_REGISTRY[model_ref.provider_id], config):
             raise BadRequestError("missing_credentials")
         definition = None
         credentials = None
-        diagnostics = builtin_declarative_video_diagnostics(model_ref.provider_id, model_ref.model_id, config)
-        if diagnostics is not None:
-            builtin_definition, base_url, api_key = diagnostics
-            definition = _accepted_definition(dict(builtin_definition), _t, mode=EndpointTestMode.TRIAL_RUN)
-            credentials = EndpointTestCredentials(base_url=base_url, api_key=api_key)
-        target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
-        return target, credentials, definition, NO_PATH_OVERRIDES
+        if builtin.definition is not None:
+            definition = _accepted_definition(dict(builtin.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
+            decl_base_url, decl_api_key = builtin_declarative_credentials(builtin.config)
+            credentials = EndpointTestCredentials(base_url=decl_base_url, api_key=decl_api_key)
+        return video_target(builtin, definition, builtin.entry), credentials, definition, NO_PATH_OVERRIDES
     provider = await _custom_provider(model_ref.provider_id, session)
     model = await CustomProviderRepository(session).get_model_by_ids(provider.id, model_ref.model_id)
     if model is None:
@@ -560,14 +573,27 @@ async def _model_ref_target(
     if endpoint_spec.definition is not None:
         definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
-    target = model_ref_target(
+    if endpoint_spec.media_type == "video":
+        entry = None if endpoint_spec.kind == "comfyui" else model_entry(model.model_id, "video", model.entry_binding)
+        spec = custom_video_spec(provider, model, endpoint_spec, entry)
+        return video_target(spec, definition, spec.entry), credentials, definition, spec.paths
+
+    entry = None if endpoint_spec.kind == "comfyui" else model_entry(model.model_id, "image", model.entry_binding)
+    image_spec = custom_image_spec(provider, model, endpoint_spec, entry)
+
+    async def build_image():
+        catalog.reject_discontinued_entry(model_ref.provider_id, model_ref.model_id, "image", entry)
+        return await assemble_image(image_spec)
+
+    target = TrialRunTarget(
         model_ref.provider_id,
         model_ref.model_id,
-        resolver=resolver,
-        definition=definition,
-        media_type=endpoint_spec.media_type,
+        build_image,
+        definition,
+        media_type="image",
+        snapshot=image_spec.snapshot,
     )
-    return target, credentials, definition, effective_path_overrides(model.path_overrides, endpoint_spec.requests)
+    return target, credentials, definition, image_spec.paths
 
 
 def _preview_payload(

@@ -81,8 +81,20 @@ class TestProperties:
     def test_name_vertex(self, backend_vertex):
         assert backend_vertex.name == "gemini-vertex"
 
-    def test_model_default(self, backend_aistudio):
-        assert "gemini" in backend_aistudio.model
+    @pytest.mark.parametrize(
+        ("configured_model", "expected_model"),
+        [(None, "gemini-nano-banana-2.1"), ("gemini-3.1-flash-image", "gemini-3.1-flash-image")],
+    )
+    def test_default_and_previously_default_models_keep_shared_limit(
+        self, patch_genai, configured_model, expected_model
+    ):
+        from lib.backends.gemini_shared import get_shared_rate_limiter
+        from lib.backends.image_backends.gemini import GeminiImageBackend
+
+        backend = GeminiImageBackend(backend_type="aistudio", api_key="fake-key", image_model=configured_model)
+
+        assert backend.model == expected_model
+        assert get_shared_rate_limiter().limits[backend.model] == 15
 
     def test_capabilities_include_t2i_and_i2i(self, backend_aistudio):
         caps = backend_aistudio.capabilities

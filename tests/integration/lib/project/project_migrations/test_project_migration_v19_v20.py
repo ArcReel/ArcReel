@@ -92,12 +92,17 @@ async def test_bare_providers_resolve_to_the_models_used_before_the_upgrade(
     )
     assert [path.name for path in project_dir.glob("project.json.bak.v19-*")]
 
+    from lib.video_runtime.image_resolution import ImageRuntime
+    from lib.video_runtime.resolution import VideoRuntime
+    from lib.video_runtime.text import TextRuntime
+
     resolver = ConfigResolver(session_factory)
-    caps = await resolver.video_capabilities_for_project(migrated, generation_type="i2v")
-    assert (caps["provider_id"], caps["model"]) == ("ark", VIDEO_0_36)
-    image = await resolver.resolve_image_backend(migrated, None, generation_type="t2i")
+    read = await VideoRuntime(resolver).read_bucket(migrated, "i2v")
+    assert (read.snapshot.provider_id, read.snapshot.model_id) == ("ark", VIDEO_0_36)
+    image, _ = await ImageRuntime(resolver).read_identity(migrated, "t2i")
     assert (image.provider_id, image.model_id) == ("openai", IMAGE_0_36)
-    assert await resolver.text_backend_for_task(TextTaskType.SCRIPT, project_dir.name) == ("grok", TEXT_0_36)
+    text_target = await TextRuntime(resolver).for_task(TextTaskType.SCRIPT, project_dir.name)
+    assert (text_target.provider_id, text_target.model_id) == ("grok", TEXT_0_36)
     assert _storyboard_counts(project_dir) == (2, 0)
 
 
@@ -106,6 +111,9 @@ async def test_a_bare_provider_that_failed_before_the_upgrade_still_asks_for_a_m
 
     迁移不替它们补模型，项目设置里的值原样保留，用户看到「没有选定具体模型」并重新选择。
     """
+    from lib.video_runtime.image_resolution import ImageRuntime
+    from lib.video_runtime.resolution import VideoRuntime
+
     data = with_dataset_version(catalog.factory_snapshot(), "2026-11-08T00:00:00Z")
     gated = catalog.default_model("openai", "image")
     assert gated is not None
@@ -122,7 +130,7 @@ async def test_a_bare_provider_that_failed_before_the_upgrade_still_asks_for_a_m
 
     resolver = ConfigResolver(session_factory)
     with pytest.raises(ModelNotSelectedError) as video_error:
-        await resolver.video_capabilities_for_project(migrated, generation_type="i2v")
+        await VideoRuntime(resolver).read_bucket(migrated, "i2v")
     assert (video_error.value.code, video_error.value.params) == ("model_not_selected", {"provider": "ark"})
     with pytest.raises(ModelNotSelectedError):
-        await resolver.resolve_image_backend(migrated, None, generation_type="t2i")
+        await ImageRuntime(resolver).read_identity(migrated, "t2i")

@@ -37,7 +37,7 @@ class TestProperties:
 
     def test_default_model(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
-        assert b.model == "gemini-3-flash-preview"
+        assert b.model == "gemini-3.8-flash"
 
     def test_custom_model(self, mock_genai):
         b = GeminiTextBackend(api_key="k", model="custom")
@@ -237,26 +237,12 @@ class TestGenerate:
         """
         from google.genai import types as gtypes
 
-        from lib.script.script_models import (
-            AdReferenceFlatScript,
-            ReferencePromptAuthoringFlatScript,
-            build_drama_normalized_script_model,
-            build_episode_script_model,
-            build_reference_units_script_plan_model,
-        )
+        from lib.script.script_models import build_episode_script_model
 
-        schemas = [
+        schemas = response_schema_models() + [
             build_episode_script_model(mode, durations)
             for mode in ("narration", "drama", "ad")
             for durations in ([4, 6, 8], [8])
-        ]
-        schemas += [
-            AdReferenceFlatScript,
-            build_drama_normalized_script_model([4, 6, 8]),
-            build_drama_normalized_script_model([8]),
-            build_reference_units_script_plan_model([4, 6, 8]),
-            build_reference_units_script_plan_model([8]),
-            ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:
@@ -405,7 +391,7 @@ class TestStructuredFallback:
 
         assert gc.call_count == 3
         assert exc_info.value.provider == "gemini"
-        assert exc_info.value.model == "gemini-3-flash-preview"
+        assert exc_info.value.model == "gemini-3.8-flash"
         assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
 
     async def test_fallback_logs_raw_model_output(self, backend, caplog):

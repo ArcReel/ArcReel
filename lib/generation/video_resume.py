@@ -16,7 +16,7 @@ from lib.db.repositories.project_records import is_deleted_project_name
 from lib.generation.media_generator import cleanup_staged_video_output
 from lib.generation.task_failure import encode_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from lib.project.task_project_claim import TaskProjectClaim, claim_task_project
 from lib.script.reference_video.execution_checkpoint import (
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from lib.generation.generation_queue import GenerationQueue
+    from lib.generation.task_writes import TaskWrites
 
     ProviderProjection = Callable[[dict[str, Any]], Awaitable[str]]
 
@@ -72,12 +73,12 @@ async def cleanup_video_staging(task: dict[str, Any]) -> None:
         logger.warning("video provider media cleanup failed task_id=%s", task.get("task_id"), exc_info=True)
 
 
-async def fail_task_of_deleted_project(queue: GenerationQueue, task: dict[str, Any]) -> None:
+async def fail_task_of_deleted_project(writes: TaskWrites, task: dict[str, Any]) -> None:
     """执行期间项目被删除的任务以 ``project_deleted_during_task`` 失败，并清掉按旧名补建出的空目录。"""
 
     task_id = task["task_id"]
     logger.warning("任务 %s 执行期间项目 %s 已删除，放弃落盘", task_id, task.get("project_name"))
-    await asyncio.shield(queue.mark_task_failed(task_id, encode_failure("project_deleted_during_task")))
+    await run_noninterruptible_async(writes.failed(task_id, encode_failure("project_deleted_during_task")))
     try:
         await run_sync_transaction(lambda: get_project_manager().remove_project_directory_residue(task["project_name"]))
     except Exception:
@@ -91,10 +92,12 @@ class VideoResumeRunner:
         self,
         *,
         queue: GenerationQueue,
+        writes: TaskWrites,
         resume_executor: ResumeExecutor,
         provider_projection: ProviderProjection,
     ) -> None:
         self._queue = queue
+        self._writes = writes
         self._resume_executor = resume_executor
         self._provider_projection = provider_projection
 
@@ -116,10 +119,12 @@ class VideoResumeRunner:
         project_name = task.get("project_name")
         if isinstance(project_name, str) and is_deleted_project_name(project_name):
             logger.warning("任务 %s 的项目已删除，不再续跑", task["task_id"])
-            await asyncio.shield(
-                self._queue.mark_task_failed(task["task_id"], encode_failure("project_deleted_during_task"))
+            await run_noninterruptible_async(
+                self._writes.failed(task["task_id"], encode_failure("project_deleted_during_task"))
             )
-            await asyncio.shield(self.settle_unresumable_call(task, failure="project deleted before resume"))
+            await run_noninterruptible_async(
+                self.settle_unresumable_call(task, failure="project deleted before resume")
+            )
             return
         with claim_task_project(task["task_id"], project_name) as claim:
             await self._run_claimed(task, claim)
@@ -144,13 +149,15 @@ class VideoResumeRunner:
                     if (code == "execution_identity_unrecoverable")
                     else {}
                 )
-                await asyncio.shield(self._queue.mark_task_failed(task_id, encode_failure(code, **params)))
+                await run_noninterruptible_async(self._writes.failed(task_id, encode_failure(code, **params)))
                 await cleanup_video_staging(task)
                 return
 
         job_id = task.get("provider_job_id") or ""
         if not job_id:
-            await asyncio.shield(self._queue.mark_task_failed(task_id, encode_failure("restart_lost_resume_no_job_id")))
+            await run_noninterruptible_async(
+                self._writes.failed(task_id, encode_failure("restart_lost_resume_no_job_id"))
+            )
             await cleanup_video_staging(task)
             return
 
@@ -177,52 +184,48 @@ class VideoResumeRunner:
                 return await self._resume_executor(task, job_id=job_id)
             finally:
                 if checkpoint is not None:
-                    await asyncio.shield(cleanup_video_staging(task))
+                    await run_noninterruptible_async(cleanup_video_staging(task))
 
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
-            await asyncio.shield(self._queue.mark_task_interrupted(task_id))
-            await asyncio.shield(self.settle_unresumable_call(task, cancelled=True))
+            await run_noninterruptible_async(self._queue.mark_task_interrupted(task_id))
+            await run_noninterruptible_async(self.settle_unresumable_call(task, cancelled=True))
             raise
         except NotImplementedError as exc:
             logger.warning("resume 不支持 task %s: %s", task_id, exc)
-            await asyncio.shield(
-                self._queue.mark_task_failed(task_id, encode_failure("resume_unsupported_detail", detail=str(exc)))
+            await run_noninterruptible_async(
+                self._writes.failed(task_id, encode_failure("resume_unsupported_detail", detail=str(exc)))
             )
-            await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
+            await run_noninterruptible_async(self.settle_unresumable_call(task, failure=exc))
             return
         except ResumeEndpointChangedError as exc:
             logger.warning("resume endpoint 已变更 task %s: %s", task_id, exc)
-            await asyncio.shield(
-                self._queue.mark_task_failed(task_id, encode_failure("resume_endpoint_changed_detail", detail=str(exc)))
+            await run_noninterruptible_async(
+                self._writes.failed(task_id, encode_failure("resume_endpoint_changed_detail", detail=str(exc)))
             )
-            await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
+            await run_noninterruptible_async(self.settle_unresumable_call(task, failure=exc))
             return
         except ResumeExpiredError as exc:
             logger.warning("resume 已过期 task %s: %s", task_id, exc)
-            await asyncio.shield(
-                self._queue.mark_task_failed(task_id, encode_failure("resume_expired_detail", detail=str(exc)))
+            await run_noninterruptible_async(
+                self._writes.failed(task_id, encode_failure("resume_expired_detail", detail=str(exc)))
             )
-            await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
+            await run_noninterruptible_async(self.settle_unresumable_call(task, failure=exc))
             return
         except Exception as exc:
             if claim.revoked:
-                await fail_task_of_deleted_project(self._queue, task)
+                await fail_task_of_deleted_project(self._writes, task)
             else:
                 logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-                await asyncio.shield(self._queue.mark_task_failed(task_id, encode_task_failure_message(exc)))
-            await asyncio.shield(self.settle_unresumable_call(task, failure=exc))
+                await run_noninterruptible_async(self._writes.failed(task_id, encode_task_failure_message(exc)))
+            await run_noninterruptible_async(self.settle_unresumable_call(task, failure=exc))
             return
 
-        if claim.revoked:
-            await fail_task_of_deleted_project(self._queue, task)
+        written = await run_noninterruptible_async(self._writes.succeeded(task_id, result, claim=claim))
+        if written is None:
+            await fail_task_of_deleted_project(self._writes, task)
             return
-        try:
-            await asyncio.shield(self._queue.mark_task_succeeded(task_id, result))
-        except asyncio.CancelledError:
-            await asyncio.shield(self._queue.mark_task_interrupted(task_id))
-            raise
         logger.info("重启自愈完成 %s", task_id)
 
     def _ledger(self) -> Ledger:

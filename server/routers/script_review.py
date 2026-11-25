@@ -48,8 +48,9 @@ async def _attach_duration_tiers(
     state["duration_tiers"] = await service.get_reference_duration_tiers(
         project_name, episode, units if isinstance(units, list) else ()
     )
-    for soft in state.get("soft_violations") or []:
-        soft["message"] = render_message(soft["code"], soft["params"], _t, names)
+    localize_draft_view(
+        {"violations": state.get("blocking_issues", []), "soft_violations": state.get("soft_violations", [])}, _t, names
+    )
     return state
 
 
@@ -106,9 +107,7 @@ def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) 
         return None
     for violation in view["violations"]:
         params = violation.get("params")
-        if violation["code"] == "quarantine_unreadable":
-            violation["message"] = _t("script_review_quarantine_unreadable")
-        elif isinstance(params, dict):
+        if isinstance(params, dict):
             key = draft_violation_message_key(violation["code"])
             if key in MESSAGES[DEFAULT_LOCALE]:
                 if isinstance(asset_type := params.get("asset_type"), str):
@@ -125,23 +124,12 @@ def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator, names: DisplayNamesCatalog):
-    """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
-
-    ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
-    那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
-    先取 ``quarantine`` 再取 ``state``：Agent 的晋升工具在两次读之间把草稿清掉、正式
-    script_plan 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
-    违约报告」这一侧——面板会误判成仍有待处置草稿、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
-    让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
-    用户点下确认时实际晋升的是他从未看过的那份新内容。
-    """
+    """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。"""
     try:
         service = ScriptReviewService(get_project_manager())
-        quarantine = await service.get_quarantine_info(project_name, episode)
         state = await service.get_state(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(quarantine, _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -162,25 +150,13 @@ async def update_script_review_content(
 
     ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
     编辑期间 script_plan 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
-
-    ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与草稿是两份独立文件，保存在途时
-    Agent 可能已经另外产出一份新的草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
-    「无草稿」，面板显示干净态、放行确认，而 confirm() 仍会按待处置草稿文件存在性返回 409。
-
-    保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
-    解析）：晋升工具若恰好在这条 await 期间把草稿清掉，越晚读 quarantine 越可能读到
-    「已清除」而不是晋升前那份，响应就会落在「保存的内容 + quarantine: null」这一侧，
-    使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到
-    的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。
     """
     try:
         service = ScriptReviewService(get_project_manager())
         with project_change_source("webui"):
             state = await service.save_content(project_name, episode, content, base_fingerprint)
-        quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(quarantine, _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -211,10 +187,6 @@ async def confirm_script_review(
 
     该集已有正式脚本时须带 ``overwrite_revision``（覆盖清单的 ``revision``），缺失或与当前正式脚本不符
     时 409，诊断里的 ``script_overwrite`` 列出当前将被移除的分镜与产物摘要，不写正式脚本与确认记录。
-
-    ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
-    按待处置草稿文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的草稿状态，而不是让这个字段在
-    三个端点里时有时无。
     """
     try:
         service = ScriptReviewService(get_project_manager())
@@ -224,7 +196,6 @@ async def confirm_script_review(
             )
         await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(await service.get_quarantine_info(project_name, episode), _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)

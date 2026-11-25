@@ -277,6 +277,7 @@ class TimelineJianyingDraftService:
                 narration=narration,
                 aspect_ratio=aspect_ratio,
                 units=unit_materials.bases,
+                video_versions={key: material.video_version for key, material in unit_materials.materials.items()},
                 bgm_sources=bgm_sources,
             ),
             timeline_id=timeline_id,

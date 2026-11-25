@@ -82,8 +82,8 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     pm = ProjectManager(tmp_path)
     for target in (
         "lib.project.project_manager.get_project_manager",
-        "lib.config.resolver.get_project_manager",
         "lib.generation.generation_worker.get_project_manager",
+        "lib.generation.restart_recovery.get_project_manager",
         "lib.generation.video_resume.get_project_manager",
         "server.services.tasks.generation_context.get_project_manager",
         "server.services.tasks.resume_executor.get_project_manager",
@@ -288,9 +288,7 @@ async def _run_orphan_recovery(session_factory) -> None:
         resume_executor=execute_resume_video_task,
     )
     await worker._recovery.handle_orphans()
-    dispatcher = worker._recovery.orphan_dispatcher_task
-    assert dispatcher is not None
-    await asyncio.wait_for(dispatcher, timeout=10)
+    await asyncio.wait_for(worker._recovery.wait_dispatchers(), timeout=10)
 
 
 async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, session_factory):
@@ -327,6 +325,17 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
 
         await _run_orphan_recovery(session_factory)
 
+        initial = await _load_task_row(session_factory, "T-ce-resume")
+        assert initial.status == "succeeded"
+        async with session_factory() as session:
+            running = await session.get(Task, "T-ce-resume")
+            running.status = "running"
+            running.result_json = None
+            await session.commit()
+        await _run_orphan_recovery(session_factory)
+        restored = await _load_task_row(session_factory, "T-ce-resume")
+        assert json.loads(restored.result_json) == json.loads(initial.result_json)
+
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -336,6 +345,10 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
+    from lib.artifacts.version_manager import VersionManager
+
+    history = VersionManager(chain_project).get_versions("videos", "E1S01")
+    assert [version["task_id"] for version in history["versions"]] == ["T-ce-resume"]
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
@@ -577,7 +590,7 @@ async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) ->
         return make_provider_id(provider.id)
 
 
-async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory):
+async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory, monkeypatch):
     """升级前经 ``ark-seedance`` 提交的任务：模型行已回填为协议等价的 ``ark-seedance-2``，续跑照常取回结果、不重新提交。"""
     provider_id = await _seed_relay_model(session_factory, endpoint="ark-seedance-2", model_id=SEEDANCE_MODEL)
     await _seed_running_video_task(
@@ -591,6 +604,16 @@ async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_projec
             model_id=SEEDANCE_MODEL,
         ),
     )
+
+    def unexpected_preference(*args, **kwargs):
+        raise AssertionError("resume must only consume the submitted checkpoint")
+
+    project_file = chain_project / "project.json"
+    project = json.loads(project_file.read_text())
+    project_file.write_text(json.dumps({**project, "video_generate_audio": False, "default_duration": 17}))
+    monkeypatch.setattr(generation_context, "snapshot_video_request_facts", unexpected_preference)
+    for method in ("video_generate_audio", "video_generate_audio_for_project"):
+        monkeypatch.setattr(f"lib.config.resolver.ConfigResolver.{method}", unexpected_preference)
 
     with capture_http() as router:
         submit = router.post("https://ark-relay.test/api/v3/contents/generations/tasks")

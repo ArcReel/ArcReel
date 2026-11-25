@@ -19,7 +19,7 @@ const DEMO_PROJECT = "demo";
 
 interface Recording {
   file: string;
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   anonymous?: boolean;
   form?: Record<string, string>;
@@ -50,6 +50,10 @@ const RECORDINGS: Recording[] = [
   // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
   { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
   { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
+  { file: "tasks-active", method: "GET", path: "/api/v1/tasks/active" },
+  { file: "project-demo-tasks-active", method: "GET", path: `/api/v1/tasks/active?project_name=${DEMO_PROJECT}` },
+  { file: "project-demo-tasks-active-route", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/tasks/active` },
+  { file: "tasks-lookup", method: "POST", path: "/api/v1/tasks/lookup", json: { task_ids: [] } },
   { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
   { file: "project-demo-tasks-stats", method: "GET", path: `/api/v1/tasks/stats?project_name=${DEMO_PROJECT}` },
   { file: "project-demo-usage-summary", method: "GET", path: `/api/v1/usage/summary?project_name=${DEMO_PROJECT}` },
@@ -152,21 +156,24 @@ function createNormalizer(dataDir: string): (value: unknown) => unknown {
     }
     return alias;
   };
-  const normalize = (value: unknown): unknown => {
+  const normalize = (value: unknown, parentKey?: string): unknown => {
     if (typeof value === "string") {
       if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
       if (UUID.test(value)) return fixedUuid(value);
       return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>")
         .replace(/#deleted-\d{8}T\d{6}Z$/, "#deleted-20260101T080000Z");
     }
-    if (Array.isArray(value)) return value.map(normalize);
+    if (Array.isArray(value)) return value.map((item) => normalize(item));
     if (value && typeof value === "object") {
       return Object.fromEntries(
         Object.entries(value).map(([key, item]) => {
+          if (parentKey === "script_overwrite" && key === "revision" && typeof item === "string") {
+            return [key, "sha256-v1:<script-overwrite-revision>"];
+          }
           const fixed = FIXED_VALUES.get(key);
           if (fixed !== undefined) return [key, fixed];
           if (SIZE_KEYS.has(key) && typeof item === "number" && item > 0) return [key, FIXED_SIZE];
-          return [key, normalize(item)];
+          return [key, normalize(item, key)];
         }),
       );
     }
@@ -214,7 +221,7 @@ async function request(baseUrl: string, token: string | null, recording: Omit<Re
     payload = JSON.stringify(recording.json);
   }
   const resp = await fetch(`${baseUrl}${recording.path}`, { method: recording.method, headers, body: payload });
-  const body: unknown = await resp.json();
+  const body: unknown = resp.status === 204 ? null : await resp.json();
   if (!resp.ok && resp.status !== recording.status) {
     throw new Error(`${recording.method} ${recording.path} 返回 ${resp.status}：${JSON.stringify(body)}`);
   }
@@ -287,7 +294,7 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
 
     const normalize = createNormalizer(dataDir);
     const files = new Map<string, string>();
-    for (const recording of RECORDINGS) {
+    async function recordResponse(recording: Recording) {
       const { status, body } = await request(baseUrl, token, recording);
       const recorded: RecordedResponse = {
         method: recording.method,
@@ -297,6 +304,22 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
       };
       files.set(`${recording.file}.json`, `${JSON.stringify(recorded, null, 2)}\n`);
     }
+    for (const recording of RECORDINGS) await recordResponse(recording);
+    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "内容确认", source_text: "山雨初歇。" });
+    const review = `/api/v1/projects/${DEMO_PROJECT}/episodes/2/script-review`;
+    const content = {
+      segments: [{
+        segment_id: "E2S01", novel_text: "山雨初歇。", duration_seconds: 4,
+        segment_break: false, characters_in_segment: [], scenes: [], props: [],
+      }],
+    };
+    await recordResponse({ file: "script-review-content", method: "PUT", path: `${review}/content`, json: content });
+    await recordResponse({ file: "script-review", method: "GET", path: review });
+    await request(baseUrl, token, { method: "PATCH", path: "/api/v1/providers/ark/config",
+      json: { api_key: "recording-only" } });
+    await request(baseUrl, token, { method: "PATCH", path: "/api/v1/system/config",
+      json: { default_video_backend_i2v: "ark/doubao-seedance-2-0-260128" } });
+    await recordResponse({ file: "script-review-confirm", method: "POST", path: `${review}/confirm` });
     return files;
   } finally {
     if (!exited) backend.kill("SIGTERM");

@@ -131,7 +131,7 @@ def test_invalid_drafts_and_legacy_markdown_aliases_are_renamed_too(tmp_path: Pa
     _write_json(drafts_dir / "step2_reference_script.invalid.json", {"video_units": []})
     (drafts_dir / "step1_reference_units.md").write_text("旧版自由文本", encoding="utf-8")
 
-    assert migrate_project_dir(project_dir) is True
+    migrate_v9_to_v10(project_dir)
 
     assert _read_json(drafts_dir / "script_plan_reference_units.invalid.json") == {"units": [{"unit_id": "E1U1"}]}
     assert _read_json(drafts_dir / "prompt_authoring_reference_script.invalid.json") == {"video_units": []}

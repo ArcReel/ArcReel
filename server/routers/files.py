@@ -5,14 +5,13 @@
 """
 
 import asyncio
-import json
 import logging
 import os
 import shutil
 import stat
 import tempfile
 from collections.abc import AsyncIterator, Callable
-from contextlib import ExitStack
+from contextlib import AsyncExitStack, ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -28,12 +27,7 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import NoAvailableProviderError, VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
-    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-    SCRIPT_PLAN_FILENAMES,
-    episode_drafts_dir,
     episode_source_relpath,
-    script_plan_read_candidates,
 )
 from lib.episode.episode_source_commands import (
     EpisodeSourceError,
@@ -52,25 +46,22 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.episode.source_trash import trash_source_file
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
-from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.material.formal_objects import formal_commit
 from lib.material.global_library import ensure_global_image
 from lib.material.work_files import ensure_work_file, hold_work_file
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import (
-    build_change_label,
-    emit_project_change_batch,
     project_change_source,
 )
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_guard import assert_project_migration_ok
-from lib.script import script_review
 from lib.script.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -91,7 +82,6 @@ from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._file_responses import cached_file_response, guess_media_type
-from server.routers._script_review_errors import raise_review_error
 from server.routers._source_file_changes import (
     ensure_no_displaced_tasks,
     source_file_change_http_error,
@@ -99,7 +89,6 @@ from server.routers._source_file_changes import (
 )
 from server.routers._source_uploads import extract_uploaded_source_text, source_loader_http_error
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
-from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
 
@@ -487,6 +476,8 @@ async def upload_file(
                     ),
                 )
 
+        stem = name or Path(original_filename).stem
+
         def _sync():
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
@@ -497,7 +488,6 @@ async def upload_file(
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
             target_dir = project_dir.joinpath(*spec.subdir)
-            stem = name or Path(original_filename).stem
             filename = f"{stem}.png" if spec.naming == "stable_png" else f"{stem}{ext}"
 
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -570,10 +560,18 @@ async def upload_file(
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
 
-        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
-            async with formal_commit(project_name):
-                return await run_sync_transaction(_sync)
-        return await run_sync_transaction(_sync)
+        targets = []
+        if upload_type in _FORMAL_SHEET_UPLOAD_TYPES:
+            targets.append(AssetTarget(upload_type, stem, "image"))
+        elif upload_type == "character_ref":
+            targets.append(AssetTarget("character", stem, "image"))
+        elif spec.tracks_stale_audio and name:
+            targets.append(AssetTarget("character", name, "voice"))
+
+        async with AsyncExitStack() as storage_settlement, idle_asset_write(project_name, *targets):
+            if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
+                await storage_settlement.enter_async_context(formal_commit(project_name))
+            return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -646,11 +644,12 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
 
             return {"success": True}
 
-        return await run_sync_transaction(_sync)
+        async with idle_asset_write(project_name, AssetTarget("character", name, "voice")):
+            return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception as exc:
         logger.exception("请求处理失败")
@@ -1077,242 +1076,6 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
-
-_SCRIPT_PLAN_STAGE = "script_plan"
-
-
-def _stage_files(content_mode: str, generation_mode: str | None = None) -> dict[str, str]:
-    """按 generation_mode / content_mode 给出「草稿阶段名 → 文件名」映射
-
-    ad 不走结构化 script_plan（与 _resolve_script_plan_path / script_review.script_plan_path 同口径显式
-    排除），即便带 reference_video generation_mode 也无 script_plan，故先于 generation_mode 判断返回空
-    映射，调用方据此给出「无此阶段」而非误落 drama / reference 文件名。reference_video 走
-    generate_script_plan 工具 → script_plan_reference_units.json；其他模式回落到 content_mode
-    的结构化 script_plan 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
-    SCRIPT_PLAN_FILENAMES，新增 content_mode 自动覆盖。
-    """
-    if content_mode == "ad":
-        return {}
-    if generation_mode == "reference_video":
-        return {_SCRIPT_PLAN_STAGE: REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME}
-    return {_SCRIPT_PLAN_STAGE: SCRIPT_PLAN_FILENAMES.get(content_mode, SCRIPT_PLAN_FILENAMES["drama"])}
-
-
-_SCRIPT_PLAN_FAMILY: dict[str, list[str]] = {
-    SCRIPT_PLAN_FILENAMES[mode]: list(script_plan_read_candidates(mode)) for mode in SCRIPT_PLAN_FILENAMES
-}
-_SCRIPT_PLAN_FAMILY[REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME] = [
-    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-]
-
-_SCRIPT_PLAN_PROBE_ORDER = [
-    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-    SCRIPT_PLAN_FILENAMES["narration"],
-    SCRIPT_PLAN_FILENAMES["drama"],
-]
-_SCRIPT_PLAN_CANDIDATES = list(
-    dict.fromkeys(
-        name for key in [*_SCRIPT_PLAN_PROBE_ORDER, *_SCRIPT_PLAN_FAMILY] for name in _SCRIPT_PLAN_FAMILY[key]
-    )
-)
-
-
-def _load_project_modes(project_name: str) -> tuple[str, str | None]:
-    """走 ProjectManager.load_project，读出 (content_mode, generation_mode) 两轴。
-
-    两轴都是项目级字段，草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
-    """
-    try:
-        data = get_project_manager().load_project(project_name)
-    except FileNotFoundError:
-        return "drama", None
-    return data.get("content_mode", "drama"), data.get("generation_mode")
-
-
-def _resolve_script_plan_path(drafts_dir: Path, stage: str, primary: Path) -> Path:
-    """主路径不存在时按 primary 所属模式优先回落，再兜底其他模式遗留文件（mode 感知）。
-
-    stage 不是脚本规划或主路径已存在：原样返回 primary；调用方自行 exists() 判定。
-    """
-    if stage != _SCRIPT_PLAN_STAGE or primary.exists():
-        return primary
-    family = _SCRIPT_PLAN_FAMILY.get(primary.name, [primary.name])
-    for candidate in dict.fromkeys([*family, *_SCRIPT_PLAN_CANDIDATES]):
-        alt = drafts_dir / candidate
-        if alt.exists():
-            return alt
-    return primary
-
-
-@router.get("/projects/{project_name}/drafts/{episode}/{stage}")
-async def get_draft_content(project_name: str, episode: int, stage: str, _t: Translator):
-    """获取特定步骤的草稿内容"""
-    try:
-
-        def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name)
-            stage_files = _stage_files(content_mode, generation_mode)
-
-            if stage not in stage_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
-
-            drafts_dir = episode_drafts_dir(project_dir, episode)
-            draft_path = _resolve_script_plan_path(drafts_dir, stage, drafts_dir / stage_files[stage])
-
-            if not draft_path.exists():
-                raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
-
-            return draft_path.read_text(encoding="utf-8")
-
-        content = await asyncio.to_thread(_sync)
-        return PlainTextResponse(content)
-
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
-
-
-@router.put("/projects/{project_name}/drafts/{episode}/{stage}")
-async def update_draft_content(
-    project_name: str,
-    episode: int,
-    stage: str,
-    _t: Translator,
-    content: str = Body(..., media_type="text/plain"),
-):
-    """更新草稿内容"""
-    try:
-
-        def _resolve_target() -> tuple[Path, str, Path]:
-            project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name)
-            stage_files = _stage_files(content_mode, generation_mode)
-
-            if stage not in stage_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
-
-            return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / stage_files[stage]
-
-        project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
-
-        with project_change_source("webui"):
-            if draft_path.name == REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME:
-                try:
-                    parsed = json.loads(content)
-                except json.JSONDecodeError as exc:
-                    raise BadRequestError("script_review_invalid_content").with_diagnostic(str(exc)) from exc
-                is_new = not await asyncio.to_thread(draft_path.exists)
-                try:
-                    await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
-                except ScriptReviewError as exc:
-                    raise_review_error(exc, episode, _t)
-            else:
-                is_new = await run_sync_transaction(
-                    _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
-                )
-
-            action = "created" if is_new else "updated"
-            draft_label_key = "draft_segment_splitting" if content_mode == "narration" else "draft_normalized_script"
-            change = {
-                "entity_type": "draft",
-                "action": action,
-                "entity_id": f"episode_{episode}_{stage}",
-                **build_change_label(draft_label_key, episode=episode),
-                "episode": episode,
-                "focus": {
-                    "pane": "episode",
-                    "episode": episode,
-                },
-                "important": is_new,
-            }
-            try:
-                emit_project_change_batch(project_name, [change])
-            except Exception:
-                logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
-
-        return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
-
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
-
-
-def _write_plain_draft(
-    project_name: str,
-    project_dir: Path,
-    episode: int,
-    draft_path: Path,
-    content: str,
-    _t: Translator,
-) -> bool:
-    """非参考生视频 script_plan 的草稿落盘（同步主体），返回是否为新建文件。
-
-    drama script_plan 落结构化 .json：写入前与 _load_drama_script_plan_content 的读取契约同口径校验
-    ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
-    非对象分镜项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-    失败）。按目标文件名而非 content_mode 触发：_stage_files 对未知模式回落到 drama 的
-    结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
-    的 script_plan 落自己的文件名，不匹配此校验。
-
-    已确认的脚本规划只读，与 ``ScriptReviewService.save_content`` 同一判据与错误码。
-    """
-    draft_path.parent.mkdir(parents=True, exist_ok=True)
-    if draft_path.name == SCRIPT_PLAN_FILENAMES["drama"]:
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise BadRequestError("draft_invalid_json").with_diagnostic(str(exc)) from exc
-        scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
-        if (
-            not isinstance(parsed, dict)
-            or not isinstance(scenes, list)
-            or not scenes
-            or any(not isinstance(scene, dict) for scene in scenes)
-            or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
-        ):
-            raise BadRequestError("draft_invalid_json").with_diagnostic(
-                "expected a JSON object with a non-empty 'scenes' array of objects, each with a non-empty 'scene_id'"
-            )
-
-    pm = get_project_manager()
-    with pm.file_lock(draft_path):
-        project = pm.load_project(project_name)
-        if script_review.formal_script_plan_agent_owned(project_dir, project, episode):
-            raise_review_error(ScriptReviewError("draft_agent_owned"), episode, _t)
-        if script_review.formal_script_plan_confirmed(project_dir, project, episode):
-            raise_review_error(ScriptReviewError("script_plan_confirmed"), episode, _t)
-        is_new = not draft_path.exists()
-        with script_review.formal_script_plan_write_transaction(project_dir, episode, draft_path):
-            atomic_write_bytes(draft_path, content.encode("utf-8"))
-    return is_new
-
-
-@router.delete("/projects/{project_name}/drafts/{episode}/{stage}")
-async def delete_draft(project_name: str, episode: int, stage: str, _t: Translator):
-    """删除草稿文件"""
-    try:
-
-        def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name)
-            stage_files = _stage_files(content_mode, generation_mode)
-
-            if stage not in stage_files:
-                raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
-
-            drafts_dir = episode_drafts_dir(project_dir, episode)
-            draft_path = _resolve_script_plan_path(drafts_dir, stage, drafts_dir / stage_files[stage])
-
-            if script_review.delete_script_plan_file(project_dir, episode, draft_path):
-                return {"success": True}
-            raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
-
-        with project_change_source("webui"):
-            return await run_sync_transaction(_sync)
-
-    except FileNotFoundError as exc:
-        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.post("/projects/{project_name}/style-image")

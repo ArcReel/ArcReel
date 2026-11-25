@@ -18,7 +18,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "draft_selling_points",
   "plan_episodes",
   "reset_episode_planning",
-  "resolve_draft",
   "prepare_script_plan",
   "start_blank_script",
   "provide_episode_source",
@@ -175,12 +174,6 @@ export interface WorkflowOperation {
   reason?: string | null;
 }
 
-export interface WorkflowDraft {
-  kind: string;
-  path: string;
-  needs_repair: boolean;
-}
-
 export interface WorkflowContent {
   episode_count: number;
   whole_source: "present" | "absent" | "not_applicable";
@@ -190,7 +183,6 @@ export interface WorkflowContent {
   episode_source?: "present" | "absent" | "not_applicable" | null;
   episode_plan_stale: boolean;
   expected_stale_script_plan_revision?: string | null;
-  drafts: WorkflowDraft[];
   formal_script?: "present" | "absent" | "invalid" | null;
   script_item_count?: number | null;
   pending_authoring_ids: string[];
@@ -213,6 +205,7 @@ export interface WorkflowMigrationSkippedArtifact {
 }
 
 export type WorkflowMigrationAdjustmentCode =
+  | "retired_draft_trashed"
   | "draft_name_conflict_resolved"
   | "duplicate_episode_entry_removed"
   | "shared_script_binding_split"

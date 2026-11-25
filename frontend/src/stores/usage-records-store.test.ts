@@ -9,7 +9,7 @@ import {
 } from "@/components/usage/usage-fixtures";
 import { createDeferred } from "@/test/deferred";
 import type { UsageAgentSession, UsageRecord } from "@/types";
-import { DEFAULT_USAGE_FILTERS, useUsageRecordsStore, viewPatch } from "./usage-records-store";
+import { DEFAULT_USAGE_FILTERS, rangeSince, useUsageRecordsStore, viewPatch } from "./usage-records-store";
 
 interface Page<T> {
   items: T[];
@@ -53,6 +53,36 @@ describe("usage-records-store", () => {
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
+  });
+
+  it("refreshes from page one when the pending cursor belongs to yesterday's date window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const before = new Date(2026, 10, 24, 23, 59);
+      const after = new Date(2026, 10, 25, 0, 1);
+      vi.setSystemTime(before);
+      const filters = { ...GENERATION, range: "7d" as const };
+      const nextPage = createDeferred<Page<UsageRecord>>();
+      const records = vi.spyOn(API, "getUsageRecords").mockImplementation((query, options) => {
+        if (query?.cursor) return abortable(nextPage.promise, options?.signal);
+        return Promise.resolve(isPending(query) ? EMPTY_RECORDS : recordPage("page-2"));
+      });
+      const store = useUsageRecordsStore.getState();
+      await store.applyFilters(filters);
+      const page = store.goToPage("next");
+
+      vi.setSystemTime(after);
+      const refresh = store.refresh();
+      nextPage.resolve(recordPage(null));
+      await Promise.all([page, refresh]);
+
+      expect(useUsageRecordsStore.getState().pageIndex).toBe(0);
+      const query = records.mock.calls.filter(([value]) => !isPending(value)).at(-1)?.[0];
+      expect(query).toMatchObject({ since: rangeSince(filters.range, after), cursor: undefined });
+      expect(vi.mocked(API.getUsageSummary).mock.lastCall?.[0]?.since).toBe(query?.since);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the Agent view's paging when a generation request lands after the switch", async () => {

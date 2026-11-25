@@ -12,11 +12,9 @@ from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import (
     ENDPOINT_FIXED_PLANNING_DURATIONS,
-    ExecutionVideoIdentity,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script.prompt_authoring_scope import select_prompt_authoring
@@ -1270,11 +1268,12 @@ async def test_planning_and_execution_read_the_same_tiers_under_one_configuratio
     sg = _sg_with_project(tmp_path, project, config_resolver=resolver)
 
     planning = await sg._fetch_video_request_facts()
-    executed = await evaluate_video_request_facts(
+    from lib.video_runtime.resolution import read_video_request_facts
+
+    executed = await read_video_request_facts(
         project,
         route=planning.require(bucket).route,
         generation_type=bucket,
-        identity=ExecutionVideoIdentity("gemini-vertex", "veo-3.1-generate-001"),
         resolver=resolver,
     )
 
@@ -1568,24 +1567,6 @@ class TestLoadNarrationScriptPlan:
         assert segments[0]["novel_text"] == "第一段原文，逐字保留。"
         assert segments[0]["duration_seconds"] == 6
         assert segments[0]["segment_break"] is True
-
-    def test_quarantined_script_plan_blocks_prompt_authoring_even_with_a_valid_formal_file(self, tmp_path):
-        """草稿在场时直连调用也拒：正式文件此刻仍是上一版，拿它跑 prompt_authoring 等于把一份待处置的
-        产出静默换成旧内容。工具入口已按同一判据阻塞，这里是脚本 / 测试等直连路径的兜底。"""
-        from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, write_quarantine
-
-        sg = _bare_generator(tmp_path)
-        self._write(sg, 1, {"episode": 1, "segments": [_script_plan_seg("E1S01", "第一段原文。")]})
-        write_quarantine(
-            sg.project_path,
-            1,
-            QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-            content={"segments": [_script_plan_seg("E1S01", "改到一半的原文。")]},
-            violations=[],
-        )
-
-        with pytest.raises(ValueError, match="草稿待处置"):
-            sg._load_narration_script_plan(1, [4, 6, 8])
 
     def test_missing_json_without_legacy_md_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)

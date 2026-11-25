@@ -1,3 +1,4 @@
+import { seedTasks } from "@/test/task-state";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
@@ -7,7 +8,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
@@ -397,132 +398,12 @@ describe("WorkflowPanel 剪辑", () => {
   });
 });
 
-describe("WorkflowPanel 草稿", () => {
-  const repairDraft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
-
-  it("待修复草稿：交给 Agent 时带上违约清单，或者手动修改 / 丢弃草稿", async () => {
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-1",
-      editable_by: "user",
-      content: {},
-      violations: [{ item_id: "E1S01", message: "时长不在档位内" }],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    const plan = screen.getByTestId("workflow-row-plan");
-    expect(within(plan).getByText("待修复草稿")).toBeInTheDocument();
-    const next = within(plan).getByTestId("workflow-next-step");
-    expect(within(next).getByRole("button", { name: "手动修改" })).toBeInTheDocument();
-
-    fireEvent.click(within(next).getByRole("button", { name: "交给 Agent" }));
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("时长不在档位内"));
-  });
-
-  it("待修复草稿可以直接 AI 修复：按读到的版本提交，附加指令只随本次修复", async () => {
-    useTasksStore.getState().setTasks([]);
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-3",
-      editable_by: "user",
-      content: {},
-      violations: [{ item_id: "E1S01", message: "时长不在档位内" }],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    const repair = vi
-      .spyOn(API, "repairEpisodeDraft")
-      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.repairEpisodeDraft>>);
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    const next = screen.getByTestId("workflow-next-step");
-    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "只调整时长" } });
-    fireEvent.click(within(next).getByRole("button", { name: "AI 修复" }));
-
-    await waitFor(() => expect(repair).toHaveBeenCalledWith("proj", 1, "drama_script_plan", "rev-3", "只调整时长"));
-  });
-
-  it("脚本规划的待修复草稿可以重新规划，打开的弹窗先说明会替换草稿", async () => {
-    useScriptPlanStore.getState().close();
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "重新规划" }));
-    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "proj", episode: 1, replaces: "draft" });
-  });
-
-  it("丢弃草稿先确认，写明会回到哪份内容，确认后按读到的版本丢弃", async () => {
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-7",
-      editable_by: "user",
-      content: {},
-      violations: [],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    const discard = vi
-      .spyOn(API, "discardEpisodeDraft")
-      .mockResolvedValue({ episode: 1, doc_type: "drama_script_plan", discarded: true });
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "丢弃这份草稿？" });
-    expect(within(dialog).getByText(/本集回到未规划状态/)).toBeInTheDocument();
-    expect(discard).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "丢弃草稿" }));
-    await waitFor(() => expect(discard).toHaveBeenCalledWith("proj", 1, "drama_script_plan", "rev-7"));
-  });
-
-  it("Agent 的可编辑草稿：交给 Agent 完成，或者丢弃这份修改", async () => {
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "narration_script_plan", needs_repair: false } }),
-        content: {
-          drafts: [{ kind: "narration_script_plan", path: "drafts/episode_1.json", needs_repair: false }],
-          formal_script: "absent",
-          script_item_count: null,
-        },
-        status: { project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false } },
-      }),
-    );
-    const next = screen.getByTestId("workflow-next-step");
-    expect(within(next).getByRole("button", { name: "交给 Agent 完成" })).toBeInTheDocument();
-    expect(within(next).getByRole("button", { name: "丢弃这份修改" })).toBeInTheDocument();
-    expect(within(next).queryByRole("button", { name: "手动修改" })).not.toBeInTheDocument();
-  });
-});
-
 describe("WorkflowPanel 编写提示词", () => {
   const plan = () =>
     scenario({ next: nextAction("author_prompts"), content: { pending_authoring_ids: ["E1S02"] } });
 
   it("AI 编写直接提交全部待编写，并带上附加指令", async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     const submit = vi
       .spyOn(API, "authorPrompts")
       .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>);
@@ -635,12 +516,6 @@ describe("WorkflowPanel 补充集原文", () => {
     await renderExpanded(sourceless({}, "current"));
     expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
   });
-
-  it("没有原文但有草稿时，原文行不给补充集原文", async () => {
-    const draft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
-    await renderExpanded(sourceless({ drafts: [draft] }, "missing"));
-    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
-  });
 });
 
 describe("WorkflowPanel 广告/短片 AI 生成脚本", () => {
@@ -650,7 +525,7 @@ describe("WorkflowPanel 广告/短片 AI 生成脚本", () => {
   });
 
   it("下一步的 AI 生成脚本直接提交整份生成，附加指令只随本次提交", async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     const submit = vi
       .spyOn(API, "generateAdScript")
       .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.generateAdScript>>);
@@ -835,6 +710,39 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     expect(within(row).getByText("下一步：等待生成完成")).toBeInTheDocument();
   });
 
+  it("仍在运行的任务掉出最近列表后显示当前状态和耗时", async () => {
+    const task = makeTask({
+      task_id: "evicted-video", project_name: "proj", task_type: "video", status: "running",
+      started_at: "2026-03-01T00:00:00Z",
+    });
+    const history = Array.from({ length: 200 }, (_, index) => makeTask({
+      task_id: `workflow-history-${index}`, project_name: "proj", status: "succeeded",
+    }));
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [task], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: history, total: 201, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+
+    const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+    setRefreshScope({ projectName: "proj" });
+    await refreshTasks();
+    try {
+      await renderExpanded(scenario({
+        next: nextAction("wait_for_task", { args: {} }),
+        steps: [makeStep({
+          id: "video",
+          state: "active",
+          tasks: [{ unit_id: "E1S01", task_id: task.task_id, task_type: "video", status: "queued" }],
+        })],
+      }));
+
+      const row = within(screen.getByTestId("workflow-row-videos"));
+      expect(row.getByText("视频 · 生成中")).toBeInTheDocument();
+      expect(row.getByLabelText(/已运行/)).toBeInTheDocument();
+    } finally {
+      act(() => setRefreshScope(null));
+    }
+  });
+
   it("脚本结构的问题只在正式脚本行陈述一次，并标出是哪个单元", async () => {
     seedEpisodeScript("segments", ["E1S01", "E1S05", "E1S02"]);
     await renderExpanded(
@@ -1009,13 +917,13 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
 
 describe("WorkflowPanel 刷新纪律", () => {
   beforeEach(() => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
   });
 
   async function advanceDebounce(ms: number) {
@@ -1034,10 +942,10 @@ describe("WorkflowPanel 刷新纪律", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
     act(() => {
-      useTasksStore.getState().setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "queued" })]);
+      seedTasks([makeTask({ task_id: "other-1", project_name: "another", status: "queued" })]);
     });
     act(() => {
-      useTasksStore.getState().setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "succeeded" })]);
+      seedTasks([makeTask({ task_id: "other-1", project_name: "another", status: "succeeded" })]);
     });
     await settleDebounce();
 
@@ -1051,7 +959,7 @@ describe("WorkflowPanel 刷新纪律", () => {
 
     for (const status of ["queued", "running", "succeeded"] as const) {
       act(() => {
-        useTasksStore.getState().setTasks([makeTask({ task_id: "t1", project_name: "proj", status })]);
+        seedTasks([makeTask({ task_id: "t1", project_name: "proj", status })]);
       });
     }
     expect(spy).toHaveBeenCalledTimes(1);
@@ -1063,5 +971,31 @@ describe("WorkflowPanel 刷新纪律", () => {
     await settleDebounce();
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  });
+
+  it("掉出最近列表的活跃任务结束后仍触发计划刷新", async () => {
+    const evicted = makeTask({ task_id: "evicted-1", project_name: "proj", status: "running" });
+    const history = Array.from({ length: 200 }, (_, i) =>
+      makeTask({ task_id: `h-${i}`, project_name: "proj", status: "succeeded" }),
+    );
+    const active = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [evicted], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: history, total: 201, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+    setRefreshScope({ projectName: "proj" });
+    try {
+      await refreshTasks();
+      const spy = mockPlan(makePlan());
+      render(<WorkflowPanel projectName="proj" episode={1} />);
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+      active.mockResolvedValue({ items: [], truncated: false });
+      await act(refreshTasks);
+      await settleDebounce();
+
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    } finally {
+      act(() => setRefreshScope(null));
+    }
   });
 });

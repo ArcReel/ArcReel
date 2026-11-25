@@ -715,6 +715,66 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().error).toBe("回答失败");
   });
 
+  it.each(["answered", "failed"])("keeps the new question after returning to a session with an old %s request", async (outcome) => {
+    mockIdleSession();
+    const answer = createDeferred<Awaited<ReturnType<typeof API.answerAssistantQuestion>>>();
+    vi.spyOn(API, "answerAssistantQuestion").mockReturnValue(answer.promise);
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => expect(openStreamSpy).toHaveBeenCalledTimes(1));
+    const pending = result.current.answerQuestion("old", {});
+    await act(() => result.current.switchSession("session-2"));
+    await act(() => result.current.switchSession("session-1"));
+    act(() => {
+      FakeSseStream.instances[2].emit("question", makePendingQuestion("new"));
+    });
+    const nextAnswer = createDeferred<Awaited<ReturnType<typeof API.answerAssistantQuestion>>>();
+    vi.mocked(API.answerAssistantQuestion).mockReturnValue(nextAnswer.promise);
+    const nextPending = result.current.answerQuestion("new", {});
+    await act(async () => {
+      if (outcome === "answered") answer.resolve({ success: true });
+      else answer.reject(new Error("old answer failed"));
+      await pending;
+    });
+    expect(useAssistantStore.getState()).toMatchObject({
+      pendingQuestion: makePendingQuestion("new"), answeringQuestion: true, error: null,
+    });
+    await act(async () => {
+      nextAnswer.resolve({ success: true });
+      await nextPending;
+    });
+  });
+
+  it("clears pendingQuestion and answeringQuestion on project switch while an answer is in flight", async () => {
+    mockIdleSession();
+    const answer = createDeferred<Awaited<ReturnType<typeof API.answerAssistantQuestion>>>();
+    vi.spyOn(API, "answerAssistantQuestion").mockReturnValue(answer.promise);
+    const { result, rerender } = renderHook(({ project }) => useAssistantSession(project), {
+      initialProps: { project: "demo" as string | null },
+    });
+    await waitFor(() => expect(openStreamSpy).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useAssistantStore.getState().setPendingQuestion(makePendingQuestion("q-1"));
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.answerQuestion("q-1", {});
+    });
+    expect(useAssistantStore.getState().answeringQuestion).toBe(true);
+
+    rerender({ project: null });
+    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().answeringQuestion).toBe(false);
+
+    await act(async () => {
+      answer.reject(new Error("old answer failed"));
+      await pending;
+    });
+    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().answeringQuestion).toBe(false);
+    expect(useAssistantStore.getState().error).toBeNull();
+  });
+
   it("clears pendingQuestion when creating or switching sessions", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [
@@ -789,6 +849,66 @@ describe("useAssistantSession", () => {
     expect(streamOptions(0)).toMatchObject({ projectName: "demo", sessionId: "session-1" });
     expect(FakeSseStream.instances[0].close).not.toHaveBeenCalled();
     expect(sendSpy.mock.calls[0][4]).toEqual(expect.any(String));
+  });
+
+  describe("accepted sends waiting for missing entries", () => {
+    async function startGapRead() {
+      mockIdleSession([userEntry(0, "first")]);
+      const hook = renderHook(({ project }) => useAssistantSession(project), { initialProps: { project: "demo" } });
+      await waitFor(() => expect(openStreamSpy).toHaveBeenCalledTimes(1));
+      const gap = createDeferred<EntriesResponse>();
+      vi.mocked(API.listAssistantEntries).mockReturnValueOnce(gap.promise);
+      vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+        session_id: "session-1", status: "accepted", entry: userEntry(2, "accepted"), queued_message: null,
+      });
+      const send = hook.result.current.sendMessage("accepted");
+      await waitFor(() => expect(API.listAssistantEntries).toHaveBeenCalledTimes(2));
+      return { ...hook, gap, send };
+    }
+
+    it("resumes at the continuous cursor after the gap read fails", async () => {
+      const { gap, send } = await startGapRead();
+      FakeSseStream.instances[0].close();
+      await act(async () => {
+        gap.reject(new Error("offline"));
+        expect(await send).toBe(true);
+      });
+      expect(useAssistantStore.getState().entries).toEqual([userEntry(0, "first")]);
+      expect(streamOptions(1)).toMatchObject({ sessionId: "session-1", after: 0 });
+      expect(useAssistantStore.getState().error).toBeNull();
+      act(() => {
+        FakeSseStream.instances[1].emit("entry", userEntry(1, "middle"));
+        FakeSseStream.instances[1].emit("entry", userEntry(2, "accepted"));
+      });
+      expect(useAssistantStore.getState().entries.map(e => e.seq)).toEqual([0, 1, 2]);
+    });
+
+    it.each([
+      ["draft", "reject"], ["session", "reject"], ["round trip", "resolve"],
+      ["round trip", "reject"], ["project", "resolve"], ["unmount", "reject"],
+    ])("discards the old gap read after %s (%s)", async (navigation, outcome) => {
+      const { gap, send, result, rerender, unmount } = await startGapRead();
+      if (navigation === "draft") act(() => result.current.createNewSession());
+      if (navigation === "project") rerender({ project: "other" });
+      if (navigation === "unmount") unmount();
+      if (navigation === "session" || navigation === "round trip") {
+        await act(() => result.current.switchSession("session-2"));
+        if (navigation === "round trip") await act(() => result.current.switchSession("session-1"));
+      }
+      await waitFor(() => expect(useAssistantStore.getState().messagesLoading).toBe(false));
+      const before = useAssistantStore.getState();
+      const streams = openStreamSpy.mock.calls.length;
+      await act(async () => {
+        if (outcome === "reject") gap.reject(new Error("old gap failed"));
+        else gap.resolve(makeEntriesResponse({ entries: [userEntry(1, "obsolete")] }));
+        expect(await send).toBe(false);
+      });
+      expect(useAssistantStore.getState()).toMatchObject({
+        currentSessionId: before.currentSessionId, entries: before.entries, sending: before.sending,
+        sessionStatus: before.sessionStatus, error: before.error,
+      });
+      expect(openStreamSpy).toHaveBeenCalledTimes(streams);
+    });
   });
 
   it("keeps timeline unchanged on send failure and reuses the idempotency key on retry", async () => {
@@ -1015,7 +1135,7 @@ describe("useAssistantSession", () => {
     });
   });
 
-  it("resolves false when currentSessionId changes without going through invalidatePendingSend", async () => {
+  it("resolves false when currentSessionId changes outside the hook", async () => {
     mockIdleSession();
     const deferred = createDeferred<AcceptedMessageResponse>();
     vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
@@ -2563,6 +2683,42 @@ describe("useAssistantSession", () => {
 
     expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
     expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBeGreaterThan(entriesCallsBefore);
+  });
+
+  it("leaves a session deleted in the background if the user switched into it before deletion finished", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    const deleteDeferred = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let deleting!: Promise<boolean>;
+    act(() => {
+      deleting = result.current.deleteSession("session-2");
+    });
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+
+    await act(async () => {
+      deleteDeferred.resolve({ success: true });
+      expect(await deleting).toBe(true);
+    });
+
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-1"]);
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
   });
 
   it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {

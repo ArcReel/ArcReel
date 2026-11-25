@@ -85,11 +85,28 @@ flowchart TB
 
 `lib/generation/` 负责持久化生成任务并调度执行。生成 Worker 按供应商与媒体类型分配并发容量，本地渲染则独占一条执行车道。任务进入终态后会驱动项目状态同步更新。
 
+客户端可通过 `GET /api/v1/tasks/active` 获取正在排队或执行的任务。传入可选查询参数 `project_name` 可限定项目，也可使用 `GET /api/v1/projects/{project_name}/tasks/active`。响应包含 `items` 和 `truncated`。可见的活跃任务超过 5000 条时，返回 5000 条且将 `truncated` 设为 `true`。最近任务列表继续按更新时间分页。
+
+`POST /api/v1/tasks/lookup` 接收 `task_ids` 字符串数组和可选的 `project_name`。同一 ID 只处理一次，超过 200 个不同 ID 时返回 HTTP 400。响应中的 `items` 使用单条任务详情的可见范围及本地化规则，`missing_ids` 包含不存在或超出查询范围的 ID。任务行的 `updated_at` 使用带微秒的 UTC ISO 8601 时间，重试下载回到执行中时，时间严格晚于失败行。参见 [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md)。
+
+项目资产写入与生成入队共用资产准入锁。上传、供应商素材导入、版本恢复或资产身份变更遇到冲突时，API 返回 HTTP 409，错误码为 `asset_resource_busy`。等待占用目标的任务结束后可重试。角色资产图与参考音频分别检查各自的占用。资产合并同时检查被并方和保留方。仅修改文本、重复提交相同字段值、确认声音通知、追加商品原图和 `dry_run` 预览可在生成期间执行。
+
+同批生成的资产图中同时存在忙碌项与空闲项时，忙碌项返回 `asset_resource_busy`，同批空闲项仍可入队。Agent 查询批次时会读到相同的忙碌原因。应用全局资产到项目时，供应商素材关联复制失败会回滚整批应用，产物清单也保留原状。
+
 任务标识用于串联执行结果与费用记录。续跑视频任务时，会依据提交时锁定的调用上下文查询原任务，避免重复提交和二次扣费。参见 [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) 与[供应商规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md)。
 
 ### 供应商抽象 {#provider-abstraction}
 
-`lib/backends/` 定义文本、图像、视频和音频的调用协议及装配逻辑。供应商模型将 API 模型名与调用端点组合起来。模型条目保存模型自身的事实与价目表，端点或调用通道声明协议与执行事实，渠道差异由适用的能力覆盖表达。由能力求值统一决定可用输入与限制。参见 [ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md) 与 [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md)。
+跨媒体的能力求值与调用通道装配按有向无环分层组织，并由 `pyproject.toml` 中的 `import-linter` 契约持续守护：
+
+| 模块 | 职责 |
+| --- | --- |
+| `lib/capabilities/` | 纯能力内核（不依赖配置、装配、调用通道、数据库或网络），依据模型条目、调用端点协议硬边界与能力覆盖统一求值，产出不可变的能力快照。 |
+| `lib/config/` | 底层配置读取，只承载全局/项目设置、凭证与项目偏好读取，不承载跨内置与自定义供应商的目标选型、能力合成或项目能力投影。 |
+| `lib/backends/` 与 `lib/custom_provider/` | 定义文本、图像、视频和音频的调用通道协议、内置与自定义调用端点描述、端点定义独立解码及设置视图。 |
+| `lib/video_runtime/` | 统一运行时层，跨内置与自定义供应商执行目标选型与单次配置读取：为文本、图像和视频产出同源的能力快照与私有装配规格，为音频产出私有装配规格，供四类媒体的预检、预估、执行以及视频任务的在途续跑共用。 |
+
+供应商模型将 API 模型名与调用端点组合起来。模型条目保存模型自身的事实与价目表，调用端点声明协议硬边界与执行事实，渠道差异由协议允许范围内的能力覆盖表达；视频规划、预检、参考费用预估与执行共用同一套纯同步视频请求事实求值。参见 [ADR 0049](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0049-generation-context-single-resolution.md)、[ADR 0086](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0086-video-request-facts-evaluated-once.md)、[ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md) 与 [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md)。
 
 调用链路入口与上游文档来源见[供应商 API 索引](https://github.com/ArcReel/ArcReel/tree/main/docs/api-docs)，用户侧配置方式见[供应商与模型配置](../guide/providers.md)。
 

@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import i18n from "@/i18n";
@@ -44,7 +45,7 @@ const PROJECT = {
 describe("useTaskFailureNotifications", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    useTasksStore.setState({ tasks: [], connected: true });
+    seedTaskState({ tasks: [], connected: true });
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT });
   });
 
@@ -53,9 +54,9 @@ describe("useTaskFailureNotifications", () => {
   it.each(["text_drama_script_plan", "text_narration_script_plan", "text_reference_script_plan"])("notifies with the English summary and no Agent instructions for %s", async (taskType) => {
     await i18n.changeLanguage("en");
     const summary = "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.";
-    useTasksStore.setState({ tasks: [task({ task_type: taskType, resource_id: "episode-1" })] });
+    seedTaskState({ tasks: [task({ task_type: taskType, resource_id: "episode-1" })] });
     render(<Harness project="demo" />);
-    act(() => { useTasksStore.setState({ tasks: [task({ task_type: taskType, resource_id: "episode-1", status: "failed", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: "中文报告：open_draft；patch_draft；base_revision" })] }); });
+    act(() => { seedTaskState({ tasks: [task({ task_type: taskType, resource_id: "episode-1", status: "failed", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: "中文报告：open_draft；patch_draft；base_revision" })] }); });
     await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
     const note = useAppStore.getState().workspaceNotifications[0];
     expect(note.text).toContain(summary);
@@ -63,11 +64,11 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("pushes one clickable notification when a task transitions to failed", async () => {
-    useTasksStore.setState({ tasks: [task({ status: "running" })] });
+    seedTaskState({ tasks: [task({ status: "running" })] });
     render(<Harness project="demo" />);
 
     act(() => {
-      useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+      seedTaskState({ tasks: [task({ status: "failed" })] });
     });
 
     await waitFor(() => {
@@ -84,11 +85,11 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("tells the user the result went to the trash when the target was deleted during generation", async () => {
-    useTasksStore.setState({ tasks: [task({ status: "running" }), task({ task_id: "t2", status: "running" })] });
+    seedTaskState({ tasks: [task({ status: "running" }), task({ task_id: "t2", status: "running" })] });
     render(<Harness project="demo" />);
 
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           task({ status: "succeeded", result: { target_deleted: true, trash_record_id: "r1" } }),
           task({ task_id: "t2", status: "succeeded", result: { file_path: "storyboards/a.png" } }),
@@ -105,17 +106,17 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("does not notify for tasks already failed on first observation", () => {
-    useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+    seedTaskState({ tasks: [task({ status: "failed" })] });
     render(<Harness project="demo" />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
   it("notifies for a brand-new task that appears already-failed after the baseline", async () => {
-    useTasksStore.setState({ tasks: [task({ task_id: "old", status: "failed" })] });
+    seedTaskState({ tasks: [task({ task_id: "old", status: "failed" })] });
     render(<Harness project="demo" />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           task({ task_id: "old", status: "failed" }),
           task({ task_id: "fast", status: "failed", resource_id: "E1S02" }),
@@ -127,32 +128,32 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("ignores tasks from other projects", () => {
-    useTasksStore.setState({ tasks: [task({ project_name: "other", status: "running" })] });
+    seedTaskState({ tasks: [task({ project_name: "other", status: "running" })] });
     render(<Harness project="demo" />);
     act(() => {
-      useTasksStore.setState({ tasks: [task({ project_name: "other", status: "failed" })] });
+      seedTaskState({ tasks: [task({ project_name: "other", status: "failed" })] });
     });
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
   it("notifies only once for the same failed task across repeated updates", async () => {
-    useTasksStore.setState({ tasks: [task({ status: "running" })] });
+    seedTaskState({ tasks: [task({ status: "running" })] });
     render(<Harness project="demo" />);
     act(() => {
-      useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+      seedTaskState({ tasks: [task({ status: "failed" })] });
     });
     await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
     act(() => {
-      useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+      seedTaskState({ tasks: [task({ status: "failed" })] });
     });
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
   });
 
   it("does not re-notify historical failed tasks when leaving and returning to the project", async () => {
-    useTasksStore.setState({ tasks: [task({ status: "running" })], connected: true });
+    seedTaskState({ tasks: [task({ status: "running" })], connected: true });
     const { rerender } = render(<Harness project="demo" />);
     act(() => {
-      useTasksStore.setState({ tasks: [task({ status: "failed" })] });
+      seedTaskState({ tasks: [task({ status: "failed" })] });
     });
     await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
 
@@ -163,7 +164,7 @@ describe("useTaskFailureNotifications", () => {
       useTasksStore.setState({ connected: false });
     });
     act(() => {
-      useTasksStore.setState({ tasks: [], connected: true });
+      seedTaskState({ tasks: [], connected: true });
     });
 
     act(() => {
@@ -173,14 +174,14 @@ describe("useTaskFailureNotifications", () => {
       useTasksStore.setState({ connected: false });
     });
     act(() => {
-      useTasksStore.setState({ tasks: [task({ status: "failed" })], connected: true });
+      seedTaskState({ tasks: [task({ status: "failed" })], connected: true });
     });
 
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
   });
 
   it("does not notify when switching to a project whose tasks are already failed", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [task({ task_id: "demo-old", status: "succeeded" })],
       connected: true,
     });
@@ -193,7 +194,7 @@ describe("useTaskFailureNotifications", () => {
       useTasksStore.setState({ connected: false });
     });
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [task({ task_id: "other-old", project_name: "other", status: "failed" })],
         connected: true,
       });
@@ -203,10 +204,10 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("notifies for fast failures in a project whose first poll had no tasks", async () => {
-    useTasksStore.setState({ tasks: [], connected: true });
+    seedTaskState({ tasks: [], connected: true });
     render(<Harness project="demo" />);
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [task({ task_id: "fast", status: "failed", resource_id: "E1S03" })],
       });
     });
@@ -215,7 +216,7 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("notifies for fast failures after switching project while disconnected", async () => {
-    useTasksStore.setState({ tasks: [], connected: true });
+    seedTaskState({ tasks: [], connected: true });
     const { rerender } = render(<Harness project="demo" />);
 
     act(() => {
@@ -225,10 +226,10 @@ describe("useTaskFailureNotifications", () => {
       rerender(<Harness project="other" />);
     });
     act(() => {
-      useTasksStore.setState({ tasks: [], connected: true });
+      seedTaskState({ tasks: [], connected: true });
     });
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [task({ task_id: "fast-after-reconnect", project_name: "other", status: "failed", resource_id: "E1S04" })],
       });
     });
@@ -237,12 +238,12 @@ describe("useTaskFailureNotifications", () => {
   });
 
   it("builds a reference_unit target for reference_video failures", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [task({ task_id: "r1", task_type: "reference_video", resource_id: "E1U1", status: "running" })],
     });
     render(<Harness project="demo" />);
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [task({ task_id: "r1", task_type: "reference_video", resource_id: "E1U1", status: "failed" })],
       });
     });
@@ -252,6 +253,47 @@ describe("useTaskFailureNotifications", () => {
         id: "E1U1",
         route: "/episodes/1",
       });
+    });
+  });
+
+  it("pushes a warning notification pointing to the first failed unit when prompt authoring partially completes", async () => {
+    seedTaskState({
+      tasks: [
+        task({
+          task_id: "pa-1",
+          task_type: "text_episode_script",
+          resource_id: "episode-1",
+          status: "running",
+        }),
+      ],
+    });
+    render(<Harness project="demo" />);
+    act(() => {
+      seedTaskState({
+        tasks: [
+          task({
+            task_id: "pa-1",
+            task_type: "text_episode_script",
+            resource_id: "episode-1",
+            status: "succeeded",
+            result: {
+              message: "部分完成",
+              outcome: "partial",
+              written_ids: ["E1U1"],
+              failed_units: [{ unit_id: "E1U2", code: "missing_unit", message: "模型漏返单元" }],
+            },
+          }),
+        ],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    const note = useAppStore.getState().workspaceNotifications[0];
+    expect(note.tone).toBe("warning");
+    expect(note.text).toBe("「E1」提示词编写部分完成：已写回 1 个单元，1 个单元未写回");
+    expect(note.target).toEqual({
+      type: "reference_unit",
+      id: "E1U2",
+      route: "/episodes/1",
     });
   });
 });

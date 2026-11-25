@@ -153,6 +153,8 @@ export default {
   'sheet_batch_submitted': 'Листов материала отправлено: {{count}}',
   'sheet_batch_done': 'Пакетная генерация листов материалов завершена: сгенерировано {{count}}',
   'sheet_batch_done_with_failures': 'Пакетная генерация листов материалов завершена: сгенерировано {{succeeded}}, с ошибкой {{failed}}',
+  'sheet_batch_done_with_missing': 'Пакетная генерация листов материалов завершена: сгенерировано {{succeeded}}, с ошибкой {{failed}}, результат недоступен для {{missing}}',
+  'sheet_batch_clause_separator': '; ',
   'sheet_batch_owner_missing': 'Листы производных ({{count}}) не отправлены: их базовый лист не сгенерирован',
   'sheet_batch_target_deleted': 'Завершено уже после удаления материала: {{count}}. Результаты находятся в корзине проекта',
   'sheet_regenerate_stale_title': 'Сгенерировать этот лист заново?',

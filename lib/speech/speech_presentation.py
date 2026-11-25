@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
-from lib.infra.content_digest import PREFIXED_DIGEST_RE
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_artifact_provenance import (
     RenditionVariant,
@@ -29,7 +28,6 @@ from lib.speech.subtitle_sentences import subtitle_reading_units
 MICROSECONDS_PER_SECOND = 1_000_000
 MediaSelection = Literal["current", "history"]
 MediaCurrency = Literal["current", "stale"]
-PresentationProvenance = Literal["verified", "unavailable"]
 
 
 def presentation_artifact_paths(episode: int, resource_id: str, variant: RenditionVariant) -> tuple[str, str]:
@@ -245,129 +243,6 @@ class SpeechPresentation:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class RawPresentationMedia:
-    """Observed identity for media whose generation provenance is unavailable."""
-
-    artifact_path: str
-    version: int
-    selection: MediaSelection
-    content_digest: str
-    actual_duration_seconds: float
-
-    def __post_init__(self) -> None:
-        if not self.artifact_path:
-            raise ValueError("artifact_path must be a non-empty string")
-        if type(self.version) is not int or self.version <= 0:
-            raise ValueError("version must be a positive integer")
-        if self.selection not in {"current", "history"}:
-            raise ValueError("selection must be current or history")
-        if PREFIXED_DIGEST_RE.fullmatch(self.content_digest) is None:
-            raise ValueError("content_digest must be a canonical sha256-v1 digest")
-        duration = self.actual_duration_seconds
-        if not math.isfinite(duration):
-            raise ValueError("actual_duration_seconds must be positive and finite")
-        if duration <= 0:
-            raise ValueError("actual_duration_seconds must be positive and finite")
-        object.__setattr__(self, "actual_duration_seconds", float(duration))
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "artifact_path": self.artifact_path,
-            "version": self.version,
-            "selection": self.selection,
-            "currency": None,
-            "basis": None,
-            "content_digest": self.content_digest,
-            "actual_duration_seconds": self.actual_duration_seconds,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class RawVideoPresentationTrack:
-    media: RawPresentationMedia
-    start_microseconds: int
-    duration_microseconds: int
-    audio_enabled: bool = True
-    gain: float = 1.0
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            **self.media.to_dict(),
-            "start_microseconds": self.start_microseconds,
-            "duration_microseconds": self.duration_microseconds,
-            "audio_enabled": self.audio_enabled,
-            "gain": self.gain,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class RawVideoPresentation:
-    """Raw-only presentation for a manually uploaded video without typed provenance."""
-
-    unit_id: str
-    selection: MediaSelection
-    video: RawVideoPresentationTrack
-    variant: Literal["post_production"] = "post_production"
-    speech_mode: None = None
-    currency: None = None
-    narration_audio: None = None
-    subtitles: tuple[()] = ()
-    subtitle_basis: None = None
-    presentation_basis: None = None
-    timing: None = None
-    subtitles_adjustable: bool = False
-    provenance: Literal["unavailable"] = "unavailable"
-
-    def subtitle_artifact_dict(self) -> None:
-        return None
-
-    def subtitles_webvtt(self) -> None:
-        return None
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "schema_version": 1,
-            "provenance": self.provenance,
-            "unit_id": self.unit_id,
-            "variant": self.variant,
-            "speech_mode": self.speech_mode,
-            "selection": self.selection,
-            "currency": self.currency,
-            "video": self.video.to_dict(),
-            "narration_audio": None,
-            "subtitles": [],
-            "subtitle_basis": None,
-            "presentation_basis": None,
-            "timing": None,
-            "subtitles_adjustable": False,
-            "subtitles_webvtt": None,
-        }
-
-
-PresentationValue = SpeechPresentation | RawVideoPresentation
-
-
-def materialize_raw_video_presentation(
-    *,
-    unit_id: str,
-    video: RawPresentationMedia,
-) -> RawVideoPresentation:
-    """Represent an observed manual upload without inventing generation provenance."""
-
-    if not unit_id:
-        raise ValueError("unit_id must be a non-empty string")
-    return RawVideoPresentation(
-        unit_id=unit_id,
-        selection=video.selection,
-        video=RawVideoPresentationTrack(
-            media=video,
-            start_microseconds=0,
-            duration_microseconds=_duration_microseconds(video.actual_duration_seconds),
-        ),
-    )
-
-
 def materialize_speech_presentation(
     preparation: SpeechPreparation,
     *,
@@ -501,16 +376,10 @@ __all__ = [
     "MediaSelection",
     "NarrationPresentationTrack",
     "PresentationMedia",
-    "PresentationProvenance",
-    "PresentationValue",
-    "RawPresentationMedia",
-    "RawVideoPresentation",
-    "RawVideoPresentationTrack",
     "SpeechPresentation",
     "SubtitleCue",
     "SubtitleTimingPolicy",
     "VideoPresentationTrack",
-    "materialize_raw_video_presentation",
     "materialize_speech_presentation",
     "presentation_artifact_paths",
     "subtitles_webvtt",

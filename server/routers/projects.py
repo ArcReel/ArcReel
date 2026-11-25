@@ -56,7 +56,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.generation.task_failure import failure_message_key
-from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
+from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import (
@@ -129,11 +129,7 @@ from server.services.project.project_archive import (
 )
 from server.services.project.project_cover import resolve_project_cover
 from server.services.project.project_retirement import restore_retired_project, retire_project_on, retiring_project
-from server.services.tasks.video_caps import (
-    annotate_end_frame_tiers,
-    capability_request_facts,
-    duration_constraints_payload,
-)
+from server.services.tasks.video_caps import resolve_project_video_capabilities
 from server.tool_runtime import truncation_problem
 
 router = APIRouter()
@@ -766,31 +762,13 @@ async def get_video_capabilities(
         if video_backend:
             provider_id, model_id = split_video_backend_query(video_backend)
             project = {**project, f"video_provider_{generation_type}": f"{provider_id}/{model_id}"}
-            await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-            caps = await resolver.video_capabilities_for_model(
-                provider_id, model_id, project, generation_type=generation_type
-            )
-            if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
-                raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
-        else:
-            caps = await resolver.video_capabilities_for_project(project, generation_type=generation_type)
-        request_facts = await capability_request_facts(
+        return await resolve_project_video_capabilities(
             project,
             generation_type=generation_type,
             config_resolver=resolver,
             resolution_override=resolution_override,
+            include_planning=True,
         )
-        caps["duration_constraints"] = duration_constraints_payload(request_facts)
-        caps["duration_constraints"]["planning"] = planning_durations(request_facts)
-        await annotate_end_frame_tiers(
-            caps,
-            project,
-            generation_type=generation_type,
-            config_resolver=resolver,
-            without_end_frame=request_facts,
-            resolution_override=resolution_override,
-        )
-        return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
@@ -1389,8 +1367,6 @@ async def start_episode_blank_script(name: str, episode: int):
     except BlankScriptError as exc:
         if exc.code == "episode_not_found":
             raise NotFoundError("episode_not_found", episode=episode) from exc
-        if exc.code == "draft_agent_owned":
-            raise ConflictError("draft_agent_owned") from exc
         raise ConflictError("blank_script_formal_exists").with_diagnostic(str(exc)) from exc
     return {"success": True, "script_file": script_file}
 

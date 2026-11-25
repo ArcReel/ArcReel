@@ -20,6 +20,7 @@ from openai.types.chat import ChatCompletion, ChatCompletionContentPartImagePara
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE
 from lib.backends.backend_runtime import read_reference_images, with_artifact_retry
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -79,6 +80,7 @@ async def _save_image(url: str, output_path: Path) -> None:
 class OpenAIChatImageBackend:
     """经 Chat Completions 出图，支持文生图与图生图。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -104,7 +106,7 @@ class OpenAIChatImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+        return set(self.CHANNEL_CAPABILITIES)
 
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT

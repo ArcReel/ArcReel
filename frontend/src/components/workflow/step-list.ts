@@ -1,11 +1,9 @@
 import type { TFunction } from "i18next";
 import type { EpisodeEditOverview } from "@/types/edit-timeline";
-import type { DraftDocType } from "@/types/reference-video";
 import type { StoryboardBatchKind } from "@/types/storyboard-batch";
 import type {
   WorkflowArtifactCollection,
   WorkflowContent,
-  WorkflowDraft,
   WorkflowNextAction,
   WorkflowOperation,
   WorkflowPlan,
@@ -33,8 +31,6 @@ export type StepRowTone = "done" | "todo" | "partial" | "running" | "warn" | "da
 
 export type StepIntent =
   | { type: "agent"; text: string }
-  | { type: "draft_to_agent"; docType: DraftDocType }
-  | { type: "repair_draft"; docType: DraftDocType }
   | { type: "author_prompts" }
   | { type: "author_prompts_to_agent" }
   | { type: "open_author_prompts" }
@@ -42,11 +38,9 @@ export type StepIntent =
   | { type: "open_script_plan" }
   | { type: "generate_ad_script" }
   | { type: "open_ad_script"; regenerate: boolean }
-  | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
   | { type: "create_edit_timeline" }
-  | { type: "discard_draft"; docType: DraftDocType }
   | { type: "show_surface"; surface: EpisodeSurface }
   | { type: "view_unit"; unitId: string }
   | { type: "route"; path: string };
@@ -115,15 +109,6 @@ export interface StepListContext {
   editOverview: EpisodeEditOverview | null;
 }
 
-const DOC_TYPE_BY_DRAFT_KIND: Record<string, DraftDocType> = {
-  drama_script_plan: "drama_script_plan",
-  narration_script_plan: "narration_script_plan",
-  reference_video_script_plan: "reference_script_plan",
-  reference_video_prompt_authoring: "reference_prompt_authoring",
-};
-
-const PROMPT_AUTHORING_DRAFT_KIND = "reference_video_prompt_authoring";
-
 const AD_DURATION_OVER_RATIO = 1.1;
 
 const ADMISSION_ACTIONS = new Set<WorkflowNextAction["type"]>([
@@ -137,10 +122,6 @@ const ADMISSION_ACTIONS = new Set<WorkflowNextAction["type"]>([
   "repair_artifact_state",
   "retry_artifact_download",
 ]);
-
-export function draftDocType(draft: WorkflowDraft): DraftDocType | null {
-  return DOC_TYPE_BY_DRAFT_KIND[draft.kind] ?? null;
-}
 
 function ids(collection: WorkflowArtifactCollection | undefined, key: "current_ids" | "stale_ids" | "missing_ids") {
   const value = collection?.[key];
@@ -195,14 +176,6 @@ function goPlanScriptAct(t: TFunction): StepAct {
 
 function blankScriptAct(t: TFunction): StepAct {
   return { key: "blank-script", label: t("dashboard:blank_script_start"), kind: "nav", intent: { type: "start_blank_script" } };
-}
-
-function draftStatus(t: TFunction, draft: WorkflowDraft): string {
-  return draft.needs_repair ? t("workflow:status_draft_repair") : t("workflow:status_draft_agent");
-}
-
-function draftOf(content: WorkflowContent, promptAuthoring: boolean): WorkflowDraft | undefined {
-  return content.drafts.find((draft) => (draft.kind === PROMPT_AUTHORING_DRAFT_KIND) === promptAuthoring);
 }
 
 function stepsFor(facts: Facts, stepIds: string[]): WorkflowPlanStep[] {
@@ -271,9 +244,8 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
         },
       });
     }
-    const planDraft = draftOf(content, false);
     const planState = status.artifacts.script_plan?.state;
-    const sourceSurfaceShown = (planState === undefined || planState === "missing") && content.drafts.length === 0;
+    const sourceSurfaceShown = planState === undefined || planState === "missing";
     const acts: StepAct[] =
       !present &&
       formal !== "present" &&
@@ -297,10 +269,7 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     const review = status.gates.script_plan_review?.state;
     let planStatus: string;
     let planTone: StepRowTone;
-    if (planDraft) {
-      planStatus = draftStatus(t, planDraft);
-      planTone = "warn";
-    } else if (planState === "blocked") {
+    if (planState === "blocked") {
       planStatus = t("workflow:status_unreadable");
       planTone = "danger";
     } else if (planState === "current" || planState === "stale") {
@@ -312,7 +281,7 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       planTone = "todo";
     }
     const planOp = status.operations.prepare_script_plan;
-    const planOffered = !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
+    const planOffered = planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
     let planActs: StepAct[] = [];
     if (planOffered && formal !== "present") {
       planActs = [{ ...goPlanScriptAct(t), disabledReason: refusalReason(t, planOp) }];
@@ -378,15 +347,11 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     steps: stepsFor(facts, facts.isAd ? ["final_script", "script_structure"] : ["script_structure"]),
   });
 
-  const promptDraft = draftOf(content, true);
   const pending = content.pending_authoring_ids.length;
   const replan = content.needs_replan_ids;
   let promptsStatus: string;
   let promptsTone: StepRowTone;
-  if (promptDraft) {
-    promptsStatus = draftStatus(t, promptDraft);
-    promptsTone = "warn";
-  } else if (formal !== "present" || itemCount === 0) {
+  if (formal !== "present" || itemCount === 0) {
     promptsStatus = t("workflow:status_none");
     promptsTone = "todo";
   } else if (pending > 0) {
@@ -410,7 +375,7 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
   }
   const authorOp = status.operations.author_prompts;
   const promptsActs: StepAct[] =
-    pending > 0 && nextType !== "author_prompts" && !promptDraft && ctx.canAuthorPrompts
+    pending > 0 && nextType !== "author_prompts" && ctx.canAuthorPrompts
       ? [
           {
             key: "author-prompts",
@@ -607,8 +572,6 @@ function assetsRow(facts: Facts, ctx: StepListContext): StepRowView {
 
 function ownerRow(facts: Facts, rows: StepRowView[], action: WorkflowNextAction): StepRowKey | null {
   switch (action.type) {
-    case "resolve_draft":
-      return action.args.draft_kind === PROMPT_AUTHORING_DRAFT_KIND ? "prompts" : "plan";
     case "prepare_script_plan":
     case "confirm_script_plan":
       return "plan";
@@ -696,49 +659,6 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
   });
 
   switch (action.type) {
-    case "resolve_draft": {
-      const draft = content.drafts.find((d) => d.kind === action.args.draft_kind) ?? content.drafts[0];
-      const docType = draft ? draftDocType(draft) : null;
-      if (!draft || !docType) return { ...base, detail: t("workflow:next_detail_resolve_draft_unknown") };
-      const surface: EpisodeSurface = draft.kind === PROMPT_AUTHORING_DRAFT_KIND ? "prompt_authoring_draft" : "script_plan";
-      if (draft.needs_repair) {
-        return {
-          ...base,
-          title: t("workflow:next_title_resolve_draft_repair"),
-          detail: t("workflow:next_detail_resolve_draft_repair"),
-          instruction: { initial: "", persist: null },
-          primary: [
-            { key: "agent", label: t("workflow:act_agent"), kind: "agent", intent: { type: "draft_to_agent", docType } },
-            { key: "ai-repair", label: t("dashboard:draft_ai_repair"), kind: "ai", intent: { type: "repair_draft", docType } },
-          ],
-          alternatives: [
-            { key: "edit-draft", label: t("workflow:act_edit_draft"), kind: "nav", intent: { type: "show_surface", surface } },
-            ...(surface === "script_plan"
-              ? [
-                  {
-                    key: "regenerate",
-                    label: t("dashboard:script_plan_regenerate_open"),
-                    kind: "nav",
-                    intent: { type: "open_script_plan_over_draft" },
-                  } satisfies StepAct,
-                ]
-              : []),
-            { key: "discard-draft", label: t("dashboard:draft_discard_action"), kind: "danger", intent: { type: "discard_draft", docType } },
-          ],
-        };
-      }
-      return {
-        ...base,
-        title: t("workflow:next_title_resolve_draft_agent"),
-        detail: t("workflow:next_detail_resolve_draft_agent"),
-        primary: [
-          agentAct(t, t("dashboard:draft_agent_finish_prefill", { episodeRef, docType }), t("dashboard:draft_agent_finish")),
-        ],
-        alternatives: [
-          { key: "discard-draft", label: t("dashboard:draft_agent_discard"), kind: "danger", intent: { type: "discard_draft", docType } },
-        ],
-      };
-    }
     case "prepare_script_plan":
       return {
         ...base,

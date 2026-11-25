@@ -10,7 +10,6 @@ from typing import Any
 
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
-    VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
@@ -21,7 +20,9 @@ from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import VideoEndpointCapabilities
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import AudioProtocol, Endpoint, PathRestriction
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
@@ -29,9 +30,10 @@ logger = logging.getLogger(__name__)
 
 
 _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
+_REFERENCE_ROUTE_BLOCKED_RESOLUTION = "1080p"
 
 
-class GrokVideoBackend(EntryBoundCapabilities):
+class GrokVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
     """xAI Grok 视频生成后端。"""
 
     endpoint_key = "grok-video-classic"
@@ -56,23 +58,24 @@ class GrokVideoBackend(EntryBoundCapabilities):
     def model(self) -> str:
         return self._model
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """xAI 视频调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。
-
-        通道对任何型号都按同一份请求构造发出首帧（``image_url``）、尾帧（``last_frame_url``）与参考图
-        （``reference_image_urls``），不限张数；参考音频只收预置 ``voice_id``，表达不了项目的参考音频文件，不声明。
-        各型号接受哪些输入（如 1.5 lite 不收参考图、只有 1.5 收尾帧）、能接受几张参考图记在模型条目上，与本声明两侧
-        求值（``lib.backends.video_capabilities``，docs/adr/0104）。
-
-        随输入组合变化的限制仍在 ``generate`` 请求期校验（两种调用端点共用）：参考生视频路径分辨率上限 720p，
-        经典版拒收首帧与参考图并存。
-
-        音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
-        视频），``generate`` 结算按同一下发值记录。
-        """
-        del model, entry
-        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=VideoAudioMode.CONTROLLABLE)
+    @classmethod
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"}),
+            audio=AudioProtocol.SWITCH,
+            exclusive_inputs=()
+            if cls.mixed_frames_and_references
+            else (frozenset({"first_frame", "reference_images"}),),
+            paths=tuple(
+                PathRestriction(
+                    resolutions=frozenset({_REFERENCE_ROUTE_BLOCKED_RESOLUTION}),
+                    required_inputs=frozenset({slot}),
+                    disabled_slots=frozenset({slot}),
+                )
+                for slot in ("last_frame", "reference_images")
+            ),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -140,7 +143,7 @@ class GrokVideoBackend(EntryBoundCapabilities):
     def _check_reference_route_resolution(self, request: VideoGenerationRequest) -> None:
         """参考生视频路径超出 720p 上限时在付费调用前拒绝，不交给供应商报错或静默降档。"""
         resolution = (request.resolution or "").strip().lower()
-        if resolution != "1080p":
+        if resolution != _REFERENCE_ROUTE_BLOCKED_RESOLUTION:
             return
         if request.reference_images or request.end_image:
             raise VideoCapabilityError(

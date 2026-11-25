@@ -150,7 +150,7 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
             _stage(record_dir, staged)
         try:
             migrate_project_source_encoding(staged)
-            migrate_project_dir(staged)
+            migrate_project_dir(staged, restoring_snapshot=True)
             restoration = rule(project_dir, staged, record.object)
         except RestoreBlocked:
             raise

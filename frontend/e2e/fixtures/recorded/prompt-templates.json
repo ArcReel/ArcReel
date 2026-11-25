@@ -837,29 +837,6 @@
         "output_schema": "lib.script.script_models:AdEpisodeScript"
       },
       {
-        "id": "text/draft_repair",
-        "category": "text",
-        "title": "待修复草稿 AI 修复",
-        "description": "按违约报告修改待修复草稿：违约落在条目上时只改这些条目，落在整集层面时整份修改。脚本规划草稿与参考生视频的提示词编写草稿共用。",
-        "stage": "script_plan",
-        "invoked_by": {
-          "kind": "user_action",
-          "name": "draft_repair"
-        },
-        "applies_to": {},
-        "slots": {
-          "document": "草稿是哪种文档、条目数组的结构说明",
-          "root": "草稿正文里条目数组的键名（scenes / segments / units）",
-          "draft_json": "完整草稿正文的 JSON",
-          "targets": "条目模式下要修改的条目，键齐全的对象列表 {index, item_json, messages}；整集模式传 null",
-          "messages": "整集模式下的全部违约消息列表；条目模式传 null",
-          "source_text": "本集源文正文；没有源文可参照时传 null",
-          "instructions": "附加指令正文；无时传 null"
-        },
-        "protected": false,
-        "output_schema": null
-      },
-      {
         "id": "text/drama_prompt_authoring",
         "category": "text",
         "title": "剧情演绎 · 提示词编写",
@@ -936,7 +913,7 @@
           "instructions": "附加指令；未提供为空"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:DramaNormalizedScript"
+        "output_schema": "lib.script.script_models:DramaScriptPlanOutput"
       },
       {
         "id": "text/episode_plan",
@@ -1044,7 +1021,7 @@
           "instructions": "附加指令正文；缺值传 null"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:NarrationScriptPlanDraft"
+        "output_schema": "lib.script.script_models:NarrationScriptPlanOutput"
       },
       {
         "id": "text/reference_video_prompt_authoring",
@@ -1075,13 +1052,13 @@
           "character_names": "角色候选引用名列表（含 本体/衍生）",
           "scene_names": "场景候选引用名列表",
           "prop_names": "道具候选引用名列表",
-          "units_content": "已确认视频单元的渲染文本（由代码投影：序号 + 时长 + 正文）",
+          "units_content": "已确认视频单元的渲染文本（由代码投影：unit_id + 时长 + 正文）",
           "episode": "当前集号",
           "max_refs": "单个视频单元的参考图上限；不限时传 null",
           "instructions": "附加指令正文；缺值传 null"
         },
         "protected": false,
-        "output_schema": "lib.script.script_models:ReferencePromptAuthoringFlatScript"
+        "output_schema": "lib.script.script_models:ReferenceAuthoringResponse"
       },
       {
         "id": "text/reference_video_script_plan",

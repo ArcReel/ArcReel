@@ -46,7 +46,7 @@ class ModelNotSelectedError(ModelNotInCatalogError):
 
 
 class ModelDiscontinuedError(ModelNotInCatalogError):
-    """引用的模型已下线（docs/adr/0103）：报错带上下线日期与官方后继，引用同样原样保留、由用户重新选择。
+    """引用的模型已下线（docs/adr/0103）：报错带上下线日期与推荐替代模型，引用同样原样保留、由用户重新选择。
 
     是 :class:`ModelNotInCatalogError` 的子类，凡是按「请重新选择模型」处理清单外引用的地方都照旧接得住。
     ``shutdown_date`` 是 ISO 日期，``successor`` 是「模型厂商/官方模型名」；没有登记时不出现在 ``params`` 里，
@@ -73,5 +73,5 @@ class ModelDiscontinuedError(ModelNotInCatalogError):
             message += f" since {shutdown_date}"
         if successor is not None:
             self.params["successor"] = successor
-            message += f"; the official successor is {successor}"
+            message += f"; the recommended replacement is {successor}"
         self.args = (f"{message}; re-select a model",)

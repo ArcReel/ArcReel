@@ -30,6 +30,7 @@ from tests.integration.server.services.presentation.timeline_render_support impo
     _append_revision,
     _install_video,
     edited_timeline,
+    mark_uploaded_video,
     narration_segment,
     setup_project,
     write_json,
@@ -494,3 +495,80 @@ async def test_omitted_narration_version_follows_the_project_narration_delivery(
 
     assert check.narration == expected
     assert (status.narration, status.status) == (expected, ArtifactStatus.CURRENT)
+
+
+async def test_reuploading_identical_video_invalidates_draft_trim_after_rematerialization(tmp_path: Path) -> None:
+    from lib.artifacts.artifact_manifest import ArtifactBasis
+    from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+    from lib.jianying_draft.basis import (
+        JIANYING_DRAFT_BASIS_KIND,
+        JIANYING_DRAFT_BASIS_VERSION,
+        timeline_render_fingerprint,
+    )
+    from server.services.currency.artifact_version_restore import restore_typed_media_version
+    from server.services.presentation.presentation_read_model import PresentationReadModelService
+
+    pm, project_path = setup_project(tmp_path)
+    mark_uploaded_video(project_path, "E1S01")
+    timeline_id = await edited_timeline(pm)
+    drafts = TimelineJianyingDraftService(pm)
+    await drafts.render("demo", timeline_id, narration="with_narration")
+    reader = PresentationReadModelService(pm)
+    before = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    second = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S02", variant="use_tts"
+    )
+    revision = EditTimelineStore(pm, "demo").find(timeline_id).latest
+    legacy_basis = ArtifactBasis.build(
+        JIANYING_DRAFT_BASIS_KIND,
+        kind_version=JIANYING_DRAFT_BASIS_VERSION,
+        inputs={
+            "timeline": {
+                "id": timeline_id,
+                "revision": revision.number,
+                "content": timeline_render_fingerprint(revision.content),
+            },
+            "narration": "with_narration",
+            "aspect_ratio": "9:16",
+            "units": {
+                "E1S01": {"presentation": before.presentation.presentation_basis.digest},
+                "E1S02": {"presentation": second.presentation.presentation_basis.digest},
+            },
+        },
+    )
+    entry = ProjectArtifactManifestAdapter(project_path).get_entry(
+        ArtifactKey.episode_jianying_draft(1, timeline_id, "with_narration")
+    )
+    assert entry is not None
+    assert entry.basis_digest == legacy_basis.digest
+
+    versions = VersionManager(project_path)
+    versions.add_version(
+        "videos", "E1S01", "", source_file=project_path / "videos/scene_E1S01.mp4", source=MANUAL_UPLOAD_VERSION_SOURCE
+    )
+    after = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    assert after.presentation.presentation_basis == before.presentation.presentation_basis
+    assert (await drafts.status("demo", timeline_id, narration="with_narration")).status is ArtifactStatus.STALE
+
+    await drafts.render("demo", timeline_id, narration="with_narration")
+    assert (await drafts.status("demo", timeline_id, narration="with_narration")).status is ArtifactStatus.CURRENT
+    restore_typed_media_version(
+        project_manager=pm,
+        project_name="demo",
+        project_path=project_path,
+        versions=versions,
+        resource_type="videos",
+        resource_id="E1S01",
+        version=1,
+        current_file=project_path / "videos/scene_E1S01.mp4",
+        artifact_path="videos/scene_E1S01.mp4",
+    )
+    restored = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    assert restored.presentation.presentation_basis == before.presentation.presentation_basis
+    assert (await drafts.status("demo", timeline_id, narration="with_narration")).status is ArtifactStatus.STALE

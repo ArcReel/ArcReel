@@ -24,20 +24,22 @@ ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from arcreel_catalog_core import ImageFacts
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from lib.backends.backend_assembly.specs import builtin_model_spec, get_provider_spec
 from lib.backends.image_backends.base import ImageCapability, ImageCapabilityError
 from lib.backends.image_backends.registry import (
-    channel_accepts_explicit_quality,
     channel_capabilities,
     channel_reference_limit,
+    describe_image_backend_class,
+    describe_image_endpoint,
 )
 from lib.backends.input_limits import InputLimit, effective_input_limit, excess_image_names
+from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, resolve
 from lib.catalog import query as catalog
 from lib.custom_provider import is_custom_provider
 from lib.custom_provider.model_facts import image_model_facts, model_entry, model_fact_overrides
@@ -47,6 +49,140 @@ if TYPE_CHECKING:
     from lib.backends.backend_assembly.specs import ProviderSpec
     from lib.backends.image_backends.base import ImageBackend
     from lib.custom_provider.endpoints import EndpointSpec
+
+
+def image_endpoint(
+    capabilities: Iterable[ImageCapability],
+    *,
+    reference_limit: int | None = None,
+    hard_reference_limit: int | None = None,
+    accepts_explicit_quality: bool = False,
+) -> Endpoint:
+    """构造图片端点的单一协议能力描述。"""
+    slots = {cap.value for cap in capabilities}
+    if accepts_explicit_quality:
+        slots.add("explicit_quality")
+    limits: dict[str, int | float] = {}
+    defaults: dict[str, Any] = {}
+    if "image_to_image" in slots:
+        if hard_reference_limit is not None:
+            limits["max_reference_images"] = hard_reference_limit
+        elif reference_limit is not None:
+            defaults["max_reference_images"] = reference_limit
+    return Endpoint("image", frozenset(slots), limits=limits, defaults=defaults)
+
+
+def image_facts_dict(facts: ImageFacts | Mapping[str, object] | None) -> dict[str, object]:
+    if facts is None:
+        return {}
+    if isinstance(facts, ImageFacts):
+        return {
+            "text_to_image": facts.text_to_image,
+            "image_to_image": facts.image_to_image,
+            "max_reference_images": facts.max_reference_images,
+            "resolutions": facts.resolutions,
+            "qualities": facts.qualities,
+        }
+    return dict(facts)
+
+
+def resolve_image_model(
+    endpoint: Endpoint,
+    facts: ImageFacts | Mapping[str, object] | None,
+    overrides: object = None,
+    *,
+    model_id: str = "",
+    provider_id: str = "",
+    default_resolution: str | None = None,
+    official: bool = False,
+) -> CapabilitySnapshot:
+    return resolve(
+        endpoint,
+        facts=image_facts_dict(facts),
+        overrides=overrides,
+        model_id=model_id,
+        provider_id=provider_id,
+        official=official,
+        default_resolution=default_resolution,
+    )
+
+
+def projected_image_capabilities(snapshot: CapabilitySnapshot, *, base: bool = False) -> frozenset[ImageCapability]:
+    values = snapshot.base if base else snapshot.effective
+    return frozenset(cap for cap in ImageCapability if values.get(cap.value) is True)
+
+
+def builtin_image_snapshot(
+    provider_id: str,
+    model_id: str,
+    *,
+    endpoint: str | None = None,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    view = catalog.provider_model_view(provider_id, model_id, media_type="image")
+    return builtin_image_snapshot_from_view(
+        provider_id,
+        model_id,
+        view,
+        endpoint=endpoint,
+        overrides=overrides,
+        official=official,
+        base_model=base_model,
+    )
+
+
+def builtin_image_snapshot_from_view(
+    provider_id: str,
+    model_id: str,
+    view: catalog.ProviderModelView | None,
+    *,
+    endpoint: str | None,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    spec = _builtin_image_spec(provider_id, model_id, endpoint)
+    description = describe_image_endpoint(spec.registry_backend)
+    entry = view.entry if view else None
+    facts: ImageFacts | dict[str, object] | None
+    if entry is not None and isinstance(entry.facts, ImageFacts):
+        facts = entry.facts
+    elif view is None and base_model is not None:
+        facts = {
+            "text_to_image": "text_to_image" in base_model.capabilities,
+            "image_to_image": "image_to_image" in base_model.capabilities,
+            "max_reference_images": base_model.max_reference_images,
+            "resolutions": tuple(base_model.resolutions),
+        }
+    else:
+        facts = None
+    return resolve_image_model(
+        description,
+        facts,
+        view.capability_overrides if view and overrides is None else overrides,
+        provider_id=provider_id,
+        model_id=model_id,
+        official=view.official if official is None and view else bool(official),
+    )
+
+
+async def _probe_remote_reference_limit(backend: ImageBackend) -> int | None:
+    import inspect
+
+    probe = getattr(backend, "remote_reference_image_limit", None)
+    if callable(probe):
+        raw = probe()
+        result = await raw if inspect.isawaitable(raw) else raw
+        return result if isinstance(result, int) and not isinstance(result, bool) else None
+    return None
+
+
+async def resolved_image_reference_limit(snapshot: CapabilitySnapshot, backend: ImageBackend) -> InputLimit[int]:
+    """在本地冻结的能力快照之上施加远端动态参考图硬上限（不回查本地目录或数据库）。"""
+    remote_limit = await _probe_remote_reference_limit(backend)
+    return snapshot.with_remote_reference_limit(remote_limit)
 
 
 def _builtin_image_spec(provider_id: str, model_id: str, endpoint: str | None) -> ProviderSpec:
@@ -165,14 +301,46 @@ def image_reference_limit(
     )
 
 
-async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: str) -> InputLimit[int]:
+def _snapshot_for_backend(backend: ImageBackend, *, provider_id: str) -> CapabilitySnapshot | None:
+    from lib.custom_provider.backends import CustomImageBackend
+
+    if isinstance(backend, CustomImageBackend) and backend.snapshot is not None:
+        return backend.snapshot
+    if not isinstance(backend, CustomImageBackend) and not is_custom_provider(provider_id):
+        try:
+            return builtin_image_snapshot(provider_id, backend.model)
+        except ValueError:
+            pass
+    try:
+        endpoint = describe_image_backend_class(type(backend), capabilities=backend.capabilities)
+    except ValueError:
+        return None
+    if isinstance(backend, CustomImageBackend):
+        return None
+    entry = (
+        catalog.provider_model_entry(provider_id, backend.model, "image")
+        if not is_custom_provider(provider_id)
+        else model_entry(backend.model, "image")
+    )
+    facts = entry.facts if entry is not None and isinstance(entry.facts, ImageFacts) else None
+    overrides = (
+        None if is_custom_provider(provider_id) else catalog.user_added_capability_overrides(provider_id, backend.model)
+    )
+    return resolve_image_model(endpoint, facts, overrides, provider_id=provider_id, model_id=backend.model)
+
+
+async def backend_reference_image_limit(
+    backend: ImageBackend, *, provider_id: str, snapshot: CapabilitySnapshot | None = None
+) -> InputLimit[int]:
     """一个已构造的图片后端的参考图上限生效值，供编排层与执行时校验共用。
 
-    通道值取后端的 ``reference_image_limit()``（可能要向供应商查询，如 OpenRouter）。自定义供应商的包装后端带着
-    工厂按模型行注入的生效能力与条目上限；其余后端按 ``provider_id`` 取条目。
+    优先消费已冻结的能力快照并仅在会话外探测远端动态上限（如 OpenRouter），不重读本地目录。
     """
     from lib.custom_provider.backends import CustomImageBackend
 
+    resolved_snapshot = snapshot or _snapshot_for_backend(backend, provider_id=provider_id)
+    if resolved_snapshot is not None:
+        return await resolved_image_reference_limit(resolved_snapshot, backend)
     channel_limit = await backend.reference_image_limit()
     if isinstance(backend, CustomImageBackend):
         return image_reference_limit(
@@ -195,16 +363,24 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
 
 
 async def gate_image_request(
-    backend: ImageBackend, *, provider_id: str, reference_count: int, reference_paths: Iterable[str | Path] = ()
+    backend: ImageBackend,
+    *,
+    provider_id: str,
+    reference_count: int,
+    reference_paths: Iterable[str | Path] = (),
+    snapshot: CapabilitySnapshot | None = None,
 ) -> None:
     """提交前的图片能力校验，生产出图与测试连接共用；不满足时抛 :class:`ImageCapabilityError`。
 
     ``reference_count`` 是本次请求实际带的参考图张数：为 0 时要求文生图，否则要求图生图，且参考图上限
-    （:func:`backend_reference_image_limit`）接受输入、张数不超出正数上限。编排与执行按同一生效上限判断，超限在提交前拒绝。
+    （:func:`resolved_image_reference_limit`）接受输入、张数不超出正数上限。编排与执行按同一生效上限判断，超限在提交前拒绝。
     """
     from lib.custom_provider.backends import CustomImageBackend
 
-    if isinstance(backend, CustomImageBackend):
+    resolved_snapshot = snapshot or _snapshot_for_backend(backend, provider_id=provider_id)
+    if resolved_snapshot is not None:
+        available = projected_image_capabilities(resolved_snapshot)
+    elif isinstance(backend, CustomImageBackend):
         available = backend.effective_capabilities
     else:
         available = effective_image_capabilities(
@@ -213,7 +389,11 @@ async def gate_image_request(
             builtin_provider=None if is_custom_provider(provider_id) else provider_id,
         )
     needed = ImageCapability.IMAGE_TO_IMAGE if reference_count else ImageCapability.TEXT_TO_IMAGE
-    reference_limit = await backend_reference_image_limit(backend, provider_id=provider_id) if reference_count else None
+    reference_limit = (
+        await backend_reference_image_limit(backend, provider_id=provider_id, snapshot=resolved_snapshot)
+        if reference_count
+        else None
+    )
     if needed not in available or (reference_limit is not None and not reference_limit.accepts_input):
         raise ImageCapabilityError(
             "image_capability_missing_i2i" if reference_count else "image_capability_missing_t2i",
@@ -242,25 +422,23 @@ def image_quality_options(entry: CatalogEntry | None, *, channel_accepts: bool) 
 
 
 def builtin_image_quality_options(provider_id: str, model_id: str) -> tuple[str, ...]:
-    """内置供应商模型的有效画质可选值；供应商没有图片调用通道时抛 ``ValueError``。
-
-    通道事实取模型挂接的图片调用端点，模型事实取 :func:`lib.catalog.query.provider_model_entry` 的条目。
-    """
-    accepts = channel_accepts_explicit_quality(builtin_model_spec(provider_id, "image", model_id).registry_backend)
-    return image_quality_options(
-        catalog.provider_model_entry(provider_id, model_id, "image") if accepts else None, channel_accepts=accepts
-    )
+    """内置供应商模型的有效画质可选值；供应商没有图片调用通道时抛 ``ValueError``。"""
+    return tuple(builtin_image_snapshot(provider_id, model_id).effective["qualities"])
 
 
 def custom_image_quality_options(
     model_id: str, *, endpoint_spec: EndpointSpec, entry_binding: str | None = None
 ) -> tuple[str, ...]:
-    """自定义供应商图片模型的有效画质可选值：端点的通道事实与 :func:`lib.custom_provider.model_facts.model_entry` 的条目。"""
-    from lib.custom_provider.endpoints import endpoint_accepts_explicit_quality
+    """自定义供应商图片模型的有效画质可选值。"""
+    from lib.custom_provider.capabilities import custom_image_snapshot
 
-    accepts = endpoint_accepts_explicit_quality(endpoint_spec)
-    return image_quality_options(
-        model_entry(model_id, "image", entry_binding) if accepts else None, channel_accepts=accepts
+    return tuple(
+        custom_image_snapshot(
+            endpoint=endpoint_spec.key,
+            model_id=model_id,
+            endpoint_spec=endpoint_spec,
+            entry_binding=entry_binding,
+        ).effective["qualities"]
     )
 
 

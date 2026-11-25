@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from lib.backends.video_backends.dashscope import classify_wan_model
+from lib.backends.dashscope_model_names import classify_wan_model
 
 DEFAULT_FALLBACK: list[int] = [4, 8]
 

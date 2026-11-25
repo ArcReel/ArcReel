@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.asset_admission import AssetResourceBusy
 from lib.generation.generation_batch import (
     GenerationBatchBlockedItem,
     GenerationBatchReadModel,
@@ -27,6 +28,8 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
 )
+from lib.generation.generation_result import GenerationAction, GenerationProblem
+from lib.i18n import _ as translate_default
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_id_segments
@@ -492,6 +495,7 @@ class BatchTaskResult:
     error: str | None = None
     task: dict[str, Any] | None = None
     enqueue_interrupted: bool = False
+    enqueue_problem: GenerationProblem | None = None
 
 
 def _task_result_from_finished(task: dict[str, Any], resource_id: str, task_id: str) -> BatchTaskResult:
@@ -559,6 +563,8 @@ async def _enqueue_sequentially(
     task_ids: dict[str, str] = {}
     failures: list[BatchTaskResult] = []
     failed_resource_ids: set[str] = set()
+    busy_error: AssetResourceBusy | None = None
+    non_busy_error = False
     for index, spec in enumerate(specs):
         if spec.dependency_resource_id and spec.dependency_resource_id in failed_resource_ids:
             failures.append(
@@ -596,7 +602,26 @@ async def _enqueue_sequentially(
                 ),
                 queue=queue,
             )
+        except AssetResourceBusy as exc:
+            busy_error = busy_error or exc
+            detail = translate_default(exc.key)
+            failures.append(
+                BatchTaskResult(
+                    resource_id=spec.unit_id or spec.resource_id,
+                    task_id="",
+                    status="failed",
+                    error=detail,
+                    enqueue_problem=GenerationProblem(
+                        code=exc.key,
+                        detail=detail,
+                        action=GenerationAction.WAIT_FOR_TASK,
+                    ),
+                )
+            )
+            failed_resource_ids.add(spec.resource_id)
+            continue
         except Exception as exc:
+            non_busy_error = True
             failures.append(
                 BatchTaskResult(
                     resource_id=spec.unit_id or spec.resource_id,
@@ -630,6 +655,8 @@ async def _enqueue_sequentially(
                 unit_id=spec.unit_id,
             )
         )
+    if not enqueued and busy_error is not None and not non_busy_error:
+        raise busy_error
     return enqueued, failures
 
 
@@ -657,6 +684,27 @@ async def batch_enqueue_only(
         batch_id=batch_id,
         queue=queue,
     )
+
+
+async def save_generation_batch_enqueue_problems(
+    queue: GenerationQueue,
+    *,
+    project_name: str,
+    batch_id: str,
+    requested: GenerationBatchRequestSnapshot,
+    failures: list[BatchTaskResult],
+    user_id: str,
+) -> None:
+    enqueue_problems = {
+        failure.resource_id: failure.enqueue_problem for failure in failures if failure.enqueue_problem is not None
+    }
+    if enqueue_problems:
+        await queue.save_generation_batch_snapshot(
+            project_name=project_name,
+            batch_id=batch_id,
+            requested=requested.model_copy(update={"enqueue_problems": enqueue_problems}),
+            user_id=user_id,
+        )
 
 
 async def submit_generation_batch(
@@ -689,6 +737,14 @@ async def submit_generation_batch(
             user_id=user_id,
             batch_id=batch_id,
             queue=queue,
+        )
+        await save_generation_batch_enqueue_problems(
+            queue,
+            project_name=project_name,
+            batch_id=batch_id,
+            requested=requested,
+            failures=failures,
+            user_id=user_id,
         )
         return (
             await queue.get_generation_batch(project_name=project_name, batch_id=batch_id, user_id=user_id),

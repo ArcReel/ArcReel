@@ -1,8 +1,8 @@
+import { seedTaskState } from "@/test/task-state";
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCharacterDerivativeSheets } from "./useCharacterDerivativeSheets";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 
 function Probe({ revision = "r1", enabled = true }: { revision?: string; enabled?: boolean }) {
@@ -21,11 +21,11 @@ function stubSheets(stale: boolean) {
 
 describe("useCharacterDerivativeSheets", () => {
   beforeEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
   });
 
   afterEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     vi.restoreAllMocks();
   });
 
@@ -53,9 +53,9 @@ describe("useCharacterDerivativeSheets", () => {
 
   it("re-reads when a derivative generation finishes", async () => {
     const spy = stubSheets(true);
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "character_derivative", resource_id: "阿岚/战斗装" })],
-      optimisticActive: new Set(),
+      optimisticMarks: new Map(),
     });
     render(<Probe />);
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -70,7 +70,7 @@ describe("useCharacterDerivativeSheets", () => {
         },
       },
     });
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId("stale")).toHaveTextContent("false"));

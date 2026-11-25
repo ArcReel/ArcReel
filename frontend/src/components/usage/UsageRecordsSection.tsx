@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { cn } from "cn";
 
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
-import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import {
   parseUsageFilters,
   parseUsageRecordId,
@@ -26,6 +26,7 @@ import { UsageRecordsCard } from "./UsageRecordsCard";
 import { UsageSessionsCard } from "./UsageSessionsCard";
 import { UsageTrendCard } from "./UsageTrendCard";
 import { providerLabelResolver } from "./usage-record-format";
+import { useRefreshResumedDownloads } from "./use-refresh-resumed-downloads";
 import { useTaskCancellation } from "./use-task-cancellation";
 import {
   sortByStartedDesc,
@@ -81,14 +82,16 @@ export function UsageRecordsSection() {
   const detailFailed = useUsageRecordsStore((s) => s.detailFailed);
   const applyFilters = useUsageRecordsStore((s) => s.applyFilters);
   const refresh = useUsageRecordsStore((s) => s.refresh);
+  useRefreshResumedDownloads(filters.view === "generation" ? records : [], refresh);
   const refreshSummary = useUsageRecordsStore((s) => s.refreshSummary);
   const refreshPending = useUsageRecordsStore((s) => s.refreshPending);
   const goToPage = useUsageRecordsStore((s) => s.goToPage);
   const openDetail = useUsageRecordsStore((s) => s.openDetail);
   const closeDetail = useUsageRecordsStore((s) => s.closeDetail);
 
+  const truncated = useTasksStore((s) => s.activeTruncated);
   const activeTasks = useTasksStore(
-    useShallow((s) => s.tasks.filter((task) => isActiveStatus(task.status))),
+    useShallow(selectActiveTasks),
   );
 
   const openedRef = useRef(false);
@@ -258,6 +261,7 @@ export function UsageRecordsSection() {
         )}
       </div>
 
+      {showInProgress && truncated && <p role="status" className="text-sm text-warn">{t("usage_active_incomplete")}</p>}
       {filters.view === "agent" ? (
         <UsageSessionsCard
           filters={filters}

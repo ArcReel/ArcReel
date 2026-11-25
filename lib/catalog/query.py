@@ -605,6 +605,26 @@ def _view(key: str, indexed: _IndexedModel, *, min_app_version_satisfied: bool =
     )
 
 
+def provider_model_view(provider_id: str, model_id: str, media_type: str | None = None) -> ProviderModelView | None:
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    return _view(model_id, indexed) if indexed is not None else None
+
+
+def callable_model_view(
+    provider_id: str, model_id: str, media_type: str, *, submitted: bool
+) -> tuple[ProviderModelView, str | None]:
+    """一次取出装配所需的条目、覆盖与挂接端点，生命周期检查使用同一条目。"""
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    if indexed is None:
+        if not submitted:
+            reject_discontinued_entry(provider_id, model_id, media_type, find_entry(model_id, media_type=media_type))
+        raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type=media_type)
+    view = _view(model_id, indexed)
+    if not submitted and view.lifecycle.discontinued:
+        raise _discontinued_error(provider_id, model_id, media_type, view.lifecycle)
+    return view, indexed.endpoint
+
+
 def provider_models(provider_id: str) -> list[ProviderModelView]:
     """列出内置供应商的全部供应商模型：官方收录的按清单顺序在前，用户添加的随后。
 

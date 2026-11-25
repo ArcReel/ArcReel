@@ -16,16 +16,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import (
-    ReferenceAudioMode,
     VideoAudioMode,
-    audio_capability_pair_is_coherent,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_capabilities import custom_image_quality_options
+from lib.backends.video_capabilities import projected_video_capabilities
+from lib.capabilities.override_schema import LEGACY_AUDIO_KEYS, OVERRIDE_KEYS, same_override_value
 from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
@@ -33,20 +34,17 @@ from lib.config.repository import mask_secret
 from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
-    AUDIO_OVERRIDE_KEYS,
-    AUDIO_TRACK_OVERRIDE_KEYS,
-    CHANNEL_FACT_OVERRIDE_KEYS,
+    custom_image_snapshot,
+    custom_video_snapshot,
     filter_valid_overrides,
-    resolve_audio_pair,
-    strip_incoherent_audio_overrides,
-    synthesize_video_capabilities,
-    two_sided_video_capabilities,
 )
 from lib.custom_provider.capability_view import (
     CapabilityView,
+    OverrideRejected,
     custom_capability_view,
     overridable_keys,
-    override_value_check,
+    validate_snapshot_overrides,
+    validate_text_overrides,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
@@ -59,13 +57,12 @@ from lib.custom_provider.endpoints import (
     static_media_type,
 )
 from lib.custom_provider.model_facts import (
-    ALL_MODEL_FACT_OVERRIDE_KEYS,
     COMFYUI_VIDEO_OVERRIDE_KEYS,
-    comfyui_duration_override,
     matched_entry_summary,
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
+    text_capability_snapshot,
 )
 from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
@@ -90,9 +87,7 @@ DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
-CAPABILITY_OVERRIDE_ALLOWLIST = CHANNEL_FACT_OVERRIDE_KEYS | ALL_MODEL_FACT_OVERRIDE_KEYS
-
-_AUDIO_TRACK_FIELDS = AUDIO_TRACK_OVERRIDE_KEYS
+CAPABILITY_OVERRIDE_ALLOWLIST = frozenset().union(*OVERRIDE_KEYS.values(), LEGACY_AUDIO_KEYS)
 
 
 _IMAGE_CAPABILITY_BY_OVERRIDE_KEY: dict[str, ImageCapability] = {
@@ -344,31 +339,6 @@ class EndpointCatalogResponse(BaseModel):
     endpoints: list[EndpointDescriptor]
 
 
-def _system_capabilities_for(
-    endpoint: str, model_id: str, endpoint_spec: EndpointSpec | None = None, entry_binding: str | None = None
-) -> dict[str, object] | None:
-    """读该 model 的判定能力（调用端点声明与模型条目两侧求值，不含能力覆盖）；非 video endpoint 返回 None。
-
-    判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
-    其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
-
-    音轨形态两维不回显（见 ``_AUDIO_TRACK_FIELDS`` 的说明）。
-    """
-    try:
-        media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
-        if media_type != "video":
-            return None
-        caps = asdict(
-            two_sided_video_capabilities(
-                endpoint=endpoint, model_id=model_id, endpoint_spec=endpoint_spec, entry_binding=entry_binding
-            )
-        )
-        return {k: v for k, v in caps.items() if k not in _AUDIO_TRACK_FIELDS}
-    except ValueError:
-        logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
-        return None
-
-
 def _effective_overrides_for_response(
     endpoint: str,
     model_id: str,
@@ -376,57 +346,40 @@ def _effective_overrides_for_response(
     endpoint_spec: EndpointSpec | None = None,
     entry_binding: str | None = None,
 ) -> dict[str, object] | None:
-    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
-
-    存量行 / 非 API 写入可能留下已不兼容的覆盖（如 endpoint 不再 end_image_capable 后的
-    last_frame=True）：原样回显会让界面显示"覆盖已生效"，但执行层其实静默忽略；且客户端
-    普通保存时把它原样回传，会被写入侧白名单拒为 422，堵住与该覆盖无关的编辑。
-
-    再经 :func:`_narrow_to_allowlist` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）若原样
-    回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键但写回会被剔除"。收窄与
-    写入侧走同一个函数，两处集合同源。
-
-    音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
-    （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
-    回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
-
-    模型事实维度只回显该端点媒体类型的、值合法的那些；图片的文生图 / 图生图覆盖为开启而端点没实现时
-    同样隐去（写入侧拒绝同一组合）。ComfyUI 端点只回显视频行的可选时长覆盖，其余不接受、不回显。
-    """
     if endpoint_spec is None:
         try:
             endpoint_spec = get_endpoint_spec(endpoint)
         except ValueError:
             return None
-    if endpoint_spec.kind == COMFYUI_KIND:
-        if endpoint_spec.media_type != "video":
-            return None
-        durations = comfyui_duration_override(overrides, model_id=model_id)
-        return {"durations": durations} if durations else None
     media_type = endpoint_spec.media_type
-    filtered: dict[str, object] = {}
     if media_type == "video":
-        filtered = strip_incoherent_audio_overrides(
-            _narrow_to_allowlist(
-                filter_valid_overrides(
-                    endpoint=endpoint,
-                    model_id=model_id,
-                    overrides=overrides,
-                    endpoint_spec=endpoint_spec,
-                )
-            ),
-            endpoint=endpoint,
-            model_id=model_id,
-            endpoint_spec=endpoint_spec,
-            entry_binding=entry_binding,
+        return (
+            filter_valid_overrides(
+                endpoint=endpoint,
+                model_id=model_id,
+                overrides=overrides,
+                endpoint_spec=endpoint_spec,
+                entry_binding=entry_binding,
+            )
+            or None
         )
-    implemented = endpoint_spec.image_capabilities
-    for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
-        image_capability = _IMAGE_CAPABILITY_BY_OVERRIDE_KEY.get(key)
-        if image_capability is not None and value is True and image_capability not in (implemented or frozenset()):
-            continue
-        filtered[key] = value
-    return filtered or None
+    if media_type == "image":
+        try:
+            snapshot = custom_image_snapshot(
+                endpoint=endpoint,
+                model_id=model_id,
+                overrides=overrides,
+                endpoint_spec=endpoint_spec,
+                entry_binding=entry_binding,
+            )
+        except ValueError:
+            return None
+        return snapshot.override_dict() or None
+    if endpoint_spec.kind == COMFYUI_KIND:
+        return None
+    if media_type == "text":
+        return text_capability_snapshot(model_id, overrides, entry_binding=entry_binding).override_dict() or None
+    return dict(model_fact_overrides(overrides, media_type, model_id=model_id)) or None
 
 
 async def _read_endpoint_specs(
@@ -462,17 +415,30 @@ def _model_to_response(
     except ValueError:
         media_type = None
     audio_caps = None
+    system = None
+    applied = None
     if media_type == "video":
         try:
-            audio_caps = synthesize_video_capabilities(
+            snapshot = custom_video_snapshot(
                 endpoint=m.endpoint,
                 model_id=m.model_id,
                 overrides=m.capability_overrides,
                 endpoint_spec=endpoint_spec,
                 entry_binding=m.entry_binding,
             )
+            audio_caps = projected_video_capabilities(snapshot)
+            system = {
+                k: v
+                for k, v in asdict(projected_video_capabilities(snapshot, base=True)).items()
+                if k not in LEGACY_AUDIO_KEYS
+            }
+            applied = snapshot.override_dict() or None
         except ValueError:
-            logger.warning("无法判定视频音轨: endpoint=%r model_id=%r", m.endpoint, m.model_id)
+            logger.warning("无法判定视频能力: endpoint=%r model_id=%r", m.endpoint, m.model_id)
+    else:
+        applied = _effective_overrides_for_response(
+            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec, m.entry_binding
+        )
     return ModelResponse(
         audio_track=audio_caps.audio_track_for_route("i2v") if audio_caps else None,
         reference_route_audio_track=audio_caps.audio_track_for_route("r2v") if audio_caps else None,
@@ -486,10 +452,8 @@ def _model_to_response(
         else None,
         path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
         requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
-        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec, m.entry_binding),
-        capability_overrides=_effective_overrides_for_response(
-            m.endpoint, m.model_id, m.capability_overrides, endpoint_spec, m.entry_binding
-        ),
+        system_capabilities=system,
+        capability_overrides=applied,
         id=m.id,
         model_id=m.model_id,
         display_name=m.display_name,
@@ -569,7 +533,7 @@ async def _rename_global_provider_refs(session: AsyncSession, provider_id: int, 
 
 def _mutate_all_projects(mutate: Callable[[dict], None]) -> None:
     """对每个项目的 project.json 应用 ``mutate``；读取失败或项目不可写的跳过（非致命）。"""
-    from lib.config.resolver import get_project_manager
+    from lib.project.project_manager import get_project_manager
 
     pm = get_project_manager()
     for proj_name in pm.list_projects():
@@ -658,34 +622,73 @@ def _check_capability_overrides(
     _t: Callable[..., str],
     spec: EndpointSpec | None = None,
     entry_binding: str | None = None,
-) -> None:
-    """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
-
-    None 与空字典都表示"全部跟随条目与通道声明"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
-    白名单内，此处按端点校验其余约束：ComfyUI 端点不接受覆盖；每个键须是该端点媒体类型的维度（通道
-    事实只有视频有）；值的形状与该维度一致；覆盖为开启的能力须是端点真的实现了的。
-    """
+    carried: Mapping[str, object] | None = None,
+    pending: CatalogEntry | None = None,
+    explicit: bool = True,
+) -> dict[str, object] | None:
     if not overrides:
-        return
+        return None
     resolved_spec = spec or get_endpoint_spec(endpoint)
     media_type = resolved_spec.media_type
-    if resolved_spec.kind == COMFYUI_KIND:
-        if not overrides.keys() <= _comfyui_override_keys(media_type):
-            raise HTTPException(
-                status_code=422,
-                detail=_t("capability_overrides_not_supported_for_comfyui", model_id=model_id),
+    if media_type in ("video", "image"):
+        try:
+            if media_type == "video":
+                snapshot = custom_video_snapshot(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    endpoint_spec=resolved_spec,
+                    entry_binding=entry_binding,
+                    pending=pending,
+                )
+            else:
+                snapshot = custom_image_snapshot(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    endpoint_spec=resolved_spec,
+                    entry_binding=entry_binding,
+                    pending=pending,
+                )
+            return validate_snapshot_overrides(
+                snapshot,
+                overrides,
+                model_id=model_id,
+                endpoint=endpoint,
+                carried=carried,
+                explicit=explicit,
             )
-        if not model_fact_value_matches("durations", overrides["durations"]):
+        except OverrideRejected as exc:
+            raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+        except ValueError as exc:
             raise HTTPException(
                 status_code=422,
                 detail=_t(
-                    "capability_override_invalid_value",
+                    "capability_override_not_applicable",
                     model_id=model_id,
-                    capability="durations",
-                    expected=model_fact_type_name("durations"),
+                    endpoint=endpoint,
+                    media_type=media_type,
+                    capability=str(exc),
                 ),
+            ) from exc
+    if media_type == "text" and resolved_spec.kind != COMFYUI_KIND:
+        try:
+            snapshot = text_capability_snapshot(model_id, entry_binding=entry_binding, pending=pending)
+            return validate_text_overrides(
+                snapshot,
+                overrides,
+                model_id=model_id,
+                endpoint=endpoint,
+                carried=carried,
+                explicit=explicit,
             )
-        return
+        except OverrideRejected as exc:
+            raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+    if carried:
+        valid = _effective_overrides_for_response(endpoint, model_id, overrides, resolved_spec, entry_binding) or {}
+        overrides = {
+            k: v
+            for k, v in overrides.items()
+            if k in valid or k not in carried or not same_override_value(k, carried[k], v)
+        }
     applicable = overridable_keys(media_type)
     for key, value in overrides.items():
         if key not in applicable:
@@ -699,15 +702,14 @@ def _check_capability_overrides(
                     capability=key,
                 ),
             )
-        valid, expected_name = override_value_check(media_type, key, value)
-        if not valid:
+        if not model_fact_value_matches(key, value):
             raise HTTPException(
                 status_code=422,
                 detail=_t(
                     "capability_override_invalid_value",
                     model_id=model_id,
                     capability=key,
-                    expected=expected_name,
+                    expected=model_fact_type_name(key),
                 ),
             )
         if key in _IMAGE_CAPABILITY_BY_OVERRIDE_KEY and value is True:
@@ -722,60 +724,30 @@ def _check_capability_overrides(
                         capability=key,
                     ),
                 )
-        if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
-            raise HTTPException(
-                status_code=422,
-                detail=_t(
-                    "capability_override_last_frame_unsupported",
-                    model_id=model_id,
-                    endpoint=endpoint,
-                ),
-            )
-        if (
-            key == "reference_audio_mode"
-            and value == ReferenceAudioMode.DIRECT.value
-            and not resolved_spec.reference_audio_capable
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail=_t(
-                    "capability_override_reference_audio_unsupported",
-                    model_id=model_id,
-                    endpoint=endpoint,
-                ),
-            )
-
-    if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
-        mode, count = resolve_audio_pair(
-            overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec, entry_binding=entry_binding
-        )
-        if not audio_capability_pair_is_coherent(mode=mode, count=count):
-            raise HTTPException(
-                status_code=422,
-                detail=_t("capability_override_audio_pair_incoherent", model_id=model_id),
-            )
+    return overrides
 
 
 def _check_model_capability_overrides(
     models: list[ModelInput],
     _t: Callable[..., str],
-    specs: Mapping[str, EndpointSpec] | None = None,
+    specs: Mapping[str, EndpointSpec],
+    stored: Mapping[str, CustomProviderModel] | None = None,
+    pending: CatalogEntry | None = None,
+    explicit: bool = True,
 ) -> None:
-    """对整批模型逐个跑覆盖校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
-
-    每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验：覆盖是否合法随 endpoint 变化
-    （last_frame=True 要求 endpoint 的 end_image_capable，非 video endpoint 直接拒绝非空覆盖），
-    故覆盖字典原样不动、只切 endpoint 的整表 PUT 同样要按新 endpoint 重新判定。开放白名单外的
-    键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
-    """
     for m in models:
-        _check_capability_overrides(
+        row = (stored or {}).get(m.model_id)
+        carried = row.capability_overrides if row and row.endpoint != m.endpoint else None
+        m.capability_overrides = _check_capability_overrides(
             m.capability_overrides,
             m.endpoint,
             m.model_id,
             _t,
-            None if specs is None else specs[m.endpoint],
+            specs[m.endpoint],
             m.entry_binding,
+            carried if isinstance(carried, Mapping) else None,
+            pending,
+            explicit,
         )
 
 
@@ -980,6 +952,8 @@ async def update_custom_model(
     model_id: str,
     changes: Mapping[str, object],
     _t: Callable[..., str],
+    *,
+    pending: CatalogEntry | None = None,
 ) -> CustomProviderModel:
     """保存一个自定义供应商模型的供应商设置，不提交事务；返回保存后的模型行。
 
@@ -1022,7 +996,9 @@ async def update_custom_model(
     specs = await _resolve_model_endpoint_specs(session, [target], _t)
     target = _drop_rebound_path_overrides(target, row)
     _check_protocol_constraints([target], provider.discovery_format, specs, _t)
-    _check_model_capability_overrides([target], _t, specs)
+    _check_model_capability_overrides(
+        [target], _t, specs, {target.model_id: row}, pending, explicit="capability_overrides" in patch
+    )
     _check_model_path_overrides([target], specs, _t)
     if target.is_default:
         default_rows = [r for r in others if r.is_default]
@@ -1185,7 +1161,9 @@ async def custom_model_settings(session: AsyncSession, row: CustomProviderModel)
             endpoint=row.endpoint,
             spec=spec,
             raw_overrides=row.capability_overrides,
-            applied_overrides=_effective_overrides_for_response(
+            applied_overrides=None
+            if spec.media_type in ("video", "text")
+            else _effective_overrides_for_response(
                 row.endpoint, row.model_id, row.capability_overrides, spec, row.entry_binding
             ),
             entry_binding=row.entry_binding,
@@ -1368,7 +1346,7 @@ async def full_update_provider(
         _check_unique_defaults(body.models, specs, _t)
         models = [_drop_rebound_path_overrides(m, stored_models.get(m.model_id)) for m in body.models]
         _check_protocol_constraints(models, provider.discovery_format, specs, _t)
-        _check_model_capability_overrides(models, _t, specs)
+        _check_model_capability_overrides(models, _t, specs, stored_models)
         _check_model_path_overrides(models, specs, _t)
     kwargs: dict = {
         "display_name": body.display_name,

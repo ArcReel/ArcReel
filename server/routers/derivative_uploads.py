@@ -15,6 +15,7 @@ import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.infra.api_errors import ApiError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
@@ -48,25 +49,27 @@ async def upload_derivative_sheet(
     """
     try:
         max_bytes = validate_upload(file.filename, file.size, kind="image")
-        upload = await run_sync_transaction(
-            resolve_derivative_upload_target, get_project_manager(), project_name, char_name, derivative_name
-        )
-
-        content = await file.read(max_bytes + 1)
-        if len(content) > max_bytes:
-            raise UploadTooLargeError(max_bytes)
-        try:
-            png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
-
-        with project_change_source("webui"):
-            installed = await install_manual_derivative_upload(
-                project_name=project_name,
-                upload=upload,
-                png_bytes=png_bytes,
-                original_filename=file.filename,
+        target = AssetTarget("character", char_name, "derivative_image", derivative_name)
+        async with idle_asset_write(project_name, target):
+            upload = await run_sync_transaction(
+                resolve_derivative_upload_target, get_project_manager(), project_name, char_name, derivative_name
             )
+
+            content = await file.read(max_bytes + 1)
+            if len(content) > max_bytes:
+                raise UploadTooLargeError(max_bytes)
+            try:
+                png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
+
+            with project_change_source("webui"):
+                installed = await install_manual_derivative_upload(
+                    project_name=project_name,
+                    upload=upload,
+                    png_bytes=png_bytes,
+                    original_filename=file.filename,
+                )
 
         return {
             "success": True,

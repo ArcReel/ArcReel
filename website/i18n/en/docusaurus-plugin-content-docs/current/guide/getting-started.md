@@ -177,13 +177,15 @@ For Storyboard to Video, write visual prompts for a few shots and produce their 
 
 Generate a clip for one storyboard or video unit first. Storyboard to Video uses the selected storyboard image as the starting frame. Reference to Video uses images and other references from the script. Review motion, duration, and audio before submitting the remaining clips. See [Generation Routes](./workflows.md#video-production-routes) for grids and reference selection.
 
+Links to storyboards or video units in Agent replies can be opened in a new tab or pasted into the address bar. When the episode page loads, it selects the linked unit and scrolls it into view. If the link includes a timestamp, the preview seeks to that point.
+
 ### 5.6 Narration and TTS {#narration-and-tts}
 
 In a Narration project, select TTS narration in Project Settings and choose the model, voice, and speed. Preview or generate a short sample to check pronunciation before generating the rest. Choose Post-production voiceover if you plan to add narration after export. See the [voice-over FAQ](./faq.md#voice-over-support).
 
 ## 6. Monitor Tasks and Costs {#tasks-and-cost}
 
-Open Usage Records from the workspace header to see calls in progress, outcomes, usage, and reference costs. The project overview estimates costs from the current script. The provider bill gives the final charges.
+Open Usage Records from the workspace header to see calls in progress, outcomes, usage, and reference costs. If the active task list is marked incomplete, it shows only some of the queued and running tasks. The project overview estimates costs from the current script. The provider bill gives the final charges.
 
 If generation fails, expand the error and task details. When a finished video cannot be retrieved, use Retry Download if the task panel offers it. See [task states and recovery](./faq.md#task-states) for other failures.
 

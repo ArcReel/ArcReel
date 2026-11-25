@@ -38,7 +38,6 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
-from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
     ImageCapabilityError,
@@ -48,10 +47,16 @@ from lib.backends.image_backends.base import (
 from lib.backends.image_capabilities import gate_image_request
 from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
-from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
+from lib.backends.video_backends.registry import backend_metered_usage
+from lib.backends.video_capabilities import billed_audio_for_request
+from lib.backends.video_frame_slots import (
+    resolve_first_frame_aspect_ratio,
+    resolve_video_capabilities,
+    snapshot_request_capabilities,
+    video_request_conditions,
+)
 from lib.billing.ledger import Ledger
-from lib.config.resolver import ConfigResolver
-from lib.custom_provider import is_custom_provider
+from lib.capabilities.kernel import CapabilitySnapshot
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
@@ -107,7 +112,7 @@ class TrialRunTarget:
     definition: Mapping[str, Any] | None = None
     media_type: str = "video"
     gate_capabilities: bool = True
-    builtin_model_row: bool = False
+    snapshot: CapabilitySnapshot | None = None
 
 
 def _as_float(value: object) -> float | None:
@@ -421,15 +426,27 @@ class TrialRunManager:
             poll_timeout = await self._poll_timeout()
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
-            if video_caps is not None and target.builtin_model_row:
-                video_caps = effective_builtin_video_capabilities(video_caps, target.provider, target.model)
+            if is_video and target.snapshot is not None:
+                conditions = video_request_conditions(
+                    resolution=parameters.resolution,
+                    has_first_frame=_single(assets.get("start_image")) is not None,
+                    has_last_frame=_single(assets.get("end_image")) is not None,
+                    has_reference_images=bool(assets.get("reference_images")),
+                    has_reference_audio=bool(assets.get("reference_audio_files")),
+                )
+                video_caps = snapshot_request_capabilities(target.snapshot, conditions, model=target.model)
+            else:
+                video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             if target.gate_capabilities:
                 if video_caps is None:
                     refs = assets.get("reference_images")
                     paths = refs if isinstance(refs, list) else []
                     await gate_image_request(
-                        backend, provider_id=target.provider, reference_count=len(paths), reference_paths=paths
+                        backend,
+                        provider_id=target.provider,
+                        reference_count=len(paths),
+                        reference_paths=paths,
+                        snapshot=target.snapshot,
                     )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)
@@ -437,6 +454,16 @@ class TrialRunManager:
                 caps=video_caps,
                 aspect_ratio=parameters.aspect_ratio,
                 has_first_frame=_single(assets.get("start_image")) is not None,
+            )
+            billed_audio = (
+                billed_audio_for_request(
+                    target.provider,
+                    video_caps,
+                    "r2v" if assets.get("reference_images") else "i2v",
+                    parameters.generate_audio,
+                )
+                if is_video
+                else None
             )
             async with self._ledger.record(
                 project_name="",
@@ -447,7 +474,7 @@ class TrialRunManager:
                 resolution=parameters.resolution,
                 duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
-                generate_audio=parameters.generate_audio if is_video else False,
+                generate_audio=billed_audio if is_video else False,
                 purpose=CallPurpose.ENDPOINT_TRIAL,
             ) as call:
                 run.api_call_id = call.call_id
@@ -460,6 +487,7 @@ class TrialRunManager:
                         poll_timeout,
                         aspect_ratio=request_aspect_ratio,
                         video_capabilities=video_caps,
+                        billed_audio=billed_audio,
                         on_provider_response=on_response,
                     )
                     if is_video
@@ -469,7 +497,12 @@ class TrialRunManager:
                 )
                 result = await backend.generate(request)
                 self._settling.add(run.id)
-                call.success(result)
+                usage = (
+                    backend_metered_usage(backend, request, result)
+                    if isinstance(request, VideoGenerationRequest)
+                    else None
+                )
+                call.success(result, usage=usage)
                 run.provider_job_id = getattr(result, "task_id", None)
                 run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
@@ -510,6 +543,7 @@ class TrialRunManager:
         *,
         aspect_ratio: str,
         video_capabilities: VideoCapabilities | None,
+        billed_audio: bool | None,
         on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
     ) -> VideoGenerationRequest:
         reference_images = assets.get("reference_images")
@@ -528,6 +562,7 @@ class TrialRunManager:
             poll_timeout_seconds=poll_timeout,
             on_provider_response=on_provider_response,
             video_capabilities=video_capabilities,
+            billed_audio=billed_audio,
         )
 
     def _image_request(
@@ -711,39 +746,6 @@ def declarative_target(
         build_backend=build,
         definition=definition,
         media_type=media_type,
-    )
-
-
-def model_ref_target(
-    provider_id: str,
-    model_id: str,
-    *,
-    resolver: ConfigResolver,
-    definition: Mapping[str, Any] | None = None,
-    media_type: str = "video",
-) -> TrialRunTarget:
-    """模型行的目标：经生产那道构造缝装配 backend，内置与自定义供应商同一入口。
-
-    ``definition`` 在模型行解析出声明式定义（自定义调用端点或内置声明式端点）时由调用方带上，
-    用来在结果体里给出渲染后的请求与逐阶段提取；Python 实现的端点两段留空。
-
-    ``media_type`` 决定装配走哪一侧的注册表：模型行自己说它是图像行还是视频行，装配层照它取。
-    """
-
-    async def build() -> Any:
-        from lib.backends.backend_assembly import assemble_backend
-
-        return await assemble_backend(
-            provider_id=provider_id, media_type=media_type, model_id=model_id, resolver=resolver
-        )
-
-    return TrialRunTarget(
-        provider=provider_id,
-        model=model_id,
-        build_backend=build,
-        definition=definition,
-        media_type=media_type,
-        builtin_model_row=not is_custom_provider(provider_id),
     )
 
 

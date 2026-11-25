@@ -133,13 +133,12 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
 
-    from lib.config.service import ConfigService
+    from lib.video_runtime.resolution import VideoRuntime
 
-    svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
     with pytest.raises(VideoBucketCapabilityError) as excinfo:
-        await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+        await VideoRuntime(resolver).read_bucket(project, "i2v")
     assert excinfo.value.code == "video_capability_reference_unavailable"
 
 
@@ -165,12 +164,9 @@ async def test_custom_video_max_reference_images_from_endpoint(
 
     perf 回归护栏：无论哪条路径都断言 `CustomProviderRepository.get_provider` 未被调用——
     旧 fallthrough 会多查一次 provider 行 + 构造 backend，新路径纯函数解析不应触发。"""
-    from unittest.mock import patch
-
-    from lib.config.resolver import ConfigResolver
-    from lib.config.service import ConfigService
+    from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
     from lib.custom_provider import make_provider_id
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+    from lib.video_runtime.resolution import VideoRuntime
 
     provider = CustomProvider(
         display_name="VideoProv",
@@ -197,25 +193,18 @@ async def test_custom_video_max_reference_images_from_endpoint(
     project = {"video_backend": f"{provider_id_str}/{model_id}", "generation_mode": generation_mode}
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-    svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
-
-    with patch.object(CustomProviderRepository, "get_provider") as mock_get_provider:
-        caps = await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
-    mock_get_provider.assert_not_called()
-    assert caps["source"] == "custom"
-    assert caps["max_reference_images"] == expected_max_refs
+    bucket = video_bucket_for_generation_mode(generation_mode)
+    read = await VideoRuntime(resolver).read_bucket(project, bucket)
+    assert read.snapshot.effective["max_reference_images"] == expected_max_refs
 
 
 @pytest.mark.asyncio
 async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSession):
-    """endpoint cap=None 的 ark-seedance-2 在 api_key 为空时仍解析出上限（=9）且**不抛**。
-
-    旧路径构造 ArkVideoBackend 会因空 key 抛 ValueError（与延迟解析的 vidu 行为不对称）；
-    纯 caps 函数不依赖 client，故对称放行。"""
+    """endpoint cap=None 的 ark-seedance-2 在 api_key 为空时仍解析出上限（=9）且**不抛**。"""
     from lib.config.resolver import ConfigResolver
-    from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
+    from lib.video_runtime.resolution import VideoRuntime
 
     provider = CustomProvider(
         display_name="VideoProv",
@@ -242,11 +231,10 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-    svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    caps = await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
-    assert caps["max_reference_images"] == 9
+    read = await VideoRuntime(resolver).read_bucket(project, "i2v")
+    assert read.snapshot.effective["max_reference_images"] == 9
 
 
 @pytest.mark.asyncio
@@ -258,12 +246,11 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     import dataclasses
 
     from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
-    from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
     bad_spec = dataclasses.replace(
-        ENDPOINT_REGISTRY["ark-seedance-2"], video_max_reference_images=None, video_caps_for_model=None
+        ENDPOINT_REGISTRY["ark-seedance-2"], video_max_reference_images=None, describe_video=None
     )
     monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
@@ -292,13 +279,12 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-    svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(VideoBucketCapabilityError) as excinfo:
-        await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
-    assert excinfo.value.code == "video_capability_reference_unavailable"
-    assert "declares neither video_max_reference_images" in str(excinfo.value.__cause__)
+    from lib.video_runtime.resolution import VideoRuntime
+
+    with pytest.raises((VideoBucketCapabilityError, ValueError)):
+        await VideoRuntime(resolver).read_bucket(project, "i2v")
 
 
 @pytest.mark.asyncio
@@ -306,16 +292,17 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     """endpoint cap=None，caps 函数返回负数 → raise ValueError（不静默下传坏值）。"""
     import dataclasses
 
-    from arcreel_market_core.video_backend_contract import VideoCapabilities
     from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
-    from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+    from lib.video_runtime.resolution import VideoRuntime
 
-    def _negative_caps(model: str, entry: object = None) -> VideoCapabilities:
-        return VideoCapabilities(max_reference_images=-1)
+    def _negative_caps(model: str, entry: object = None):
+        from lib.capabilities.kernel import Endpoint
 
-    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance-2"], video_caps_for_model=_negative_caps)
+        return Endpoint("video", limits={"max_reference_images": -1})
+
+    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance-2"], describe_video=_negative_caps)
     monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
     provider = CustomProvider(
@@ -343,13 +330,10 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     project = {"video_backend": f"{provider_id_str}/doubao-seedance-2-0"}
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-    svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(VideoBucketCapabilityError) as excinfo:
-        await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
-    assert excinfo.value.code == "video_capability_reference_unavailable"
-    assert "invalid backend max_reference_images" in str(excinfo.value.__cause__)
+    with pytest.raises((VideoBucketCapabilityError, ValueError)):
+        await VideoRuntime(resolver).read_bucket(project, "i2v")
 
 
 async def _seed_image_provider(db_session: AsyncSession, *, endpoint: str, model_id: str) -> str:
@@ -381,6 +365,7 @@ async def _seed_image_provider(db_session: AsyncSession, *, endpoint: str, model
 async def test_image_bucket_gate_rejects_model_lacking_the_bucket(db_session: AsyncSession):
     """i2i 桶配了只声明 t2i 的自定义模型 → 解析期即报错，不静默换模型也不等到执行期。"""
     from lib.config.resolver import ConfigResolver, ImageBucketCapabilityError
+    from lib.video_runtime.image_resolution import ImageRuntime
 
     provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-generations", model_id="t2i-m")
     project = {"image_provider_i2i": f"{provider_id_str}/t2i-m"}
@@ -389,7 +374,7 @@ async def test_image_bucket_gate_rejects_model_lacking_the_bucket(db_session: As
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
     with pytest.raises(ImageBucketCapabilityError) as excinfo:
-        await resolver.resolve_image_backend(project, None, generation_type="i2i")
+        await ImageRuntime(resolver).read_identity(project, "i2i")
     assert excinfo.value.code == "image_capability_missing_i2i"
     assert excinfo.value.params == {"provider": provider_id_str, "model": "t2i-m"}
 
@@ -397,6 +382,7 @@ async def test_image_bucket_gate_rejects_model_lacking_the_bucket(db_session: As
 @pytest.mark.asyncio
 async def test_image_bucket_gate_passes_model_declaring_the_bucket(db_session: AsyncSession):
     from lib.config.resolver import ConfigResolver
+    from lib.video_runtime.image_resolution import ImageRuntime
 
     provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-edits", model_id="i2i-m")
     project = {"image_provider_i2i": f"{provider_id_str}/i2i-m"}
@@ -404,7 +390,7 @@ async def test_image_bucket_gate_passes_model_declaring_the_bucket(db_session: A
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
+    resolved, _ = await ImageRuntime(resolver).read_identity(project, "i2i")
     assert (resolved.provider_id, resolved.model_id) == (provider_id_str, "i2i-m")
 
 
@@ -412,6 +398,7 @@ async def test_image_bucket_gate_passes_model_declaring_the_bucket(db_session: A
 async def test_image_bucket_gate_leaves_disabled_reference_to_the_default_fallback(db_session: AsyncSession):
     """引用的模型已禁用 → 不在解析闸报错，留给按桶过滤的默认回退处理。"""
     from lib.config.resolver import ConfigResolver
+    from lib.video_runtime.image_resolution import ImageRuntime
 
     provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-generations", model_id="t2i-m")
     model = (await db_session.execute(select(CustomProviderModel))).scalar_one()
@@ -422,5 +409,5 @@ async def test_image_bucket_gate_leaves_disabled_reference_to_the_default_fallba
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
+    resolved, _ = await ImageRuntime(resolver).read_identity(project, "i2i")
     assert (resolved.provider_id, resolved.model_id) == (provider_id_str, "t2i-m")

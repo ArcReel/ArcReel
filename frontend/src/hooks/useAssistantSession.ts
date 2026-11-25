@@ -60,10 +60,11 @@ export function useAssistantSession(projectName: string | null) {
   const statusRef = useRef<string>("idle");
   const streamStatusCursorRef = useRef<{ sessionId: string; seq: number } | null>(null);
   const deferredResumeRef = useRef<{ projectName: string; sessionId: string } | null>(null);
-  const pendingSendVersionRef = useRef(0);
+  const sessionGeneration = useRef(0);
+  const sessionAbort = useRef<AbortController | null>(null);
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
   const pendingEditsRef = useRef(new Set<string>());
-  const failedRewriteRef = useRef<{ clientKey: string; signature: string } | null>(null);
+  const rewriteAttemptRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
@@ -74,14 +75,33 @@ export function useAssistantSession(projectName: string | null) {
     syncPendingQuestion(null);
   }, [syncPendingQuestion]);
 
-  const invalidatePendingSend = useCallback(() => {
-    pendingSendVersionRef.current += 1;
-    store.getState().setSending(false);
-  }, [store]);
-
   const loadAbortRef = useRef<AbortController | null>(null);
   const projectAbortRef = useRef<AbortController | null>(null);
   const projectAbortOwnerRef = useRef<string | null>(null);
+
+  const invalidateSession = useCallback(() => {
+    sessionGeneration.current += 1;
+    sessionAbort.current?.abort();
+    sessionAbort.current = null;
+    deferredResumeRef.current = null;
+    streamStatusCursorRef.current = null;
+    clearPendingQuestion();
+    store.getState().setSending(false);
+  }, [clearPendingQuestion, store]);
+
+  const sessionOperation = useCallback(() => {
+    const generation = sessionGeneration.current;
+    const controller = sessionAbort.current ??= new AbortController();
+    const sessionId = store.getState().currentSessionId;
+    return {
+      sessionId,
+      signal: controller.signal,
+      isCurrent: (expectedId = sessionId) =>
+        generation === sessionGeneration.current &&
+        projectAbortOwnerRef.current === projectName &&
+        store.getState().currentSessionId === expectedId,
+    };
+  }, [projectName, store]);
 
   const abortSessionLoad = useCallback(() => {
     loadAbortRef.current?.abort();
@@ -92,8 +112,8 @@ export function useAssistantSession(projectName: string | null) {
     abortSessionLoad();
     const controller = new AbortController();
     loadAbortRef.current = controller;
-    return controller.signal;
-  }, [abortSessionLoad]);
+    return AbortSignal.any([controller.signal, sessionOperation().signal]);
+  }, [abortSessionLoad, sessionOperation]);
 
   const sessionsWriteVersionRef = useRef(0);
   const loadedSessionRef = useRef<string | null>(null);
@@ -291,7 +311,7 @@ export function useAssistantSession(projectName: string | null) {
     loadedSessionRef.current = null;
 
     async function init() {
-      const loadSignal = beginSessionLoad();
+      let loadSignal = beginSessionLoad();
       store.getState().setMessagesLoading(true);
       store.getState().resetTimeline();
       store.getState().setError(null);
@@ -308,6 +328,10 @@ export function useAssistantSession(projectName: string | null) {
         const sessionId = (lastId && sessions.some((s: SessionMeta) => s.id === lastId))
           ? lastId
           : sessions[0]?.id;
+        if ((sessionId ?? null) !== store.getState().currentSessionId) {
+          invalidateSession();
+          loadSignal = beginSessionLoad();
+        }
         if (!sessionId) {
           store.getState().setCurrentSessionId(null);
           clearPendingQuestion();
@@ -342,7 +366,7 @@ export function useAssistantSession(projectName: string | null) {
         loadedSessionRef.current = null;
       }
       abortSessionLoad();
-      invalidatePendingSend();
+      invalidateSession();
       closeStream();
     };
   }, [
@@ -351,7 +375,7 @@ export function useAssistantSession(projectName: string | null) {
     beginSessionLoad,
     clearPendingQuestion,
     closeStream,
-    invalidatePendingSend,
+    invalidateSession,
     loadSession,
     store,
   ]);
@@ -362,9 +386,9 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
 
-      const sendVersion = pendingSendVersionRef.current + 1;
-      pendingSendVersionRef.current = sendVersion;
-      let sessionId = store.getState().currentSessionId;
+      const operation = sessionOperation();
+      if (!projectName || !operation.isCurrent()) return false;
+      let { sessionId } = operation;
       store.getState().setSending(true);
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
@@ -382,14 +406,14 @@ export function useAssistantSession(projectName: string | null) {
 
       try {
         const result = await API.sendAssistantMessage(
-          projectName!,
+          projectName,
           content,
           sessionId,
           imagePayload,
           clientKey,
         );
 
-        if (pendingSendVersionRef.current !== sendVersion) return false;
+        if (!operation.isCurrent(sessionId)) return false;
         failedSendRef.current = null;
         abortSessionLoad();
         store.getState().setMessagesLoading(false);
@@ -399,7 +423,7 @@ export function useAssistantSession(projectName: string | null) {
         if (!sessionId) {
           const newSession: SessionMeta = {
             id: returnedSessionId,
-            project_name: projectName!,
+            project_name: projectName,
             title: content.trim().slice(0, 30) || "图片消息",
             status: "running",
             created_at: new Date().toISOString(),
@@ -408,24 +432,24 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setCurrentSessionId(returnedSessionId);
           writeSessions([newSession, ...store.getState().sessions]);
           store.getState().setIsDraftSession(false);
-          saveLastSessionId(projectName!, returnedSessionId);
+          saveLastSessionId(projectName, returnedSessionId);
           sessionId = returnedSessionId;
         }
 
-        if (store.getState().currentSessionId !== sessionId) return false;
+        if (!operation.isCurrent(sessionId)) return false;
 
         if (result.entry) {
           const lastSeq = lastEntrySeq(store.getState().entries);
           if (result.entry.seq > lastSeq + 1) {
-            try {
-              const gap = await API.listAssistantEntries(projectName!, sessionId, lastSeq);
-              if (store.getState().currentSessionId !== sessionId) return false;
-              store.getState().setEntries(gap.entries ?? []);
-            } catch {
-              // 静默失败：缺口留待刷新兜底
-            }
+            const gap = await API.listAssistantEntries(projectName, sessionId, lastSeq, {
+              signal: operation.signal,
+            }).catch(() => null);
+            if (!operation.isCurrent(sessionId)) return false;
+            if (gap) store.getState().setEntries(gap.entries ?? []);
           }
-          store.getState().appendEntry(result.entry);
+          if (result.entry.seq === lastEntrySeq(store.getState().entries) + 1) {
+            store.getState().appendEntry(result.entry);
+          }
         }
         const acceptedId = result.queued_message?.id;
         const acceptedEntry =
@@ -443,7 +467,7 @@ export function useAssistantSession(projectName: string | null) {
         connectStream(sessionId);
         return true;
       } catch (err) {
-        if (pendingSendVersionRef.current !== sendVersion) return false;
+        if (!operation.isCurrent(sessionId)) return false;
         failedSendRef.current = { clientKey, signature };
         if (err instanceof AgentFailureError) {
           store.getState().setStartupFailure(err.failure);
@@ -454,40 +478,42 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, abortSessionLoad, connectStream, store, writeSessions],
+    [projectName, abortSessionLoad, connectStream, sessionOperation, store, writeSessions],
   );
 
   const answerQuestion = useCallback(
     async (questionId: string, answers: Record<string, string>) => {
-      const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId) return;
+      const operation = sessionOperation();
+      const { sessionId } = operation;
+      if (!projectName || !sessionId || !operation.isCurrent()) return;
 
       store.getState().setError(null);
       store.getState().setAnsweringQuestion(true);
 
       try {
         await API.answerAssistantQuestion(projectName, sessionId, questionId, answers);
-        store.getState().setPendingQuestion(null);
+        if (operation.isCurrent()) store.getState().setPendingQuestion(null);
       } catch (err) {
-        store.getState().setError(errMsg(err, "回答失败"));
+        if (operation.isCurrent()) store.getState().setError(errMsg(err, "回答失败"));
       } finally {
-        store.getState().setAnsweringQuestion(false);
+        if (operation.isCurrent()) store.getState().setAnsweringQuestion(false);
       }
     },
-    [projectName, store],
+    [projectName, sessionOperation, store],
   );
 
   const withdrawQueuedMessage = useCallback(
     async (messageId: string, intent: QueuedMessageWithdrawal) => {
-      const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
+      const operation = sessionOperation();
+      const { sessionId } = operation;
+      if (!projectName || !sessionId || !operation.isCurrent()) return;
       if (intent === "edit") pendingEditsRef.current.add(messageId);
       try {
         const result = await API.withdrawQueuedMessage(projectName, sessionId, messageId, intent);
         if (result.message && pendingEditsRef.current.delete(messageId)) {
           store.getState().appendToComposer(result.message.content);
         }
-        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+        if (!operation.isCurrent()) return;
         if (result.outcome === "accepted") {
           useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
           return;
@@ -495,62 +521,65 @@ export function useAssistantSession(projectName: string | null) {
         store.getState().removeQueuedMessage(messageId);
       } catch (err) {
         pendingEditsRef.current.delete(messageId);
-        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+        if (!operation.isCurrent()) return;
         store.getState().setError(errMsg(err, t("queued_message_withdraw_failed")));
       }
     },
-    [projectName, store, t],
+    [projectName, sessionOperation, store, t],
   );
 
   const resendQueuedMessage = useCallback(
     async (messageId: string) => {
-      const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
+      const operation = sessionOperation();
+      const { sessionId } = operation;
+      if (!projectName || !sessionId || !operation.isCurrent()) return;
       try {
         await API.resendQueuedMessage(projectName, sessionId, messageId);
       } catch (err) {
-        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+        if (!operation.isCurrent()) return;
         store.getState().setError(errMsg(err, t("queued_message_resend_failed")));
       }
     },
-    [projectName, store, t],
+    [projectName, sessionOperation, store, t],
   );
 
   const sendQueuedMessageNow = useCallback(
     async (messageId: string) => {
-      const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
+      const operation = sessionOperation();
+      const { sessionId } = operation;
+      if (!projectName || !sessionId || !operation.isCurrent()) return;
       try {
         const result = await API.sendQueuedMessageNow(projectName, sessionId, messageId);
-        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+        if (!operation.isCurrent()) return;
         if (result.outcome === "accepted") useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
       } catch (err) {
-        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+        if (!operation.isCurrent()) return;
         store.getState().setError(errMsg(err, t("queued_message_send_now_failed")));
       }
     },
-    [projectName, store, t],
+    [projectName, sessionOperation, store, t],
   );
 
   const interrupt = useCallback(async () => {
-    const sessionId = store.getState().currentSessionId;
-    if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName || statusRef.current !== "running") return;
+    const operation = sessionOperation();
+    const { sessionId } = operation;
+    if (!projectName || !sessionId || !operation.isCurrent() || statusRef.current !== "running") return;
 
     store.getState().setInterrupting(true);
     try {
       await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
-      if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
+      if (!operation.isCurrent()) return;
       store.getState().setError(errMsg(err, "中断失败"));
       store.getState().setInterrupting(false);
     }
-  }, [projectName, store]);
+  }, [projectName, sessionOperation, store]);
 
   const createNewSession = useCallback(() => {
     if (!projectName) return;
 
     abortSessionLoad();
-    invalidatePendingSend();
+    invalidateSession();
     closeStream();
     store.getState().resetTimeline();
     store.getState().setError(null);
@@ -560,14 +589,14 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setIsDraftSession(true);
     store.getState().setMessagesLoading(false);
     statusRef.current = "idle";
-  }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
+  }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidateSession, store]);
 
   const switchSession = useCallback(async (sessionId: string) => {
     if (!projectName) return;
     if (store.getState().currentSessionId === sessionId && loadedSessionRef.current === sessionId) return;
 
+    invalidateSession();
     const signal = beginSessionLoad();
-    invalidatePendingSend();
     closeStream();
     store.getState().setCurrentSessionId(sessionId);
     store.getState().setIsDraftSession(false);
@@ -587,7 +616,7 @@ export function useAssistantSession(projectName: string | null) {
     } finally {
       if (!signal.aborted) store.getState().setMessagesLoading(false);
     }
-  }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store, t]);
+  }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidateSession, loadSession, store, t]);
 
   const rewriteMessage = useCallback(
     async (anchorEntryUuid: string, content: string, images?: ImagePayload[]): Promise<boolean> => {
@@ -596,8 +625,9 @@ export function useAssistantSession(projectName: string | null) {
       if (!content.trim() && (!images || images.length === 0)) return false;
       if (store.getState().sending) return false;
 
-      const rewriteVersion = pendingSendVersionRef.current + 1;
-      pendingSendVersionRef.current = rewriteVersion;
+      const operation = sessionOperation();
+      const projectSignal = projectAbortRef.current?.signal;
+      if (!operation.isCurrent()) return false;
       store.getState().setSending(true);
       store.getState().setError(null);
       store.getState().setStartupFailure(null);
@@ -610,10 +640,11 @@ export function useAssistantSession(projectName: string | null) {
         images ?? [],
       ]);
       const clientKey =
-        failedRewriteRef.current?.signature === signature
-          ? failedRewriteRef.current.clientKey
+        rewriteAttemptRef.current?.signature === signature
+          ? rewriteAttemptRef.current.clientKey
           : uid();
 
+      rewriteAttemptRef.current = { clientKey, signature };
       try {
         const result = await API.rewriteAssistantMessage(
           projectName,
@@ -624,11 +655,11 @@ export function useAssistantSession(projectName: string | null) {
           clientKey,
         );
 
-        if (pendingSendVersionRef.current !== rewriteVersion) {
-          reconcileAfterStaleRewrite(originSessionId);
+        if (!operation.isCurrent()) {
+          if (!projectSignal?.aborted) reconcileAfterStaleRewrite(originSessionId);
           return false;
         }
-        failedRewriteRef.current = null;
+        rewriteAttemptRef.current = null;
 
         const newSessionId = result.session_id;
         const sessions = store.getState().sessions;
@@ -650,9 +681,8 @@ export function useAssistantSession(projectName: string | null) {
         await switchSession(newSessionId);
         return true;
       } catch (err) {
-        failedRewriteRef.current = { clientKey, signature };
-        if (pendingSendVersionRef.current !== rewriteVersion) {
-          reconcileAfterStaleRewrite(originSessionId);
+        if (!operation.isCurrent()) {
+          if (!projectSignal?.aborted) reconcileAfterStaleRewrite(originSessionId);
           return false;
         }
         if (err instanceof AgentFailureError) {
@@ -664,7 +694,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, reconcileAfterStaleRewrite, switchSession, store, t, writeSessions],
+    [projectName, reconcileAfterStaleRewrite, sessionOperation, switchSession, store, t, writeSessions],
   );
 
   const deleteSession = useCallback(async (sessionId: string): Promise<boolean> => {
@@ -672,11 +702,14 @@ export function useAssistantSession(projectName: string | null) {
     const invalidatedForDelete = store.getState().currentSessionId === sessionId;
     const deleteKey = deletingKey(projectName, sessionId);
     if (invalidatedForDelete) {
-      invalidatePendingSend();
+      invalidateSession();
       deletingCurrentRef.current[deleteKey] = (deletingCurrentRef.current[deleteKey] ?? 0) + 1;
     }
+    const operation = sessionOperation();
+    const projectSignal = projectAbortRef.current?.signal;
     try {
       await API.deleteAssistantSession(projectName, sessionId);
+      if (projectSignal?.aborted || projectAbortOwnerRef.current !== projectName) return true;
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
       writeSessions(sessions);
 
@@ -685,7 +718,7 @@ export function useAssistantSession(projectName: string | null) {
           await switchSession(sessions[0].id);
         } else {
           abortSessionLoad();
-          invalidatePendingSend();
+          invalidateSession();
           closeStream();
           store.getState().setCurrentSessionId(null);
           store.getState().resetTimeline();
@@ -698,8 +731,7 @@ export function useAssistantSession(projectName: string | null) {
       }
       return true;
     } catch {
-      if (invalidatedForDelete && store.getState().currentSessionId === sessionId
-        && projectAbortOwnerRef.current === projectName) {
+      if (invalidatedForDelete && operation.isCurrent(sessionId)) {
         loadedSessionRef.current = null;
         await switchSession(sessionId);
       }
@@ -707,7 +739,7 @@ export function useAssistantSession(projectName: string | null) {
     } finally {
       if (invalidatedForDelete) {
         deletingCurrentRef.current[deleteKey] -= 1;
-        if (deletingCurrentRef.current[deleteKey] === 0 && deferredRefreshRef.current.delete(deleteKey)) {
+        if (deletingCurrentRef.current[deleteKey] === 0 && deferredRefreshRef.current.delete(deleteKey) && !projectSignal?.aborted) {
           refreshSessions();
         }
       }
@@ -717,8 +749,9 @@ export function useAssistantSession(projectName: string | null) {
     abortSessionLoad,
     clearPendingQuestion,
     closeStream,
-    invalidatePendingSend,
+    invalidateSession,
     refreshSessions,
+    sessionOperation,
     switchSession,
     store,
     writeSessions,

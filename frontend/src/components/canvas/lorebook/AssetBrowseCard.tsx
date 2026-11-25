@@ -38,7 +38,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
-import { isAssetBusy, rejectIfAssetBusy } from "./assetBusyGuard";
+import { isAssetBusy, rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { VERSION_RESOURCE, type GalleryAsset, type GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
 import { MergeAssetDialog } from "./MergeAssetDialog";
@@ -103,7 +103,11 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
       : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
-  const busy = externalBusy || generating || uploading || importing || restoring || deleting;
+  const imageOccupied = useAssetBusy("image", type, projectName, name);
+  const wholeAssetOccupied = useAssetBusy("whole_asset", type, projectName, name);
+  const localBusy = externalBusy || uploading || importing || restoring || deleting;
+  const imageBusy = localBusy || generating || imageOccupied;
+  const wholeAssetBusy = localBusy || generating || wholeAssetOccupied;
   const writing = uploading || importing || restoring || deleting;
   useEffect(() => {
     if (!writing || !onWritingChange) return;
@@ -119,15 +123,15 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     status: sheetStatus,
     hasSheet: Boolean(asset.sheetPath),
     onGenerate: () => {
-      if (!rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint")) onGenerate(name);
+      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) onGenerate(name);
     },
   });
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file || busy) return;
-    if (rejectIfAssetBusy(type, projectName, name, t)) return;
+    if (!file || imageBusy) return;
+    if (rejectIfAssetBusy("image", type, projectName, name, t)) return;
     setUploading(true);
     try {
       await API.uploadFile(projectName, type, file, name);
@@ -141,7 +145,8 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   };
 
   const openGuarded = (key: DialogKey) => {
-    if (rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint")) return;
+    const dimension = key === "merge" || key === "delete" ? "whole_asset" : "image";
+    if (localBusy || generating || rejectIfAssetBusy(dimension, type, projectName, name, t, "assets:gallery_busy_hint")) return;
     setDialog(key);
   };
   const closeDialog = (open: boolean) => {
@@ -193,11 +198,15 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 </DropdownMenuItem>
                 {!readOnly && (
                   <>
-                    <DropdownMenuItem disabled={busy || !describable} onClick={staleConfirm.request}>
+                    <DropdownMenuItem disabled={imageBusy || !describable} onClick={() => {
+                      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) staleConfirm.request();
+                    }}>
                       <Sparkles aria-hidden />
                       {asset.sheetPath ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={busy} onClick={() => uploadRef.current?.click()}>
+                    <DropdownMenuItem disabled={imageBusy} onClick={() => {
+                      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t)) uploadRef.current?.click();
+                    }}>
                       <ImageUp aria-hidden />
                       {t("assets:upload_sheet")}
                     </DropdownMenuItem>
@@ -205,11 +214,11 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                       <CloudUpload aria-hidden />
                       {t("assets:provider_asset_upload")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={busy} onClick={() => openGuarded("provider-assets")}>
+                    <DropdownMenuItem disabled={imageBusy} onClick={() => openGuarded("provider-assets")}>
                       <CloudDownload aria-hidden />
                       {t("assets:provider_asset_select_from_library")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={busy || !imageUrl} onClick={() => openGuarded("image-edit")}>
+                    <DropdownMenuItem disabled={imageBusy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                       <PenLine aria-hidden />
                       {t("dashboard:image_edit_action")}
                     </DropdownMenuItem>
@@ -224,11 +233,11 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
-                    <DropdownMenuItem disabled={busy} onClick={() => openGuarded("library")}>
+                    <DropdownMenuItem disabled={imageBusy} onClick={() => openGuarded("library")}>
                       <Library aria-hidden />
                       {t("assets:add_to_library")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled={busy} onClick={() => openGuarded("merge")}>
+                    <DropdownMenuItem disabled={wholeAssetBusy} onClick={() => openGuarded("merge")}>
                       <Combine aria-hidden />
                       {t("assets:merge_into")}
                     </DropdownMenuItem>
@@ -239,7 +248,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
-                    <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => openGuarded("delete")}>
+                    <DropdownMenuItem variant="destructive" disabled={wholeAssetBusy} onClick={() => openGuarded("delete")}>
                       <Trash2 aria-hidden />
                       {t("assets:delete")}
                     </DropdownMenuItem>
@@ -272,7 +281,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             projectName={projectName}
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
-            checkBusy={() => rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint") || busy}
+            checkBusy={() => rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint") || imageBusy}
             onImportingChange={setImporting}
             onImported={() => refreshAfterWrite(projectName, t)}
           />
@@ -290,7 +299,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             resourceType={type}
             resourceId={name}
             hasImage={Boolean(imageUrl)}
-            busy={busy}
+            busy={imageBusy}
           />
           <VersionTimeMachine
             open={dialog === "versions"}
@@ -300,9 +309,9 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
             onRestore={onRestoreVersion}
-            busy={externalBusy || generating || uploading || deleting}
+            busy={externalBusy || generating || imageOccupied || uploading || importing || deleting}
             onRestoringChange={setRestoring}
-            checkBusy={() => isAssetBusy(type, projectName, name)}
+            checkBusy={() => isAssetBusy("image", type, projectName, name)}
           />
           <ProjectAssetDeleteDialog
             open={dialog === "delete"}
@@ -310,7 +319,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             projectName={projectName}
             assetType={type}
             name={name}
-            busy={externalBusy || generating || uploading || restoring}
+            busy={externalBusy || generating || uploading || importing || restoring}
             onDeletingChange={setDeleting}
             onMergeInstead={mergeable ? () => openGuarded("merge") : undefined}
           />
@@ -323,7 +332,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 resourceId={name}
                 projectName={projectName}
                 preview={libraryPreview}
-                busy={busy}
+                busy={imageBusy}
               />
               <MergeAssetDialog
                 open={dialog === "merge"}
@@ -332,7 +341,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 assetType={type}
                 name={name}
                 description={asset.description}
-                busy={busy}
+                busy={localBusy || generating}
                 writingNames={writingNames}
               />
             </>

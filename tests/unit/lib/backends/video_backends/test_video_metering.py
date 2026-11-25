@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
-from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.ark import (
     ArkVideoBackend,
@@ -24,6 +23,7 @@ from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced, Unpriced, UnpricedReason
 from lib.catalog import query as catalog
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+from lib.video_runtime.builtin import builtin_video_metered_usage
 
 
 def _request(**fields: object) -> VideoGenerationRequest:

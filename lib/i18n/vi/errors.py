@@ -1,4 +1,6 @@
 MESSAGES = {
+    "asset_resource_busy": "Tài sản này có tác vụ đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
+    "apply_failed_resource_busy": "Không thể ghi đè tài nguyên trong dự án khi tác vụ của tài nguyên đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
     "episode_position_name": "Tập {position}",
     "episode_unlisted_name": "Tập chưa đặt tên",
     "episode_script_name": "Kịch bản của “{name}”",
@@ -9,7 +11,6 @@ MESSAGES = {
     "operation_formal_script_missing": "{where} chưa có kịch bản chính thức; hãy xác nhận kế hoạch hoặc tự viết kịch bản trước khi soạn prompt",
     "operation_formal_script_exists": "{where} đã có kịch bản chính thức. Muốn thay thế toàn bộ, hãy tạo lại một cách rõ ràng và xác nhận ghi đè. Soạn prompt chỉ bổ sung các mục đang chờ",
     "operation_no_pending_authoring": "{where} không có mục chờ soạn",
-    "operation_prompt_authoring_draft_pending": "{where} có bản nháp soạn prompt cần xử lý nên chưa thể soạn prompt",
     "operation_ad_brief_and_products_missing": "Hãy thêm ý tưởng sáng tạo hoặc ít nhất một sản phẩm trước khi AI tạo kịch bản quảng cáo/phim ngắn",
     "operation_no_available_video": "{where} chưa có video khả dụng để dựng; hãy tạo video trước",
     "operation_refused": "Hiện chưa thể thực hiện thao tác này",
@@ -20,10 +21,6 @@ MESSAGES = {
     "operation_redo_episode": "Lập lại kế hoạch kịch bản và xác nhận lại trước khi tạo lại tập.",
     "operation_admission_unavailable": "Không thể đọc điều kiện thực hiện thao tác cho tập (id={episode})",
     "ad_script_rejected": "Kịch bản do AI tạo không hợp lệ nên chưa được ghi thành kịch bản chính thức và chưa đăng ký tài sản nào: {details}. Hãy bổ sung chỉ dẫn rồi tạo lại",
-    "operation_draft_repair_envelope": "Sửa cấu trúc bản nháp, rồi gọi {tool} để kiểm tra và áp dụng.",
-    "operation_draft_repair_violations": "Sửa content tại các vị trí violations trong bản nháp, rồi gọi {tool} để áp dụng.",
-    "operation_draft_finish": "Bản nháp này có thể chỉnh sửa; giữ các thay đổi hiện có, rồi gọi {tool} để kiểm tra và áp dụng.",
-    "operation_draft_action": "Bản nháp: {path}. {action}",
     "operation_episode_source_location": "Vị trí nguồn của tập: {path}; plan_episodes tạo nguồn cho các tập đã lập kế hoạch.",
     "project_migration_failed": "Dự án '{name}' chưa hoàn tất nâng cấp dữ liệu nên không thể tạo nội dung. Lý do: {reason}. Hãy sửa trong cuộc trò chuyện với tác nhân AI rồi thử nâng cấp lại",
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
@@ -73,8 +70,10 @@ MESSAGES = {
     "invalid_encoding": "Lỗi mã hóa tệp, vui lòng dùng tệp văn bản mã hóa UTF-8",
     "unauthorized": "Tên đăng nhập hoặc mật khẩu không đúng",
     "task_not_found": "Tác vụ '{id}' không tồn tại",
+    "task_lookup_too_many_ids": "Mỗi yêu cầu chỉ được tra cứu tối đa {limit} ID tác vụ",
     "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
+    "task_retry_download_server_stopping": "Máy chủ đang tắt. Hãy thử tải xuống lại sau khi máy chủ khởi động lại.",
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
     "task_fail_provider_rejected": "Nhà cung cấp đã từ chối yêu cầu tạo này (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
@@ -223,7 +222,6 @@ MESSAGES = {
     "bgm_silent": "Nhạc nền này gần như không có tiếng nên không đo được độ lớn âm thanh. Hãy tải lên tệp âm thanh có tiếng",
     "bgm_ffmpeg_unavailable": "ffmpeg đi kèm hiện không dùng được nên không đo được độ lớn âm thanh của nhạc nền; tạm thời chưa thể tải nhạc nền lên",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
-    "draft_generation_invalid": "Kết quả có {count} vi phạm và đã được lưu thành bản nháp. Hãy sửa bản nháp hoặc nhờ AI sửa.",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
@@ -232,27 +230,9 @@ MESSAGES = {
     "asset_reference_file_not_owned": "Ảnh tham chiếu và âm thanh tham chiếu của “{name}” chỉ được dùng tệp mang tên của chính nó. Hãy tải lên riêng cho nó",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
-    "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
-    "draft_file_not_found": "Tệp bản nháp không tồn tại",
-    "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
-    "draft_not_found": "Tập (id={episode}) không có bản nháp này; có thể nó đã được áp dụng hoặc bị hủy",
-    "draft_revision_conflict": "Bản nháp đã thay đổi trong lúc bạn chỉnh sửa nên thao tác chưa được áp dụng; hãy xem nội dung mới nhất rồi thử lại",
-    "draft_formal_revision_conflict": (
-        "Nội dung chính thức đã thay đổi sau khi bản nháp được tạo nên lần lưu này chưa được áp dụng; "
-        "hãy hủy bản nháp hoặc giao cho tác nhân hợp nhất"
-    ),
-    "draft_agent_owned": "Tác nhân đang sửa nội dung này; hãy giao cho tác nhân hoàn tất hoặc hủy bản sửa này",
     "blank_script_formal_exists": "Tập này đã có kịch bản chính thức nên không thể bắt đầu từ trang trống. Hãy sửa trực tiếp trên dòng thời gian",
-    "draft_doc_type_not_applicable": "Loại bản nháp này không áp dụng cho dự án hiện tại",
-    "draft_save_failed": "Bản nháp đã được lưu nhưng chưa kiểm tra xong; vui lòng thử lại sau",
-    "draft_formal_unit_dialogue_overload": "Bản nháp đã được lưu nhưng chưa được áp dụng: đơn vị video {position} trong kịch bản cần khoảng {spoken_seconds} giây để đọc hết lời thoại, vượt quá thời lượng {duration_seconds} giây của đơn vị. Hãy kéo dài đơn vị này trên dòng thời gian, tách nó ra hoặc rút gọn lời thoại, rồi lưu lại bản nháp",
-    "draft_formal_unit_duration_off_tier": "Bản nháp đã được lưu nhưng chưa được áp dụng: đơn vị video {position} trong kịch bản dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây). Hãy đổi thời lượng của đơn vị này trên dòng thời gian sang một mức hợp lệ, rồi lưu lại bản nháp",
-    "draft_formal_unit_invalid": "Bản nháp đã được lưu nhưng chưa được áp dụng: nội dung của đơn vị video {position} trong kịch bản không đáp ứng yêu cầu viết prompt. Hãy sửa nội dung hoặc thời lượng của đơn vị này trên dòng thời gian, rồi lưu lại bản nháp",
-    "draft_repair_failed": "AI chưa sửa xong, bản nháp không thay đổi. Hãy thử lại, tự sửa hoặc giao cho Agent",
-    "draft_repair_task_active": "AI đang sửa bản nháp này. Hãy thử lại sau khi hoàn tất",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
     "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
-    "script_review_quarantined": ("Tập này có bản nháp cần xử lý; hãy sửa hoặc hủy bản nháp trước khi xác nhận"),
     "script_review_conflict": (
         "Bản nháp kế hoạch kịch bản đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
@@ -307,9 +287,6 @@ MESSAGES = {
         "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
         "của tập khác nên xác nhận chưa hoàn tất — ghi vào đó sẽ dựng lại kịch bản của tập kia; hãy trỏ script_file "
         "của tập này về đúng kịch bản của nó rồi thử lại"
-    ),
-    "script_review_quarantine_unreadable": (
-        "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy hủy bản nháp rồi tạo lại"
     ),
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",
     "source_name_reserved": "Tên tệp dạng episode_N.txt được dành cho tệp nguyên văn của tập; hãy đổi tên tệp trước khi tải lên làm toàn bộ văn bản nguồn",
@@ -677,9 +654,9 @@ MESSAGES = {
     "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_reference_unavailable": "Mô hình video đã cấu hình {provider}/{model} không còn khả dụng (mô hình bị xóa, năng lực đã thay đổi hoặc nhà cung cấp bị gỡ bỏ); hãy chọn lại mô hình video trong Cài đặt",
     "model_not_in_provider_catalog": "{provider}/{model}: mô hình này không có trong danh sách mô hình của nhà cung cấp; hãy chọn lại mô hình trong Cài đặt",
-    "model_discontinued": "{provider}/{model}: mô hình này đã ngừng hoạt động từ {shutdown_date}; mô hình thay thế chính thức là {successor}. Hãy chọn lại mô hình trong Cài đặt",
+    "model_discontinued": "{provider}/{model}: mô hình này đã ngừng hoạt động từ {shutdown_date}; mô hình thay thế được đề xuất là {successor}. Hãy chọn lại mô hình trong Cài đặt",
     "model_discontinued_no_successor": "{provider}/{model}: mô hình này đã ngừng hoạt động từ {shutdown_date}; hãy chọn lại mô hình trong Cài đặt",
-    "model_discontinued_undated": "{provider}/{model}: mô hình này đã ngừng hoạt động; mô hình thay thế chính thức là {successor}. Hãy chọn lại mô hình trong Cài đặt",
+    "model_discontinued_undated": "{provider}/{model}: mô hình này đã ngừng hoạt động; mô hình thay thế được đề xuất là {successor}. Hãy chọn lại mô hình trong Cài đặt",
     "model_discontinued_undated_no_successor": "{provider}/{model}: mô hình này đã ngừng hoạt động; hãy chọn lại mô hình trong Cài đặt",
     "video_resolution_not_supported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} (chỉ hỗ trợ {supported}); hãy chọn một độ phân giải được hỗ trợ",
     "video_aspect_ratio_not_supported": "Mô hình {model} không hỗ trợ tỷ lệ khung hình {aspect_ratio} (chỉ hỗ trợ {supported}); hãy chọn một tỷ lệ được hỗ trợ",

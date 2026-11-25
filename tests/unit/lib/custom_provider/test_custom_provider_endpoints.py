@@ -281,9 +281,7 @@ class TestRegistry:
         """import 期不变式拒绝负数 int cap：下游 references[:-1] 会误丢最后一张而非裁成 0 张。"""
         import dataclasses
 
-        bad = dataclasses.replace(
-            ENDPOINT_REGISTRY["openai-video"], video_max_reference_images=-1, video_caps_for_model=None
-        )
+        bad = dataclasses.replace(ENDPOINT_REGISTRY["openai-video"], video_max_reference_images=-1, describe_video=None)
         with pytest.raises(ValueError, match="negative video_max_reference_images"):
             validate_video_caps_declaration(bad)
 
@@ -295,17 +293,9 @@ class TestRegistry:
         bad = dataclasses.replace(
             ENDPOINT_REGISTRY["ark-seedance-2"],
             video_max_reference_images=None,
-            video_caps_for_model="not-callable",
+            describe_video="not-callable",
         )
         with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
-            validate_video_caps_declaration(bad)
-
-    def test_non_video_endpoint_declaring_reference_audio_rejected(self):
-        """import 期不变式：reference_audio_capable 只对 video 类有意义，非 video 类声明即 misconfig。"""
-        import dataclasses
-
-        bad = dataclasses.replace(ENDPOINT_REGISTRY["openai-chat"], reference_audio_capable=True)
-        with pytest.raises(ValueError, match="must not declare reference_audio_capable"):
             validate_video_caps_declaration(bad)
 
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
@@ -755,7 +745,7 @@ def test_omni_names_prefill_the_interactions_video_endpoint(model: str, discover
 
 
 def test_vertex_interactions_is_not_a_custom_provider_endpoint():
-    from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS
+    from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
 
     assert "gemini-vertex-interactions-video" in PROVIDER_ONLY_ENDPOINTS
     assert "gemini-vertex-interactions-video" not in ENDPOINT_REGISTRY

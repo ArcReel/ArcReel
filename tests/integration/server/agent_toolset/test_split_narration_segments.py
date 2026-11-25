@@ -15,9 +15,17 @@ from tests.integration.server.agent_tool_support import (
     nr_segment,
     nr_source,
     run_declared_tool,
-    rv_project,
     said,
 )
+
+
+def rv_project(fake_ctx: ToolHarness, generation_mode: str = "reference_video") -> None:
+    fake_ctx.pm.project_payload["content_mode"] = "narration"
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:
@@ -27,7 +35,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_req
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
-    assert "E1S" in prompt_text
+    assert "**segment_id**" not in prompt_text
     assert "张三" in prompt_text
     assert "4" in prompt_text
     assert "# 附加指令" not in prompt_text
@@ -50,8 +58,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolHarne
     assert "必须全部落实" not in prompt_text
 
 
-async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
+async def test_split_narration_segments_reports_bad_instructions(fake_ctx: ToolHarness, video_request_facts) -> None:
 
     nr_source(fake_ctx)
 
@@ -78,6 +85,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     from server import text_generation as mod
 
     rv_project(fake_ctx, generation_mode="storyboard")
+    fake_ctx.pm.mirror_to_disk()
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
@@ -104,10 +112,13 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
 
 
 async def test_split_narration_segments_registers_the_frozen_default_source_basis(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
+    from tests.factories import make_video_request_facts
+
+    set_video_request_facts(make_video_request_facts())
 
     project = {
         **fake_ctx.pm.project_payload,
@@ -133,6 +144,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
             await asyncio.to_thread(project_file.write_text, json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            set_video_request_facts(make_video_request_facts(allowed_durations=(6, 8)))
             return type(
                 "_Result",
                 (),
@@ -151,6 +163,10 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
     result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert result.problem is None, result
+    assert {issue["code"] for issue in result.value.blocking_issues} == {
+        "duration_off_tier",
+        "novel_text_coverage",
+    }
     entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.basis_digest == expected.digest
@@ -159,7 +175,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 async def test_split_narration_segments_rejects_out_of_enum_duration(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
+    """模型输出在结构化解析时即拒绝越档时长。"""
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 5)]
@@ -167,38 +183,58 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
-    assert "不在模型档位" in said(out)
+    assert "literal_error" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_duplicate_segment_ids(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+async def test_split_narration_uses_effective_tiers_and_issues_ids(
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
+    from tests.factories import make_video_request_facts
 
     nr_source(fake_ctx)
-    segments = [nr_segment("E1S01", 4), nr_segment("E1S01", 6)]
-    use_text_generator(monkeypatch, nr_generator_returning(segments))
+    fake_ctx.pm.mirror_to_disk()
+    set_video_request_facts(
+        make_video_request_facts(generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(6, 8))
+    )
+    segments = [
+        nr_segment("duplicate", 6, "张三"),
+        nr_segment("duplicate", 8, "在村口"),
+        nr_segment("ignored", "6", "等人"),
+    ]
+    segments[-1].pop("segment_id")
+    captured: dict[str, Any] = {}
+    use_text_generator(monkeypatch, nr_generator_returning(segments, captured))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
-    assert "segment_id 重复" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+
+    assert out.problem is None, out
+    schema = captured["response_schema"].model_json_schema()
+    array = schema["properties"]["segments"]
+    assert array["minItems"] == 1
+    fields = schema["$defs"][array["items"]["$ref"].split("/")[-1]]["properties"]
+    assert fields["duration_seconds"]["enum"] == [6, 8]
+    assert "segment_id" not in fields
+    path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert [segment["segment_id"] for segment in saved["segments"]] == ["E1S02", "E1S03", "E1S04"]
+    assert [segment["duration_seconds"] for segment in saved["segments"]] == [6, 8, 6]
 
 
-async def test_split_narration_segments_rejects_blank_novel_text(
+async def test_split_narration_segments_reports_blank_novel_text(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
 
     nr_source(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     segments = [nr_segment("E1S01", 4, "张三在村口等人"), nr_segment("E1S02", 4, novel_text=" ")]
     use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
+    assert out.problem is None
     assert "novel_text 为空白" in said(out)
-    assert "E1S02" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert "E1S03" in said(out)
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_rejects_empty_segments(
@@ -228,20 +264,19 @@ async def test_split_narration_segments_rejects_missing_field(
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_unregistered_asset_reference(
+async def test_split_narration_segments_reports_unregistered_asset_reference(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
     use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
+    assert out.problem is None
     assert "未登记的资产名" in said(out)
     assert "王五" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form(
@@ -278,25 +313,23 @@ async def _nr_source_and_call(fake_ctx: ToolHarness, monkeypatch, source_text: s
     return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
-async def test_split_narration_segments_rejects_truncated_novel_text(
+async def test_split_narration_segments_reports_truncated_novel_text(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """分镜合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
         "张三走向村口。他停下脚步，久久凝望。",
         [nr_segment("E1S01", 4, "张三走向村口。")],
     )
-    assert out.problem is not None
+    assert out.problem is None
     assert "未按序、逐字、完整覆盖小说原文" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_rewritten_novel_text(
+async def test_split_narration_segments_reports_rewritten_novel_text(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """分镜文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -306,15 +339,14 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(
             nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
         ],
     )
-    assert out.problem is not None
+    assert out.problem is None
     assert "未按序、逐字、完整覆盖小说原文" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_reordered_novel_text(
+async def test_split_narration_segments_reports_reordered_novel_text(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """分镜顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
@@ -324,24 +356,23 @@ async def test_split_narration_segments_rejects_reordered_novel_text(
             nr_segment("E1S02", 4, "张三走向村口。"),
         ],
     )
-    assert out.problem is not None
+    assert out.problem is None
     assert "未按序、逐字、完整覆盖小说原文" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_dropped_word_space(
+async def test_split_narration_segments_reports_dropped_word_space(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """空格分词语言里模型丢失词间空格（"Hello world" -> "Helloworld"）属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
         "Hello world, this is fine.",
         [nr_segment("E1S01", 4, "Helloworld, this is fine.")],
     )
-    assert out.problem is not None
+    assert out.problem is None
     assert "未按序、逐字、完整覆盖小说原文" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_accepts_unicode_form_difference(
@@ -399,19 +430,18 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     assert script_plan_path.exists()
 
 
-async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
+async def test_split_narration_segments_reports_dropped_space_after_punctuation(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """标点后的词间空格在分镜内部（非边界）丢失："Hello, world." -> "Hello,world."，属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(
         fake_ctx,
         monkeypatch,
         "Hello, world. This is fine.",
         [nr_segment("E1S01", 4, "Hello,world. This is fine.")],
     )
-    assert out.problem is not None
+    assert out.problem is None
     assert "未按序、逐字、完整覆盖小说原文" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+    assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
 async def test_split_narration_segments_no_source(fake_ctx: ToolHarness) -> None:

@@ -140,16 +140,6 @@ describe("project-changes utils", () => {
         label_params: { id: "E7S02" },
       }),
     ]);
-    const [draft] = groupChangesByType([
-      makeChange({
-        entity_type: "draft",
-        action: "updated",
-        entity_id: "episode_3_script_plan",
-        label: "集（id=3）的脚本规划草稿",
-        label_key: "draft_script_plan",
-        label_params: { episode: 3 },
-      }),
-    ]);
     const [grouped] = groupChangesByType(
       ["E7S01", "E3S04"].map((id) =>
         makeChange({
@@ -175,7 +165,6 @@ describe("project-changes utils", () => {
     ]);
 
     expect(formatGroupedNotificationText(single, t, ledger, SCRIPTS)).toBe("分镜「山门 · 3」的分镜图已生成");
-    expect(formatGroupedNotificationText(draft, t, ledger, SCRIPTS)).toBe("第 2 集的脚本规划草稿已更新");
     expect(formatGroupedNotificationText(grouped, t, ledger, SCRIPTS)).toContain("山门 · 1、第 2 集 · 2");
     expect(formatGroupedNotificationText(removed, t, ledger, SCRIPTS)).toBe("分镜「山门 · 已删除」的分镜图已生成");
   });

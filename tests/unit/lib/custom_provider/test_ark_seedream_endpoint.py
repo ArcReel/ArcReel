@@ -25,12 +25,12 @@ from lib.backends.image_capabilities import backend_reference_image_limit
 from lib.backends.input_limits import InputLimit
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
-from lib.custom_provider.factory import create_custom_backend
 from lib.custom_provider.metering import custom_image_estimate
 from lib.db.models.custom_provider import CustomProvider
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import _ as translate_message
+from tests.custom_backend_support import create_custom_backend
 from tests.factories import image_bytes, make_display_names
 from tests.http_capture import capture_http, only_request, request_json
 

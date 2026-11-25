@@ -14,7 +14,7 @@ import hashlib
 import json
 import threading
 from collections.abc import Generator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
 
+from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library import links
 from lib.asset_library.bindings import account_scope
@@ -52,10 +53,11 @@ from lib.material.global_library import library_holder
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import assets, files, object_storage
+from server.routers import asset_sheets, assets, files, object_storage
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import (
     bind_session_factory,
+    failing_manifest_replace,
     use_assets_router_sessions,
     use_object_storage_sdk,
     use_project_manager,
@@ -153,7 +155,7 @@ def library_api(library_sessions, library_projects, monkeypatch) -> Generator[Te
 
     app.dependency_overrides[get_async_session] = _session
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    for router in (files.router, object_storage.router, assets.router):
+    for router in (files.router, object_storage.router, assets.router, asset_sheets.router):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.include_router(files.public_router, prefix="/api/v1")
     register_error_handlers(app)
@@ -499,3 +501,75 @@ async def test_skipped_library_entry_does_not_fetch_its_evicted_remote_image(
     assert applied.status_code == 200, applied.text
     assert applied.json()["skipped"] == [{"id": entry.id, "name": "Alice"}]
     assert not [call for call in library_bucket.calls if call[0] == "get"]
+
+
+@pytest.mark.parametrize("failure_at", ["link_copy", "manifest_registration"])
+async def test_batch_overwrite_rolls_back_when_committing_sidecars_fails(
+    library_api,
+    library_sessions,
+    library_projects,
+    monkeypatch,
+    failure_at,
+):
+    source_image = solid_png_bytes((200, 110, 40))
+    original_image = solid_png_bytes((10, 70, 200))
+    assert _upload(library_api, source_image).status_code == 200
+    account = await _account(library_sessions, "TEST-BATCH-COPY-FAILURE")
+    await _link_current_version(library_sessions, library_projects, account)
+    exported = _save_to_library(library_api)
+    assert exported.status_code == 200, exported.text
+    alice = exported.json()["asset"]
+    second = library_api.post(
+        "/api/v1/assets",
+        data={"type": "character", "name": "Bea"},
+        files={"image": ("bea.png", solid_png_bytes((15, 20, 25)), "image/png")},
+    )
+    assert second.status_code == 200, second.text
+    bea = second.json()["asset"]
+    uploaded = library_api.post(
+        "/api/v1/projects/other/upload/character?name=Alice",
+        files={"file": ("alice.png", original_image, "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    project_before = library_projects.load_project("other")
+    history_before = _history(library_projects, "other")
+    target_dir = library_projects.get_project_path("other")
+    manifest = target_dir / MANIFEST_FILENAME
+    manifest_before = manifest.read_bytes()
+    copy_usable_links = assets.copy_usable_links
+
+    async def fail_second_copy(session, *, source_project, source_content_version_id, target):
+        if target.resource_id == "Bea":
+            raise RuntimeError("provider asset link copy failed")
+        copied = await copy_usable_links(
+            session, source_project=source_project, source_content_version_id=source_content_version_id, target=target
+        )
+        assert len(copied) == 1
+        return copied
+
+    if failure_at == "link_copy":
+        monkeypatch.setattr(assets, "copy_usable_links", fail_second_copy)
+        failure = nullcontext()
+        expected_error = "provider asset link copy failed"
+    else:
+        failure = failing_manifest_replace(OSError("artifact manifest registration failed"))
+        expected_error = "artifact claim rekey failed"
+    with failure, pytest.raises(RuntimeError, match=expected_error):
+        library_api.post(
+            "/api/v1/assets/apply-to-project",
+            json={"asset_ids": [alice["id"], bea["id"]], "target_project": "other", "conflict_policy": "overwrite"},
+        )
+
+    assert library_projects.load_project("other") == project_before
+    assert _history(library_projects, "other") == history_before
+    assert (target_dir / "characters/Alice.png").read_bytes() == original_image
+    assert not (target_dir / "characters/Bea.png").exists()
+    assert not VersionManager(target_dir).has_versions("characters", "Bea")
+    assert await _links_of(library_sessions, "other") == []
+    [library_link] = await _links_of(library_sessions, library_holder(alice["id"]))
+    assert library_link.provider_asset_id == "asset-20261103-alice"
+    status = library_api.get("/api/v1/projects/other/asset-sheets/status")
+    assert status.status_code == 200, status.text
+    assert [(row["unit_id"], row["status"]) for row in status.json()["assets"]] == [("character/Alice", "current")]
+    assert manifest.read_bytes() == manifest_before

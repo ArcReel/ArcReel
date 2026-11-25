@@ -233,13 +233,13 @@ def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str
 def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """三条路线的正式 script_plan 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
     （迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
-    报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
+    报错要指向脚本规划增量编辑工具，否则 Agent 只知被拒、不知改道哪里。"""
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
     assert reason
-    assert "open_draft" in reason
-    assert "promote_draft" in reason
+    assert "mcp__arcreel__get_script_plan_content" in reason
+    assert "mcp__arcreel__patch_script_plan" in reason
 
 
 def test_protected_script_plan_filenames_match_shared_constant() -> None:
@@ -270,24 +270,6 @@ def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: 
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
-
-
-@pytest.mark.parametrize("tool", ["Write", "Edit"])
-@pytest.mark.parametrize(
-    "relative",
-    [
-        "drafts/episode_1/script_plan_reference_units.invalid.json",
-        "drafts/episode_1/script_plan_normalized_script.invalid.json",
-        "drafts/episode_1/script_plan_segments.invalid.json",
-        "drafts/episode_1/prompt_authoring_reference_script.invalid.json",
-    ],
-)
-def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason
-    assert "patch_draft" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])

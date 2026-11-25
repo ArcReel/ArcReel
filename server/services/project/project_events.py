@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from lib import PROJECT_ROOT
+from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 from lib.infra.content_digest import FileIdentity, file_identity
 from lib.project.project_change_hints import (
     ProjectChangeBatch,
@@ -25,15 +26,14 @@ from lib.project.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project.project_manager import ProjectManager
-from lib.script.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, quarantine_filename
 from server.services.project.project_state_projection import (
     ProjectSnapshot,
     ProjectState,
     build_snapshot,
     diff_snapshots,
-    draft_state_key,
+    script_plan_state_key,
 )
-from server.sse_channel import IDLE, DropSubscriber, SseChannel
+from server.sse_channel import IDLE, DropSubscriber, SseChannel, empty_stream
 
 logger = logging.getLogger(__name__)
 
@@ -49,32 +49,33 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
-    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。
-
-    只处理 ``drafts/`` 下名为 ``episode_<数字>`` 的目录；路径沿用磁盘真实目录名（``episode_007`` 不规范化成
-    ``episode_7``），状态键里的集号才取整数值。
-    """
+def _episode_draft_dirs(project_path: Path) -> list[tuple[int, Path]]:
+    """``drafts/`` 下名为 ``episode_<数字>`` 的目录列表，路径沿用磁盘真实目录名。"""
     drafts_root = project_path / "drafts"
-    paths: list[tuple[str, Path]] = []
+    dirs: list[tuple[int, Path]] = []
     if not drafts_root.is_dir():
-        return paths
+        return dirs
     for episode_dir in sorted(drafts_root.glob("episode_*")):
         suffix = episode_dir.name.removeprefix("episode_")
         if not suffix.isdigit() or not episode_dir.is_dir():
             continue
-        episode = int(suffix)
-        paths.extend(
-            (draft_state_key(episode, kind), episode_dir / quarantine_filename(kind))
-            for kind in DOC_TYPE_TO_QUARANTINE_KIND.values()
-        )
-    return paths
+        dirs.append((int(suffix), episode_dir))
+    return dirs
 
 
-def _read_draft_digests(project_path: Path) -> dict[str, str]:
-    """在场草稿的文件内容摘要；信封损坏的草稿同样在场，按字节摘要比对。"""
+def _script_plan_paths(project_path: Path) -> list[tuple[str, Path]]:
+    """可能在场的正式脚本规划文件（状态键 → 路径）。"""
+    filenames = sorted(AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES)
+    return [
+        (script_plan_state_key(episode, filename), episode_dir / filename)
+        for episode, episode_dir in _episode_draft_dirs(project_path)
+        for filename in filenames
+    ]
+
+
+def _read_file_digests(paths: list[tuple[str, Path]]) -> dict[str, str]:
     digests: dict[str, str] = {}
-    for key, path in _draft_paths(project_path):
+    for key, path in paths:
         try:
             payload = path.read_bytes()
         except FileNotFoundError:
@@ -95,7 +96,11 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
                 scripts[script_path.name] = pm.load_script_readonly(project_name, script_path.name)
             except Exception:
                 logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
-    return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
+    return ProjectState(
+        project=project,
+        scripts=scripts,
+        script_plans=_read_file_digests(_script_plan_paths(project_path)),
+    )
 
 
 ProjectInputStamp = tuple[tuple[str, FileIdentity], ...]
@@ -109,8 +114,8 @@ def _file_stat(path: Path) -> FileIdentity | None:
 
 
 def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputStamp:
-    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、``scripts/*.json``
-    与在场草稿。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
+    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、``scripts/*.json``、
+    正式脚本规划与在场草稿。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
 
     标识不变就说明输入没变，轮询据此跳过重新解析与重建。读盘入口新增输入文件时须同步纳入这里，
     否则那类变更不会被轮询发现。
@@ -120,7 +125,7 @@ def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputSt
     scripts_dir = project_path / "scripts"
     if scripts_dir.exists():
         candidates.extend((f"scripts/{path.name}", path) for path in sorted(scripts_dir.glob("*.json")))
-    candidates.extend((f"drafts:{key}", path) for key, path in _draft_paths(project_path))
+    candidates.extend((f"script_plans:{key}", path) for key, path in _script_plan_paths(project_path))
     stamp: list[tuple[str, FileIdentity]] = []
     for label, path in candidates:
         identity = _file_stat(path)
@@ -176,6 +181,7 @@ class ProjectEventService:
         self._read_state: ProjectStateReader = read_state or (lambda name: read_project_state(self.pm, name))
         self.poll_interval = max(0.1, float(poll_interval))
         self._channels: dict[str, _ProjectChannel] = {}
+        self._stopping = False
         self._listener_unregister = None
         self._batch_listener_unregister = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -187,6 +193,12 @@ class ProjectEventService:
         self._loop = asyncio.get_running_loop()
         self._listener_unregister = register_project_change_listener(self._on_hint)
         self._batch_listener_unregister = register_project_change_batch_listener(self._on_batch_hint)
+
+    def stop_streams(self) -> None:
+        self._stopping = True
+        for channel in self._channels.values():
+            channel.sse.end_streams()
+            channel.ready_event.set()
 
     async def shutdown(self) -> None:
         unregister = self._listener_unregister
@@ -263,7 +275,6 @@ class ProjectEventService:
         Private: the only consumer is :meth:`stream_events`, which owns the
         deterministic unsubscribe via its context-manager ``__aexit__``.
         """
-        await asyncio.to_thread(self.pm.get_project_path, project_name)
         channel = self._channels.get(project_name)
         if channel is None:
             channel = self._create_channel(project_name)
@@ -306,9 +317,16 @@ class ProjectEventService:
         carried by ``__aexit__`` (see ADR-0046). Consume as
         ``async with stream_events(...) as stream: async for item in stream``.
         """
+        if not self._stopping:
+            await asyncio.to_thread(self.pm.get_project_path, project_name)
+        if self._stopping:
+            yield empty_stream()
+            return
         sse, queue, snapshot = await self._subscribe(project_name)
 
         async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
+            if self._stopping:
+                return
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item

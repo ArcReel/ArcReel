@@ -104,8 +104,8 @@ export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
   text_to_video: boolean;
   max_reference_audio_total_seconds: number | null;
   max_prompt_chars: number | null;
-  audio_track: VideoAudioMode;
-  reference_route_audio_track: VideoAudioMode | null;
+  has_audio_track: boolean;
+  reference_route_has_audio_track: boolean;
 }
 
 export interface ModelFactOverrides {

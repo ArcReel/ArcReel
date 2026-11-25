@@ -12,32 +12,25 @@ fingerprint 或可执行请求快照；worker 开始处理时必须重新投影�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.backends.input_limits import InputLimit
 from lib.config.resolver import (
     VideoGenerationType,
     video_capability_satisfied,
 )
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
-    evaluate_video_request_facts,
 )
-from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int
-from lib.material.work_files import material_file_present
-from lib.project.asset_types import AssetSpec, asset_name_comparison_key
 from lib.references.reference_admission import (
-    SHEET_REQUIRED_ASSET_TYPES,
     UNREGISTERED_REFERENCE_CODE,
     ReferenceAdmission,
     admit_references,
@@ -47,8 +40,39 @@ from lib.script.reference_video.duration_slots import (
     DurationSlot,
     project_request_duration,
 )
+from lib.script.reference_video.reference_assets import (
+    FilesystemReferenceAssets as FilesystemReferenceAssets,
+)
+from lib.script.reference_video.reference_assets import (
+    MemoizedReferenceAssets as MemoizedReferenceAssets,
+)
+from lib.script.reference_video.reference_assets import (
+    ReferenceAssetAvailability as ReferenceAssetAvailability,
+)
+from lib.script.reference_video.reference_assets import (
+    ReferenceAssetHydration as ReferenceAssetHydration,
+)
+from lib.script.reference_video.reference_assets import (
+    ReferenceExpansionCache as ReferenceExpansionCache,
+)
+from lib.script.reference_video.reference_assets import (
+    clamp_reference_assets as clamp_reference_assets,
+)
+from lib.script.reference_video.reference_assets import (
+    hydrate_reference_assets as hydrate_reference_assets,
+)
+from lib.script.reference_video.reference_assets import (
+    resolve_reference_assets as resolve_reference_assets,
+)
+from lib.script.reference_video.reference_assets import (
+    unit_reference_declarations as unit_reference_declarations,
+)
+from lib.script.reference_video.reference_assets import (
+    unit_text as _unit_text,
+)
 from lib.script.reference_video.text_parser import derive_references_from_text
-from lib.script.script_models import ReferenceResource
+from lib.script.script_models import ReferenceResource, ResolvedReferenceAsset
+from lib.video_runtime.resolution import read_video_request_facts
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
@@ -99,15 +123,6 @@ class ReferenceRequestOptions:
             return cls()
         confirmed = raw.get("confirmed_request_duration_seconds")
         return cls(confirmed_request_duration_seconds=confirmed if is_int(confirmed, minimum=1) else None)
-
-
-@dataclass(frozen=True)
-class ResolvedReferenceAsset:
-    """一个逻辑引用展开出的图片候选；可用性由注入的资产适配器判断。"""
-
-    path: Path
-    reference: ReferenceResource
-    kind: str = "asset"
 
 
 @dataclass(frozen=True)
@@ -233,13 +248,6 @@ class ReferenceUnitRequestProjection:
         return payload
 
 
-class ReferenceAssetAvailability(Protocol):
-    """资产可用性适配器；生产实现检查项目内文件并按产物清单认领，测试可用内存替身。"""
-
-    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        raise NotImplementedError
-
-
 VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
 ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
@@ -250,69 +258,29 @@ ReferenceAssetLinkCheck = Callable[
 ]
 
 
-def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
+def configured_reference_request_facts(
+    project: dict,
+    resolver: ConfigResolver,
+    *,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFactsResult] | None = None,
+) -> ReferenceRequestFactsLookup:
     """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
 
-    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = {}
+    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = dict(initial_facts) if initial_facts else {}
 
     async def lookup(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
         result = evaluated.get(generation_type)
         if result is None:
-            result = await evaluate_video_request_facts(
+            result = await read_video_request_facts(
                 project,
                 route="reference_video",
                 generation_type=generation_type,
-                identity=CONFIGURED_VIDEO_IDENTITY,
                 resolver=resolver,
             )
             evaluated[generation_type] = result
         return result
 
     return lookup
-
-
-@dataclass(frozen=True)
-class ReferenceAssetHydration:
-    available: tuple[ResolvedReferenceAsset, ...]
-    missing: tuple[ReferenceResource, ...]
-    unreadable_files: tuple[str, ...]
-
-
-def hydrate_reference_assets(
-    declared: Sequence[ReferenceResource],
-    resolved_assets: Sequence[ResolvedReferenceAsset],
-    availability: ReferenceAssetAvailability,
-) -> ReferenceAssetHydration:
-    """把候选按声明范围过滤并给出实际可用图片与缺图逻辑引用。"""
-
-    declared_keys = {(ref.type, asset_name_comparison_key(ref.name)) for ref in declared}
-    candidates = [asset for asset in resolved_assets if _asset_key(asset) in declared_keys]
-    available: list[ResolvedReferenceAsset] = []
-    unavailable: list[ResolvedReferenceAsset] = []
-    try:
-        for asset in candidates:
-            (available if availability.is_available(asset) else unavailable).append(asset)
-    except (OSError, ValueError) as exc:
-        cause = exc if isinstance(exc, OSError) else exc.__cause__
-        paths = [asset.path for asset in candidates]
-        if not isinstance(cause, OSError) or not cause.filename or Path(cause.filename) not in paths:
-            raise
-        from arcreel_market_core.video_backend_contract import VideoCapabilityError
-        from lib.backends.backend_runtime import read_video_image_slots
-
-        names = Path(cause.filename).name
-        try:
-            read_video_image_slots(None, None, paths, "")
-        except VideoCapabilityError as failure:
-            names = failure.params["names"]
-        return ReferenceAssetHydration(available=(), missing=(), unreadable_files=(names,))
-    available_keys = {_asset_key(asset) for asset in available}
-    missing = tuple(ref for ref in declared if (ref.type, asset_name_comparison_key(ref.name)) not in available_keys)
-    return ReferenceAssetHydration(
-        available=tuple(available),
-        missing=missing,
-        unreadable_files=tuple(asset.path.name for asset in unavailable if _asset_key(asset) in available_keys),
-    )
 
 
 @dataclass(frozen=True)
@@ -399,84 +367,6 @@ def hydrate_unit_references(
     )
 
 
-class FilesystemReferenceAssets:
-    """以项目目录为边界检查图片候选实际存在且为普通文件。"""
-
-    def __init__(self, project_path: Path) -> None:
-        self._project_path = project_path
-
-    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        try:
-            path = safe_join(self._project_path, asset.path)
-        except (OSError, PathTraversalError, TypeError):
-            return False
-        return material_file_present(path)
-
-
-def _candidate_path(project_path: Path, value: object) -> Path | None:
-    if not isinstance(value, (str, Path)) or not str(value):
-        return None
-    try:
-        return safe_join(project_path, value)
-    except (OSError, PathTraversalError, TypeError):
-        return None
-
-
-class MemoizedReferenceAssets:
-    """一批读侧计算内按图片记住可用性：成本随设计图数量增长，而不是随被引用次数增长。"""
-
-    def __init__(self, inner: ReferenceAssetAvailability) -> None:
-        self._inner = inner
-        self._known: dict[tuple[Path, str, str, str], bool] = {}
-
-    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
-        known = self._known.get(key)
-        if known is None:
-            known = self._known[key] = self._inner.is_available(asset)
-        return known
-
-
-class ReferenceExpansionCache:
-    """一次读侧批量计算内共用的引用目录与候选路径解析。
-
-    整批单元在同一份 ``project`` 上展开引用时，目录只构造一次，同一登记路径只做一次越界解析，
-    成本随资产数而不是随被引用次数增长。期间 ``project`` 不得被改动。只缓存路径解析，
-    不缓存文件是否存在：那由可用性适配器回答。
-    """
-
-    def __init__(self, project: dict, project_path: Path) -> None:
-        self.catalog = build_reference_catalog(project)
-        self._project_path = project_path
-        self._paths: dict[str, Path | None] = {}
-
-    def candidate_path(self, value: object) -> Path | None:
-        if not isinstance(value, str):
-            return _candidate_path(self._project_path, value)
-        if value not in self._paths:
-            self._paths[value] = _candidate_path(self._project_path, value)
-        return self._paths[value]
-
-
-def _unit_text(unit: dict) -> str:
-    raw_text = unit.get("text")
-    return raw_text if isinstance(raw_text, str) else ""
-
-
-def unit_reference_declarations(
-    project: dict, unit: dict, *, catalog: ReferenceCatalog | None = None
-) -> tuple[ReferenceResource, ...]:
-    """视频单元正文 → 该单元生成所用的逻辑参考图引用，按首次提及顺序。
-
-    正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
-    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用。编辑侧可保留这样的正文，
-    生成准入通过 :func:`unit_reference_admission` 将未登记名称作为阻断项（见 ADR 0073）。
-    """
-
-    references, _missing = derive_references_from_text(_unit_text(unit), project, catalog=catalog)
-    return tuple(references)
-
-
 def unit_reference_admission(project: dict, unit: dict) -> ReferenceAdmission:
     """本单元正文的引用准入结论——与分镜路线共用 :mod:`lib.references.reference_admission` 的判定。
 
@@ -496,73 +386,6 @@ def _admit_unit_references(
         references=[(reference.type, reference.name) for reference in references],
         unregistered=unregistered,
     )
-
-
-def resolve_reference_assets(
-    project: dict,
-    project_path: Path,
-    unit: dict,
-    *,
-    expansion: ReferenceExpansionCache | None = None,
-) -> tuple[ResolvedReferenceAsset, ...]:
-    """把正文派生的逻辑引用展开为图片候选，不把「路径已登记」误当成「文件存在」。
-
-    有资产图就用资产图。没有资产图时只有商品退到它的全部原图——原图是商品的保真验收锚点
-    （见 ADR 0034）；角色、场景、道具的原图只是生成资产图的输入，不进视频请求（见 ADR 0073），
-    没有资产图就不产生候选、由 projector 报成阻断。有资产图时任何类型都不额外注入原图，
-    也不按类型排序（见 ADR 0064）。缺字段、未登记或越界路径不制造候选，由 projector 对照
-    派生引用统一产出 ``reference_asset_missing``。
-
-    批量展开时传入 ``expansion``，整批共用一份引用目录与路径解析。
-    """
-
-    if expansion is None:
-        expansion = ReferenceExpansionCache(project, project_path)
-    catalog = expansion.catalog
-    result: list[ResolvedReferenceAsset] = []
-    for reference in unit_reference_declarations(project, unit, catalog=catalog):
-        catalog_entry = catalog.lookup(reference.type, reference.name)
-        if catalog_entry is None:
-            continue
-        entry = catalog_entry.asset
-        if not isinstance(entry, dict):
-            continue
-        spec = catalog_entry.spec
-        sheet = expansion.candidate_path(entry.get(spec.sheet_field))
-        if sheet is not None:
-            result.append(ResolvedReferenceAsset(path=sheet, reference=reference, kind="sheet"))
-            continue
-        if catalog_entry.asset_type in SHEET_REQUIRED_ASSET_TYPES:
-            continue
-        for raw_path in _original_image_paths(entry, spec):
-            original = expansion.candidate_path(raw_path)
-            if original is not None:
-                result.append(ResolvedReferenceAsset(path=original, reference=reference, kind="original"))
-    return tuple(result)
-
-
-def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
-    """该资产条目登记的全部原图路径，按声明顺序。"""
-
-    paths: list[object] = []
-    for field_name in spec.original_image_fields:
-        value = entry.get(field_name)
-        if isinstance(value, list):
-            paths.extend(value)
-        elif value:
-            paths.append(value)
-    return paths
-
-
-def clamp_reference_assets(
-    assets: Sequence[ResolvedReferenceAsset], max_references: int | None
-) -> tuple[ResolvedReferenceAsset, ...]:
-    """按历史成片记录的上限重建其产物依据；新提交始终使用完整参考集。"""
-
-    bound = InputLimit.from_json(max_references).clamp_bound()
-    if bound is None or len(assets) <= bound:
-        return tuple(assets)
-    return tuple(assets[:bound])
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
@@ -595,10 +418,6 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
 
 def _problem(code: str, *, blocking: bool, **params: object) -> ProjectionProblem:
     return ProjectionProblem(code=code, blocking=blocking, params=tuple(params.items()))
-
-
-def _asset_key(asset: ResolvedReferenceAsset) -> tuple[str, str]:
-    return asset.reference.type, asset_name_comparison_key(asset.reference.name)
 
 
 def _planned_duration(unit: dict) -> int:

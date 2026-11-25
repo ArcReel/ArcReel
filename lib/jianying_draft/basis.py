@@ -75,29 +75,22 @@ def effective_unit_variant(
 class DraftUnitBasis:
     """一个被引用视频单元的素材层指纹。
 
-    有类型化来源的视频取所用呈现模型的依据摘要；手动上传的视频没有呈现模型依据，取选中版本号与内容摘要。
     比对时当前素材层投影不出（视频已换版本而尚未物化呈现模型、视频不在等）记为不可用：这样的依据不会
     与任何登记相等，草稿读作过期而不是失去登记。
     """
 
     unit_id: str
     presentation_digest: str | None = None
-    manual_upload: tuple[int, str] | None = None
     unavailable: bool = False
 
     def __post_init__(self) -> None:
-        forms = (self.presentation_digest is not None, self.manual_upload is not None, self.unavailable)
+        forms = (self.presentation_digest is not None, self.unavailable)
         if sum(forms) != 1:
-            raise ValueError(
-                "a draft unit basis needs exactly one of presentation_digest, manual_upload or unavailable"
-            )
+            raise ValueError("a draft unit basis needs exactly one of presentation_digest or unavailable")
 
     def to_input(self) -> dict[str, object]:
         if self.presentation_digest is not None:
             return {"presentation": self.presentation_digest}
-        if self.manual_upload is not None:
-            version, content_digest = self.manual_upload
-            return {"manual_upload": {"version": version, "content_digest": content_digest}}
         return {"unavailable": True}
 
 
@@ -108,6 +101,7 @@ def build_jianying_draft_basis(
     narration: DraftNarration,
     aspect_ratio: str,
     units: Sequence[DraftUnitBasis],
+    video_versions: Mapping[str, int],
     bgm_sources: Mapping[str, BgmSource] | None = None,
 ) -> ArtifactBasis:
     """``bgm_sources`` 是 BGM 轨所引用的 BGM；修订没有 BGM 时依据不含这一项，形态与没有 BGM 的草稿相同。"""
@@ -121,6 +115,16 @@ def build_jianying_draft_basis(
         "aspect_ratio": aspect_ratio,
         "units": {unit.unit_id: unit.to_input() for unit in units},
     }
+    active_unit_ids = {unit.unit_id for unit in units}
+    invalidated_trims = [
+        clip.id
+        for clip in revision.content.clips
+        if clip.unit_id in active_unit_ids
+        and clip.trim is not None
+        and video_versions.get(clip.unit_id) != clip.trim.basis_version
+    ]
+    if invalidated_trims:
+        inputs["invalidated_trims"] = invalidated_trims
     if revision.content.bgm:
         inputs["bgm"] = bgm_sources_input(revision.content.bgm, bgm_sources or {})
     return ArtifactBasis.build(JIANYING_DRAFT_BASIS_KIND, kind_version=JIANYING_DRAFT_BASIS_VERSION, inputs=inputs)

@@ -294,12 +294,12 @@ def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: 
 
     detail = models_client.get("/api/v1/providers/ark/models/my-video-ep").json()
     caps = detail["capabilities"]
-    assert (caps["base"]["durations"], caps["base"]["resolutions"], caps["base"]["audio_track"]) == (
+    assert (caps["base"]["durations"], caps["base"]["resolutions"], caps["base"]["audio_switch_controllable"]) == (
         [4, 8],
         None,
-        "controllable",
+        True,
     )
-    assert {"durations", "duration_constraints", "resolutions", "audio_track"} <= set(caps["editable"])
+    assert {"durations", "duration_constraints", "resolutions", "has_audio_track"} <= set(caps["editable"])
     assert (detail["multiplier"], detail["entry"]) == (1.0, None)
 
     resp = models_client.patch(
@@ -432,6 +432,30 @@ async def test_custom_unmatched_video_model_detail_and_settings(
 
     resp = models_client.patch(url, json={"capability_overrides": {"image_input": True}})
     assert resp.status_code == 422
+
+
+async def test_custom_kling_omni_reference_audio_is_read_only(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    model_id = "kling-v3-omni"
+    db_id = await _custom_provider(
+        db_factory,
+        [{"model_id": model_id, "display_name": model_id, "endpoint": "kling-video-audio", "is_enabled": True}],
+    )
+    url = f"/api/v1/providers/custom-{db_id}/models/{model_id}"
+    field = "reference_route_has_audio_track"
+
+    saved = models_client.patch(url, json={"capability_overrides": {field: True}})
+    assert saved.status_code == 422
+
+    detail = models_client.get(url)
+    assert detail.status_code == 200
+    caps = detail.json()["capabilities"]
+    assert field in caps["displayed"]
+    assert caps["effective"][field] is False
+    assert field not in caps["overrides"]
+    assert field not in caps["editable"]
+    assert "has_audio_track" in caps["editable"]
 
 
 async def test_custom_model_rename_rewrites_and_remove_clears_references(
@@ -851,8 +875,7 @@ def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_clie
     assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
 
 
-def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_one(models_client: TestClient) -> None:
-    """能力覆盖按端点校验后保存；只换端点不一并提交覆盖时，旧端点下的覆盖不套到新端点上。"""
+def test_switching_endpoint_keeps_compatible_duration_override(models_client: TestClient) -> None:
     _add_user_model(models_client, "ark", "my-switch-ep", "video")
     url = "/api/v1/providers/ark/models/my-switch-ep"
     assert models_client.patch(url, json={"endpoint": "ark-seedance-1"}).status_code == 200
@@ -864,7 +887,7 @@ def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_o
 
     switched = models_client.patch(url, json={"endpoint": "ark-seedance-2"}).json()
     assert switched["endpoint"] == "ark-seedance-2"
-    assert switched["capabilities"]["effective"]["durations"] == switched["capabilities"]["base"]["durations"]
+    assert switched["capabilities"]["effective"]["durations"] == [5]
 
     resubmitted = models_client.patch(
         url, json={"endpoint": "ark-seedance-1", "capability_overrides": {"durations": [5]}}
@@ -1189,7 +1212,9 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
     from lib.backends.image_backends.base import ImageCapabilityError
     from lib.backends.image_backends.grok import GrokImageBackend
     from lib.backends.image_capabilities import backend_reference_image_limit, gate_image_request
-    from lib.custom_provider.loader import load_custom_backend
+    from lib.config.resolver import ConfigResolver
+    from lib.video_runtime.image_assembly import assemble_image
+    from lib.video_runtime.image_resolution import ImageRuntime
     from tests.catalog_support import with_entry_facts
 
     install_catalog(
@@ -1222,10 +1247,10 @@ async def test_image_reference_override_controls_api_candidates_and_execution(
 
     async def runtime(expected):
         if custom:
-            async with db_factory() as session:
-                backend = await load_custom_backend(
-                    session=session, provider_id=provider, model_id=model_id, media_type="image"
-                )
+            target = await ImageRuntime(ConfigResolver(db_factory)).resolve(
+                None, {"image_provider": provider, "image_model": model_id}, bucket="i2i" if expected else "t2i"
+            )
+            backend = await assemble_image(target.spec)
         else:
             backend = GrokImageBackend(api_key="fake", model=model_id)
         limit = await backend_reference_image_limit(backend, provider_id=provider)
@@ -1305,3 +1330,232 @@ def test_editing_an_image_entry_keeps_its_qualities(models_client: TestClient, m
     assert saved is not None
     assert (saved.facts.resolutions, saved.facts.qualities) == (("1K", "2K"), qualities)
     assert builtin_image_quality_options("openai", "gpt-image-2") == qualities
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+@pytest.mark.parametrize(
+    ("provider", "endpoint", "invalid"),
+    [
+        ("dashscope", "dashscope-video", {"audio_track": "controllable", "has_audio_track": True}),
+        ("dashscope", "dashscope-video", {"has_audio_track": False, "audio_track": "always_on"}),
+        ("kling", "kling-video-audio", {"reference_route_has_audio_track": True}),
+        ("minimax", "minimax-s2v-01", {"last_frame": True}),
+        ("vidu", "vidu-video-q3-turbo", {"max_prompt_chars": 5001}),
+        ("kling", "kling-video-audio", {"reference_audio_mode": "direct"}),
+    ],
+)
+async def test_video_model_writes_enforce_endpoint_boundaries(
+    models_client, db_factory, custom, provider, endpoint, invalid
+):
+    model = "relay-alias"
+    if custom:
+        pid = await _custom_provider(db_factory, [{"model_id": model, "display_name": model, "endpoint": endpoint}])
+        provider = f"custom-{pid}"
+    else:
+        added = models_client.post(
+            f"/api/v1/providers/{provider}/models",
+            json={"model_id": model, "media_type": "video", "endpoint": endpoint},
+        )
+        assert added.status_code == 201, added.text
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    rejected = models_client.patch(url, json={"capability_overrides": invalid})
+    assert rejected.status_code == 422, rejected.text
+    accepted = models_client.patch(
+        url, json={"capability_overrides": {"audio_track": "always_off", "has_audio_track": False}}
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"has_audio_track": False}
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+async def test_endpoint_change_preserves_only_compatible_video_overrides(models_client, db_factory, custom):
+    model = "relay-vidu"
+    if custom:
+        pid = await _custom_provider(
+            db_factory, [{"model_id": model, "display_name": model, "endpoint": "vidu-video-q4"}]
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "vidu"
+        added = models_client.post(
+            "/api/v1/providers/vidu/models",
+            json={"model_id": model, "media_type": "video", "endpoint": "vidu-video-q4"},
+        )
+        assert added.status_code == 201
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    overrides = {"max_reference_audio_count": 2, "reference_audio_mode": "direct", "max_prompt_chars": 1200}
+    assert models_client.patch(url, json={"capability_overrides": overrides}).status_code == 200
+    rebound = models_client.patch(url, json={"endpoint": "vidu-video-q3-turbo"})
+    assert rebound.status_code == 200, rebound.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"max_prompt_chars": 1200}
+
+
+async def test_endpoint_change_with_explicit_incoherent_audio_pair_rejected(models_client):
+    model = "relay-incoherent-rebound"
+    added = models_client.post(
+        "/api/v1/providers/vidu/models",
+        json={"model_id": model, "media_type": "video", "endpoint": "vidu-video-q4"},
+    )
+    assert added.status_code == 201
+    url = f"/api/v1/providers/vidu/models/{model}"
+    assert (
+        models_client.patch(
+            url, json={"capability_overrides": {"reference_audio_mode": "direct", "max_reference_audio_count": 2}}
+        ).status_code
+        == 200
+    )
+    rejected = models_client.patch(
+        url,
+        json={
+            "endpoint": "vidu-video-q3-drama",
+            "capability_overrides": {"reference_audio_mode": "direct", "max_reference_audio_count": 0},
+        },
+    )
+    assert rejected.status_code == 422
+    assert "max_reference_audio_count" in rejected.json()["detail"]
+
+
+async def test_patch_endpoint_change_drops_carried_legacy_controllable_audio(models_client, db_factory):
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    model = "relay-legacy-controllable"
+    pid = await _custom_provider(db_factory, [{"model_id": model, "display_name": model, "endpoint": "newapi-video"}])
+    async with db_factory() as session:
+        repo = CustomProviderRepository(session)
+        row = (await repo.list_models(pid))[0]
+        row.capability_overrides = {"audio_track": "controllable", "durations": [5]}
+        await session.commit()
+    url = f"/api/v1/providers/custom-{pid}/models/{model}"
+    patched = models_client.patch(url, json={"endpoint": "dashscope-video"})
+    assert patched.status_code == 200, patched.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"durations": [5]}
+
+
+async def test_builtin_legacy_audio_survives_detail_edit_and_runtime_reload(models_client, db_factory):
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.capabilities.kernel import RequestConditions
+    from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
+    from server.routers.provider_models import reload_user_added_models
+
+    model = "relay-wan"
+    _add_user_model(models_client, "dashscope", model, "video")
+    async with db_factory() as session:
+        row = await BuiltinProviderModelRepository(session).get("dashscope", model)
+        assert row
+        row.capability_overrides = {"audio_track": "always_off"}
+        await session.commit()
+        await reload_user_added_models(session)
+    url = f"/api/v1/providers/dashscope/models/{model}"
+    opened = models_client.get(url).json()["capabilities"]["overrides"]
+    assert opened == {"has_audio_track": False}
+    saved = models_client.patch(url, json={"capability_overrides": {**opened, "max_prompt_chars": 250}})
+    assert saved.status_code == 200, saved.text
+    reopened = models_client.get(url).json()["capabilities"]["overrides"]
+    assert reopened == {"has_audio_track": False, "max_prompt_chars": 250}
+    async with db_factory() as session:
+        row = await BuiltinProviderModelRepository(session).get("dashscope", model)
+        assert row
+        assert row.capability_overrides == reopened
+    snapshot = builtin_video_snapshot("dashscope", model)
+    for route in ("i2v", "r2v"):
+        assert not snapshot.for_request(RequestConditions(route)).audio(route, requested=True).output
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+async def test_single_save_validates_overrides_with_newly_bound_model_facts(models_client, db_factory, custom):
+    model = "relay-voice"
+    if custom:
+        pid = await _custom_provider(
+            db_factory, [{"model_id": model, "display_name": model, "endpoint": "ark-seedance-2"}]
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "ark"
+        _add_user_model(models_client, provider, model, "video")
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    entry = {
+        "maker": "acme",
+        "name": "voice",
+        "media_type": "video",
+        "facts": {"durations": [5], "reference_audio": True, "max_reference_audio_count": 2},
+    }
+    saved = models_client.patch(
+        url,
+        json={
+            "new_entry": entry,
+            "endpoint": "ark-seedance-2",
+            "capability_overrides": {"reference_audio_mode": "direct"},
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    effective = models_client.get(url).json()["capabilities"]["effective"]
+    assert (effective["reference_audio_mode"], effective["max_reference_audio_count"]) == ("direct", 2)
+
+
+async def test_silent_dashscope_model_from_settings_to_billed_request(models_client, db_factory, tmp_path):
+    from dataclasses import replace
+
+    import httpx
+
+    from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+    from lib.backends.video_backends.registry import backend_metered_usage
+    from lib.billing.ledger import Ledger
+    from lib.config.resolver import ConfigResolver
+    from lib.db.models.api_call import ApiCall
+    from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, audio_switch_conflict
+    from lib.video_runtime.resolution import read_video_request_facts
+    from server.services.admission.cost_estimation import quote_video_request
+    from tests.factories import image_bytes
+    from tests.http_capture import only_request, request_json
+
+    model = "relay-wan"
+    base = "/api/v1/providers/dashscope/models"
+    response = models_client.post(
+        base,
+        json={
+            "model_id": model,
+            "media_type": "video",
+            "endpoint": "dashscope-video",
+            "entry_binding": "google/veo-3.1-fast-generate-001",
+        },
+    )
+    assert response.status_code == 201, response.text
+    url = f"{base}/{model}"
+    assert models_client.patch(url, json={"capability_overrides": {"audio_track": "controllable"}}).status_code == 422
+    saved = models_client.patch(url, json={"capability_overrides": {"has_audio_track": False}})
+    assert saved.status_code == 200, saved.text
+    assert models_client.get(url).json()["capabilities"]["effective"]["has_audio_track"] is False
+    project = {"video_provider_i2v": f"dashscope/{model}", "video_generate_audio": False}
+    facts = await read_video_request_facts(
+        project, route="storyboard", generation_type="i2v", resolver=ConfigResolver(db_factory)
+    )
+    assert isinstance(facts, VideoRequestFacts)
+    assert audio_switch_conflict(facts) is None
+    cost = VideoRequestCostFacts(facts, 8, "16:9", has_first_frame=True)
+    quote = await quote_video_request(cost, db_factory)
+    assert quote is not None
+    assert quote.amount == pytest.approx(0.64)
+    first = tmp_path / "first.png"
+    first.write_bytes(image_bytes())
+    request = replace(cost.provider_request(), start_image=first, output_path=tmp_path / "clip.mp4")
+    backend = DashScopeVideoBackend(api_key="test", model=model)
+    ledger = Ledger(session_factory=db_factory)
+    async with ledger.record(project_name="demo", model=model, provider="dashscope", call_type="video") as call:
+        with capture_http(assert_all_called=True) as http:
+            submit = http.post(url__regex=r".*/video-synthesis$").mock(
+                return_value=httpx.Response(200, json={"output": {"task_id": "job"}})
+            )
+            http.get(url__regex=r".*/tasks/job$").mock(
+                return_value=httpx.Response(
+                    200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/video.mp4"}}
+                )
+            )
+            http.get("https://cdn.test/video.mp4").mock(return_value=httpx.Response(200, content=b"local-video"))
+            result = await backend.generate(request)
+            assert "audio" not in request_json(only_request(submit))["parameters"]
+        call.success(result, usage=backend_metered_usage(backend, request, result))
+    async with db_factory() as session:
+        row = await session.get(ApiCall, call.call_id)
+        assert row is not None
+        assert row.generate_audio is False
+        assert row.cost_amount == pytest.approx(quote.amount)

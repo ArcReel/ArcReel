@@ -2,8 +2,12 @@
 
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
@@ -59,19 +63,119 @@ async def test_restored_project_takes_a_new_name_when_the_original_is_taken(tmp_
         assert row.cost_amount == 1.5
 
 
-async def test_restore_keeps_the_original_name_when_it_is_free(tmp_path, monkeypatch, db_factory):
+async def test_restore_uses_a_suffix_when_create_claims_the_name_mid_restore(tmp_path, monkeypatch, file_db_factory):
     manager = ProjectManager(tmp_path)
     _create(manager, "Old")
-    old = await seed_project_records(db_factory)
+    original_dir = manager.get_project_path("demo")
+    (original_dir / "source" / "chapter.txt").write_text("old text", encoding="utf-8")
+    old = await seed_project_records(file_db_factory)
 
-    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
+    with build_projects_client(monkeypatch, manager, session_factory=file_db_factory) as client:
         assert client.delete("/api/v1/projects/demo").status_code == 200
-        assert not manager.project_exists("demo")
         [entry] = client.get(DELETED).json()["projects"]
-        assert client.post(f"{DELETED}/{quote(entry['id'], safe='')}/restore").json()["name"] == "demo"
+        restore_url = f"{DELETED}/{quote(entry['id'], safe='')}/restore"
+        checked, claimed = threading.Event(), threading.Event()
+        finish_create = threading.Event()
+        real_exists, real_mkdir = Path.exists, Path.mkdir
 
+        def wait_for_create_after_free_name_check(path):
+            exists = real_exists(path)
+            if path == original_dir and not exists and not checked.is_set():
+                checked.set()
+                assert claimed.wait(10)
+            return exists
+
+        def pause_after_create_claim(path, *args, **kwargs):
+            if path.parent == original_dir and not claimed.is_set():
+                claimed.set()
+                assert finish_create.wait(10)
+            real_mkdir(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "exists", wait_for_create_after_free_name_check)
+        monkeypatch.setattr(Path, "mkdir", pause_after_create_claim)
+        with ThreadPoolExecutor(max_workers=2) as requests:
+            restore = requests.submit(client.post, restore_url)
+            try:
+                assert checked.wait(10)
+                create = requests.submit(
+                    client.post,
+                    "/api/v1/projects",
+                    json={"name": "demo", "title": "New", "generation_mode": "storyboard"},
+                )
+                assert claimed.wait(10)
+                restored = restore.result(timeout=10)
+            finally:
+                finish_create.set()
+            created = create.result(timeout=10)
+
+        assert created.status_code == 200, created.text
+        assert restored.status_code == 200, restored.text
+        assert created.json()["name"] == "demo"
+        assert restored.json() == {"name": "demo-2"}
+        assert client.get(DELETED).json()["projects"] == []
+
+    assert manager.load_project("demo")["title"] == "New"
+    assert manager.load_project("demo-2")["title"] == "Old"
+    assert not (original_dir / "source" / "chapter.txt").exists()
+    assert (manager.get_project_path("demo-2") / "source" / "chapter.txt").read_text(encoding="utf-8") == "old text"
+    async with file_db_factory() as session:
+        tasks = TaskRepository(session)
+        assert (await tasks.list_tasks(project_name="demo"))["total"] == 0
+        assert (await tasks.get(old["queued"]) or {})["project_name"] == "demo-2"
+        assert (await tasks.get(old["running"]) or {})["project_name"] == "demo-2"
+        usage = UsageRepository(session)
+        assert await usage.fetch_summary_rows(filters=UsageFilters(project_name="demo")) == []
+        [row] = await usage.fetch_summary_rows(filters=UsageFilters(project_name="demo-2"))
+        assert row.cost_amount == 1.5
+
+
+async def test_create_reports_name_conflict_when_restore_claims_the_name_first(tmp_path, monkeypatch, file_db_factory):
+    manager = ProjectManager(tmp_path)
+    _create(manager, "Old")
+    original_dir = manager.get_project_path("demo")
+    (original_dir / "source" / "chapter.txt").write_text("old text", encoding="utf-8")
+    old = await seed_project_records(file_db_factory)
+
+    pause_session = threading.Event()
+    restore_session_opening, finish_restore = threading.Event(), threading.Event()
+
+    class PausedRestoreSession(AsyncSession):
+        async def __aenter__(self):
+            if pause_session.is_set() and not restore_session_opening.is_set():
+                restore_session_opening.set()
+                assert await asyncio.to_thread(finish_restore.wait, 10)
+            return await super().__aenter__()
+
+    session_factory = async_sessionmaker[AsyncSession](
+        file_db_factory.kw["bind"], class_=PausedRestoreSession, expire_on_commit=False
+    )
+    with build_projects_client(monkeypatch, manager, session_factory=session_factory) as client:
+        assert client.delete("/api/v1/projects/demo").status_code == 200
+        [entry] = client.get(DELETED).json()["projects"]
+        restore_url = f"{DELETED}/{quote(entry['id'], safe='')}/restore"
+        with ThreadPoolExecutor(max_workers=1) as requests:
+            pause_session.set()
+            restore = requests.submit(client.post, restore_url)
+            try:
+                assert restore_session_opening.wait(10)
+                assert original_dir.is_dir()
+                created = client.post(
+                    "/api/v1/projects", json={"name": "demo", "title": "New", "generation_mode": "storyboard"}
+                )
+                assert created.status_code == 400, created.text
+                assert created.json()["detail"] == "项目 'demo' 已存在"
+            finally:
+                finish_restore.set()
+            restored = restore.result(timeout=10)
+
+        assert restored.status_code == 200, restored.text
+        assert restored.json() == {"name": "demo"}
+        assert client.get(DELETED).json()["projects"] == []
+
+    assert manager.list_projects() == ["demo"]
     assert manager.load_project("demo")["title"] == "Old"
-    async with db_factory() as session:
+    assert (original_dir / "source" / "chapter.txt").read_text(encoding="utf-8") == "old text"
+    async with file_db_factory() as session:
         assert (await TaskRepository(session).get(old["running"]) or {})["project_name"] == "demo"
 
 

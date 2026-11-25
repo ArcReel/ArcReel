@@ -108,7 +108,6 @@ def fake_resolve_ctx(
                 backend_name=provider,
                 backend_model=backend_model,
                 resolution=video_resolution,
-                requested_generate_audio_fallback=requested_generate_audio,
                 request_facts=request_facts,
             )
         audio_lane = None

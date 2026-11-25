@@ -292,8 +292,7 @@ const klingDetail = {
       "max_reference_audio_count",
       "max_reference_audio_total_seconds",
       "max_prompt_chars",
-      "audio_track",
-      "reference_route_audio_track",
+      "has_audio_track",
     ],
     displayed: [
       "durations",
@@ -307,8 +306,10 @@ const klingDetail = {
       "max_reference_audio_count",
       "max_reference_audio_total_seconds",
       "max_prompt_chars",
-      "audio_track",
-      "reference_route_audio_track",
+      "audio_switch_controllable",
+      "reference_route_audio_switch_controllable",
+      "has_audio_track",
+      "reference_route_has_audio_track",
     ],
     base: {
       durations: [5, 10],
@@ -322,8 +323,10 @@ const klingDetail = {
       max_reference_audio_count: 0,
       max_reference_audio_total_seconds: null,
       max_prompt_chars: 2500,
-      audio_track: "controllable",
-      reference_route_audio_track: "always_off",
+      audio_switch_controllable: true,
+      reference_route_audio_switch_controllable: false,
+      has_audio_track: true,
+      reference_route_has_audio_track: false,
     },
     overrides: { last_frame: false, durations: [5, 10] },
     effective: {},
@@ -572,7 +575,7 @@ defineRegionScenarios("供应商", [
       const sheet = await openModelSheet(page, KLING_ID);
       await expect(sheet.getByText("再乘供应商倍率 0.9，最终为 1.125。")).toBeVisible();
       await sheet.getByRole("button", { name: "修改「按分辨率限定时长」" }).click();
-      await sheet.getByRole("button", { name: "修改「音轨形态」" }).click();
+      await sheet.getByRole("button", { name: "修改「模型成片音轨」" }).click();
       await sheet.getByRole("textbox", { name: "模型 ID" }).fill(`${KLING_ID}-relay`);
       const info = sheet.getByRole("heading", { name: "模型信息" });
       await info.scrollIntoViewIfNeeded();

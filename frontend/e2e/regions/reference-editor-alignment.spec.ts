@@ -70,7 +70,6 @@ const API: ApiOverrides = {
       },
     },
   },
-  "GET /api/v1/projects/demo/episodes/1/drafts": { status: 200, body: { episode: 1, drafts: [] } },
 };
 
 const editor = (page: Page) => page.getByRole("combobox", { name: "视频单元提示词" });

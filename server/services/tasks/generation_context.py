@@ -1,19 +1,4 @@
-"""GenerationContext —— 生成任务 provider 解析产物的单次收口入口（见 ``docs/adr/0049``）。
-
-``resolve_generation_context`` 在单个 ConfigResolver session 内完成全部声明 lane 的解析与
-backend 构造，返回不可变的 :class:`GenerationContext`（MediaGenerator + 各 lane 结果值对象）。
-每条 lane 固定求解顺序：解析 ProviderModel → 经 ``assemble_backend``（``docs/adr/0039``）构造
-backend → 按实际身份查 resolution 与视频请求事实（``docs/adr/0086``）。
-
-查询身份 =（规范 registry provider_id, backend 实际 model）：provider 在构造缝中不可能漂移，
-而族别名 provider（如 ark-agent-plan 复用 Ark backend）的 ``backend.name`` 是族名、非 registry
-key，不能用作查询键；model 是唯一真实漂移轴（自定义供应商目标 model 被禁用时 loader 静默回退），
-故取 backend 实际 ``.model``。lane 结果同时暴露 ``provider_model``（规范 registry 身份）与
-``backend_name`` / ``backend_model``（backend 报告的实际身份）两组字段。
-
-backend 实例缓存随本模块承载：缓存是 server 执行层关切（``docs/adr/0039``「缓存留在调用方」），
-供应商配置变更路由与官方目录同步装入新数据后（``server.app.start_catalog_sync``）经 ``invalidate_backend_cache()`` 统一失效。
-"""
+"""生成任务的调用通道与执行事实（ADR 0049）。"""
 
 from __future__ import annotations
 
@@ -21,43 +6,43 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
-from lib.backends.backend_assembly import assemble_backend, callable_model_key
-from lib.backends.backend_assembly.specs import builtin_model_endpoint
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import (
-    backend_image_quality_options,
-    backend_reference_image_limit,
     effective_image_quality,
+    resolved_image_reference_limit,
 )
-from lib.backends.resume_guard import builtin_endpoint_guard
 from lib.config.resolver import (
     ConfigResolver,
     ImageBucketCapabilityError,
+    ProviderModel,
     VideoGenerationType,
+    payload_video_pinned_pair,
     project_image_quality,
+    project_resolution,
     video_bucket_for_generation_mode,
 )
-from lib.custom_provider import is_custom_provider
-from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.media_generator import MediaGenerator
 from lib.generation.video_request_facts import (
-    ExecutionVideoIdentity,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     VideoRoute,
-    evaluate_video_request_facts,
+    route_failure_code,
+    snapshot_video_request_facts,
 )
 from lib.project.project_manager import get_project_manager
 from lib.prompts.reference_image_numbering import ReferenceImageSlot, require_reference_image_limit
-
-if TYPE_CHECKING:
-    from lib.config.resolver import ProviderModel
-
+from lib.video_runtime.assembly import assemble_video
+from lib.video_runtime.audio import AudioRuntime, AudioTarget, assemble_audio
+from lib.video_runtime.image_assembly import assemble_image
+from lib.video_runtime.image_resolution import ImageRuntime, ImageTarget
+from lib.video_runtime.resolution import VideoRuntime, VideoTarget
 
 rate_limiter = get_shared_rate_limiter()
 
@@ -82,26 +67,39 @@ class _BackendCache:
     """
 
     def __init__(self) -> None:
-        self._entries: dict[_CacheKey, Any] = {}
+        self._entries: dict[_CacheKey, tuple[object, Any]] = {}
         self._locks: dict[_CacheKey, asyncio.Lock] = {}
         self._generation = 0
 
-    async def get_or_create(self, key: _CacheKey, factory: Callable[[], Awaitable[Any]]) -> Any:
-        if key in self._entries:
-            return self._entries[key]
-        generation = self._generation
+    def generation(self) -> int:
+        return self._generation
+
+    async def get_or_create(
+        self,
+        key: _CacheKey,
+        factory: Callable[[], Awaitable[Any]],
+        *,
+        generation: int | None = None,
+        spec: object = None,
+    ) -> Any:
+        if generation is None:
+            generation = self._generation
+        if generation != self._generation:
+            return await factory()
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
-            if key in self._entries:
-                return self._entries[key]
+            entry = self._entries.get(key)
+            if self._generation == generation and entry is not None and entry[0] == spec:
+                return entry[1]
             backend = await factory()
             if self._generation == generation:
-                self._entries[key] = backend
+                self._entries[key] = (spec, backend)
             return backend
 
     def invalidate(self) -> None:
         self._generation += 1
         self._entries.clear()
+        self._locks.clear()
 
 
 _backend_cache = _BackendCache()
@@ -113,126 +111,44 @@ def invalidate_backend_cache() -> None:
 
 
 def reset_backend_cache_for_tests() -> None:
-    """测试隔离用：清空 backend 实例缓存与 per-key 锁，不改变生产行为。
-
-    ``invalidate_backend_cache()`` 按设计只清条目、不清锁（生产环境同一事件循环贯穿进程生命周期）。
-    测试按用例切换事件循环，竞争过的 ``asyncio.Lock`` 会绑定在已关闭的旧循环上，所以一并清掉。
-    """
     _backend_cache.invalidate()
-    _backend_cache._locks.clear()
 
 
-async def _get_or_create_backend(
-    media_type: str,
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    default_model: str | None,
-    generation_type: str | None = None,
-    *,
-    submitted_job: bool = False,
-) -> tuple[Any, str | None]:
-    """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`；返回 backend 与构造它的内置调用端点。
-
-    查缓存之前先定下这次调用的模型并按今天的生命周期检查（``callable_model_key``，内置与自定义供应商都查）：
-    缓存的实例可能构造于关停日期之前，跨过关停日期后不能再经缓存调用已下线的模型，也不能沿用已下线的默认模型。
-
-    ``submitted_job`` 为真（续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`）时查缓存前与构造时都不拦已下线的
-    模型。缓存键不含它：续跑写入的实例与新调用共用缓存，新调用取缓存前照样经 ``callable_model_key`` 检查。
-
-    内置供应商的模型在这里只读一次挂接的调用端点：按它构造、按它分缓存键，视频的续跑守卫也取它
-    （:func:`_video_endpoint_guard`），请求事实也按它求值。之后的 await 期间用户改了端点，
-    事实与守卫仍与实际提交任务的实例一致。自定义供应商为 None。
-    """
-    effective_model = await callable_model_key(
-        provider_id=provider_name,
-        media_type=media_type,
-        model_id=provider_settings.get("model") or default_model or None,
-        resolver=resolver,
-        generation_type=generation_type,
-        submitted_job=submitted_job,
+async def _video_backend_for(target: VideoTarget):
+    snapshot = target.snapshot
+    return await _backend_cache.get_or_create(
+        ("video", snapshot.provider_id, snapshot.model_id, None, None),
+        lambda: assemble_video(target.spec),
+        generation=target.generation,
+        spec=target.spec,
     )
 
-    endpoint = (
-        None
-        if is_custom_provider(provider_name)
-        else builtin_model_endpoint(provider_name, media_type, effective_model)
+
+async def _image_backend_for(target: ImageTarget):
+    snapshot = target.snapshot
+    return await _backend_cache.get_or_create(
+        ("image", snapshot.provider_id, snapshot.model_id, None, None),
+        lambda: assemble_image(target.spec),
+        generation=target.generation,
+        spec=target.spec,
     )
 
-    async def _factory() -> Any:
-        return await assemble_backend(
-            provider_id=provider_name,
-            media_type=media_type,
-            model_id=effective_model,
-            resolver=resolver,
-            rate_limiter=rate_limiter,
-            generation_type=generation_type,
-            submitted_job=submitted_job,
-            builtin_endpoint=endpoint,
-        )
 
-    backend = await _backend_cache.get_or_create(
-        (media_type, provider_name, effective_model, generation_type, endpoint), _factory
+async def _audio_backend_for_target(target: AudioTarget):
+    return await _backend_cache.get_or_create(
+        ("audio", target.provider_id, target.model_id, None, target.spec.endpoint),
+        lambda: assemble_audio(target.spec),
+        generation=target.generation,
+        spec=target.spec,
     )
-    return backend, endpoint
-
-
-async def _get_or_create_video_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_video_model: str | None = None,
-    submitted_job: bool = False,
-) -> tuple[Any, str | None]:
-    """获取或创建 VideoBackend 实例（带缓存），连同构造它的内置调用端点。
-
-    provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
-    通过 resolver 按需加载供应商配置。
-    default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
-    submitted_job: 续跑已提交给厂商的任务，见 :class:`VideoLaneRequest`。
-    """
-    backend, endpoint = await _get_or_create_backend(
-        "video", provider_name, provider_settings, resolver, default_video_model, submitted_job=submitted_job
-    )
-    return backend, endpoint
-
-
-async def _get_or_create_image_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_image_model: str | None = None,
-    generation_type: Literal["t2i", "i2i"] | None = None,
-):
-    """获取或创建 ImageBackend 实例（带缓存）。
-
-    generation_type 是本次调用所属的任务类型桶：自定义供应商的默认模型按桶分槽，桶随构造一路
-    传到 ``load_custom_backend``，也进缓存 key（t2i 与 i2i 不互相命中）。
-    """
-    backend, _ = await _get_or_create_backend(
-        "image", provider_name, provider_settings, resolver, default_image_model, generation_type
-    )
-    return backend
-
-
-async def _get_or_create_audio_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_audio_model: str | None = None,
-):
-    """获取或创建 AudioBackend 实例（带缓存）。audio 无媒体特例：自定义 + 简单族统一经构造缝。"""
-    backend, _ = await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
-    return backend
 
 
 async def _audio_backend_for(provider_id: str, model_id: str, resolver: ConfigResolver):
     """构造（或取缓存的）指定音频 backend。供应商未配置或模型不可用时原样抛出构造错误。"""
-    async with resolver.session() as r:
-        return await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
+    target = await AudioRuntime(resolver, capture_generation=_backend_cache.generation).for_identity(
+        ProviderModel(provider_id, model_id)
+    )
+    return await _audio_backend_for_target(target)
 
 
 @dataclass(frozen=True)
@@ -276,16 +192,19 @@ class VideoLaneRequest:
     ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
     未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
 
-    ``submitted_job`` 声明这次解析只用于续跑已提交给厂商的任务：只向厂商轮询一个已经存在的任务、不发起新的生成，
-    所以身份解析与 backend 构造都不做下线检查，关停日期前提交的任务在关停后续跑仍能取回结果。payload 须锁定提交时
-    的执行身份。只由续跑入口（``server.services.tasks.resume_executor``）声明；新提交恒为假，入队后、提交给厂商之前
-    才跨过关停日期的任务照常报下线。
     """
 
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
-    submitted_job: bool = False
     uses_end_frame: bool = False
+    service_tier: str = "default"
+
+
+@dataclass(frozen=True)
+class SubmittedVideoLaneRequest:
+    identity: ProviderModel
+    endpoint_guard: str | None
+    job_id: str
 
 
 @dataclass(frozen=True)
@@ -329,31 +248,16 @@ class VideoLaneResult:
     backend_model: str
     resolution: str | None
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-    requested_generate_audio_fallback: bool = True
     endpoint: str | None = None
 
     @property
-    def requested_generate_audio(self) -> bool:
-        facts = self.request_facts
-        if isinstance(facts, VideoRequestFactsFailure):
-            raise VideoRequestFactsError(facts)
-        return facts.requested_generate_audio if facts is not None else self.requested_generate_audio_fallback
-
-    @property
     def is_silent(self) -> bool:
-        """这一集是否听不到声音——模型不产音（C 类）或本集关闭了音频，两条路径同口径。
-
-        声音一致性取自视频请求事实，解析不出时按 "soft"（有信号才判定为真无声，见
-        ``lib.config.resolver.derive_voice_consistency``）。声音特征描述随该判据一并不注入：
-        它虽是提示词文本而非音频负载，但描述的是听得到的音色，无声成片里注入只会让模型把配额
-        花在用不上的约束上。台词不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
-        参考生视频的同名判据见 ``lib.script.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
-        """
         facts = self.request_facts
         if isinstance(facts, VideoRequestFactsFailure):
             raise VideoRequestFactsError(facts)
-        voice_consistency = facts.voice_consistency if isinstance(facts, VideoRequestFacts) else "soft"
-        return voice_consistency == "none" or not self.requested_generate_audio
+        if facts is None:
+            raise RuntimeError("video lane has no request facts")
+        return facts.voice_consistency == "none" or not facts.requested_generate_audio
 
 
 @dataclass(frozen=True)
@@ -408,17 +312,6 @@ class GenerationContext:
         return self.audio_lane
 
 
-def _video_endpoint_guard(backend: object, builtin_endpoint: str | None) -> str | None:
-    """提交时冻结、续跑时比对的协议标识（见 lib.backends.resume_guard），取自构造这个 backend 所用的端点。
-
-    内置供应商取构造时挂接的内置调用端点；自定义供应商取包装层给出的端点键与路径覆盖。显式按类型分流而非 getattr
-    探测：属性一旦改名，探测式取值会静默失效且无任何信号。
-    """
-    if builtin_endpoint is not None:
-        return builtin_endpoint_guard(builtin_endpoint)
-    return backend.endpoint_guard if isinstance(backend, CustomVideoBackend) else None
-
-
 async def resolve_generation_context(
     project_name: str,
     payload: dict | None,
@@ -427,7 +320,7 @@ async def resolve_generation_context(
     project_path: Path | None = None,
     user_id: str = DEFAULT_USER_ID,
     image: ImageLaneRequest | None = None,
-    video: VideoLaneRequest | None = None,
+    video: VideoLaneRequest | SubmittedVideoLaneRequest | None = None,
     audio: AudioLaneRequest | None = None,
 ) -> GenerationContext:
     """在单个 ConfigResolver session 内解析全部声明 lane、构造 backend 并组装 MediaGenerator。
@@ -461,97 +354,100 @@ async def resolve_generation_context(
     video_backend: Any = None
     audio_backend: Any = None
 
-    async with resolver.session() as r:
+    image_target: ImageTarget | None = None
+    target: VideoTarget | None = None
+    video_limits = None
+    generation = _backend_cache.generation()
+    async with resolver.session(snapshot_settings=isinstance(video, VideoLaneRequest)) as r:
         if image is not None:
+            image_runtime = ImageRuntime(r, capture_generation=lambda: generation, rate_limiter=rate_limiter)
             try:
-                resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+                image_target = await image_runtime.resolve(project, payload, bucket=image.generation_type)
             except ImageBucketCapabilityError as exc:
                 if image.generation_type == "i2i":
                     require_reference_image_limit(image.references, 0, model=exc.model_id)
                 raise
-            image_backend = await _get_or_create_image_backend(
-                resolved.provider_id,
-                {},
-                r,
-                default_image_model=resolved.model_id or None,
-                generation_type=image.generation_type,
+            image_snapshot = image_target.snapshot
+            image_backend = await _image_backend_for(image_target)
+            image_provider_model = ProviderModel(image_snapshot.provider_id, image_snapshot.model_id)
+            image_resolution = (
+                project_resolution(project, image_snapshot.provider_id, image_backend.model)
+                or image_snapshot.default_resolution
             )
-            image_provider_model = resolved
-            image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
             image_quality = effective_image_quality(
-                project_image_quality(project, resolved.provider_id, image_backend.model),
-                backend_image_quality_options(image_backend, provider_id=resolved.provider_id),
+                project_image_quality(project, image_snapshot.provider_id, image_backend.model),
+                tuple(image_snapshot.effective["qualities"]),
             )
 
         if video is not None:
-            generation_type = video.generation_type
-            if generation_type is None and video.route is not None:
-                generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
-            resolved = await r.resolve_video_backend(
-                project, payload, generation_type=generation_type, submitted_job=video.submitted_job
-            )
-            video_backend, builtin_endpoint = await _get_or_create_video_backend(
-                resolved.provider_id,
-                {},
-                r,
-                default_video_model=resolved.model_id or None,
-                submitted_job=video.submitted_job,
-            )
-            actual_model = video_backend.model
-            request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-            if video.route is not None:
-                assert generation_type is not None
-                request_facts = await evaluate_video_request_facts(
-                    project,
-                    route=video.route,
-                    generation_type=generation_type,
-                    identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
-                    resolver=r,
-                    builtin_endpoint=builtin_endpoint,
-                    uses_end_frame=video.uses_end_frame,
-                )
-            requested_generate_audio_fallback = True
-            if isinstance(request_facts, VideoRequestFacts):
-                resolution = request_facts.resolution
-            elif isinstance(request_facts, VideoRequestFactsFailure):
-                resolution = None
+            runtime = VideoRuntime(r, capture_generation=lambda: generation, rate_limiter=rate_limiter)
+            generation_type = None
+            if isinstance(video, SubmittedVideoLaneRequest):
+                target = await runtime.submitted(video.identity, video.endpoint_guard, job_id=video.job_id)
             else:
-                resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
-                requested_generate_audio_fallback = await r.video_generate_audio_for_project(project)
+                generation_type = video.generation_type
+                if generation_type is None and video.route is not None:
+                    generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
+                pinned = payload_video_pinned_pair(payload or {}, generation_type)
+                if pinned:
+                    target = await runtime.materialized(ProviderModel(*pinned[1]))
+                elif generation_type:
+                    target = await runtime.bucket(project, generation_type)
+                else:
+                    target = await runtime.default(project)
+            snapshot = target.snapshot
+            request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+            if isinstance(video, VideoLaneRequest) and video.route is not None:
+                assert generation_type is not None
+                try:
+                    requested_audio = await r.video_generate_audio_for_project(project)
+                except SQLAlchemyError:
+                    request_facts = VideoRequestFactsFailure(
+                        route_failure_code(video.route, "unavailable"),
+                        (
+                            ("capability", generation_type),
+                            ("provider", snapshot.provider_id),
+                            ("model", snapshot.model_id),
+                        ),
+                    )
+                else:
+                    request_facts = snapshot_video_request_facts(
+                        snapshot,
+                        project,
+                        route=video.route,
+                        generation_type=generation_type,
+                        uses_end_frame=video.uses_end_frame,
+                        service_tier=video.service_tier,
+                        requested_audio=requested_audio,
+                    )
+                video_limits = target.reference_payload_limits or await r.reference_payload_limits(snapshot.provider_id)
+            video_backend = await _video_backend_for(target)
             video_result = VideoLaneResult(
-                provider_model=resolved,
+                provider_model=ProviderModel(snapshot.provider_id, snapshot.model_id),
                 backend_name=video_backend.name,
-                backend_model=actual_model,
-                resolution=resolution,
+                backend_model=video_backend.model,
+                resolution=request_facts.resolution if isinstance(request_facts, VideoRequestFacts) else None,
                 request_facts=request_facts,
-                requested_generate_audio_fallback=requested_generate_audio_fallback,
-                endpoint=_video_endpoint_guard(video_backend, builtin_endpoint),
+                endpoint=target.endpoint_guard,
             )
 
         if audio is not None:
-            resolved = await r.resolve_audio_backend(project, payload)
-            audio_backend = await _get_or_create_audio_backend(
-                resolved.provider_id,
-                {},
-                r,
-                default_audio_model=resolved.model_id or None,
-            )
+            audio_target = await AudioRuntime(r, capture_generation=lambda: generation).resolve(project, payload)
+            audio_backend = await _audio_backend_for_target(audio_target)
             audio_result = AudioLaneResult(
-                provider_model=resolved,
+                provider_model=ProviderModel(audio_target.provider_id, audio_target.model_id),
                 backend_name=audio_backend.name,
                 backend_model=audio_backend.model,
                 voices=tuple(audio_backend.list_voices()),
             )
 
-    if image_provider_model is not None:
+    if image_target is not None and image_provider_model is not None:
         image_result = ImageLaneResult(
             provider_model=image_provider_model,
             backend_name=image_backend.name,
             backend_model=image_backend.model,
             resolution=image_resolution,
-            max_reference_images=(
-                await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
-            ).to_json(),
+            max_reference_images=(await resolved_image_reference_limit(image_target.snapshot, image_backend)).to_json(),
             quality=image_quality,
         )
 
@@ -559,7 +455,10 @@ async def resolve_generation_context(
         resolved_project_path,
         rate_limiter=rate_limiter,
         image_backend=image_backend,
+        image_snapshot=image_target.snapshot if image_target else None,
         video_backend=video_backend,
+        video_snapshot=target.snapshot if target else None,
+        video_limits=video_limits,
         audio_backend=audio_backend,
         config_resolver=resolver,
         user_id=user_id,

@@ -17,31 +17,6 @@ export const NEW_ASSET_BUCKET = { character: "characters", scene: "scenes", prop
 
 export const NEW_ASSET_DECISIONS: readonly NewAssetDecision[] = ["register", "merge", "derivative", "skip"];
 
-export function hasValidNewAssets(content: Record<string, unknown> | null): boolean {
-  const items = content?.new_assets;
-  if (items === undefined) return true;
-  return (
-    Array.isArray(items) &&
-    items.every((item: unknown) => {
-      if (item == null || typeof item !== "object") return false;
-      const v = item as Record<string, unknown>;
-      return (
-        typeof v.name === "string" &&
-        typeof v.type === "string" &&
-        Object.hasOwn(NEW_ASSET_BUCKET, v.type) &&
-        typeof v.decision === "string" &&
-        (NEW_ASSET_DECISIONS as readonly string[]).includes(v.decision) &&
-        typeof v.reason === "string" &&
-        typeof v.description === "string" &&
-        typeof v.target === "string" &&
-        typeof v.asset_name === "string" &&
-        Array.isArray(v.aliases)
-      );
-    })
-  );
-}
-
-
 function emptyNames(): NamesByType {
   return { character: new Set(), scene: new Set(), prop: new Set() };
 }

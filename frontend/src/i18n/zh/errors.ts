@@ -1,6 +1,8 @@
 import type enErrors from '../en/errors';
 
 export default {
+  "asset_resource_busy": "资产有生成任务正在排队或执行，当前无法操作，任务结束后再试。",
+  "apply_failed_resource_busy": "项目资产有任务正在排队或执行，无法覆盖。任务结束后再试。",
   "text_default_model_not_set": "还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择；还没有配置供应商时，先在「全局设置 → 供应商」配置",
   "audio_default_model_not_set": "还没有设置旁白配音的默认模型：请在「全局设置 → 默认模型」中选择；还没有配置支持语音合成的供应商时，先在「全局设置 → 供应商」配置",
   "image_default_model_not_set": "还没有设置图片默认模型：请在「全局设置 → 默认模型」中选择",
@@ -101,8 +103,6 @@ export default {
   'file_content_load_failed': '获取文件内容失败',
   'file_replace_failed': '替换文件失败',
   'file_delete_failed': '删除文件失败',
-  'stage_file_load_failed': '获取阶段文件失败',
-  'stage_file_save_failed': '保存阶段文件失败',
   'credential_upload_failed': '上传凭证失败',
   'market_icon_load_failed': '获取条目图标失败',
   'event_stream_connect_failed': '事件流连接失败',

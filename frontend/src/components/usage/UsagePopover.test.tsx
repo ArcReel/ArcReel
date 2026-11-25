@@ -1,7 +1,9 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { seedTaskState } from "@/test/task-state";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -71,6 +73,18 @@ describe("UsagePopover", () => {
     await i18n.changeLanguage("zh");
   });
 
+  it("shows incomplete active coverage until the next complete snapshot", async () => {
+    vi.spyOn(API, "getActiveTasks").mockResolvedValueOnce({items: [], truncated: true}).mockResolvedValue({items: [], truncated: false});
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({stats: useTasksStore.getInitialState().stats});
+    useTasksStore.getState().setRefreshScope({ projectName: HEADER_PROJECT });
+    openPopover({});
+    await act(useTasksStore.getState().refreshTasks);
+    expect(await screen.findByText("进行中任务未完整加载。")).toBeInTheDocument();
+    await act(useTasksStore.getState().refreshTasks);
+    expect(screen.queryByText("进行中任务未完整加载。")).not.toBeInTheDocument();
+  });
+
   it("shows only the guidance line and the records link when nothing was ever called", () => {
     openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI, primary_currency: null }) });
 
@@ -83,7 +97,7 @@ describe("UsagePopover", () => {
   });
 
   it("keeps a placeholder in the finished column while only tasks are running", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: "t-1",
@@ -200,6 +214,63 @@ describe("UsagePopover", () => {
     expect(useAppStore.getState().usagePanelOpen).toBe(false);
   });
 
+  it.each([false, true])("hides a resumed download with history request failure=%s", async (historyFails) => {
+    const failedRecord = makeUsageRecord({
+      status: "failed",
+      error_code: "download_failed",
+      task_id: "t-retry",
+    });
+    const failedTask = makeTask({
+      task_id: "t-retry",
+      project_name: HEADER_PROJECT,
+      status: "failed",
+      updated_at: "2026-11-24T08:00:00.123400Z",
+    });
+    const runningTask = {
+      ...failedTask,
+      status: "running" as const,
+      updated_at: "2026-11-24T08:00:00.123401Z",
+    };
+    let task = failedTask;
+    vi.spyOn(API, "getActiveTasks").mockImplementation(async () => ({
+      items: task.status === "running" ? [task] : [],
+      truncated: false,
+    }));
+    vi.spyOn(API, "listTasks").mockImplementation(async () => ({
+      items: task.status === "succeeded" ? [] : [task], total: 1, page: 1, page_size: 200,
+    }));
+    vi.spyOn(API, "lookupTasks").mockImplementation(async () => ({ items: [task], missing_ids: [] }));
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+    vi.mocked(API.getUsageRecords).mockImplementation(async (query) => {
+      if (historyFails && task.status !== "failed" && query?.statuses?.includes("failed")) {
+        throw new Error("history unavailable");
+      }
+      const items = task.status === "failed" && query?.statuses?.includes("failed") ? [failedRecord] : [];
+      return { items, next_cursor: null, total: items.length };
+    });
+    useTasksStore.getState().setRefreshScope({ projectName: HEADER_PROJECT });
+    await act(useTasksStore.getState().refreshTasks);
+    openPopover({});
+
+    expect(await screen.findByRole("button", { name: "重试下载" })).toBeInTheDocument();
+
+    task = runningTask;
+    await act(useTasksStore.getState().refreshTasks);
+
+    expect(within(screen.getByRole("region", { name: "进行中" })).getByText("生成中…")).toBeInTheDocument();
+    const finished = within(screen.getByRole("region", { name: "最近已结束" }));
+    await waitFor(() => {
+      expect(finished.queryByText("失败")).not.toBeInTheDocument();
+      expect(finished.queryByRole("button", { name: "重试下载" })).not.toBeInTheDocument();
+    });
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(historyFails);
+
+    task = { ...runningTask, status: "succeeded", updated_at: "2026-11-24T08:00:00.123402Z" };
+    await act(useTasksStore.getState().refreshTasks);
+    expect(finished.queryByText("失败")).not.toBeInTheDocument();
+    expect(finished.queryByRole("button", { name: "重试下载" })).not.toBeInTheDocument();
+  });
+
   it("retries a failed download through the tasks API and refetches the records", async () => {
     const failedRecord = makeUsageRecord({
       id: 8,
@@ -229,5 +300,42 @@ describe("UsagePopover", () => {
     await waitFor(() =>
       expect(API.getUsageSummary).toHaveBeenCalledTimes(callsBeforeRetry + 1),
     );
+  });
+
+  it.each([
+    {
+      failure: "HTTP 503",
+      respond: () =>
+        Response.json(
+          { detail: "服务正在停机，暂不可重试下载任务 't-9'，请待服务重启后再试" },
+          { status: 503 },
+        ),
+      message: "服务暂不可用，恢复后请重试下载",
+    },
+    {
+      failure: "HTTP 400",
+      respond: () => Response.json({ detail: "任务不符合重试下载条件" }, { status: 400 }),
+      message: "重试下载没能开始，请稍后再试",
+    },
+    {
+      failure: "a network error",
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+      message: "重试下载没能开始，请稍后再试",
+    },
+  ])("shows the download retry notice for $failure", async ({ respond, message }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => respond());
+
+    render(<ToastOverlay />);
+    openPopover({
+      recent: [
+        makeUsageRecord({ status: "failed", error_code: "download_failed", task_id: "t-9" }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "重试下载" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 });

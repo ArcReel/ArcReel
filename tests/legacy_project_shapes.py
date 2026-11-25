@@ -1273,6 +1273,21 @@ def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = Fa
     return project_dir
 
 
+def write_legacy_dangling_alias_reference_project(root: Path, *, absolute: bool = False) -> Path:
+    project_dir = write_legacy_shared_reference_project(root / "real" / "projects")
+    alias = root / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    aliased_project = alias / project_dir.name
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    project["schema_version"] = 19
+    reference = f"../../alias/{project_dir.name}/characters/refs/Alice.png"
+    project["characters"]["Bob"]["reference_image"] = str(aliased_project / reference) if absolute else reference
+    project["products"] = {}
+    _write_json(project_path, project)
+    return aliased_project
+
+
 def share_a_sheet_with_an_occupied_copy_target(project_dir: Path) -> None:
     """Bob 的资产图借用 Alice，Bob 的原图仍引用将被资产图副本占用的落点。"""
     project_path = project_dir / "project.json"
@@ -1912,6 +1927,12 @@ def _write_modified_storyboard(root: Path, *, modify: Callable[[Path], object]) 
     return project_dir
 
 
+def write_legacy_ad_duplicate_ids_project(root: Path) -> Path:
+    project_dir = write_legacy_ad_reference_video_project(root)
+    duplicate_legacy_ad_ids(project_dir)
+    return project_dir
+
+
 def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object]) -> Path:
     project_dir = write_legacy_style_project(root)
     project_path = project_dir / "project.json"
@@ -1924,6 +1945,26 @@ def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object])
     _write_json(project_path, project)
     advance_project_schema(project_dir, to_version=18)
     modify(project_dir)
+    return project_dir
+
+
+def write_legacy_quarantine_project(root: Path) -> Path:
+    project_dir = write_legacy_storyboard_project(root, schema_version=5)
+    project_file = project_dir / "project.json"
+    project = json.loads(project_file.read_bytes())
+    project["characters"] = {"Alice": {"description": "A"}, "ALICE": {"description": "B"}}
+    project["metadata"] = {"updated_at": "2026-02-01T12:00:00Z"}
+    _write_json(project_file, project)
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    for name, data in {
+        "step1_normalized_script.invalid.json": b'{"content":{"scenes":[{"characters_in_scene":["ALICE"]}]}}',
+        "step1_segments.invalid.json": b"old name conflict",
+        "script_plan_segments.invalid.json": b"corrupt\xff",
+        "step1_reference_units.invalid.json": b'{"owner":"model"}',
+        "step2_reference_script.invalid.json": b"prompt draft",
+    }.items():
+        (drafts / name).write_bytes(data)
     return project_dir
 
 
@@ -1950,6 +1991,7 @@ LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "retired-flash-lite-aistudio": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-aistudio"),
     "retired-flash-lite-vertex": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-vertex"),
     "retired-model-references": write_legacy_retired_model_references_project,
+    "quarantine-drafts": write_legacy_quarantine_project,
     "bare-provider": write_legacy_bare_provider_project,
     "timeline-agent-turn": write_legacy_timeline_agent_turn_project,
     "item-id-reuse": write_legacy_item_id_reuse_project,
@@ -1969,6 +2011,7 @@ LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "reference-video-legacy-audio": partial(write_legacy_reference_video_project, with_legacy_audio=True),
     "reference-video-split-text": partial(write_legacy_reference_video_project, split_unit_text=True),
     "ad-legacy-shot-index": write_legacy_ad_reference_video_project,
+    "ad-duplicate-ids": write_legacy_ad_duplicate_ids_project,
     "ad-partially-converted": partial(write_legacy_ad_reference_video_project, converted=True),
     "style-prefix": write_legacy_style_project,
     "style-short-label": partial(write_legacy_style_project, style="Photographic"),
@@ -1982,6 +2025,7 @@ LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
         write_undescribed_style_bases_project, name="legacy-reference-style", route="reference_video"
     ),
     "shared-reference": write_legacy_shared_reference_project,
+    "dangling-alias-reference": write_legacy_dangling_alias_reference_project,
     "shared-reference-padded-names": partial(write_legacy_shared_reference_project, padded_names=True),
     "presentation": write_legacy_presentation_project,
     "sheet-copy-collision-v5": partial(_write_legacy_sheet_collision_project, schema_version=5),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from server.agent_toolset.declaration import READ_CHECK, Exempt, ToolDeclaration
+from server.agent_toolset.declaration import BLOCKED, READ_CHECK, Exempt, ToolDeclaration
 from server.tool_runtime import (
     EpisodeScriptRequest,
     NoArguments,
@@ -75,11 +75,11 @@ GET_SCRIPT_PLAN_CONTENT = ToolDeclaration(
     name="get_script_plan_content",
     description=(
         "读取指定集当前正式的 script_plan（剧本规划中间态，位于 drafts/episode_{集 ID}/）正文及其 canonical "
-        "revision。只读，无副作用。项目不使用 script_plan 时返回 script_plan_not_applicable；"
+        "revision、blocking_issues 与 soft_violations。revision 用于 patch_script_plan。旧参考规划读取时收编单元时长。项目不使用 script_plan 时返回 script_plan_not_applicable；"
         "该集尚无 script_plan 时返回 file_not_found。"
     ),
     request_model=ScriptPlanContentRequest,
-    migration=_READ_ONLY_FILE,
+    migration=BLOCKED,
     domain_key="script_plan_content",
     handler=get_script_plan_content,
 )

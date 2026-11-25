@@ -142,9 +142,12 @@ class TestMergeIntoAsset:
         drafts = pm.get_project_path(PROJECT) / "drafts"
         (drafts / "episode_1").mkdir(parents=True)
         atomic_write_json(
-            drafts / "episode_1" / NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
+            drafts / "episode_1" / "script_plan_segments.json",
             {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["老王"]}]},
         )
+        legacy_invalid = drafts / "episode_1" / NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME
+        legacy_payload = {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["老王"]}]}
+        atomic_write_json(legacy_invalid, legacy_payload)
         (drafts / "episode_2").mkdir(parents=True)
         atomic_write_json(
             drafts / "episode_2" / "script_plan_reference_units.json",
@@ -157,7 +160,7 @@ class TestMergeIntoAsset:
         assert preview.dry_run is True
         assert preview.aliases_added == ("老王", "王叔")
         assert preview.episodes == (
-            AssetMergeEpisodeImpact(episode=1, script=1, draft=1, prompt_text=1, speaker=1),
+            AssetMergeEpisodeImpact(episode=1, script=1, script_plan=1, prompt_text=1, speaker=1),
             AssetMergeEpisodeImpact(episode=2, prompt_text=3),
         )
         assert pm.load_project(PROJECT) == project_before
@@ -167,8 +170,9 @@ class TestMergeIntoAsset:
 
         assert executed.dry_run is False
         assert (executed.episodes, executed.aliases_added) == (preview.episodes, preview.aliases_added)
-        draft = load_json_or_none(drafts / "episode_1" / NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME)
-        assert draft == {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["王建国"]}]}
+        plan = load_json_or_none(drafts / "episode_1" / "script_plan_segments.json")
+        assert plan == {"segments": [{"segment_id": "E1S01", "characters_in_segment": ["王建国"]}]}
+        assert load_json_or_none(legacy_invalid) == legacy_payload
 
 
 def _write_confirmed_plan(pm: ProjectManager, plan: dict[str, Any]) -> Path:

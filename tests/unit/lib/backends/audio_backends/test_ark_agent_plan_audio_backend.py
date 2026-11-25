@@ -14,7 +14,9 @@ from arcreel_catalog_core import endpoint_version_floor
 from lib.backends.audio_backends import AudioCapability, AudioSynthesisRequest
 from lib.backends.audio_backends.ark_agent_plan import ArkAgentPlanAudioBackend
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_spec, infer_builtin_endpoint
+from lib.backends.backend_assembly.specs import builtin_model_spec
+from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
+from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.billing.call_failure import classify_call_failure
 from lib.config.registry import PROVIDER_REGISTRY
@@ -24,8 +26,11 @@ from tests.http_capture import capture_http, only_request, request_json
 
 
 def _backend(credentials: dict[str, str]):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = builtin_model_spec("ark-agent-plan", "audio", "seed-tts-2.0")
-    return spec.build_backend(
+    return build_builtin_backend(
+        spec,
         LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["ark-agent-plan"], rate_limiter=None),
         "seed-tts-2.0",
     )

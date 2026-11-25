@@ -18,7 +18,7 @@ import json
 import logging
 import unicodedata
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, TypeGuard
@@ -29,6 +29,7 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     SourceSpan,
     compute_source_fingerprints,
+    discover_episode_file_aliases,
     is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -476,9 +477,48 @@ def archive_episode_file_path(path: Path) -> Path:
     return candidate
 
 
+@dataclass
+class EpisodeFileArchives:
+    project_dir: Path
+    episode_ids: Collection[int]
+    other_paths: Collection[Path]
+    source_files: Collection[str] = ()
+    targets: dict[Path, Path] = field(default_factory=dict, init=False)
+    _prepared: bool = field(default=False, init=False)
+
+    def prepare_protected_paths(self) -> list[Path]:
+        self._prepared = True
+        self.targets = {}
+        snapshot_paths = source_snapshot_transaction_paths(self.project_dir, self.source_files)
+        source_dir = self.project_dir / "source"
+        if not self.episode_ids or source_dir.is_symlink() or source_dir.is_junction():
+            return [*self.other_paths, *snapshot_paths]
+        aliases = discover_episode_file_aliases(self.project_dir)
+        self.targets = {
+            path: archive_episode_file_path(path) for episode in self.episode_ids for path in aliases.get(episode, ())
+        }
+        return [*self.other_paths, *snapshot_paths, *self.targets, *self.targets.values()]
+
+    def apply(self) -> None:
+        if not self._prepared:
+            raise RuntimeError("EpisodeFileArchives.prepare_protected_paths() 须在 apply() 前于锁内调用")
+        for path, target in self.targets.items():
+            path.rename(target)
+
+
 def source_snapshot_path(project_dir: Path, rel: str) -> Path:
     """整本源文文件 ``rel`` 的快照路径。"""
     return project_dir / SOURCE_SNAPSHOTS_DIR / PurePosixPath(rel).name
+
+
+def source_snapshot_transaction_paths(project_dir: Path, source_files: Iterable[str]) -> list[Path]:
+    """``sync_source_snapshots`` 可能改写或清理的全部快照路径（须在项目锁内收集）。"""
+    paths: list[Path] = []
+    snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
+    if snapshot_dir.is_dir() and not snapshot_dir.is_symlink():
+        paths.extend(path for path in snapshot_dir.iterdir() if path.is_file() or path.is_symlink())
+    paths.extend(source_snapshot_path(project_dir, rel) for rel in source_files)
+    return paths
 
 
 def cut_episode_source_files(project: Mapping[str, Any]) -> list[str]:
@@ -567,6 +607,7 @@ __all__ = [
     "SOURCE_SNAPSHOTS_DIR",
     "WHOLE_SOURCE_FILES_KEY",
     "CutPlacement",
+    "EpisodeFileArchives",
     "SourceOrigin",
     "append_whole_source_file",
     "changed_outside_service",
@@ -590,6 +631,7 @@ __all__ = [
     "source_planning_inputs",
     "source_remaining",
     "source_snapshot_path",
+    "source_snapshot_transaction_paths",
     "span_text",
     "stored_source_remaining",
     "sync_source_snapshots",

@@ -361,7 +361,7 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
     """resume_executor 只声明 video lane、不声明 image lane —— 不构造 image backend，
     image 配置坏不影响接续（等价于旧 require_image_backend=False 的意图）。"""
     from server.services.tasks import resume_executor
-    from server.services.tasks.generation_context import VideoLaneRequest
+    from server.services.tasks.generation_context import SubmittedVideoLaneRequest
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -383,7 +383,7 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
 
     await execute_resume_video_task(video_task, job_id="openai-job-1")
 
-    assert isinstance(captured["kwargs"].get("video"), VideoLaneRequest)
+    assert isinstance(captured["kwargs"].get("video"), SubmittedVideoLaneRequest)
     assert captured["kwargs"].get("image") is None
     assert captured["kwargs"].get("audio") is None
 
@@ -667,8 +667,8 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     result = await execute_resume_video_task(task, job_id="job-1")
 
     assert result["resource_type"] == "reference_videos"
-    assert captured_context["payload"] == {"video_provider_r2v": "custom-7/cinema-v1"}
-    assert captured_context["kwargs"]["video"].generation_type == "r2v"
+    assert captured_context["payload"] is None
+    assert captured_context["kwargs"]["video"].identity.pair_key == "custom-7/cinema-v1"
     call = fake_gen.resume_calls[0]
     assert call["prompt"] == "frozen actual prompt"
     assert call["duration_seconds"] == 12
@@ -746,7 +746,7 @@ async def test_reference_resume_without_tts_config_declares_no_audio_lane(
 
     assert result == {"resource_type": "reference_videos", "resource_id": "E1U1"}
     assert captured.get("audio") is None
-    assert captured["video"].generation_type == "r2v"
+    assert captured["video"].identity.pair_key == "custom-7/cinema-v1"
     call = fake_gen.resume_calls[0]
     assert call["duration_seconds"] == 12
     assert call["execution_request_digest"] == ReferenceSubmissionCheckpoint.from_json(checkpoint_json).request_digest

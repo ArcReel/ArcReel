@@ -88,7 +88,8 @@ async def test_get_image_capabilities_reports_model_missing_from_catalog_with_pr
     assert problem["params"] == {"provider": "gemini-aistudio", "model": "retired-image"}
 
 
-async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, video_request_facts) -> None:
+async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, set_video_request_facts) -> None:
+    set_video_request_facts(make_video_request_facts(provider_id="fake", model_id="fake-video"))
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})
     assert out.problem is None
@@ -103,7 +104,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolHarness,
     rejected = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {"episode_id": 3})
     assert rejected.problem is not None
     assert rejected.problem.code == "invalid_request"
-    assert resolver.generation_type_calls == [None]
+    assert resolver.generation_type_calls == ["i2v"]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(
@@ -235,11 +236,15 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     assert "reference_unit_durations" not in payload
 
 
-async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """Agent 工具把闭包项目交给 ``ConfigResolver.video_capabilities_for_project``。
-
-    解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
-    """
+async def test_get_video_capabilities_shares_rest_resolution_entry(
+    fake_ctx: ToolHarness, set_video_request_facts
+) -> None:
+    """Agent 工具把闭包项目交给单次解析入口，不按项目名回到全局项目目录。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="kling", model_id="kling-v3-omni", supported_durations=(5,), allowed_durations=(5,)
+        )
+    )
     resolver = use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})
     assert out.problem is None, out
@@ -858,9 +863,9 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     """_parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型
     校验并补全默认字段；超出枚举的 duration 触发 fail-loud（抛 ValueError），而非被静态模型(ge=1,le=60)
     静默放行、也不降级保留未校验内容写盘。"""
-    from lib.script.script_models import build_drama_normalized_script_model
+    from lib.script.script_models import build_drama_script_plan_model
 
-    model = build_drama_normalized_script_model([4, 6, 8])
+    model = build_drama_script_plan_model([4, 6, 8])
     base_scene = {
         "scene_id": "E1S01",
         "duration_seconds": 8,
@@ -1018,21 +1023,21 @@ async def test_normalize_drama_script_rejects_empty_scenes(
 
 
 async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
+    """规划提示词保留集号，条目 ID 由服务端生成。"""
 
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
+    fake_ctx.pm.project_payload["episodes"].append({"episode": 2, "source_origin": "own"})
+    (src / "episode_2.txt").write_text("第二集开场", encoding="utf-8")
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode_id": 2, "dry_run": True, "source": "source/chapter2.txt"}
+        "generate_script_plan", fake_ctx, {"episode_id": 2, "dry_run": True, "source": "source/episode_2.txt"}
     )
     assert out.problem is None, out
     prompt_text = said(out)
-    assert "E2S01" in prompt_text
-    assert "第 2 集" in prompt_text or "E2S{两位序号}" in prompt_text
-    assert "E1S01" not in prompt_text
+    assert "第 2 集" in prompt_text
+    assert "**scene_id**" not in prompt_text
 
 
 async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolHarness, video_request_facts) -> None:
@@ -1070,6 +1075,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    fake_ctx.pm.mirror_to_disk()
 
     captured: dict[str, Any] = {}
 
@@ -1078,6 +1084,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
 
         async def generate(self, _request, project_name=None):
             captured["generate_project_name"] = project_name
+            captured["response_schema"] = _request.response_schema
 
             class _R:
                 text = json.dumps(
@@ -1085,7 +1092,6 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
                         "title": "第一集",
                         "scenes": [
                             {
-                                "scene_id": "E1S01",
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": [],
@@ -1125,6 +1131,12 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
     )
     assert "drafts/episode_1/script_plan_normalized_script.json" in said(out)
     assert str(project_path) not in said(out)
+    schema = captured["response_schema"].model_json_schema()
+    array = schema["properties"]["scenes"]
+    assert array["minItems"] == 1
+    assert "scene_id" not in schema["$defs"][array["items"]["$ref"].split("/")[-1]]["properties"]
+    saved = json.loads((project_path / "drafts/episode_1/script_plan_normalized_script.json").read_text())
+    assert saved["scenes"][0]["scene_id"] == "E1S02"
 
 
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(
@@ -1144,7 +1156,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    source_path = fake_ctx.project_path / "source" / "selected.txt"
+    source_path = fake_ctx.project_path / "source" / "episode_1.txt"
     source_path.parent.mkdir(parents=True)
     frozen_source = "被显式选中的生成原文"
     source_path.write_text(frozen_source, encoding="utf-8")
@@ -1190,7 +1202,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     result = await run_declared_tool(
         "generate_script_plan",
         fake_ctx,
-        {"episode_id": 1, "source": "source/selected.txt"},
+        {"episode_id": 1, "source": "source/episode_1.txt"},
     )
 
     assert result.problem is None, result
@@ -1214,20 +1226,23 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         "source_kind": "novel",
         "source_language": "中文",
         "overview": {},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        "episodes": [
+            {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json", "source_origin": "own"}
+        ],
     }
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
-    selected_source = source_dir / "selected.txt"
+    selected_source = source_dir / "episode_1.txt"
     selected_source.write_text("实际发送给供应商的原文", encoding="utf-8")
-    (source_dir / "episode_1.txt").write_text("激活器可重建的另一份原文", encoding="utf-8")
+
     expected = build_script_plan_basis("实际发送给供应商的原文", episode=1, project=project)
 
     class _Generator:
         async def generate(self, _request, project_name=None):
+            await asyncio.to_thread(selected_source.write_text, "激活器可重建的另一份原文", encoding="utf-8")
             activated = {**project, "schema_version": 8}
             fake_ctx.pm.project_payload = activated
             await asyncio.to_thread(
@@ -1265,7 +1280,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     use_text_generator(monkeypatch, fake_create)
 
     result = await generate_script_plan(
-        ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/selected.txt")),
+        ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/episode_1.txt")),
         fake_ctx.scope,
         fake_ctx.caller,
         fake_ctx.services,
@@ -1286,6 +1301,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    fake_ctx.pm.mirror_to_disk()
 
     class _FakeGenerator:
         project_json: ClassVar[dict[str, Any]] = {}
@@ -1362,7 +1378,7 @@ async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx:
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "", "dry_run": True})
 
     assert out.problem is not None
-    assert "源文件路径不能为空" in problem_of(out).detail
+    assert "本集规范集原文路径" in problem_of(out).detail
 
 
 async def test_normalize_drama_script_treats_a_default_source_symlink_escape_as_no_episode_source(
@@ -1377,7 +1393,7 @@ async def test_normalize_drama_script_treats_a_default_source_symlink_escape_as_
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     problem = problem_of(out)
-    assert problem.params == {"operation": "prepare_script_plan", "reason": "episode_source_missing"}
+    assert "无法读取非空原文" in problem.detail
     assert "项目外内容" not in problem.detail
     assert "source/episode_1.txt" in problem.detail
 
@@ -1396,7 +1412,7 @@ async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is
     assert out.problem is not None
     detail = problem_of(out).detail
     assert "source/episode_1.txt" in detail
-    assert "plan_episodes" in detail
+    assert "恢复本集原文" in detail
 
 
 async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolHarness, video_request_facts) -> None:

@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
@@ -12,7 +13,7 @@ import { PopoverDescription, PopoverTitle } from "@/components/ui/popover";
 import { withInstruction } from "@/components/layout/project-guide";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodesView } from "@/types";
 import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
@@ -35,7 +36,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const [stopRequested, setStopRequested] = useState(false);
   const [finishingWindow, setFinishingWindow] = useState(false);
   const instructionId = useId();
-  const tasks = useTasksStore((s) => s.tasks);
+  const tasks = useTasksStore(useShallow(selectRecentTasks));
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
   if (!active && (stopRequested || finishingWindow)) {

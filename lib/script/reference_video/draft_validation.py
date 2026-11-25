@@ -1,20 +1,4 @@
-"""参考生视频 script_plan / prompt_authoring 扁平草稿结构的机械校验。
-
-LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同一份文本上；本模块是「parser
-后校验」这一层的落点：schema 已卡死枚举与外层结构，剩下的语法与内容约束在这里逐 unit
-判定，任一违约 fail-loud 抛 :class:`DraftViolation`，不把违规产物当成功结果写盘。
-
-「不当成功结果写盘」不等于丢弃：调用侧用 :func:`collect_violations` 把逐 unit 的违约收齐成
-一份报告，产物落待修复草稿（``lib.script.draft_quarantine``）等 Agent 修复后重判，不重抽。
-每条违约带 ``code``（违约类）与 ``label``（unit 定位），报告因此可逐条定位、可按类断言。
-
-违约条目类型与报告渲染（:class:`DraftViolation` / :func:`collect_violations` /
-:func:`render_violation_report`）三条路线通用，定义在路线中立的 ``lib.script.draft_violation``；
-本模块原样再导出它们，参考生视频的既有导入路径不变。
-
-与编辑器侧（人写）的容忍口径分流：``lib.script.reference_video.script_preview`` 对同样的文本只
-出 warning、照常落盘——那里有作者意图要保护；本模块面向机器产物，没有意图可保护，一律拒。
-"""
+"""按视频单元校验参考生视频的提示词语法与内容约束。"""
 
 from __future__ import annotations
 
@@ -30,6 +14,7 @@ from lib.script.draft_violation import (
     DraftViolations,
     collect_violations,
     render_violation_report,
+    speech_problem_violation,
     violation_items,
 )
 from lib.script.reference_video.text_parser import (
@@ -44,7 +29,7 @@ from lib.script.reference_video.text_parser import (
     strip_speech_marks,
 )
 from lib.script.script_models import ReferenceResource
-from lib.speech.speech_composition import SpeechProblem, admit_script_unit
+from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import estimate_spoken_seconds
 
 SPEECH_OVERFLOW_TOLERANCE = 0.20
@@ -295,31 +280,10 @@ def validate_unit_text(
     canonical_unit_id = unit_id if unit_id is not None else label.removeprefix("unit ").strip()
     admission = admit_script_unit("video_units", {"unit_id": canonical_unit_id, "text": text})
     if not admission.allowed:
-        raise DraftViolations([_speech_problem_violation(problem) for problem in admission.problems])
+        raise DraftViolations(
+            [speech_problem_violation(problem, label=f"unit {problem.unit_id}") for problem in admission.problems]
+        )
     return refs
-
-
-def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
-    locations = ", ".join(
-        ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
-        for location in problem.locations
-    )
-    display_locations = ", ".join(
-        ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
-        for location in problem.locations
-    )
-    line = problem.locations[0].line if len(problem.locations) == 1 else None
-    return DraftViolation(
-        f"unit {problem.unit_id} 发声准入未通过（{problem.reason.value}，定位：{locations}）；"
-        f"下一步：{problem.action.value}",
-        code=problem.code.value,
-        label=f"unit {problem.unit_id}",
-        line=line,
-        locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
-        reason=problem.reason.value,
-        action=problem.action.value,
-        params={"label": f"unit {problem.unit_id}", "location": display_locations},
-    )
 
 
 def dialogue_spoken_seconds(text: str, language: object, speech_rate_override: float | None = None) -> float:

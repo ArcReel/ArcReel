@@ -22,6 +22,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_planner import plan_artifact_target_state
+from lib.infra.path_safety import safe_resolve
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import (
@@ -63,7 +64,9 @@ from tests.legacy_project_shapes import (
     share_episode_script,
     share_reference_files,
     share_reference_files_with_occupied_targets,
+    write_legacy_ad_duplicate_ids_project,
     write_legacy_ad_reference_video_project,
+    write_legacy_dangling_alias_reference_project,
     write_legacy_reference_video_project,
     write_legacy_script_plan_project,
     write_legacy_shared_reference_project,
@@ -262,6 +265,51 @@ def test_absolute_shared_reference_through_parent_alias_keeps_its_bytes(tmp_path
     reference = migrated["characters"]["Bob"]["reference_image"]
     assert reference == "characters/refs/Bob.png"
     assert (project_dir / reference).read_bytes() == b"image"
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_dangling_shared_reference_through_parent_alias_stays_unreadable(tmp_path: Path, absolute: bool) -> None:
+    project_dir = write_legacy_dangling_alias_reference_project(tmp_path, absolute=absolute)
+    project_path = project_dir / "project.json"
+    reference = _read_json(project_path)["characters"]["Bob"]["reference_image"]
+    assert safe_resolve(project_dir, reference) is None
+
+    _migrate(project_dir)
+
+    migrated = _read_json(project_path)
+    assert safe_resolve(project_dir, migrated["characters"]["Bob"]["reference_image"]) is None
+    assert (project_dir / migrated["characters"]["Alice"]["reference_image"]).read_bytes() == b"image"
+    assert not (project_dir / "characters/refs/Bob.png").exists()
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_dangling_alias_reference_colliding_with_planned_copy_target_is_not_rebound(
+    tmp_path: Path, absolute: bool
+) -> None:
+    project_dir = write_legacy_shared_reference_project(tmp_path / "real" / "projects")
+    alias = tmp_path / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    aliased_project_dir = alias / project_dir.name
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    rel_reference = f"../../alias/{project_dir.name}/characters/refs/Bob.png"
+    reference = str(aliased_project_dir / rel_reference) if absolute else rel_reference
+    project["characters"]["Charlie"] = {"description": "Charlie", "reference_image": reference}
+    project["products"] = {}
+    orphan = project_dir / "characters/refs/Charlie.png"
+    orphan.write_bytes(b"charlie-orphan")
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    assert safe_resolve(aliased_project_dir, reference) is None
+
+    _migrate(aliased_project_dir)
+
+    migrated = _read_json(project_path)
+    assert migrated["characters"]["Bob"]["reference_image"] == "characters/refs/Bob.png"
+    assert (project_dir / "characters/refs/Bob.png").read_bytes() == b"image"
+    assert migrated["characters"]["Charlie"]["reference_image"] == reference
+    assert safe_resolve(aliased_project_dir, migrated["characters"]["Charlie"]["reference_image"]) is None
+    assert orphan.read_bytes() == b"charlie-orphan"
 
 
 @pytest.mark.parametrize("fail_commit", [False, True])
@@ -1492,9 +1540,13 @@ def test_an_item_id_two_episodes_share_stays_with_one_and_is_renumbered_in_the_o
     assert ArtifactKey.episode_storyboard(other, item_id) not in entries
 
 
-def test_duplicate_ids_in_a_legacy_ad_shot_index_are_renumbered(tmp_path: Path) -> None:
-    project_dir = write_legacy_ad_reference_video_project(tmp_path / "projects")
-    duplicate_legacy_ad_ids(project_dir)
+@pytest.mark.parametrize("root_is_alias", [False, True])
+def test_duplicate_ids_in_a_legacy_ad_shot_index_are_renumbered(tmp_path: Path, root_is_alias: bool) -> None:
+    project_dir = write_legacy_ad_duplicate_ids_project(tmp_path / "projects")
+    if root_is_alias:
+        alias = tmp_path / "alias"
+        alias.symlink_to(project_dir.parent, target_is_directory=True)
+        project_dir = alias / project_dir.name
 
     _migrate(project_dir)
 
@@ -1504,6 +1556,9 @@ def test_duplicate_ids_in_a_legacy_ad_shot_index_are_renumbered(tmp_path: Path) 
     assert all(unit.get("needs_replan") is True for unit in units[1:])
     renumbered = [params["from"] for code, _episode, params in _adjusted(project_dir) if code == "item_id_reassigned"]
     assert sorted(renumbered) == ["E1S1", "E1U01"]
+    report = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name).migration_report
+    assert report is not None
+    assert {item.file for item in report.adjusted if item.code == "item_id_reassigned"} == {"scripts/episode_1.json"}
 
 
 def test_ad_renumbering_survives_a_v6_step_that_fails_after_writing_the_script(

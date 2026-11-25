@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from copy import copy
 from dataclasses import replace
-from typing import cast
+from typing import Literal, cast
 
 from arcreel_catalog_core import CatalogEntry, VideoFacts
 from arcreel_market_core.video_backend_contract import (
@@ -31,7 +33,9 @@ from lib.backends.image_backends.base import (
 from lib.backends.provider_assets import InferenceCredentialRef, inference_credential, provider_asset_roles
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.backends.video_backends.name_family import catalog_entry_of
+from lib.backends.video_capabilities import effective_video_capabilities, projected_video_capabilities
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import CapabilitySnapshot, RequestConditions
 from lib.custom_provider.metering import custom_video_usage, with_image_counts
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard, replaying_base_url
 
@@ -81,6 +85,7 @@ class CustomImageBackend:
         entry_reference_limit: int | None = None,
         reference_limit_override: int | None = None,
         quality_options: tuple[str, ...] = (),
+        snapshot: CapabilitySnapshot | None = None,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
@@ -88,7 +93,24 @@ class CustomImageBackend:
         self._model_capabilities = model_capabilities
         self._entry_reference_limit = entry_reference_limit
         self.reference_limit_override = reference_limit_override
-        self.quality_options = quality_options
+        self._quality_options = quality_options
+        self._snapshot = snapshot
+
+    def with_snapshot(self, snapshot: CapabilitySnapshot) -> CustomImageBackend:
+        backend = copy(self)
+        backend._snapshot = snapshot
+        backend._quality_options = tuple(snapshot.effective.get("qualities", ()))
+        return backend
+
+    @property
+    def snapshot(self) -> CapabilitySnapshot | None:
+        return self._snapshot
+
+    @property
+    def quality_options(self) -> tuple[str, ...]:
+        if self._snapshot is not None:
+            return tuple(self._snapshot.effective.get("qualities", ()))
+        return self._quality_options
 
     def with_model_facts(
         self,
@@ -127,16 +149,28 @@ class CustomImageBackend:
 
     @property
     def entry_reference_limit(self) -> int | None:
+        if self._snapshot is not None:
+            value = self._snapshot.model_facts.get("max_reference_images")
+            return value if isinstance(value, int) and not isinstance(value, bool) else None
         return self._entry_reference_limit
 
     @property
     def effective_capabilities(self) -> frozenset[ImageCapability]:
         """调用通道实现了、且模型事实一侧允许的文生图 / 图生图。"""
+        if self._snapshot is not None:
+            return frozenset(cap for cap in ImageCapability if self._snapshot.effective.get(cap.value) is True)
         implemented = frozenset(self.capabilities)
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     async def reference_image_limit(self) -> int | None:
         return await self._delegate.reference_image_limit()
+
+    async def remote_reference_image_limit(self) -> int | None:
+        probe = getattr(self._delegate, "remote_reference_image_limit", None)
+        if callable(probe):
+            result = await cast(Callable[[], Awaitable[object]], probe)()
+            return result if isinstance(result, int) and not isinstance(result, bool) else None
+        return None
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)
@@ -185,6 +219,7 @@ class CustomVideoBackend:
         delegate: VideoBackend,
         model: str,
         video_capabilities: VideoCapabilities | None = None,
+        snapshot: CapabilitySnapshot | None = None,
         capability_overrides: dict[str, object] | None = None,
         entry_facts: VideoFacts | None = None,
         endpoint: str | None = None,
@@ -193,6 +228,7 @@ class CustomVideoBackend:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
+        self._snapshot = snapshot
         self._video_capabilities = video_capabilities
         self._capability_overrides = capability_overrides or {}
         self._entry_facts = entry_facts
@@ -216,6 +252,12 @@ class CustomVideoBackend:
         续跑时覆盖已被修改，与「调用端点已更换」一样按协议漂移失败（``docs/adr/0007``）。
         """
         return None if self._endpoint is None else endpoint_guard(self._endpoint, self._path_overrides)
+
+    def with_snapshot(self, snapshot: CapabilitySnapshot) -> CustomVideoBackend:
+        backend = copy(self)
+        backend._snapshot = snapshot
+        backend._video_capabilities = projected_video_capabilities(snapshot)
+        return backend
 
     def with_video_capabilities(
         self,
@@ -251,6 +293,7 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
+            snapshot=self._snapshot,
             entry_facts=self._entry_facts,
             endpoint=endpoint,
             path_overrides=path_overrides,
@@ -273,6 +316,7 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
+            snapshot=self._snapshot,
             entry_facts=self._entry_facts,
             endpoint=self._endpoint,
             path_overrides=self._path_overrides,
@@ -306,41 +350,26 @@ class CustomVideoBackend:
         """
         return provider_asset_roles(self._delegate)
 
-    def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
-        """按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底——
-        `getattr` 探测是否实现（与 `media_generator` 的探测方式一致），未实现则回落其
-        context-free `video_capabilities`——与工厂注入的条目事实两侧求值，再叠加稀疏用户覆盖
-        （未覆盖字段跟随求值结果）。没有注入条目事实（ComfyUI 端点、绕过工厂直接构造）时不与条目求值。
-
-        不能直接短路返回工厂注入的完整合成结果（`self._video_capabilities`）：那是用
-        context-free 的系统判定算出的（对 Kling 等档位敏感 backend 而言是保守声明），工厂
-        路径下该字段永远非 None，短路会让本方法在生产环境等价于未实现档位感知，
-        Pro 档本可接受的尾帧被静默丢弃。
-        """
+    def video_capabilities_for_tier(
+        self,
+        service_tier: str,
+        resolution: str | None = None,
+        *,
+        bucket: Literal["i2v", "r2v"] = "i2v",
+        inputs: frozenset[str] = frozenset(),
+    ) -> VideoCapabilities:
+        if self._snapshot is not None:
+            conditions = RequestConditions(bucket, resolution, service_tier, inputs)
+            return projected_video_capabilities(self._snapshot.for_request(conditions))
         tier_aware = getattr(self._delegate, "video_capabilities_for_tier", None)
         base = (
             tier_aware(service_tier, resolution=resolution)
             if tier_aware is not None
             else self._delegate.video_capabilities
         )
-        if self._entry_facts is not None:
-            from lib.backends.video_capabilities import effective_video_capabilities
-
-            base = effective_video_capabilities(base, self._entry_facts)
-        if self._capability_overrides:
-            from lib.custom_provider.capabilities import (
-                enforce_audio_capability_invariant,
-                merge_overrides,
-                retain_channel_audio_switch,
-            )
-
-            channel_caps = getattr(self._delegate, "video_capabilities", None)
-            channel = channel_caps if isinstance(channel_caps, VideoCapabilities) else base
-            return enforce_audio_capability_invariant(
-                retain_channel_audio_switch(channel, merge_overrides(base, self._capability_overrides)),
-                endpoint=self._delegate.name,
-                model_id=self._model,
-            )
+        if self._entry_facts is not None or self._capability_overrides:
+            facts = self._entry_facts or VideoFacts(last_frame=True, reference_audio=True)
+            return effective_video_capabilities(base, facts, self._capability_overrides)
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

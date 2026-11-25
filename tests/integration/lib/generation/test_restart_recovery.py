@@ -141,7 +141,7 @@ class TestRestartRecovery:
         assert "[execution_identity_unrecoverable]" in failures["ref-job-only"]
         assert "[execution_identity_unrecoverable]" in failures["ref-bad-checkpoint"]
         assert [task_id for task_id, path in staged.items() if path.exists()] == []
-        assert worker._recovery.orphan_dispatcher_task is None
+        await worker._recovery.wait_dispatchers()
 
     @pytest.mark.asyncio
     async def test_storyboard_orphans_apply_strict_four_state_checkpoint_job_matrix(self, staged_project):
@@ -184,7 +184,7 @@ class TestRestartRecovery:
         assert "[execution_identity_unrecoverable]" in failures["story-job-only"]
         assert "[execution_identity_unrecoverable]" in failures["story-bad-checkpoint"]
         assert [task_id for task_id, path in staged.items() if path.exists()] == []
-        assert worker._recovery.orphan_dispatcher_task is None
+        await worker._recovery.wait_dispatchers()
 
     @pytest.mark.asyncio
     async def test_reference_orphan_with_checkpoint_and_job_routes_by_checkpoint_provider(
@@ -219,9 +219,7 @@ class TestRestartRecovery:
         monkeypatch.setattr(stub_executors, "resume", _capture_resume)
 
         await worker._recovery.handle_orphans()
-        dispatcher_task = worker._recovery.orphan_dispatcher_task
-        assert dispatcher_task is not None
-        await asyncio.wait_for(dispatcher_task, timeout=5)
+        await worker._recovery.wait_dispatchers()
 
         assert [t["task_id"] for t in resumed] == ["ref-ready"]
         assert resumed[0]["provider_id"] == "ark"
@@ -351,7 +349,7 @@ class TestRestartRecovery:
         assert await task_status(worker_db, "grok-run") == "failed"
         assert "[resume_unsupported_provider]" in (await _task_error(worker_db, "grok-run") or "")
         assert await task_status(worker_db, "img-queued") == "queued"
-        assert worker._recovery.orphan_dispatcher_task is None
+        await worker._recovery.wait_dispatchers()
 
     @pytest.mark.asyncio
     async def test_handle_orphan_discard_paths_zero_rows_leave_task_untouched(self, worker_db, staged_project):
@@ -423,7 +421,7 @@ class TestRestartRecovery:
 
         assert await task_status(worker_db, "ghost-orphan") == "running"
         assert resumed == []
-        assert worker._recovery.orphan_dispatcher_task is None
+        await worker._recovery.wait_dispatchers()
         assert queue.failed
         assert queue.failed[0][0] == "ghost-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
@@ -475,22 +473,17 @@ class TestRestartRecovery:
             resume_executor=stub_executors.execute_resume,
         )
 
-        async def _block_forever(_task, *, job_id):
-            await asyncio.Event().wait()
+        release = asyncio.Event()
 
-        monkeypatch.setattr(stub_executors, "resume", _block_forever)
+        async def gated(task, *, job_id):
+            await release.wait()
+            return {"job_id": job_id}
 
+        monkeypatch.setattr(stub_executors, "resume", gated)
         await asyncio.wait_for(worker._recovery.handle_orphans(), timeout=10)
-        assert worker._recovery.orphan_dispatcher_task is not None
-        assert not worker._recovery.orphan_dispatcher_task.done()
-
-        # 清理后台 dispatcher，避免 unawaited task 警告
-        for t in list(asyncio.all_tasks()):
-            if t.get_name() in ("orphan-dispatcher", "orphan-dispatch-ark"):
-                t.cancel()
-            if t.get_name().startswith("resume-video-"):
-                t.cancel()
-        await asyncio.sleep(0)
+        release.set()
+        await worker._recovery.wait_dispatchers()
+        assert len(queue.succeeded) == 5
 
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch, staged_project):
@@ -505,48 +498,32 @@ class TestRestartRecovery:
             resume_executor=stub_executors.execute_resume,
         )
 
-        snapshots: list[int] = []
-        entered: list[str] = []
-        gates: dict[str, asyncio.Event] = {f"orphan-{i}": asyncio.Event() for i in range(4)}
+        started: asyncio.Queue[str] = asyncio.Queue()
+        gates = {task["task_id"]: asyncio.Event() for task in queue._orphans}
+        active = 0
+        peak = 0
 
-        def _inflight() -> int:
-            return len(_phase_ids(worker._slots, "ark", "video")[0])
-
-        async def _gated(task, *, job_id):
-            snapshots.append(_inflight())
-            entered.append(task["task_id"])
+        async def gated(task, *, job_id):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            started.put_nowait(task["task_id"])
             await gates[task["task_id"]].wait()
+            active -= 1
             return {"job_id": job_id}
 
-        monkeypatch.setattr(stub_executors, "resume", _gated)
-
-        await worker._recovery.handle_orphans()
-        for _ in range(20):
-            await asyncio.sleep(0)
-            if _inflight() >= 2:
-                break
-        assert _inflight() == 2, f"应只有 2 个 inflight，实际 {_inflight()}"
-
-        gates[entered[0]].set()
-        await asyncio.sleep(0)
-        worker._slots.drain_finished()
-        for _ in range(20):
-            await asyncio.sleep(0)
-            if _inflight() >= 2:
-                break
-        assert _inflight() <= 2
-        assert snapshots, "未采集到 inflight 快照"
-        assert all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
-
-        for gate in gates.values():
-            gate.set()
-        for _ in range(50):
-            await asyncio.sleep(0)
-        for t in list(asyncio.all_tasks()):
-            name = t.get_name()
-            if name.startswith(("orphan-", "resume-video-")) and not t.done():
-                t.cancel()
-        await asyncio.sleep(0)
+        monkeypatch.setattr(stub_executors, "resume", gated)
+        async with asyncio.timeout(5):
+            await worker._recovery.handle_orphans()
+            first = await started.get()
+            await started.get()
+            gates[first].set()
+            await started.get()
+            for gate in gates.values():
+                gate.set()
+            await worker._recovery.wait_dispatchers()
+        assert peak == 2
+        assert len(queue.succeeded) == 4
 
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch, staged_project):
@@ -585,6 +562,71 @@ class TestRestartRecovery:
             ):
                 break
         assert dispatched_count == 1, f"stop_event 后不应再 dispatch，实际 dispatched={dispatched_count}"
+
+
+async def test_shutdown_during_orphan_recheck_leaves_task_for_restart(staged_project):
+    rechecking = asyncio.Event()
+    release_recheck = asyncio.Event()
+    resumed = []
+
+    class Queue(FakeWorkerQueue):
+        async def get_task(self, task_id):
+            rechecking.set()
+            await release_recheck.wait()
+            return await super().get_task(task_id)
+
+    async def resume(task, *, job_id):
+        resumed.append(job_id)
+        return {"job_id": job_id}
+
+    queue = Queue()
+    orphan = _storyboard_orphan("orphan")
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    async with asyncio.timeout(3):
+        dispatch = asyncio.create_task(worker._recovery.dispatch_resumable({"ark": [orphan]}))
+        try:
+            await rechecking.wait()
+            worker.stop_admission()
+        finally:
+            release_recheck.set()
+            await dispatch
+    assert resumed == []
+    assert (await queue.get_task(orphan["task_id"]))["status"] == "running"
+
+
+async def test_committed_video_success_write_rechecks_project_identity(concurrent_session_factory):
+    from lib.artifacts.version_manager import VersionManager
+    from lib.db.repositories.project_records import retire_project_records
+    from lib.generation.generation_queue import GenerationQueue
+    from lib.project.project_manager import get_project_manager
+
+    worker_db = concurrent_session_factory
+    manager = get_project_manager()
+    project = manager.create_project("demo")
+    source = project / "source.mp4"
+    source.write_bytes(b"committed video")
+    VersionManager(project).add_version("videos", "E1S01", "prompt", source, task_id="orphan")
+    await seed_running_task(worker_db, "orphan")
+    resumed = []
+
+    class Queue(GenerationQueue):
+        async def mark_task_succeeded(self, task_id, result, **kwargs):
+            async with worker_db() as session:
+                await retire_project_records(session, "demo")
+                await session.commit()
+            return await super().mark_task_succeeded(task_id, result, **kwargs)
+
+    async def resume(task, *, job_id):
+        resumed.append(job_id)
+        return {}
+
+    queue = Queue(session_factory=worker_db)
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    await worker._recovery.handle_orphans()
+    await worker._recovery.wait_dispatchers()
+    row = await queue.get_task("orphan")
+    assert (row["status"], row["error_message"]) == ("failed", "[project_deleted_during_task]")
+    assert resumed == []
 
 
 class TestDispatcherFailFastAndPendingTracking:
@@ -676,9 +718,11 @@ class TestDispatcherFailFastAndPendingTracking:
             resume_executor=stub_executors.execute_resume,
         )
 
+        started = asyncio.Event()
         gate = asyncio.Event()
 
         async def _gated(_task, *, job_id):
+            started.set()
             await gate.wait()
             return {"job_id": job_id}
 
@@ -687,15 +731,8 @@ class TestDispatcherFailFastAndPendingTracking:
         tasks = [storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
         dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
 
-        for _ in range(20):
-            await asyncio.sleep(0)
-            inflight, _pending = _phase_ids(worker._slots, "ark", "video")
-            if len(inflight) == 1:
-                break
-        inflight, pending = _phase_ids(worker._slots, "ark", "video")
-        assert len(inflight) == 1
-        assert len(pending) == 1
-        assert worker._slots.has_room("ark", "video", 1) is False
+        await asyncio.wait_for(started.wait(), timeout=5)
+        assert worker._slots.occupied("ark", "video") == 2
 
         gate.set()
         await dispatcher
@@ -781,161 +818,310 @@ class TestDispatcherFailFastAndPendingTracking:
 
         assert queue.interrupted == ["orphan-pre-try"]
 
-    @pytest.mark.asyncio
-    async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch, staged_project):
-        """handle_orphans 后 orphan_dispatcher_task 应被设置。"""
-        queue = FakeWorkerQueue()
-        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
+
+async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_dispatcher(
+    concurrent_session_factory, staged_project, monkeypatch
+):
+    from lib.db.models.user import User
+    from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+    from lib.generation.generation_queue import GenerationQueue
+    from lib.generation.generation_worker import WorkerStoppingError
+    from lib.generation.task_failure import encode_failure
+    from tests.fakes import bind_safe_session_factory
+
+    worker_db = concurrent_session_factory
+    bind_safe_session_factory(monkeypatch, worker_db)
+    committed = asyncio.Event()
+    handoff_joined = asyncio.Event()
+    return_from_commit = asyncio.Event()
+    entered = {tid: asyncio.Event() for tid in ("old", "retry")}
+    finish = {tid: asyncio.Event() for tid in entered}
+    executions = []
+
+    class Queue(GenerationQueue):
+        async def retry_artifact_download(self, task_id):
+            row = await super().retry_artifact_download(task_id)
+            handoff = asyncio.current_task()
+            assert handoff is not None
+            add_done_callback = handoff.add_done_callback
+
+            def observe_join(callback, **kwargs):
+                add_done_callback(callback, **kwargs)
+                handoff_joined.set()
+
+            monkeypatch.setattr(handoff, "add_done_callback", observe_join)
+            committed.set()
+            await return_from_commit.wait()
+            return row
+
+    async def resume(task, *, job_id):
+        tid = task["task_id"]
+        executions.append(tid)
+        entered[tid].set()
+        await finish[tid].wait()
+        return {"job_id": job_id}
+
+    async with worker_db() as session:
+        session.add_all(User(id=tid, username=tid) for tid in entered)
+        await session.commit()
+    for tid in entered:
+        await seed_running_task(
+            worker_db,
+            tid,
+            provider_id="ark",
+            provider_job_id=tid,
+            user_id=tid,
+            script_file="scripts/episode_1.json",
+            execution_checkpoint_json=_worker_storyboard_checkpoint(tid),
         )
-
-        block = asyncio.Event()
-
-        async def _gated(_task, *, job_id):
-            await block.wait()
-            return {"job_id": job_id}
-
-        monkeypatch.setattr(stub_executors, "resume", _gated)
-
-        await worker._recovery.handle_orphans()
-        assert worker._recovery.orphan_dispatcher_task is not None
-        assert not worker._recovery.orphan_dispatcher_task.done()
-
-        block.set()
-        await worker._recovery.orphan_dispatcher_task
-
-
-class TestOrphanScanSelfPreemption:
-    """lease flap > 3×TTL 重夺时，本进程仍 inflight 的 task 不应被当孤儿处理。"""
-
-    @pytest.mark.asyncio
-    async def test_image_inflight_not_marked_restart_lost(self, monkeypatch):
-        """本进程 image_inflight 含 task → 孤儿扫描应跳过，不标 [restart_lost]。"""
-        queue = FakeWorkerQueue()
-        queue._orphans = [
-            {
-                "task_id": "img-active",
-                "status": "running",
-                "media_type": "image",
-                "task_type": "storyboard",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
-        worker = GenerationWorker(
-            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+    queue = Queue(session_factory=worker_db)
+    await queue.mark_task_failed("retry", encode_failure("artifact_download_failed", detail="test"))
+    async with worker_db() as session:
+        usage = UsageRepository(session)
+        call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="m", provider="ark", task_id="retry"
         )
-        loop = asyncio.get_running_loop()
-        fut = loop.create_future()
-        worker._slots.register("ark", "image", "img-active", fut)
-
-        await worker._recovery.handle_orphans()
-
-        assert worker._recovery.orphan_dispatcher_task is None
-        assert "img-active" not in {tid for tid, _ in queue.failed}
-        fut.set_result(None)
-
-    @pytest.mark.asyncio
-    async def test_video_inflight_not_dispatched_to_resume(self):
-        """本进程 video_inflight 含 task → 孤儿扫描应跳过，不启动重复 resume 流。"""
-        queue = FakeWorkerQueue()
-        queue._orphans = [
-            {
-                "task_id": "vid-active",
-                "status": "running",
-                "media_type": "video",
-                "task_type": "video",
-                "provider_id": "ark",
-                "provider_job_id": "ark-job-1",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
-        worker = GenerationWorker(
-            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+        await usage.finish_call(
+            call_id, status="failed", settlement=SettlementInput(cost_amount=0), error_message="download failed"
         )
-        loop = asyncio.get_running_loop()
-        fut = loop.create_future()
-        worker._slots.register("ark", "video", "vid-active", fut)
+        await session.commit()
+    stopped = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    stopped.stop_admission()
+    with pytest.raises(WorkerStoppingError):
+        await stopped.retry_artifact_download("retry")
+    assert await task_status(worker_db, "retry") == "failed"
+    async with worker_db() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert (call.status, call.error_message) == ("failed", "download failed")
 
+    pre_stop_entered = asyncio.Event()
+    pre_stop_release = asyncio.Event()
+    orig_read_timeout = GenerationWorker.__module__
+
+    async def slow_timeout() -> int:
+        pre_stop_entered.set()
+        await pre_stop_release.wait()
+        return 300
+
+    with monkeypatch.context() as mp:
+        mp.setattr(f"{orig_read_timeout}.read_video_poll_timeout_seconds", slow_timeout)
+        stopping_mid_await = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+        mid_req = asyncio.create_task(stopping_mid_await.retry_artifact_download("retry"))
+        await asyncio.wait_for(pre_stop_entered.wait(), timeout=3)
+        stopping_mid_await.stop_admission()
+        pre_stop_release.set()
+        with pytest.raises(WorkerStoppingError):
+            await asyncio.wait_for(mid_req, timeout=3)
+        await asyncio.wait_for(stopping_mid_await.stop(), timeout=3)
+    assert await task_status(worker_db, "retry") == "failed"
+    async with worker_db() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert (call.status, call.error_message) == ("failed", "download failed")
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    async with asyncio.timeout(5):
         await worker._recovery.handle_orphans()
-
-        assert worker._recovery.orphan_dispatcher_task is None
-        assert "vid-active" not in {tid for tid, _ in queue.failed}
-        fut.set_result(None)
-
-    @pytest.mark.asyncio
-    async def test_video_pending_also_skipped(self):
-        """本进程 video_pending（sem 排队中）含 task → 孤儿扫描应跳过。"""
-        queue = FakeWorkerQueue()
-        queue._orphans = [
-            {
-                "task_id": "vid-pending",
-                "status": "running",
-                "media_type": "video",
-                "task_type": "video",
-                "provider_id": "ark",
-                "provider_job_id": "ark-job-2",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
-        worker = GenerationWorker(
-            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
-        )
-        loop = asyncio.get_running_loop()
-        fut = loop.create_future()
-        worker._slots.register("ark", "video", "vid-pending", fut, pending=True)
-
+        await entered["old"].wait()
+        request = asyncio.create_task(worker.retry_artifact_download("retry"))
+        await committed.wait()
         await worker._recovery.handle_orphans()
+        worker.stop_admission()
+        stopping = asyncio.create_task(worker.stop())
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        finish["old"].set()
+        try:
+            await handoff_joined.wait()
+            assert not stopping.done()
+        finally:
+            return_from_commit.set()
+        await entered["retry"].wait()
+        assert not stopping.done()
+        finish["retry"].set()
+        await stopping
+    assert executions == ["old", "retry"]
+    assert await task_status(worker_db, "retry") == "succeeded"
+    assert await task_status(worker_db, "old") == "succeeded"
 
-        assert "vid-pending" not in {tid for tid, _ in queue.failed}
-        assert worker._recovery.orphan_dispatcher_task is None
-        fut.set_result(None)
 
+async def test_retry_of_failure_waits_for_old_resume_to_settle(staged_project, worker_db, monkeypatch):
+    failed = asyncio.Event()
+    settling = asyncio.Event()
+    release_settlement = asyncio.Event()
+    retry_waiting = asyncio.Event()
+    reopened = asyncio.Event()
+    task = _storyboard_orphan("finishing")
+    runs = []
 
-class TestOrphanDispatcherNonBlockingOverride:
-    """lease 重夺时旧 dispatcher 仍在跑：本轮直接覆盖句柄，不 await（liveness）也不 cancel
-    （避免错误中断 in-flight resume）。"""
+    class Queue(FakeWorkerQueue):
+        status = "running"
 
-    @pytest.mark.asyncio
-    async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch, staged_project):
-        """旧 dispatcher 跑 5s 时，再次进 handle_orphans 应秒级返回（不阻塞）。"""
-        queue = FakeWorkerQueue()
-        queue._orphans = [_storyboard_orphan("orphan-x", job_id="job-x")]
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-        )
+        async def get_task(self, task_id):
+            if self.status == "failed":
+                retry_waiting.set()
+            return {"status": self.status}
 
-        block = asyncio.Event()
+        async def mark_task_failed(self, task_id, error):
+            self.status = "failed"
+            failed.set()
+            return 1
 
-        async def _gated(_task, *, job_id):
-            await block.wait()
-            return {"job_id": job_id}
+        async def retry_artifact_download(self, task_id):
+            reopened.set()
+            self.status = "running"
+            return task.copy()
 
-        monkeypatch.setattr(stub_executors, "resume", _gated)
+    async def resume(task, *, job_id):
+        runs.append(job_id)
+        if len(runs) == 1:
+            raise OSError("download failed")
+        return {"job_id": job_id}
 
+    queue = Queue()
+    queue._orphans = [task]
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+
+    async def settle_old_call(*_args, **_kwargs):
+        settling.set()
+        await release_settlement.wait()
+
+    monkeypatch.setattr(worker._resume, "settle_unresumable_call", settle_old_call)
+    async with asyncio.timeout(5):
         await worker._recovery.handle_orphans()
-        old_dispatcher = worker._recovery.orphan_dispatcher_task
-        assert old_dispatcher is not None
-        assert not old_dispatcher.done()
+        await failed.wait()
+        request = asyncio.create_task(worker.retry_artifact_download("finishing"))
+        try:
+            await settling.wait()
+            await retry_waiting.wait()
+            assert not reopened.is_set()
+        finally:
+            release_settlement.set()
+            await request
+            await worker.stop()
+    assert runs == ["job-1", "job-1"]
+    assert queue.succeeded == [("finishing", {"job_id": "job-1"})]
 
-        start = asyncio.get_event_loop().time()
-        await worker._recovery.handle_orphans()
-        elapsed = asyncio.get_event_loop().time() - start
-        assert elapsed < 1.0, f"重夺时不应阻塞：elapsed={elapsed:.3f}s"
-        assert worker._recovery.orphan_dispatcher_task is not old_dispatcher
-        assert not old_dispatcher.cancelled()
-        assert not old_dispatcher.done()
 
-        block.set()
-        new_dispatcher = worker._recovery.orphan_dispatcher_task
-        assert new_dispatcher is not None
-        await asyncio.gather(old_dispatcher, new_dispatcher, return_exceptions=True)
+async def test_rejected_retry_does_not_leave_orphan_without_an_executor(staged_project, worker_db):
+    eligibility = asyncio.Event()
+    release_eligibility = asyncio.Event()
+    scanned = asyncio.Event()
+    task = _storyboard_orphan("orphan")
+
+    class Queue(FakeWorkerQueue):
+        async def list_orphan_tasks_on_start(self):
+            scanned.set()
+            return await super().list_orphan_tasks_on_start()
+
+        async def retry_artifact_download(self, task_id):
+            eligibility.set()
+            await release_eligibility.wait()
+            raise ValueError("task is already running")
+
+    queue = Queue()
+    queue._orphans = [task]
+
+    async def resume(task, *, job_id):
+        return {"job_id": job_id}
+
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    async with asyncio.timeout(5):
+        request = asyncio.create_task(worker.retry_artifact_download("orphan"))
+        await eligibility.wait()
+        worker.wake()
+        cycle = asyncio.create_task(worker._run_cycle())
+        try:
+            await scanned.wait()
+        finally:
+            release_eligibility.set()
+            with pytest.raises(ValueError, match="already running"):
+                await request
+            await cycle
+        worker.wake()
+        await worker._run_cycle()
+        await worker._recovery.wait_dispatchers()
+    assert [task_id for task_id, _ in queue.succeeded] == ["orphan"]
+
+
+async def test_retry_reopens_call_only_after_interrupted_call_settlement(staged_project, worker_db, monkeypatch):
+    settling = asyncio.Event()
+    release_settlement = asyncio.Event()
+    retry_ready = asyncio.Event()
+    reopened = asyncio.Event()
+    task = _storyboard_orphan("retry")
+
+    class Queue(FakeWorkerQueue):
+        async def retry_artifact_download(self, task_id):
+            reopened.set()
+            return task.copy()
+
+    async def settle(**_kwargs):
+        settling.set()
+        await release_settlement.wait()
+        return 0
+
+    async def read_timeout():
+        retry_ready.set()
+        return 300
+
+    async def resume(task, *, job_id):
+        return {"job_id": job_id}
+
+    monkeypatch.setattr("lib.generation.generation_worker.read_video_poll_timeout_seconds", read_timeout)
+    queue = Queue()
+    worker = GenerationWorker(
+        queue=queue,
+        executor=stub_executors.execute,
+        resume_executor=resume,
+        settle_interrupted_calls=settle,
+    )
+    async with asyncio.timeout(5):
+        worker.wake()
+        cycle = asyncio.create_task(worker._run_cycle())
+        await settling.wait()
+        request = asyncio.create_task(worker.retry_artifact_download("retry"))
+        try:
+            await retry_ready.wait()
+            assert not reopened.is_set()
+        finally:
+            release_settlement.set()
+            await cycle
+            await request
+            await worker.stop()
+    assert [task_id for task_id, _ in queue.succeeded] == ["retry"]
+
+
+async def test_failed_recheck_waits_for_next_scan(staged_project, worker_db):
+    rechecked = asyncio.Event()
+    completed = asyncio.Event()
+    polls = []
+    scans = 0
+
+    class Queue(FakeWorkerQueue):
+        async def list_orphan_tasks_on_start(self):
+            nonlocal scans
+            scans += 1
+            return [_storyboard_orphan("transient")]
+
+        async def get_task(self, task_id):
+            if scans == 1 and rechecked.is_set():
+                raise TimeoutError("database unavailable")
+            rechecked.set()
+            return await super().get_task(task_id)
+
+    async def resume(task, *, job_id):
+        polls.append(scans)
+        completed.set()
+        return {"job_id": job_id}
+
+    worker = GenerationWorker(queue=Queue(), executor=stub_executors.execute, resume_executor=resume)
+    worker.poll_interval = 0.01
+    await worker.start()
+    try:
+        await asyncio.wait_for(completed.wait(), timeout=5)
+    finally:
+        await worker.stop()
+    assert len(polls) == 1
+    assert polls[0] > 1

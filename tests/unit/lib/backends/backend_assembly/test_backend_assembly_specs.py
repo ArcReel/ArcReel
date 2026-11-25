@@ -8,12 +8,15 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from typing import Any
 
 import pytest
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import (
+    PROVIDER_ENDPOINT_SPECS,
     PROVIDER_SPEC_REGISTRY,
     ProviderSpec,
     _validate_provider_specs,
@@ -24,7 +27,42 @@ from lib.backends.provider_assets import InferenceCredentialRef
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
-from tests.fakes import captured_backend_construction
+from lib.video_runtime.builtin import build_builtin_backend
+
+
+@contextmanager
+def _captured_backend_construction() -> Generator[list[dict[str, Any]]]:
+    """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。"""
+    from lib.backends.audio_backends import registry as audio_registry
+    from lib.backends.image_backends import registry as image_registry
+    from lib.backends.text_backends import registry as text_registry
+    from lib.backends.video_backends import registry as video_registry
+
+    records: list[dict[str, Any]] = []
+    factories: dict[str, dict[str, Any]] = {
+        "text": text_registry._BACKEND_FACTORIES,
+        "image": image_registry._BACKEND_FACTORIES,
+        "video": video_registry._BACKEND_FACTORIES,
+        "audio": audio_registry._BACKEND_FACTORIES,
+    }
+
+    def _recorder(media: str, name: str) -> Callable[..., Any]:
+        def _build(**kwargs: Any) -> Any:
+            records.append({"media": media, "backend": name, "kwargs": kwargs})
+            return object()
+
+        return _build
+
+    saved = {media: dict(table) for media, table in factories.items()}
+    for media, table in factories.items():
+        for name in list(table):
+            table[name] = _recorder(media, name)
+    try:
+        yield records
+    finally:
+        for media, table in factories.items():
+            table.clear()
+            table.update(saved[media])
 
 
 def _loaded(*, credentials: dict, provider_id: str) -> LoadedConfig:
@@ -37,8 +75,8 @@ def _loaded(*, credentials: dict, provider_id: str) -> LoadedConfig:
 
 def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[str, Any]:
     """跑一次装配，返回唯一一条构造记录（media / backend 名 / 构造参数）。"""
-    with captured_backend_construction() as records:
-        spec.build_backend(config, model)
+    with _captured_backend_construction() as records:
+        build_builtin_backend(spec, config, model)
     assert len(records) == 1
     return records[0]
 
@@ -53,8 +91,10 @@ def _built(spec: ProviderSpec, config: LoadedConfig, model: str | None) -> dict[
     ],
 )
 def test_migrated_builtin_video_providers_use_shipped_definitions(provider_id: str, model: str, endpoint: str):
-    backend = get_provider_spec(provider_id, "video", endpoint).build_backend(
-        _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id), model
+    backend = build_builtin_backend(
+        get_provider_spec(provider_id, "video", endpoint),
+        _loaded(credentials={"api_key": "sk-test"}, provider_id=provider_id),
+        model,
     )
 
     assert isinstance(backend, DeclarativeVideoBackend)
@@ -390,6 +430,25 @@ class TestKlingSpec:
             "base_url": "https://api-beijing.klingai.com/v1",
         }
 
+    def test_image_production_assembly_forwards_api_model_name(self):
+        from lib.config.resolver import ProviderModel
+        from lib.video_runtime.image_assembly import BuiltinImageSpec, build_image
+        from lib.video_runtime.image_resolution import _builtin_image_snapshot
+
+        snapshot, builtin, api_model_name = _builtin_image_snapshot(ProviderModel("kling", "kling-v3-omni-image"))
+        assert api_model_name == "kling-v3-omni"
+        spec = BuiltinImageSpec(
+            snapshot,
+            builtin.endpoint,
+            builtin.registry_backend,
+            self._kling_config(access_key="ak-1", secret_key="sk-1"),
+            api_model_name=api_model_name,
+        )
+        with _captured_backend_construction() as records:
+            build_image(spec)
+        assert len(records) == 1
+        assert records[0]["kwargs"]["api_model_name"] == "kling-v3-omni"
+
     def test_image_user_base_url_wins_over_registry_default(self):
         config = self._kling_config(access_key="ak-1", secret_key="sk-1", base_url="https://relay.example.com")
         assert _built(get_provider_spec("kling", "image"), config, "kling-image-o1")["kwargs"] == {
@@ -441,14 +500,14 @@ class TestKlingSpec:
         from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 
         spec = get_provider_spec("kling", "video", "kling-video-model-path")
-        backend = spec.build_backend(self._kling_config(api_key="sk-api-1"), "kling-4.0")
+        backend = build_builtin_backend(spec, self._kling_config(api_key="sk-api-1"), "kling-4.0")
         assert isinstance(backend, KlingModelPathVideoBackend)
         assert backend._base_url == "https://api-beijing.klingai.com"
 
     def test_model_path_endpoint_refuses_dual_secret(self):
         spec = get_provider_spec("kling", "video", "kling-video-model-path")
         with pytest.raises(ValueError, match="只支持 API Key"):
-            spec.build_backend(self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
+            build_builtin_backend(spec, self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
 
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self):
         """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""
@@ -635,21 +694,15 @@ class TestRegistryShape:
 
 
 class TestValidateProviderSpecs:
-    """import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。"""
+    """内置装配表的条目与端点清单须在导入时通过校验。"""
 
     def test_passes_on_real_registry(self):
         _validate_provider_specs()
         assert PROVIDER_SPEC_REGISTRY
 
-    def test_non_callable_build_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], build_backend="not-callable")
-        monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
-        with pytest.raises(ValueError, match="non-callable build_backend"):
-            _validate_provider_specs()
-
     def test_key_field_mismatch_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], provider_id="drifted")
-        monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
+        bad = dataclasses.replace(PROVIDER_ENDPOINT_SPECS[("ark", "ark-seedream-4")], provider_id="drifted")
+        monkeypatch.setitem(PROVIDER_ENDPOINT_SPECS, ("ark", "ark-seedream-4"), bad)
         with pytest.raises(ValueError, match=r"key .* does not match spec"):
             _validate_provider_specs()
 
@@ -666,23 +719,10 @@ class TestValidateProviderSpecs:
             "audio": set(audio_names()),
             "text": set(text_names()),
         }
-        for (_provider, media), spec in PROVIDER_SPEC_REGISTRY.items():
+        for spec in PROVIDER_ENDPOINT_SPECS.values():
+            media = spec.media_type
             if spec.registry_backend == "declarative":
                 continue
             assert spec.registry_backend in registered[media], (
                 f"{spec.registry_backend!r} 未注册到 {media} backend registry"
             )
-
-
-class TestBuiltinEffectiveGenerateAudio:
-    """声明式内置模型的计价 ``generate_audio`` 与定义声明的成片音轨同源。"""
-
-    def test_an_always_off_declarative_model_reports_no_audio(self):
-        from lib.backends.backend_assembly.specs import builtin_effective_generate_audio_for_model
-
-        assert builtin_effective_generate_audio_for_model("minimax", "MiniMax-Hailuo-2.3") is False
-
-    def test_an_always_on_declarative_model_reports_audio(self):
-        from lib.backends.backend_assembly.specs import builtin_effective_generate_audio_for_model
-
-        assert builtin_effective_generate_audio_for_model("minimax", "MiniMax-H3") is True

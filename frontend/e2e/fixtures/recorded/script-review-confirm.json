@@ -1,0 +1,51 @@
+{
+  "method": "POST",
+  "path": "/api/v1/projects/demo/episodes/2/script-review/confirm",
+  "status": 200,
+  "body": {
+    "blocking_issues": [],
+    "soft_violations": [],
+    "revision": "sha256-v1:a2446d6e178e71de1110a98808e988a84300dcf6925e8a6a28c4fc07644590b1",
+    "episode": 2,
+    "content_mode": "narration",
+    "status": "confirmed",
+    "fingerprint": "a2446d6e178e71de1110a98808e988a84300dcf6925e8a6a28c4fc07644590b1",
+    "confirmed_at": "2026-01-01T08:00:00.000Z",
+    "content": {
+      "segments": [
+        {
+          "novel_text": "山雨初歇。",
+          "duration_seconds": 4,
+          "segment_break": false,
+          "characters_in_segment": [],
+          "scenes": [],
+          "props": [],
+          "segment_id": "E2S01"
+        }
+      ]
+    },
+    "supported_durations": null,
+    "episode_target_duration": null,
+    "script_overwrite": {
+      "revision": "sha256-v1:<script-overwrite-revision>",
+      "entries": [
+        {
+          "id": "E2S01",
+          "has_storyboard": false,
+          "has_video": false,
+          "has_narration_audio": false,
+          "has_end_frame": false,
+          "grid_id": null
+        }
+      ],
+      "storyboard_count": 0,
+      "video_count": 0,
+      "narration_audio_count": 0,
+      "end_frame_count": 0,
+      "grid_member_count": 0,
+      "grid_count": 0,
+      "text": "本集已有正式脚本，确认会整份覆盖它：现有 1 条脚本条目全部移除，时间线上手改的台词与提示词一并丢弃。\n旧条目产物的版本历史一并移入项目回收站，新脚本的条目不会接上旧历史；30 天内可以在「文件」视图的项目回收站里恢复旧条目。\n将被移除的脚本条目：E2S01"
+    },
+    "duration_tiers": null
+  }
+}

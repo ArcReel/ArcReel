@@ -385,7 +385,7 @@ describe("ModelConfigSection", () => {
         },
       });
 
-      expect(screen.getAllByText(/即将下线（2026-11-24），官方建议改用/)).toHaveLength(2);
+      expect(screen.getAllByText(/即将下线（2026-11-24），推荐替代模型为/)).toHaveLength(2);
       await user.click(screen.getByRole("button", { name: "切换到 seedance-2" }));
 
       expect(onChange).toHaveBeenLastCalledWith(
@@ -394,7 +394,7 @@ describe("ModelConfigSection", () => {
     });
 
     describe("所选视频模型已下线", () => {
-      const DISCONTINUED_ERROR = "Ark/seedance：该模型已于 2026-11-01 下线，官方建议改用 Seedance 2；请在设置中重新选择模型";
+      const DISCONTINUED_ERROR = "Ark/seedance：该模型已于 2026-11-01 下线，推荐替代模型为 Seedance 2；请在设置中重新选择模型";
       const discontinued = (status: "discontinued" | "retiring" = "discontinued") => ({
         ...CANDIDATES,
         lifecycle: {
@@ -418,7 +418,7 @@ describe("ModelConfigSection", () => {
       ])("shows only the discontinued notice when %s references it", async (_where, value) => {
         renderWithCandidates({ projectName: "demo", value: { ...EMPTY_VALUE, ...value }, candidates: discontinued() });
 
-        expect(await screen.findByText("已下线（2026-11-01），无法继续生成，官方建议改用 Seedance 2")).toBeInTheDocument();
+        expect(await screen.findByText("已下线（2026-11-01），无法继续生成，推荐替代模型为 Seedance 2")).toBeInTheDocument();
         await waitFor(() => expect(API.getVideoCapabilities).toHaveBeenCalled());
         await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
         expect(screen.queryByText(DISCONTINUED_ERROR)).not.toBeInTheDocument();

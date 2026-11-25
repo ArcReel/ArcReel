@@ -430,11 +430,6 @@ export function PresentationPlayer({
         <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white/85">
           {t(`presentation_selection_${presentation.selection}`)}
         </span>
-        {presentation.provenance === "unavailable" && (
-          <span className="rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium text-warn">
-            {t("presentation_provenance_unavailable")}
-          </span>
-        )}
         {presentation.currency && (
           <span
             className={`rounded-sm bg-black/70 px-1.5 py-0.5 text-xs font-medium ${

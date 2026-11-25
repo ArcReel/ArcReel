@@ -36,7 +36,10 @@ stub_executors = _ExecutorStubs()
 def use_worker_project(monkeypatch, project: dict | None) -> None:
     """worker 与配置解析经 ``get_project_manager().load_project`` 读到的项目都是 *project*（``None`` 视为空项目）。"""
     pm = type("PM", (), {"load_project": lambda self, name: project or {}})()
-    for target in ("lib.generation.generation_worker.get_project_manager", "lib.config.resolver.get_project_manager"):
+    for target in (
+        "lib.generation.generation_worker.get_project_manager",
+        "lib.project.project_manager.get_project_manager",
+    ):
         monkeypatch.setattr(target, lambda: pm)
 
 
@@ -216,6 +219,12 @@ class FakeWorkerQueue:
     async def requeue_running_tasks(self):
         return 0
 
+    async def get_task(self, task_id):
+        for status, rows in (("succeeded", self.succeeded), ("failed", self.failed)):
+            if any(tid == task_id for tid, _ in rows):
+                return {"task_id": task_id, "status": status}
+        return {"task_id": task_id, "status": "running"}
+
     async def list_orphan_tasks_on_start(self):
         return self._orphans
 
@@ -224,7 +233,7 @@ class FakeWorkerQueue:
             self.claim_after_interruption.set()
         return None
 
-    async def mark_task_succeeded(self, task_id, result):
+    async def mark_task_succeeded(self, task_id, result, *, expected_project_name=None):
         self.succeeded.append((task_id, result))
         return 1
 

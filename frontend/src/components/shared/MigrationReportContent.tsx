@@ -32,6 +32,8 @@ function adjustmentText(t: TFunction, item: WorkflowMigrationAdjustment, episode
   const episode = item.episode === null ? "" : episodeDisplayName(episodes, item.episode, t);
   const params = item.params;
   switch (item.code) {
+    case "retired_draft_trashed":
+      return t("dashboard:migration_adjustment_retired_draft_trashed", { episode, file: item.file ?? "" });
     case "draft_name_conflict_resolved":
       return t("dashboard:migration_adjustment_draft_name_conflict_resolved", { episode });
     case "duplicate_episode_entry_removed":

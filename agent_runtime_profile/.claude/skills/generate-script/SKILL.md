@@ -13,7 +13,7 @@ user-invocable: false
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
 2. **正式脚本 `scripts/episode_N.json` 已存在**（N 是目标集的集 ID，取自计划 `target.episode`，不是第几集）（drama / narration / reference_video）：内容确认即把脚本规划整集转为正式脚本，全部条目带待编写标记。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`。本工具只读正式脚本、不读脚本规划：脚本规划缺失或重跑后尚未确认都不影响编写。
    - **ad（广告/短片）**：尚无正式脚本时本工具按 `project.json` 的 `brief` + `products`（含 selling_points）+ `target_duration` 整份生成（后端按审定的带货八段框架配比表构建 prompt，`products` 为空自动分流通用短片），`brief` 与 `products` 至少一项。结果直接成为正式脚本，不经内容确认；引用里的新角色 / 场景 / 道具由模型列进 `new_assets` 并给出处理决定，随正式脚本登记为待生成资产，与已登记同类资产同名的自动归并，回执列出本次新登记的资产。已有正式脚本时与其他路线一样只编写待编写条目，整份重做见下文。
-3. **约束失败产出保留为待修复草稿，不丢弃重抽**：参考生视频提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode_id` 与 `doc_type: reference_prompt_authoring` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。
+3. **逐单元落盘与部分完成恢复**：参考生视频提示词编写按 `unit_id` 归属校验并逐单元写回正式脚本，合法单元直接落盘、不合规单元自动一次补跑；部分失败时回执返回 `outcome: "partial"`、`written_ids` 与 `failed_units`，可继续点名重写或用 `patch_episode_script` 修正失败单元。
 
 ## 用法
 

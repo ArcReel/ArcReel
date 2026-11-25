@@ -71,7 +71,7 @@ FILES_DIRNAME = "files"
 SNAPSHOT_DIRNAME = "snapshot"
 _RECORD_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
-Origin = Literal["user", "agent"]
+Origin = Literal["user", "agent", "migration"]
 
 TRASH_ENTITY_TYPE = "trash"
 
@@ -189,6 +189,8 @@ def record_deletion(
     files: Sequence[str],
     *,
     snapshot: bool = False,
+    notify: bool = True,
+    origin: Origin | None = None,
     sources: Mapping[str, Path] | None = None,
     before: Mapping[str, bytes] | None = None,
 ) -> TrashRecord:
@@ -236,7 +238,7 @@ def record_deletion(
             files=tuple(files),
             schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
             deleted_at=datetime.now(UTC),
-            origin="user" if get_project_change_source() == "webui" else "agent",
+            origin=origin or ("user" if get_project_change_source() == "webui" else "agent"),
             size=size,
             has_snapshot=snapshot,
         )
@@ -247,7 +249,8 @@ def record_deletion(
             os.replace(target, source)
         shutil.rmtree(record_dir, ignore_errors=True)
         raise
-    _notify(project_dir)
+    if notify:
+        _notify(project_dir)
     return record
 
 

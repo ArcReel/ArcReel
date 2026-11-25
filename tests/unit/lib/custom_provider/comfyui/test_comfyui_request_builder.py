@@ -169,7 +169,7 @@ class TestFrames:
         if entry_fps is not None:
             entry["fps"] = entry_fps
         definition["bindings"]["frames"] = [entry]
-        definition["workflow"]["9"]["inputs"]["length"] = 1
+        definition["workflow"]["9"]["inputs"]["length"] = 1 + (fps or entry_fps or 0) * step
         if fps is None:
             del definition["bindings"]["fps"]
         else:
@@ -217,15 +217,16 @@ class TestFrames:
 
         assert built.frames == 9
 
-    def test_a_workflow_that_keeps_its_own_length_is_not_rewritten(self):
+    @pytest.mark.parametrize("length", [81, 1, ["7", 0]])
+    def test_a_workflow_that_keeps_its_own_length_is_not_rewritten(self, length):
         """81 帧 @ 24fps 凑不出整档，端点因此对外说时长不由 ArcReel 驱动；填值层要给同一个答案。"""
         definition = self._with_frames(1, fps=24)
-        definition["workflow"]["9"]["inputs"]["length"] = 81
+        definition["workflow"]["9"]["inputs"]["length"] = length
 
         built = _build(definition, duration_seconds=4)
 
         assert built.frames is None
-        assert _inputs(built, "9")["length"] == 81
+        assert _inputs(built, "9")["length"] == length
 
     def test_a_length_that_does_map_to_a_tier_is_still_driven(self):
         definition = self._with_frames(4, fps=16)

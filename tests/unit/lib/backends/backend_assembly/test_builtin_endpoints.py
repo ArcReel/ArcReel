@@ -10,17 +10,12 @@ import pytest
 from arcreel_catalog_core import BuiltinProviderListing
 from lib.backends.backend_assembly import specs
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import (
-    PROVIDER_ENDPOINTS,
-    ProviderEndpoints,
-    builtin_model_spec,
-    declared_builtin_video_capabilities,
-    infer_builtin_endpoint,
-    validate_endpoint_declarations,
-)
+from lib.backends.backend_assembly.specs import builtin_model_spec, declared_builtin_video_capabilities
+from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS, ProviderEndpoints
+from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+from lib.video_runtime.builtin import build_builtin_backend
 
 
 @pytest.fixture
@@ -35,7 +30,8 @@ def _install(*models: catalog.UserAddedModel) -> None:
 
 def _built_endpoint_and_text_to_video(provider_id: str, model_id: str):
     spec = builtin_model_spec(provider_id, "video", model_id)
-    backend = spec.build_backend(
+    backend = build_builtin_backend(
+        spec,
         LoadedConfig(
             credentials={"api_key": "sk-test"}, provider_meta=PROVIDER_REGISTRY[provider_id], rate_limiter=None
         ),
@@ -51,7 +47,6 @@ class TestDeclarations:
             for media_type in catalog.provider_media_types(provider_id):
                 declared = PROVIDER_ENDPOINTS[(provider_id, media_type)]
                 assert declared.default in declared.endpoints
-        validate_endpoint_declarations()
 
     def test_a_default_outside_the_options_is_rejected(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setitem(
@@ -61,21 +56,6 @@ class TestDeclarations:
         )
         with pytest.raises(ValueError, match="default endpoint 'kling-video-pro-silent'"):
             specs._validate_provider_specs()
-
-    def test_an_endpoint_of_another_media_type_is_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setitem(
-            PROVIDER_ENDPOINTS,
-            ("ark", "video"),
-            ProviderEndpoints("ark", "video", ("ark-seedance-2", "ark-seedream-4"), "ark-seedance-2"),
-        )
-        with pytest.raises(ValueError, match="'ark-seedream-4'"):
-            validate_endpoint_declarations()
-
-    def test_shared_endpoint_names_are_builtin_endpoints_of_the_registry(self):
-        for declared in PROVIDER_ENDPOINTS.values():
-            for endpoint in declared.endpoints:
-                if endpoint not in specs.PROVIDER_ONLY_ENDPOINTS:
-                    assert ENDPOINT_REGISTRY[endpoint].source == "builtin"
 
 
 class TestAssemblyFollowsTheEndpoint:

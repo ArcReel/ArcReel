@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Callable
+from types import EllipsisType
 from typing import TYPE_CHECKING, Self
 
 from lib.catalog import query as catalog
@@ -45,7 +46,16 @@ class EntryBoundCapabilities:
     ``_catalog_entry`` 为 ``None``，按 API 模型名现查。条目用于读取模型事实与匹配提示词上限，请求里仍发 API 模型名。
     """
 
-    _catalog_entry: CatalogEntry | None = None
+    _binding: CatalogEntry | EllipsisType | None = ...
+
+    @property
+    def _catalog_entry(self) -> CatalogEntry | None:
+        return None if isinstance(self._binding, EllipsisType) else self._binding
+
+    def _request_entry(self, model: str) -> CatalogEntry | None:
+        if isinstance(self._binding, EllipsisType):
+            return catalog.find_entry(model, media_type="video")
+        return self._binding
 
     @property
     def catalog_entry(self) -> CatalogEntry | None:
@@ -55,12 +65,8 @@ class EntryBoundCapabilities:
     def with_catalog_entry(self, entry: CatalogEntry | None) -> Self:
         """返回按 ``entry`` 认定请求形态的副本；客户端、凭证与模型等其余状态与本实例共用，不就地改写。"""
         clone = copy.copy(self)
-        clone._catalog_entry = entry
-        clone._on_catalog_entry_changed()
+        clone._binding = entry
         return clone
-
-    def _on_catalog_entry_changed(self) -> None:
-        """构造时按模型名算好的派生状态在这里按新条目重算；没有这类状态时不用覆盖。"""
 
 
 def catalog_entry_of(backend: object) -> CatalogEntry | None:

@@ -126,16 +126,13 @@ def configured_asset_link_check(
 async def _configured_scope(
     facts: VideoRequestFacts, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]
 ) -> AssetLibraryScope | None:
-    from lib.backends.backend_assembly.assembler import assemble_backend
+    from lib.config.resolver import ProviderModel
+    from lib.video_runtime.assembly import assemble_video
+    from lib.video_runtime.resolution import VideoRuntime
 
     try:
-        backend = await assemble_backend(
-            provider_id=facts.provider_id,
-            media_type="video",
-            model_id=facts.model_id,
-            resolver=resolver,
-            generation_type=facts.generation_type,
-        )
+        target = await VideoRuntime(resolver).materialized(ProviderModel(facts.provider_id, facts.model_id))
+        backend = await assemble_video(target.spec)
     except Exception:
         logger.debug(
             "读侧装配视频调用通道失败，按没有素材库范围核对 provider=%s model=%s",

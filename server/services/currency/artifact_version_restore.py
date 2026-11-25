@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from lib.artifacts.artifact_manifest import (
+    ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
@@ -14,11 +16,15 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_version_provenance import (
     TypedMediaVersionTarget,
     is_typed_media_resource,
+    is_uploaded_video_version,
     parse_typed_media_version_target,
+    uploaded_video_version_basis,
 )
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import NotFoundError
+from lib.infra.content_digest import sha256_file
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
+from lib.project.video_unit_owner import resolve_video_unit_owner
 from lib.script.script_editor import resolve_items
 from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
@@ -34,9 +40,9 @@ def is_typed_media_restore_resource(resource_type: str) -> bool:
 
 
 def is_typed_media_version_restorable(resource_type: str, record: Mapping[str, Any]) -> bool:
-    """Whether one API version record carries a complete verified restore target."""
+    """Whether the version has a supported restore source."""
 
-    if not is_typed_media_restore_resource(resource_type):
+    if not is_typed_media_restore_resource(resource_type) or is_uploaded_video_version(resource_type, record):
         return True
     try:
         parse_typed_media_version_record(resource_type, record)
@@ -48,14 +54,23 @@ def is_typed_media_version_restorable(resource_type: str, record: Mapping[str, A
 TypedMediaRestoreTarget = TypedMediaVersionTarget
 
 
+@dataclass(frozen=True, slots=True)
+class UploadedVideoRestoreTarget:
+    episode: int
+    script_file: str
+    created_at: str | None
+
+
 def get_typed_media_restore_target(
     versions: VersionManager,
     *,
+    project_manager: ProjectManager,
+    project_name: str,
     resource_type: str,
     resource_id: str,
     version: int,
-) -> TypedMediaRestoreTarget:
-    """Read and validate the complete typed identity carried by one version."""
+) -> TypedMediaRestoreTarget | UploadedVideoRestoreTarget:
+    """Resolve the admission identity for an uploaded or generated media version."""
 
     if not is_typed_media_restore_resource(resource_type):
         raise ValueError(f"resource type does not carry typed artifact restore metadata: {resource_type}")
@@ -66,6 +81,16 @@ def get_typed_media_restore_target(
     )
     if record is None:
         raise NotFoundError("version_not_found", version=version)
+    if is_uploaded_video_version(resource_type, record):
+        episode, script_file = resolve_video_unit_owner(
+            project_manager,
+            project_name=project_name,
+            project=project_manager.load_project(project_name),
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        created_at = record.get("created_at")
+        return UploadedVideoRestoreTarget(episode, script_file, created_at if isinstance(created_at, str) else None)
     return parse_typed_media_version_record(resource_type, record)
 
 
@@ -80,16 +105,14 @@ def restore_typed_media_version(
     version: int,
     current_file: Path,
     artifact_path: str,
+    target: TypedMediaRestoreTarget | UploadedVideoRestoreTarget | None = None,
 ) -> dict[str, Any]:
-    """Restore a typed version as one script/media/pointer/Manifest transition.
+    """Restore the selected media, script, version pointer and Manifest together."""
 
-    Historical versions without a complete descriptor are rejected.  Their
-    provenance cannot be reconstructed from a path, prompt, or current project
-    state without making an unprovable selection claim.
-    """
-
-    target = get_typed_media_restore_target(
+    resolved = target or get_typed_media_restore_target(
         versions,
+        project_manager=project_manager,
+        project_name=project_name,
         resource_type=resource_type,
         resource_id=resource_id,
         version=version,
@@ -97,21 +120,42 @@ def restore_typed_media_version(
     restored: list[dict[str, Any]] = []
 
     def _same_script(project: dict[str, Any]) -> str:
-        current_binding = resolve_episode_script_binding(project, target.episode, target.script_file)
+        if isinstance(resolved, UploadedVideoRestoreTarget):
+            owner = resolve_video_unit_owner(
+                project_manager,
+                project_name=project_name,
+                project=project,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+            if owner != (resolved.episode, resolved.script_file):
+                raise ValueError("upload owner changed during video restore")
+            return resolved.script_file
+        current_binding = resolve_episode_script_binding(project, resolved.episode, resolved.script_file)
         if current_binding is None:
             raise ValueError("typed artifact version no longer matches the episode script binding")
         return current_binding
 
     def _restore_and_register(_script_path: Path) -> None:
         def _register(record: dict[str, Any]) -> None:
-            committed_target = parse_typed_media_version_record(resource_type, record)
-            if committed_target != target:
-                raise RuntimeError("typed artifact version metadata changed during restore")
-            key = _TYPED_MEDIA_ARTIFACT_KEYS[resource_type](target.episode, resource_id)
+            """Use the installed bytes after VersionManager has admitted the snapshot."""
+
+            if is_uploaded_video_version(resource_type, record) != isinstance(resolved, UploadedVideoRestoreTarget):
+                raise ValueError("version source changed during restore")
+            if isinstance(resolved, UploadedVideoRestoreTarget):
+                basis = ArtifactBasisDescriptor.from_basis(
+                    uploaded_video_version_basis(record, snapshot_digest=sha256_file(current_file))
+                )
+            else:
+                committed_target = parse_typed_media_version_record(resource_type, record)
+                if committed_target != resolved:
+                    raise RuntimeError("typed artifact version metadata changed during restore")
+                basis = resolved.basis
+            key = _TYPED_MEDIA_ARTIFACT_KEYS[resource_type](resolved.episode, resource_id)
             ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor_transactionally(
                 key,
                 artifact_path=artifact_path,
-                basis=target.basis,
+                basis=basis,
             )
 
         restored.append(
@@ -136,7 +180,7 @@ def restore_typed_media_version(
             resource_type=resource_type,
             resource_id=resource_id,
             artifact_path=artifact_path,
-            created_at=target.created_at,
+            created_at=resolved.created_at,
         )
 
     if not restored:
@@ -202,6 +246,7 @@ def _apply_restored_asset(
 
 __all__ = [
     "TypedMediaRestoreTarget",
+    "UploadedVideoRestoreTarget",
     "get_typed_media_restore_target",
     "is_typed_media_restore_resource",
     "is_typed_media_version_restorable",

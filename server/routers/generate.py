@@ -25,13 +25,12 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFactsFailure,
     end_frame_duration_failure,
-    evaluate_video_request_facts,
 )
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
@@ -53,6 +52,7 @@ from lib.script.storyboard_sequence import (
 from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
+from lib.video_runtime.resolution import read_video_request_facts
 from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
@@ -275,11 +275,10 @@ async def generate_video(
     if item.get("end_frame_image"):
         from lib.db import async_session_factory
 
-        facts = await evaluate_video_request_facts(
+        facts = await read_video_request_facts(
             project,
             route="storyboard",
             generation_type=_video_bucket,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=ConfigResolver(async_session_factory),
             uses_end_frame=True,
         )
@@ -331,9 +330,10 @@ async def _require_audio_provider_configured(project: dict) -> str:
     返回解析出的 provider_id，入队时直接复用，避免每段重复解析。
     """
     from lib.db import async_session_factory
+    from lib.video_runtime.audio import AudioRuntime
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
+        resolved = await AudioRuntime(ConfigResolver(async_session_factory)).read_identity(project)
     except ModelNotInCatalogError:
         raise
     except NoAvailableProviderError as exc:
@@ -671,7 +671,8 @@ async def confirm_character_voice_sample(
 
         return {"path": ref_audio_rel}
 
-    saved = await run_sync_transaction(_sync)
+    async with idle_asset_write(project_name, AssetTarget("character", char_name, "voice")):
+        saved = await run_sync_transaction(_sync)
     return {
         "success": True,
         "path": saved["path"],
@@ -880,11 +881,10 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
     """
     from lib.db import async_session_factory
+    from lib.video_runtime.image_resolution import ImageRuntime
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
-            project, None, generation_type="i2i"
-        )
+        resolved, _ = await ImageRuntime(ConfigResolver(async_session_factory)).read_identity(project, "i2i")
     except ModelNotInCatalogError:
         raise
     except ValueError as exc:

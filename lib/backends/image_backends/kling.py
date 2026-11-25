@@ -180,6 +180,7 @@ class KlingSingleImageBackend(KlingImageBackend):
     """可灵单参考图通道：``image`` 是纯 base64 字符串。"""
 
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = 1
+    CHANNEL_REFERENCE_LIMIT_HARD: ClassVar[bool] = True
 
     def _build_payload(self, request: ImageGenerationRequest) -> dict:
         limit = self.CHANNEL_REFERENCE_LIMIT

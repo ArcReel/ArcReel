@@ -41,12 +41,16 @@ async def test_schema_16_project_with_retired_flash_lite_resolves_the_formal_id(
     assert migrated["text_backend_complex"] == "gemini-aistudio/gemini-3-flash-preview"
     assert [path.name for path in project_dir.glob("project.json.bak.v16-*")]
 
-    resolver = ConfigResolver(db_factory)
-    assert await resolver.text_backend_for_task(TextTaskType.STYLE_ANALYSIS, project_dir.name) == (
+    from lib.video_runtime.text import TextRuntime
+
+    runtime = TextRuntime(ConfigResolver(db_factory))
+    style_target = await runtime.for_task(TextTaskType.STYLE_ANALYSIS, project_dir.name)
+    assert (style_target.provider_id, style_target.model_id) == (
         provider_id,
         "gemini-3.1-flash-lite",
     )
-    assert await resolver.text_backend_for_task(TextTaskType.SCRIPT, project_dir.name) == (
+    script_target = await runtime.for_task(TextTaskType.SCRIPT, project_dir.name)
+    assert (script_target.provider_id, script_target.model_id) == (
         "gemini-aistudio",
         "gemini-3-flash-preview",
     )

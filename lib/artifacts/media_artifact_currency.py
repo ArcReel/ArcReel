@@ -42,7 +42,7 @@ from lib.project.resource_paths import resource_relative_path
 from lib.references.reference_admission import SHEET_MISSING_CODE
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.reference_video.prompt_render import resolve_reference_audio_paths
-from lib.script.reference_video.request_projection import (
+from lib.script.reference_video.reference_assets import (
     FilesystemReferenceAssets,
     clamp_reference_assets,
     hydrate_reference_assets,

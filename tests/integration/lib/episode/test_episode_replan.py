@@ -10,6 +10,7 @@ import pytest
 from lib.backends.text_backends.base import TextGenerationResult
 from lib.episode.episode_deletion import episode_trash_record
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY
+from lib.episode.episode_manual_split import cut_unsplit_source
 from lib.episode.episode_planner import EpisodePlanner
 from lib.episode.episode_replan import (
     REPLAN_CANDIDATE_KEY,
@@ -533,3 +534,66 @@ class TestSummaryAndText:
         assert "番外9" in texts["text"]
         assert "旧2" in texts["delete_text"]
         assert "{" not in texts["text"] + texts["delete_text"]
+
+
+async def test_adoption_then_reset_preserves_padded_old_file(tmp_path: Path):
+    project_dir = _project_dir(tmp_path, [_cut(1, 0)])
+    candidate = await _generate(project_dir, 1, ["重逢离别。"])
+    source = project_dir / "source"
+    alias = source / "episode_02.txt"
+    alias.write_bytes(b"legacy")
+
+    assert _adopt(project_dir, candidate).episodes == [2]
+    assert not alias.exists()
+    assert (source / "episode_2.txt").read_text(encoding="utf-8") == SOURCE
+    reset_episode_planning(project_dir)
+    assert (source / "_episode_02.txt.bak").read_bytes() == b"legacy"
+
+
+@pytest.mark.parametrize("operation", ["manual_split", "replan", "planner", "reset"])
+async def test_snapshot_failure_restores_ledger_files_and_backups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+):
+    project_dir = _project_dir(tmp_path, [_cut(1, 0)] if operation == "replan" else [])
+    source = project_dir / "source"
+    episode = 2 if operation == "replan" else 1
+    canonical = source / f"episode_{episode}.txt"
+    alias = source / f"episode_{episode:02}.txt"
+    alias.write_bytes(b"legacy\r\n")
+    canonical.write_bytes(b"other legacy")
+    (source / f"_{alias.name}.bak").write_bytes(b"older backup")
+    snapshots_dir = source / "snapshots"
+    snapshots_dir.mkdir(exist_ok=True)
+    stale_snapshot = snapshots_dir / "stale.txt"
+    stale_snapshot.write_bytes(b"stale snapshot")
+    candidate = await _generate(project_dir, 1, ["重逢离别。"]) if operation == "replan" else ""
+
+    def state():
+        return {p: p.read_bytes() for p in [project_dir / "project.json", *source.rglob("*")] if p.is_file()}
+
+    module = __import__(f"lib.episode.episode_{operation}", fromlist=["sync_source_snapshots"])
+    real_sync = module.sync_source_snapshots
+
+    def fail_sync(*args, **kwargs):
+        assert not alias.exists()
+        assert (source / f"_{alias.name}.1.bak").read_bytes() == b"legacy\r\n"
+        real_sync(*args, **kwargs)
+        assert not stale_snapshot.exists()
+        raise OSError("snapshot failure")
+
+    before = state()
+    monkeypatch.setattr(module, "sync_source_snapshots", fail_sync)
+
+    async def perform_operation():
+        if operation == "replan":
+            _adopt(project_dir, candidate)
+        elif operation == "manual_split":
+            cut_unsplit_source(project_dir, source_file="source/novel.txt", end=CUTS[1])
+        elif operation == "planner":
+            await EpisodePlanner(project_dir, generator=_Generator(["重逢离别。"])).plan()
+        else:
+            reset_episode_planning(project_dir)
+
+    with pytest.raises(OSError, match="snapshot failure"):
+        await perform_operation()
+    assert state() == before

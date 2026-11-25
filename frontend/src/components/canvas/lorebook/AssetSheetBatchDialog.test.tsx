@@ -2,12 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
+import { suppressedAssetSheetTaskIds, useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { AssetSheetBatchDialog } from "./AssetSheetBatchDialog";
 
 beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true);
-  useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
+  useAssetSheetBatchStore.setState(useAssetSheetBatchStore.getInitialState(), true);
 });
 
 afterEach(() => {
@@ -57,7 +57,7 @@ describe("AssetSheetBatchDialog", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(submit).toHaveBeenCalledWith("demo", { episode_id: 2 });
     expect(useAssetSheetBatchStore.getState().batches.b1?.members.map((member) => member.task_id)).toEqual(["t1", "t2", null]);
-    expect(useAssetSheetBatchStore.getState().trackedTaskIds).toEqual(new Set(["t1", "t2"]));
+    expect(suppressedAssetSheetTaskIds("demo")).toEqual(new Set(["t1", "t2"]));
   });
 
   it("shows the priced total and how many sheets are unpriced", async () => {

@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v1/tasks/active",
+  "status": 200,
+  "body": {
+    "items": [],
+    "truncated": false
+  }
+}

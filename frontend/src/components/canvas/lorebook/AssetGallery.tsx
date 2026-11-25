@@ -10,8 +10,8 @@ import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
-import { useAssetBusyNames } from "./assetBusyGuard";
 import { AssetBrowseCard } from "./AssetBrowseCard";
+import { hasActiveAssetName } from "./assetBusyGuard";
 import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
 import { AssetImageViewer } from "./AssetImageViewer";
 import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
@@ -52,7 +52,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
   libraryPreview,
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
-  const occupiedNames = useAssetBusyNames(assetType, projectName);
   const demo = useDemoWorkbench();
   const rows = useAssetSheetStatus(projectName, !demo);
   const statusByName = useSheetStatusByName(rows, assetType);
@@ -103,7 +102,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
     .map(({ asset }) => asset)
     .filter((asset) => asset.sheetPath !== null && statusByName.get(asset.name)?.status !== "missing");
   if (viewName !== null && !viewable.some((asset) => asset.name === viewName)) setViewName(null);
-  const viewerBusy = new Set([...writingNames, ...occupiedNames]);
+  const viewerBusy = new Set(writingNames);
   generatingNames?.forEach((name) => viewerBusy.add(name));
   const editFromViewer = (name: string) => {
     setViewName(null);
@@ -155,7 +154,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
           <ul aria-label={title} className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
             {shown.map(({ asset }) => {
               const row = statusByName.get(asset.name);
-              const generating = generatingNames?.has(asset.name) ?? false;
+              const generating = hasActiveAssetName(generatingNames, asset.name);
               return (
                 <li key={asset.name} className="flex min-w-0">
                   <AssetBrowseCard
@@ -164,7 +163,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
                     sheetStatus={row}
                     marker={markerOf(asset, row, generating)}
                     generating={generating}
-                    busy={occupiedNames.has(asset.name)}
                     readOnly={readOnly}
                     libraryPreview={previews?.get(asset.name)}
                     onOpen={openAsset}

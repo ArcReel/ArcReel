@@ -1,16 +1,16 @@
+import { seedTaskState } from "@/test/task-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import { AssetAliasesField } from "./AssetAliasesField";
 
 describe("AssetAliasesField", () => {
   beforeEach(() => useAppStore.setState(useAppStore.getInitialState(), true));
-  afterEach(() => { vi.restoreAllMocks(); useTasksStore.setState({ tasks: [], optimisticActive: new Set() }); });
+  afterEach(() => { vi.restoreAllMocks(); seedTaskState({ tasks: [], optimisticMarks: new Map() }); });
 
   function stubSave() {
     vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
@@ -81,17 +81,16 @@ describe("AssetAliasesField", () => {
     expect(useAppStore.getState().toast).toBeNull();
   });
 
-  it("retains the add form when a task occupies the asset before submission", async () => {
+  it("saves a text alias when a task occupies the asset before submission", async () => {
     const user = userEvent.setup();
     const update = stubSave();
     render(<AssetAliasesField projectName="p" name="村口" assetType="scene" aliases={[]} />);
     await user.click(screen.getByRole("button", { name: "添加别名" }));
     await user.type(await screen.findByLabelText("别名"), "槐树下");
-    useTasksStore.setState({ tasks: [makeTask({ project_name: "p", task_type: "scene", resource_id: "村口", status: "running" })] });
+    seedTaskState({ tasks: [makeTask({ project_name: "p", task_type: "scene", resource_id: "村口", status: "running" })] });
     await user.click(screen.getByRole("button", { name: "添加" }));
-    expect(update).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("别名")).toHaveValue("槐树下");
-    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
+    expect(update).toHaveBeenCalledWith("p", "村口", { aliases: ["槐树下"] });
+    expect(screen.queryByLabelText("别名")).not.toBeInTheDocument();
   });
 
   it("only lists aliases when read-only", () => {

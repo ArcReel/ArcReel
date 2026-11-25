@@ -19,6 +19,7 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
+from lib.generation.asset_admission import asset_admission_locks, asset_task_target, require_asset_idle
 from lib.generation.generation_admission import generation_admission_lock
 from lib.generation.generation_batch import (
     GenerationBatchBlockedItem,
@@ -210,7 +211,7 @@ async def reference_projection_for_queued_task(
 ) -> ReferenceUnitRequestProjection | None:
     """按任务定位信息读取当前 unit，并生成 claim/限流共用的 current-state 投影。"""
 
-    from lib.config.resolver import get_project_manager
+    from lib.project.project_manager import get_project_manager
     from lib.script.reference_video.request_projection import (
         ReferenceRequestOptions,
         project_reference_unit_request,
@@ -278,7 +279,11 @@ async def resolve_video_execution_for_queued_task(
     execution_payload = (
         without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
-    resolved = await resolver.resolve_video_backend(project, execution_payload or {}, generation_type=generation_type)
+    from lib.config.resolver import ProviderModel
+    from lib.video_runtime.resolution import VideoRuntime
+
+    read = await VideoRuntime(resolver).read_bucket(project, generation_type, payload=execution_payload or {})
+    resolved = ProviderModel(read.snapshot.provider_id, read.snapshot.model_id)
     return resolved, generation_type
 
 
@@ -306,8 +311,11 @@ async def _derive_execution_model_for_enqueue(
     is_audio = media_type == "audio" or task_type == "tts"
     video_generation_type: VideoGenerationType | None = None
     try:
-        from lib.config.resolver import ConfigResolver, get_project_manager
+        from lib.config.resolver import ConfigResolver, ProviderModel
         from lib.db import async_session_factory
+        from lib.project.project_manager import get_project_manager
+        from lib.video_runtime.audio import AudioRuntime
+        from lib.video_runtime.image_resolution import ImageRuntime
 
         project: dict | None = None
         if project_name:
@@ -315,8 +323,6 @@ async def _derive_execution_model_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_text:
-            from lib.config.resolver import ProviderModel
-
             resolved = ProviderModel("text", "")
         elif is_video:
             resolved, video_generation_type = await resolve_video_execution_for_queued_task(
@@ -328,10 +334,10 @@ async def _derive_execution_model_for_enqueue(
                 resource_id=resource_id,
             )
         elif is_audio:
-            resolved = await resolver.resolve_audio_backend(project, payload or {})
+            resolved = await AudioRuntime(resolver).read_identity(project, payload or {})
         else:
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
+            resolved, _ = await ImageRuntime(resolver).read_identity(project, generation_type, payload=payload or {})
     except ModelNotInCatalogError as exc:
         from lib.config.resolver import ProviderModel
 
@@ -447,6 +453,21 @@ class GenerationQueue:
             ):
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 
+        if task_type == "image_edit" and resource_type is None:
+            resource_type = (payload or {}).get("resource_type")
+        asset = asset_task_target(task_type, resource_type, resource_id)
+
+        async def _guard_asset(session, new_task_id: str) -> None:
+            assert asset is not None
+            await require_asset_idle(
+                session,
+                project_name,
+                asset,
+                new_task_id=new_task_id,
+                batch_id=batch_id,
+                parent_task_id=dependency_task_id if task_type == DERIVATIVE_TASK_TYPE else None,
+            )
+
         async def _enqueue() -> dict[str, Any]:
             async with self._task_repo() as repo:
                 return await repo.enqueue(
@@ -466,10 +487,15 @@ class GenerationQueue:
                     batch_id=batch_id,
                     batch_unit_id=batch_unit_id,
                     batch_unit_ids=batch_unit_ids,
+                    new_task_guard=_guard_asset if asset is not None else None,
                     dedupe_guard=_guard_deduped,
                 )
 
-        if task_type in {"tts", "video", "reference_video"} and script_file:
+        if asset is not None:
+            async with asset_admission_locks(project_name, asset):
+                await asyncio.to_thread(asset.require_host, project_name, self._project_manager)
+                result = await _enqueue()
+        elif task_type in {"tts", "video", "reference_video"} and script_file:
             async with generation_admission_lock(
                 project_name=project_name,
                 script_file=script_file,
@@ -503,7 +529,7 @@ class GenerationQueue:
                     batch_id=batch_id,
                     project_name=project_name,
                     operation=operation,
-                    requested=requested.model_dump(mode="json"),
+                    requested=requested.model_dump(mode="json", exclude={"enqueue_problems"}),
                     blocked=[item.model_dump(mode="json") for item in blocked],
                     source=source,
                     user_id=user_id,
@@ -518,6 +544,24 @@ class GenerationQueue:
             )
             raise
         return batch_id
+
+    async def save_generation_batch_snapshot(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        requested: GenerationBatchRequestSnapshot,
+        user_id: str,
+    ) -> None:
+        async with self._task_repo() as repo:
+            saved = await repo.save_batch_snapshot(
+                project_name=project_name,
+                batch_id=batch_id,
+                requested=requested.model_dump(mode="json"),
+                user_id=user_id,
+            )
+        if not saved:
+            raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
 
     async def get_generation_batch(
         self,
@@ -635,9 +679,12 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        owned_task_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
+            task = await repo.claim_next(
+                media_type, pool_full_providers=pool_full_providers, owned_task_ids=owned_task_ids
+            )
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task
@@ -672,14 +719,15 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)
 
-    async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
-        """Returns rows_affected (0 = 任务已不在 running，该写入不生效)."""
+    async def mark_task_succeeded(
+        self, task_id: str, result: dict[str, Any] | None, *, expected_project_name: str | None = None
+    ) -> int:
         async with self._task_repo() as repo:
-            affected = await repo.mark_succeeded(task_id, result)
+            affected = await repo.mark_succeeded(task_id, result, expected_project_name=expected_project_name)
         if affected > 0:
             logger.info("任务成功 task_id=%s", task_id)
         else:
-            logger.info("mark_succeeded 0 rows task_id=%s (任务已不在 running)", task_id)
+            logger.info("mark_succeeded 0 rows task_id=%s (任务不再符合写回条件)", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:
@@ -730,12 +778,23 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.retry_artifact_download(task_id)
 
+    async def get_active_snapshot(self, *, project_name: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        async with self._task_repo() as repo:
+            return await repo.get_active_snapshot(project_name=project_name)
+
+    async def get_tasks_by_id(
+        self, task_ids: list[str], *, project_name: str | None = None
+    ) -> dict[str, dict[str, Any]]:
+        async with self._task_repo() as repo:
+            return await repo.get_many(task_ids, project_name=project_name)
+
     async def list_tasks(
         self,
         *,
         project_name: str | None = None,
         status: str | None = None,
         task_type: str | None = None,
+        resource_id: str | None = None,
         source: str | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -746,6 +805,7 @@ class GenerationQueue:
                 project_name=project_name,
                 status=status,
                 task_type=task_type,
+                resource_id=resource_id,
                 source=source,
                 page=page,
                 page_size=page_size,

@@ -1,35 +1,15 @@
-"""视频的生效输入能力：模型条目与调用通道两侧共同约束（docs/adr/0104）。
-
-视频的输入模式（文生视频、首帧、尾帧、参考音频）与数量上限（参考图、参考音频段数、参考音频总时长）在两侧各是
-一个维度：模型条目说模型接受什么、能接受多少（模型事实，随官方同步下发），调用通道说这条通道实现了什么、一次能
-承载多少（通道事实，内置调用通道与调用端点在代码里声明，见各视频后端的 ``video_capabilities``）。
-
-- 是否支持类取两侧都满足的部分。条目未收录首帧、尾帧时沿用保守回落：首帧跟随通道，尾帧不开；未收录文生视频
-  时跟随通道，未收录参考音频时不开，与对应不上条目的模型的回落一致。
-- 数值类取两侧中较小的那个（:func:`lib.backends.input_limits.effective_input_limit`）。条目未收录时只受通道约束，
-  两侧都没有声明时为「未收录」，执行时不裁剪，超出部分由上游拒绝。``0`` 只表示不接受；调用通道声明 ``0`` 即
-  没有实现这条路径。
-
-结果仍是一份 :class:`VideoCapabilities`，参考图与参考音频段数上限按 :meth:`InputLimit.to_json` 的形状存
-（``None`` 未收录、``0`` 不接受、其余为上限），读取时经 :func:`reference_image_limit` 与
-:func:`reference_audio_count_limit` 还原为 :class:`InputLimit`。任务类型桶的候选、执行时的校验、编排层的数量检查与
-设置页都读这一个结果。
-
-能力覆盖整维替换生效值，在两侧求值之后生效（内置供应商下用户添加的模型见
-``lib.backends.backend_assembly.specs``，自定义供应商见 :mod:`lib.custom_provider.capabilities`）。ComfyUI 端点的
-能力只来自节点绑定，不读条目，不经过本模块。
-
-提示词长度上限、音轨形态、首帧比例约束这些请求形态仍只由调用通道声明，原样保留。
-"""
-
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import fields
+from types import EllipsisType
 from typing import TYPE_CHECKING
 
 from arcreel_catalog_core import VideoFacts
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
-from lib.backends.input_limits import InputLimit, effective_input_limit
+from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities, VideoRoute
+from lib.backends.input_limits import InputLimit
+from lib.backends.providers import PROVIDER_KLING, video_audio_always_billed
+from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, Endpoint, RequestConditions, resolve
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
@@ -56,33 +36,137 @@ def reference_audio_count_limit(caps: VideoCapabilities) -> InputLimit[int]:
     return InputLimit.from_json(caps.max_reference_audio_count)
 
 
-def effective_video_capabilities(channel: VideoCapabilities, facts: VideoFacts) -> VideoCapabilities:
-    """调用通道的声明与模型条目的事实两侧求值后的视频能力（见模块文档）。
+def billed_audio_for_request(
+    provider: str | None, caps: VideoCapabilities | None, bucket: VideoRoute, requested: bool
+) -> bool | None:
+    if video_audio_always_billed(provider):
+        return True
+    return caps.audio_track_for_route(bucket).output_audio(requested) if caps is not None else None
 
-    ``channel`` 可以是无请求上下文的声明，也可以是按请求档位解析的声明（如可灵在 pro 档才放开尾帧），两者按同一
-    规则与条目求值。
-    """
-    images = effective_input_limit(
-        path_supported=channel.max_reference_images != 0,
-        declared=(facts.max_reference_images, channel.max_reference_images),
+
+def audio_protocol(mode: VideoAudioMode) -> AudioProtocol:
+    return {
+        VideoAudioMode.CONTROLLABLE: AudioProtocol.SWITCH,
+        VideoAudioMode.ALWAYS_ON: AudioProtocol.NO_SWITCH,
+        VideoAudioMode.ALWAYS_OFF: AudioProtocol.SILENT,
+    }[mode]
+
+
+def video_endpoint(channel: VideoCapabilities) -> Endpoint:
+    slots = {k for k in ("text_to_video", "first_frame", "last_frame") if getattr(channel, k)}
+    if channel.max_reference_images != 0:
+        slots.add("reference_images")
+    if channel.reference_audio_mode == ReferenceAudioMode.DIRECT:
+        slots.add("reference_audio")
+    defaults = {
+        k: getattr(channel, k)
+        for k in (
+            "max_reference_images",
+            "max_reference_audio_count",
+            "max_reference_audio_total_seconds",
+            "reference_audio_per_image",
+            "max_prompt_chars",
+            "first_frame_ratio_adaptive_only",
+        )
+    }
+    return Endpoint(
+        "video",
+        frozenset(slots),
+        defaults=defaults,
+        audio=audio_protocol(channel.audio_track),
+        reference_audio=audio_protocol(channel.reference_route_audio_track)
+        if channel.reference_route_audio_track
+        else None,
     )
-    audio_path = channel.reference_audio_mode != ReferenceAudioMode.NONE and facts.reference_audio is True
-    audio_count = effective_input_limit(
-        path_supported=audio_path,
-        declared=(facts.max_reference_audio_count, channel.max_reference_audio_count),
+
+
+def resolve_video_model(
+    endpoint: Endpoint,
+    facts: VideoFacts,
+    overrides: object = None,
+    *,
+    model_id: str = "",
+    provider_id: str = "",
+    always_bill_audio: bool = False,
+    default_resolution: str | None = None,
+    official: bool = False,
+    request: RequestConditions | None = None,
+) -> CapabilitySnapshot:
+    values = {f.name: getattr(facts, f.name) for f in fields(facts)}
+    constraints = facts.duration_constraints
+    values["duration_constraints"] = {
+        "by_resolution": constraints.by_resolution,
+        "with_reference_images": constraints.with_reference_images,
+        "with_end_frame": constraints.with_end_frame,
+    }
+    legacy_primary_always_on = (
+        provider_id == PROVIDER_KLING
+        and isinstance(overrides, Mapping)
+        and overrides.get("audio_track") == VideoAudioMode.ALWAYS_ON
     )
-    audio_open = audio_count.accepts_input
-    total_seconds = effective_input_limit(
-        path_supported=audio_open,
-        declared=(facts.max_reference_audio_total_seconds, channel.max_reference_audio_total_seconds),
+    return resolve(
+        endpoint,
+        facts=values,
+        overrides=overrides,
+        model_id=model_id,
+        provider_id=provider_id,
+        request=request,
+        official=official,
+        always_bill_audio=always_bill_audio,
+        default_resolution=default_resolution,
+        legacy_primary_always_on=legacy_primary_always_on,
     )
-    return replace(
-        channel,
-        text_to_video=channel.text_to_video and facts.text_to_video is not False,
-        first_frame=channel.first_frame and facts.first_frame is not False,
-        last_frame=channel.last_frame and facts.last_frame is True,
-        max_reference_images=images.to_json(),
-        reference_audio_mode=channel.reference_audio_mode if audio_open else ReferenceAudioMode.NONE,
-        max_reference_audio_count=audio_count.to_json(),
-        max_reference_audio_total_seconds=total_seconds.maximum,
+
+
+def projected_video_capabilities(snapshot: CapabilitySnapshot, *, base: bool = False) -> VideoCapabilities:
+    values = snapshot.base if base else snapshot.effective
+
+    primary = VideoAudioMode(snapshot.audio_track("i2v", base=base))
+    reference = VideoAudioMode(snapshot.audio_track("r2v", base=base))
+    explicit_reference = snapshot.endpoint.reference_audio is not None or (
+        not base and "reference_route_has_audio_track" in snapshot.overrides
     )
+    total_seconds = values["max_reference_audio_total_seconds"]
+    return VideoCapabilities(
+        text_to_video=values["text_to_video"],
+        first_frame=values["first_frame"],
+        last_frame=values["last_frame"],
+        max_reference_images=values["max_reference_images"],
+        max_prompt_chars=values.get("max_prompt_chars"),
+        reference_audio_mode=ReferenceAudioMode(values["reference_audio_mode"]),
+        max_reference_audio_count=values["max_reference_audio_count"],
+        max_reference_audio_total_seconds=float(total_seconds) if total_seconds is not None else None,
+        reference_audio_per_image=values.get("reference_audio_per_image", False),
+        first_frame_ratio_adaptive_only=values.get("first_frame_ratio_adaptive_only", False),
+        audio_track=primary,
+        reference_route_audio_track=reference if explicit_reference or reference != primary else None,
+    )
+
+
+class VideoEndpointCapabilities:
+    @classmethod
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        raise NotImplementedError
+
+    @classmethod
+    def video_capabilities_for_model(
+        cls, model: str, entry: CatalogEntry | EllipsisType | None = ...
+    ) -> VideoCapabilities:
+        description = (
+            cls.describe_video_endpoint(model)
+            if isinstance(entry, EllipsisType)
+            else cls.describe_video_endpoint(model, entry)
+        )
+        return channel_projection(description)
+
+
+def channel_projection(endpoint: Endpoint, request: RequestConditions | None = None) -> VideoCapabilities:
+    return projected_video_capabilities(
+        resolve(endpoint, facts={"last_frame": True, "reference_audio": True}, request=request)
+    )
+
+
+def effective_video_capabilities(
+    channel: VideoCapabilities, facts: VideoFacts, overrides: object = None
+) -> VideoCapabilities:
+    return projected_video_capabilities(resolve_video_model(video_endpoint(channel), facts, overrides))

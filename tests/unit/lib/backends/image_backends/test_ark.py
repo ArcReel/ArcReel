@@ -131,7 +131,7 @@ class TestArkImageBackendProperties:
         assert backend.name == PROVIDER_ARK
 
     def test_default_model(self, backend):
-        assert backend.model == "doubao-seedream-5-0-pro-260628"
+        assert backend.model == "doubao-seedream-5-5-261028"
 
     def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
@@ -205,7 +205,7 @@ class TestArkImageBackendGenerate:
         result = await backend.generate(request)
 
         call_kwargs = client.requests[-1]
-        assert call_kwargs["model"] == "doubao-seedream-5-0-pro-260628"
+        assert call_kwargs["model"] == "doubao-seedream-5-5-261028"
         assert call_kwargs["prompt"] == "a cat"
         assert "response_format" not in call_kwargs
         assert "image" not in call_kwargs

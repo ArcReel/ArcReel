@@ -422,7 +422,6 @@ describe("API", () => {
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.getEpisodesView("demo");
       await API.adoptSourceFile("demo", "旧 稿.txt", { target: "episode", episode: 2 });
-      await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
 
@@ -655,6 +654,7 @@ describe("API", () => {
 
       const { signal } = new AbortController();
       await API.getTask("task id", { signal });
+      await API.getActiveTasks("demo", { signal });
       await API.listTasks({
         projectName: "demo",
         status: "running",
@@ -662,7 +662,7 @@ describe("API", () => {
         source: "webui",
         page: 2,
         pageSize: 10,
-      });
+      }, { signal });
       await API.listProjectTasks("demo", {
         status: "failed",
         taskType: "image",
@@ -670,7 +670,7 @@ describe("API", () => {
         page: 3,
         pageSize: 20,
       });
-      await API.getTaskStats("demo");
+      await API.getTaskStats("demo", { signal });
       await API.getVersions("demo", "storyboards", "seg-1");
       await API.restoreVersion("demo", "storyboards", "seg-1", 3);
 
@@ -684,13 +684,15 @@ describe("API", () => {
       await API.deleteAssistantSession("demo", "session-1");
 
       expect(requestSpy).toHaveBeenCalledWith("/tasks/task%20id", { signal });
+      expect(requestSpy).toHaveBeenCalledWith("/tasks/active?project_name=demo", { signal });
       expect(requestSpy).toHaveBeenCalledWith(
         "/tasks?project_name=demo&status=running&task_type=video&source=webui&page=2&page_size=10",
+        { signal },
       );
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/tasks?status=failed&task_type=image&source=agent&page=3&page_size=20",
       );
-      expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo");
+      expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo", { signal });
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/assistant/sessions?status=running",
         { signal: undefined },
@@ -911,6 +913,18 @@ describe("API", () => {
       await expect(API.uploadFile("demo", "source", file)).rejects.toThrow("上传失败");
     });
 
+    it.each(["character", "character_audio_ref"])("reports asset occupancy for %s uploads", async (uploadType) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          mockResponse({ ok: false, status: 409, jsonData: { code: "asset_resource_busy", detail: "server fallback" } }),
+        ),
+      );
+
+      await expect(API.uploadFile("demo", uploadType, new File(["content"], "asset"), "Alice"))
+        .rejects.toMatchObject({ status: 409, message: i18n.t("errors:asset_resource_busy") });
+    });
+
     it("uploads shot media via multipart form and returns fingerprints", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -977,14 +991,10 @@ describe("API", () => {
       );
     });
 
-    it("handles source and draft text APIs", async () => {
+    it("handles source text APIs", async () => {
       const fetchMock = vi
         .fn()
         .mockResolvedValueOnce(mockResponse({ textData: "source content" }))
-        .mockResolvedValueOnce(
-          mockResponse({ jsonData: { success: true }, statusText: "OK" }),
-        )
-        .mockResolvedValueOnce(mockResponse({ textData: "draft content" }))
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
         );
@@ -996,11 +1006,6 @@ describe("API", () => {
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
-      await expect(API.getDraftContent("demo", 1, "script_plan")).resolves.toBe("draft content");
-      await expect(API.saveDraft("demo", 1, "script_plan", "draft")).resolves.toEqual({
-        success: true,
-      });
-
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
         "/api/v1/projects/demo/source/source.txt",
@@ -1438,6 +1443,17 @@ describe("API", () => {
   });
 
   describe("addAssetFromProject", () => {
+    it("shows an asset occupancy conflict in the interface language", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse({
+        ok: false,
+        status: 409,
+        jsonData: { code: "asset_resource_busy", detail: "server fallback" },
+      })));
+      await expect(API.addAssetFromProject({
+        project_name: "demo", resource_type: "character", resource_id: "王",
+      })).rejects.toMatchObject({ status: 409, message: i18n.t("errors:asset_resource_busy") });
+    });
+
     it("POSTs /api/v1/assets/from-project", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({ jsonData: { asset: { id: "x", type: "character", name: "王", description: "", voice_style: "", image_path: null, source_project: "demo", updated_at: null } } }),

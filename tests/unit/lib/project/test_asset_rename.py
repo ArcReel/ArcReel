@@ -43,7 +43,6 @@ from lib.project.asset_rename import (
 )
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, _rename_agnostic_errors
-from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_review import (
     apply_confirmation,
     content_fingerprint,
@@ -51,7 +50,7 @@ from lib.script.script_review import (
     review_status,
     script_plan_path,
 )
-from tests.fakes import use_project_json_write
+from tests.fakes import fail_project_json_write
 
 
 def _narration_script(**overrides: Any) -> dict[str, Any]:
@@ -620,15 +619,9 @@ class TestRenameAssetCascade:
         )
         adapter.put_entry(old_key, old_entry)
         project_before = (project_dir / "project.json").read_bytes()
-        original_atomic_write_json = atomic_write_json
+        fail_project_json_write(monkeypatch, project_dir / "project.json", after_write=True)
 
-        def _write_project_then_fail(path: Path, payload: object) -> None:
-            original_atomic_write_json(path, payload)
-            raise OSError("project write failed")
-
-        use_project_json_write(monkeypatch, _write_project_then_fail)
-
-        with pytest.raises(OSError, match="project write failed"):
+        with pytest.raises(OSError, match="injected project write failure"):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
         assert adapter.get_entry(old_key) == old_entry
@@ -735,14 +728,8 @@ class TestRenameAssetCascade:
         assert (chars / f"{nfd}.png").read_bytes() == b"nfd"
         assert (chars / f"{nfc}.png").read_bytes() == b"nfc"
 
-    def test_quarantine_drafts_rewritten(self, pm_with_assets: ProjectManager) -> None:
-        """草稿晋升后会回流为正式内容，漏改会让旧名经晋升重新进入剧本。
-
-        三条路线的草稿位逐一覆盖：漏改哪一条，那条路线的草稿就带着旧名走进晋升重判，被判
-        「引用未登记」卡住，直到人工改草稿才解得开。草稿装的是扁平草稿结构：mention 使用
-        ``content.units[].text`` 中的引用语法，结构字段（参考生视频的 ``shots`` / ``references``、
-        drama 的 ``needs_replan``）尚未派生，按信封原形构造（见 lib/script/draft_quarantine.py）。
-        """
+    def test_legacy_quarantine_drafts_are_not_scanned_or_modified(self, pm_with_assets: ProjectManager) -> None:
+        """废弃的 4 个 *.invalid.json 已从资产级联扫描清单剔除，改名不扫描、不改写也不删除它们。"""
         draft_dir = _project_dir(pm_with_assets) / "drafts" / "episode_1"
         draft_dir.mkdir(parents=True)
         drafts = {
@@ -802,24 +789,18 @@ class TestRenameAssetCascade:
                 },
             },
         }
-        assert set(drafts) == QUARANTINE_FILENAMES, "新增一种草稿来源要在本用例一并覆盖"
+        before_bytes: dict[str, bytes] = {}
         for filename, payload in drafts.items():
-            atomic_write_json(draft_dir / filename, payload)
+            path = draft_dir / filename
+            atomic_write_json(path, payload)
+            before_bytes[filename] = path.read_bytes()
 
         report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
 
-        rewritten = {filename: json.loads((draft_dir / filename).read_text(encoding="utf-8")) for filename in drafts}
-        rv_script_plan = rewritten[REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME]
-        rv_prompt_authoring = rewritten[REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME]
-        drama = rewritten[DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME]
-        narration = rewritten[NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME]
-        assert rv_script_plan["content"]["units"][0]["text"] == "@[主角甲] 在河边"
-        assert rv_prompt_authoring["content"]["units"][0]["text"] == "@[主角甲] 抬头"
-        assert drama["content"]["scenes"][0]["characters_in_scene"] == ["主角甲"]
-        assert drama["content"]["scenes"][0]["utterances"][0]["speaker"] == "主角甲"
-        assert narration["content"]["segments"][0]["characters_in_segment"] == ["主角甲"]
-        assert report.references == 5
-        assert report.episodes == 1
+        assert report.references == 0
+        assert report.episodes == 0
+        for filename, raw in before_bytes.items():
+            assert (draft_dir / filename).read_bytes() == raw
 
     def test_history_under_new_name_rejected_atomically(self, pm_with_assets: ProjectManager) -> None:
         """删除资产只删资产桶 key、版本历史留存，改名过去会不可恢复地覆盖它——整体拒绝。"""
@@ -1185,17 +1166,18 @@ class TestDerivativeReferenceCascade:
 
         assert _load_script(pm_with_assets)["scenes"][0]["utterances"][0]["speaker"] == "角色A"
 
-    def test_derivative_rename_rewrites_quarantined_drafts(self, pm_with_assets: ProjectManager) -> None:
+    def test_derivative_rename_leaves_legacy_quarantined_drafts_untouched(self, pm_with_assets: ProjectManager) -> None:
         self._register(pm_with_assets, "劲装")
         draft_path = (
             _project_dir(pm_with_assets) / "drafts" / "episode_1" / REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
         )
         draft_path.parent.mkdir(parents=True)
         atomic_write_json(draft_path, {"units": [{"unit_id": "E1U1", "text": "@[角色A/劲装] 推门"}]})
+        before = draft_path.read_bytes()
 
         pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
 
-        assert json.loads(draft_path.read_text())["units"][0]["text"] == "@[角色A/夜行衣] 推门"
+        assert draft_path.read_bytes() == before
 
 
 class TestAssetDeletionPreview:

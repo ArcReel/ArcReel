@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
-from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING
 from lib.script.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
     SKELETON_ENTITY_TYPES,
@@ -17,7 +16,7 @@ from server.services.project.project_state_projection import (
     ProjectState,
     build_snapshot,
     diff_snapshots,
-    draft_state_key,
+    script_plan_state_key,
 )
 
 _DERIVATIVE_SPECS = [spec for spec in ASSET_SPECS.values() if spec.supports_derivatives]
@@ -254,19 +253,19 @@ def test_metadata_changes_are_not_project_events():
     assert diff_snapshots(previous, current) == []
 
 
-def test_prompt_authoring_draft_lifecycle_is_reported_under_its_own_identity():
-    """只有草稿出现需要创作者处理；内容变化与消失（采用或丢弃）只驱动面板刷新。"""
-    key = draft_state_key(1, QUARANTINE_KIND_PROMPT_AUTHORING)
+def test_formal_script_plan_lifecycle_reports_lightweight_refresh_events():
+    """正式脚本规划的新增、原子修改与删除都产出 script_plan 事件，驱动内容确认页实时刷新。"""
+    key = script_plan_state_key(1, "script_plan_normalized_script.json")
     states = [{}, {key: "digest-a"}, {key: "digest-b"}, {}]
-    snapshots = [build_snapshot(ProjectState(project=_project(), scripts={}, drafts=drafts)) for drafts in states]
+    snapshots = [build_snapshot(ProjectState(project=_project(), scripts={}, script_plans=plans)) for plans in states]
 
     changes = [diff_snapshots(before, after) for before, after in itertools.pairwise(snapshots)]
 
     assert [
-        [(c["entity_type"], c["action"], c["entity_id"], c["doc_type"], c["important"]) for c in batch]
+        [(c["entity_type"], c["action"], c["entity_id"], c["episode"], c["important"]) for c in batch]
         for batch in changes
     ] == [
-        [("draft", "created", "episode_1_prompt_authoring", "reference_prompt_authoring", True)],
-        [("draft", "updated", "episode_1_prompt_authoring", "reference_prompt_authoring", False)],
-        [("draft", "deleted", "episode_1_prompt_authoring", "reference_prompt_authoring", False)],
+        [("script_plan", "created", "episode_1", 1, False)],
+        [("script_plan", "updated", "episode_1", 1, False)],
+        [("script_plan", "deleted", "episode_1", 1, False)],
     ]

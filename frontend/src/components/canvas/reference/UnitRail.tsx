@@ -39,6 +39,7 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, statusMap, cla
             <li key={u.unit_id}>
               <button
                 type="button"
+                data-reference-unit={u.unit_id}
                 onClick={() => onSelect(u.unit_id)}
                 aria-current={selected || undefined}
                 aria-label={`${t("common:item_position_unit", { position })} · ${t(conf.i18nKey)}`}

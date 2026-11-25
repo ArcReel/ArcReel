@@ -48,6 +48,7 @@ from lib.backends.transport_layer import TransportLayer
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
+from lib.speech.wav import normalize_wav_header
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,10 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = (
 
 class _EmptyDownloadError(RuntimeError):
     """200 但空响应体（瞬时代理/CDN 异常），视为瞬态触发下载重试。"""
+
+
+def _write_audio(output_path: Path, content: bytes) -> None:
+    output_path.write_bytes(normalize_wav_header(content))
 
 
 class DashScopeAudioBackend:
@@ -188,7 +193,7 @@ class DashScopeAudioBackend:
             label="DashScope 音频",
             retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_signed_download(e),
         )
-        await run_noninterruptible_sync(output_path.write_bytes, content)
+        await run_noninterruptible_sync(_write_audio, output_path, content)
 
     async def _fetch_audio(self, url: str) -> bytes:
         safe_url = url.split("?", 1)[0]

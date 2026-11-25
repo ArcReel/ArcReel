@@ -39,7 +39,7 @@ export interface TrashRecord {
   files: string[];
   schema_version: number;
   deleted_at: string;
-  origin: "user" | "agent";
+  origin: "user" | "agent" | "migration";
   size: number;
   has_snapshot: boolean;
   download_only: boolean;

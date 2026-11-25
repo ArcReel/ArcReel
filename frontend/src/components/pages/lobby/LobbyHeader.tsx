@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
 import { BRAND } from "@/branding";
+import { DocsIconLink } from "@/components/shared/DocsIconLink";
 import { PageHeader } from "@/components/shared/page-shell/PageHeader";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -92,6 +93,7 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
               </DropdownMenuContent>
             </DropdownMenu>
           </ButtonGroup>
+          <DocsIconLink />
           <IconLink
             href={ROUTE_APP_SETTINGS}
             label={t("common:settings")}

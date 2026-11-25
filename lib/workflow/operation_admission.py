@@ -45,7 +45,6 @@ class AdmissionReason(StrEnum):
     FORMAL_SCRIPT_MISSING = "formal_script_missing"
     FORMAL_SCRIPT_EXISTS = "formal_script_exists"
     NO_PENDING_AUTHORING = "no_pending_authoring"
-    PROMPT_AUTHORING_DRAFT_PENDING = "prompt_authoring_draft_pending"
     AD_INPUTS_MISSING = "ad_brief_and_products_missing"
     NO_AVAILABLE_VIDEO = "no_available_video"
 
@@ -135,19 +134,17 @@ def admit_script_plan(content_mode: object, *, episode_source: bool) -> Operatio
     return ADMITTED if episode_source else _refused(AdmissionReason.EPISODE_SOURCE_MISSING)
 
 
+def uses_reference_unit_authoring(content_mode: object, generation_mode: object) -> bool:
+    return content_mode != "ad" and generation_mode == "reference_video"
+
+
 def admit_author_prompts(
     *,
     formal_script: bool,
     pending_ids: Sequence[str],
-    draft_pending: bool,
     explicit_ids: Sequence[str] = (),
 ) -> OperationAdmission:
-    """提示词编写：正式脚本中有待编写条目；点名补缺或重写的条目不看待编写标记。
-
-    编写自身的草稿在场时先处置草稿，编写结果无处落地。
-    """
-    if draft_pending:
-        return _refused(AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING)
+    """提示词编写：正式脚本中有待编写条目；点名补缺或重写的条目不看待编写标记。"""
     if not formal_script:
         return _refused(AdmissionReason.FORMAL_SCRIPT_MISSING)
     if pending_ids or explicit_ids:

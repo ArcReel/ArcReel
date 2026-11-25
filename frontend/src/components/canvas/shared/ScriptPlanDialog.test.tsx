@@ -1,15 +1,15 @@
+import { seedTasks } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { ScriptPlanHost } from "./ScriptPlanDialog";
 
 describe("ScriptPlanHost", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     useAssistantStore.getState().setInput("");
     useScriptPlanStore.getState().close();
   });

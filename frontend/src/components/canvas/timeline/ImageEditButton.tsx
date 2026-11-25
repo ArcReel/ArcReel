@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import {
+  isResourceBusy,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
   type ImageEditResourceKind,
@@ -36,6 +37,17 @@ interface ImageEditTarget {
   busy?: boolean;
 }
 
+function isImageEditBusy({ projectName, resourceType, resourceId, scriptFile }: ImageEditTarget) {
+  if (resourceType === "storyboard") {
+    return isResourceBusy("storyboard", projectName, resourceId) ||
+      Boolean(scriptFile && selectHasActiveTaskForScriptFile(useTasksStore.getState(), "grid", scriptFile, projectName));
+  }
+  if (resourceType === "character_derivative") {
+    return isAssetBusy("derivative_image", "character", projectName, resourceId);
+  }
+  return isAssetBusy("image", resourceType, projectName, resourceId);
+}
+
 export function ImageEditButton(props: ImageEditTarget) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -48,7 +60,13 @@ export function ImageEditButton(props: ImageEditTarget) {
         label={label}
         hint={props.hasImage ? undefined : t("image_edit_no_image_hint")}
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          if (isImageEditBusy(props)) {
+            useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
+            return;
+          }
+          setOpen(true);
+        }}
       >
         <Wand2 aria-hidden />
       </TooltipIconButton>
@@ -76,16 +94,7 @@ export function ImageEditDialog({
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
     if (!trimmed || submitting || disabled) return;
-    if (isAssetBusy(resourceType, projectName, resourceId)) {
-      useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
-      return;
-    }
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
-    if (
-      resourceType === "storyboard" &&
-      scriptFile &&
-      selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, projectName, optimisticActiveScriptFile)
-    ) {
+    if (isImageEditBusy({ projectName, resourceType, resourceId, scriptFile, hasImage })) {
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;
     }

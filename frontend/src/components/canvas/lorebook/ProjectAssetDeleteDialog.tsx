@@ -21,7 +21,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { AssetSheetType } from "@/types";
 import { errMsg } from "@/utils/async";
 import { episodeDisplayName, type EpisodeLedger } from "@/utils/episode-display";
-import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 
 interface ProjectAssetDeleteDialogProps {
   open: boolean;
@@ -49,6 +49,7 @@ export function ProjectAssetDeleteDialog({
   onDeletingChange,
   onMergeInstead,
 }: ProjectAssetDeleteDialogProps) {
+  const occupied = useAssetBusy("whole_asset", assetType, projectName, name);
   const { t } = useTranslation(["assets", "common"]);
   const confirmLeave = useConfirmLeave();
   const episodes: EpisodeLedger = useProjectsStore((s) => s.currentProjectData?.episodes) ?? [];
@@ -85,7 +86,7 @@ export function ProjectAssetDeleteDialog({
 
   const executeDelete = async (): Promise<boolean> => {
     if (busy || deleting) return false;
-    if (rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return false;
+    if (rejectIfAssetBusy("whole_asset", assetType, projectName, name, t, "assets:gallery_busy_hint")) return false;
     updateDeleting(true);
     setError(null);
     try {
@@ -170,13 +171,13 @@ export function ProjectAssetDeleteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deleting}>{t("common:cancel")}</AlertDialogCancel>
           {onMergeInstead && references > 0 && (
-            <Button variant="outline" disabled={deleting} onClick={onMergeInstead}>
+            <Button variant="outline" disabled={deleting || busy || occupied} onClick={onMergeInstead}>
               {t("assets:gallery_delete_merge_instead")}
             </Button>
           )}
           <AlertDialogAction
             variant="destructive"
-            disabled={deleting || busy || preview.phase !== "ready"}
+            disabled={deleting || busy || occupied || preview.phase !== "ready"}
             onClick={() => confirmLeave(executeDelete)}
           >
             {deleting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}

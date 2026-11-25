@@ -1,22 +1,4 @@
-"""script_plan→prompt_authoring 内容确认的核心逻辑：适用性判定、script_plan 路径、内容指纹、确认状态派生，
-以及参考生视频正式 script_plan 的单一写盘出口（``script_plan_write_lock`` / ``write_script_plan_locked``）。
-
-gate 由 web router / service（结构化中间态查看 / 编辑 / 确认，确认即转为正式脚本）、Agent 确认工具与
-工作流状态消费。状态派生只依赖 script_plan 文件 + project dict
-的纯计算；写盘出口另持 ``ProjectManager.file_lock`` 的 per-path 锁，四条写路径（Web 端保存、
-重拆分、晋升、迁移回写）全部汇入，锁、乐观并发比对与 prompt_authoring 草稿清理只存在一处。
-
-真值只存「确认指纹」于 project.json ``episodes[i].script_plan_review``；pending / confirmed 由读时
-比对 live script_plan 内容指纹派生（沿「能算不存」的读时计算约定）。因此重跑 normalize、Agent
-经草稿晋升改写 script_plan、web 手改 script_plan 都会让指纹漂移、自动重新等待确认，无需各写入路径各自
-上报。
-
-适用范围（拥有结构化 script_plan 中间态的三条内容/视觉两段式路径）：
-- drama / narration 的图生 / 宫格路径：script_plan_normalized_script.json / script_plan_segments.json；
-- reference_video 路径（跨 narration / drama content_mode）：script_plan_reference_units.json。
-三者的 script_plan 变体由 ``script_plan_kind`` 统一判定（reference_video 按项目生成模式优先）。ad 无 script_plan，
-不纳入 gate。
-"""
+"""脚本规划的路径、内容指纹、确认状态与持锁写盘。"""
 
 from __future__ import annotations
 
@@ -44,17 +26,8 @@ from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
 from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
+from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
-from lib.script.draft_quarantine import (
-    DRAFT_OWNER_AGENT,
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    draft_owner,
-    quarantine_path,
-    read_quarantine,
-)
 from lib.script.reference_video.duration_migration import migrate_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
@@ -107,44 +80,6 @@ def script_plan_path(project_path: Path, project: dict[str, Any], episode: int) 
     return episode_drafts_dir(project_path, episode) / filename
 
 
-_SCRIPT_PLAN_QUARANTINE_KIND: dict[str, str] = {
-    "reference_video": QUARANTINE_KIND_SCRIPT_PLAN,
-    "drama": QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    "narration": QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-}
-
-
-def script_plan_quarantine_kind(project: dict[str, Any]) -> str | None:
-    """该项目 script_plan 变体对应的草稿来源；该变体无草稿位时返回 None。"""
-    kind = script_plan_kind(project)
-    return _SCRIPT_PLAN_QUARANTINE_KIND.get(kind) if kind is not None else None
-
-
-def script_plan_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
-    """该集 script_plan 草稿的路径；该变体无草稿位时返回 None。
-
-    只回路径、不判存在性——存在性判断在 ``script_plan_quarantined``，两者分开是为了让调用方在
-    需要报错文案时能拿到路径。
-    """
-    quarantine_kind = script_plan_quarantine_kind(project)
-    if quarantine_kind is None:
-        return None
-    return quarantine_path(project_path, episode, quarantine_kind)
-
-
-def script_plan_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 script_plan 是否有草稿在场——gate 与 prompt_authoring 的阻塞判据。
-
-    待处置草稿与「正式 script_plan 的内容指纹」相互独立：待修复草稿或可编辑草稿在场时正式文件
-    保持不变，仅检查指纹会错误放行 prompt_authoring。草稿在场因此独立阻塞。
-
-    草稿按项目当前生成模式解析（见 ``script_plan_quarantine_path``）；其他生成模式的遗留草稿
-    不参与判定，否则该集会被一份没有当前写入方清理的文件永久卡死。
-    """
-    path = script_plan_quarantine_path(project_path, project, episode)
-    return path is not None and path.exists()
-
-
 def content_fingerprint_of_data(data: object) -> str:
     """已解析 JSON 对象的指纹：规范化 dump（键序 / 空白重排不改指纹）的 sha256。
 
@@ -179,7 +114,7 @@ def content_fingerprint(path: Path) -> str | None:
 def published_revision(fingerprint: str | None) -> str | None:
     """内容指纹对外的 revision 写法：带 ``sha256-v1:`` 前缀，与读取面其余 revision 同一种表示。
 
-    指纹本身（落盘的基线、草稿 meta、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
+    指纹本身（落盘的基线、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
     入参经 ``fingerprint_of_revision`` 去前缀后再与指纹比对。
     """
     return prefixed(fingerprint) if fingerprint is not None else None
@@ -300,8 +235,8 @@ def official_reference_script_plan_path(project_path: Path, episode: int) -> Pat
 def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Generator[Path]:
     """任一变体正式 script_plan 的写临界区：建目录 + per-path 排他锁，yield 该正式文件路径。
 
-    与迁移读改写、Web 端保存、重拆分 / 晋升共用同一把 ``ProjectManager.file_lock``（per-path，
-    进程间排他、不可重入）。凡要「读正式文件后据此写盘或写草稿」的操作都应整段包在本
+    与迁移读改写、Web 端保存、重拆分 / 增量修改共用同一把 ``ProjectManager.file_lock``（per-path，
+    进程间排他、不可重入）。凡要「读正式文件后据此写盘」的操作都应整段包在本
     临界区内——读与写拆开在锁外各做一次，就是并发覆盖窗口。
 
     路径由调用方按变体传入（``script_plan_path`` / ``official_reference_script_plan_path``）：三个 script_plan
@@ -401,46 +336,54 @@ def write_formal_script_plan_locked(
     content: dict[str, Any],
     *,
     expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
-    dependent_quarantine: str | None = None,
-    clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
+    generated_from: dict[str, Any] | None = None,
+    project_check: Callable[[dict[str, Any]], None] | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> bool:
-    """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
-    下游草稿。返回内容是否发生变化。
+    """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 刷新产物清单。返回内容是否发生变化。
 
     调用方须已持有该文件的排他锁（``formal_script_plan_lock``，或同一路径的
-    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）；指定
-    ``dependent_quarantine`` 时还须先持有该草稿锁，统一锁序为「下游草稿 → 正式 script_plan」。三个变体
-    的全部写路径（Web 端保存、重拆分 / 重规范化、晋升、迁移回写）汇入本函数。正式 script_plan
-    之所以对 Agent 写禁，正是因为写盘只发生在这一个持锁的出口。
-
-    ``expected_fingerprint`` 是写入方取基线时的正式文件指纹（``None`` 表示彼时文件不存在）；
-    与盘上现值不一致时抛 ``ScriptPlanWriteConflict``、不落盘——后写方拿冲突报告去合并，先写方的
-    内容不被静默覆盖。传 ``UNCHECKED_FINGERPRINT`` 跳过比对：重拆分是刻意的整份重建，
-    同临界区读改写（迁移、确认）则读写之间本就无并发窗口。
-
-    ``dependent_quarantine`` 是以本文件为基底的下游草稿来源（只有参考生视频的 prompt_authoring；
-    drama / narration script_plan 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
-    按字节回滚，不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
-    格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
+    ``ProjectManager.file_lock``——锁不可重入，已在临界区内的调用方不能再套一层）。三个变体的
+    全部写路径（Web 端保存、Agent 增量编辑、重生成、迁移回写）汇入本函数。
     """
     assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
     changed = previous != content
-    quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
-    paths = (path,) if quarantine is None else (path, quarantine)
-    from lib.script.planning_draft_trash import trash_planning_draft
+    paths: tuple[Path, ...] = (path,)
+    source_entry = find_episode(generated_from, episode) if generated_from is not None else None
+    settle_stale = (
+        source_entry is not None
+        and source_entry.get("ledger_status") == "stale"
+        and STALE_SCRIPT_PLAN_REVISION_FIELD in source_entry
+    )
+    if settle_stale or project_update is not None:
+        paths += (project_path / "project.json",)
 
-    record = None
-    try:
-        with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
-            atomic_write_json(path, content)
-            if changed and clear_dependent_quarantine and quarantine is not None:
-                record = trash_planning_draft(project_path, episode, quarantine)
-    except BaseException:
-        if record is not None and quarantine is not None and quarantine.is_file():
-            project_trash.purge(project_path, record.id)
-        raise
+    def update_project(current: dict[str, Any]) -> None:
+        if settle_stale:
+            entry = find_episode(current, episode)
+            if (
+                not entry
+                or entry.get("ledger_status") != "stale"
+                or source_entry is None
+                or entry.get(STALE_SCRIPT_PLAN_REVISION_FIELD) != source_entry[STALE_SCRIPT_PLAN_REVISION_FIELD]
+            ):
+                raise ScriptPlanRebuildCompletionError("baseline_conflict", "分集重建基线已变化")
+            entry[STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD] = content_fingerprint_of_data(content)
+        if project_update is not None:
+            project_update(current)
+
+    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
+        if project_check is not None:
+            pm = ProjectManager.for_project_dir(project_path)
+            project_check(pm.load_project(project_path.name))
+        atomic_write_json(path, content)
+        if settle_stale or project_update is not None:
+            pm = ProjectManager.for_project_dir(project_path)
+            pm.update_project_locked(project_path.name, update_project)
+    if changed:
+        emit_project_change_hint(project_path.name, changed_paths=[path.relative_to(project_path).as_posix()])
     return changed
 
 
@@ -450,19 +393,15 @@ def write_script_plan_locked(
     content: dict[str, Any],
     *,
     expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
-    clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
 ) -> bool:
-    """参考生视频正式 script_plan 的写盘出口（``write_formal_script_plan_locked`` 绑定该变体路径与其
-    下游 prompt_authoring 草稿的具名入口）。"""
+    """参考生视频正式 script_plan 的写盘出口（``write_formal_script_plan_locked`` 绑定该变体路径的具名入口）。"""
     return write_formal_script_plan_locked(
         project_path,
         episode,
         official_reference_script_plan_path(project_path, episode),
         content,
         expected_fingerprint=expected_fingerprint,
-        dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING,
-        clear_dependent_quarantine=clear_prompt_authoring_quarantine,
         basis=basis,
     )
 
@@ -473,22 +412,18 @@ def write_script_plan(
     content: dict[str, Any],
     *,
     expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
-    clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
     before_lock: Callable[[], None] | None = None,
 ) -> bool:
-    """Run the reference script_plan transaction in global lock order: prompt_authoring draft, then formal script_plan."""
-    prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-    pm = ProjectManager.for_project_dir(project_path)
+    """Run the reference script_plan transaction under its per-path lock."""
     if before_lock is not None:
         before_lock()
-    with pm.file_lock(prompt_authoring_path), script_plan_write_lock(project_path, episode):
+    with script_plan_write_lock(project_path, episode):
         return write_script_plan_locked(
             project_path,
             episode,
             content,
             expected_fingerprint=expected_fingerprint,
-            clear_prompt_authoring_quarantine=clear_prompt_authoring_quarantine,
             basis=basis,
         )
 
@@ -724,8 +659,6 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     path = script_plan_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
-    if script_plan_quarantined(project_path, project, episode):
-        return "pending_review"
     live = content_fingerprint(path)
     if live is None:
         return "no_script_plan"
@@ -740,23 +673,12 @@ def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], e
 
 
 def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """正式脚本规划是否就是已确认的那一份；是则只读，内容修改改在正式脚本上做。
-
-    与 ``review_status`` 同一判据，但不看待修复草稿：重跑脚本规划留下的草稿在场时，正式脚本规划
-    仍是已确认的那一份，照样只读；重跑写出新内容后指纹不再一致，即恢复可编辑。
-    """
+    """正式脚本规划是否就是已确认的那一份；是则只读，内容修改改在正式脚本上做。"""
     path = script_plan_path(project_path, project, episode)
     if path is None:
         return False
     live = content_fingerprint(path)
     return live is not None and _formal_script_plan_confirmed(project_path, project, episode, live)
-
-
-def formal_script_plan_agent_owned(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """Agent 取回的可编辑草稿在场时，正式脚本规划只读；调用方在正式规划锁内判断。"""
-    kind = script_plan_quarantine_kind(project)
-    draft = read_quarantine(project_path, episode, kind) if kind is not None else None
-    return draft is not None and draft_owner(draft) == DRAFT_OWNER_AGENT
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:
@@ -805,9 +727,9 @@ def migrate_script_plan_draft_in_place(
 ) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
     """对已读入内存的 script_plan 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
 
-    调用方须按「prompt_authoring 草稿 → 正式 script_plan」顺序持有两把排他锁；回写经单一写盘出口
+    调用方须持有正式脚本规划的文件锁；回写经单一写盘出口
     ``write_script_plan_locked``，与 Web 端保存 / 重拆分写盘同一把 per-path 锁。迁移是机械格式
-    收编、不是内容编辑，不作废 prompt_authoring 草稿；同临界区读改写也无并发窗口，不做基线比对。
+    收编、不是内容编辑；同临界区读改写也无并发窗口，不做基线比对。
     未发生迁移时不回写，返回 ``(None, [])``。
 
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
@@ -856,5 +778,5 @@ def migrate_script_plan_draft_in_place(
 
         updated = update_project(_carry)
 
-    write_script_plan_locked(project_path, episode, content, clear_prompt_authoring_quarantine=False)
+    write_script_plan_locked(project_path, episode, content)
     return updated, warnings

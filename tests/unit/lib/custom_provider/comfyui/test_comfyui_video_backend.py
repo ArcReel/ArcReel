@@ -32,9 +32,9 @@ from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui.request_builder import workflow_sha256
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
-from lib.custom_provider.factory import create_custom_backend
 from lib.generation.task_failure import render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
+from tests.custom_backend_support import create_custom_backend
 from tests.factories import comfyui_endpoint_definition, image_bytes, make_display_names, make_translator
 from tests.fakes import MP4_BYTES, bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json

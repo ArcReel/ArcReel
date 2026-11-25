@@ -27,16 +27,21 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from PIL import Image
 
 if TYPE_CHECKING:
-    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoGenerationResult
+    from arcreel_market_core.video_backend_contract import (
+        VideoAudioMode,
+        VideoGenerationResult,
+    )
     from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
+    from lib.capabilities.kernel import CapabilitySnapshot
     from lib.config.resolver import ConfigResolver
     from lib.references.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.backends.gemini_shared import RateLimiter
 from lib.backends.providers import CallPurpose, CallType, require_provider_pair
+from lib.backends.video_capabilities import billed_audio_for_request
 from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -279,6 +284,9 @@ class MediaGenerator:
         image_provider_id: str | None = None,
         video_provider_id: str | None = None,
         audio_provider_id: str | None = None,
+        image_snapshot: "CapabilitySnapshot | None" = None,
+        video_snapshot: "CapabilitySnapshot | None" = None,
+        video_limits: tuple[int, int] | None = None,
     ):
         """
         初始化 MediaGenerator
@@ -305,11 +313,14 @@ class MediaGenerator:
         self.project_name = self.project_path.name
         self._rate_limiter = rate_limiter
         self._image_backend = image_backend
+        self._image_snapshot = image_snapshot
         self._video_backend = video_backend
         self._audio_backend = audio_backend
         self._config = config_resolver
         self._user_id = user_id
         self._image_provider_id = image_provider_id
+        self._video_snapshot = video_snapshot
+        self._video_limits = video_limits
         self._video_provider_id = video_provider_id
         self._audio_provider_id = audio_provider_id
         self.versions = VersionManager(project_path)
@@ -460,6 +471,20 @@ class MediaGenerator:
         finally:
             staged_output_path.unlink(missing_ok=True)  # hard-delete: temp -- 提交后的暂存输出
 
+    @staticmethod
+    def _attach_formal_video_metadata(
+        version_metadata: dict[str, Any],
+        *,
+        formal_output: bool,
+        task_id: str | None,
+        video_uri: str | None,
+        warnings: list[dict[str, Any]] | None,
+    ) -> None:
+        if formal_output and task_id is not None:
+            version_metadata.update(task_id=task_id, video_uri=video_uri)
+            if warnings:
+                version_metadata["warnings"] = list(warnings)
+
     async def _commit_video_output_version(
         self,
         *,
@@ -582,6 +607,8 @@ class MediaGenerator:
         """
         from lib.references.reference_compression import PayloadLimits
 
+        if provider_id == self._video_provider_id and self._video_limits is not None:
+            return PayloadLimits(total_max_bytes=self._video_limits[0], single_max_bytes=self._video_limits[1])
         if self._config is None:
             return PayloadLimits()
         total, single = await self._config.reference_payload_limits(provider_id)
@@ -716,6 +743,7 @@ class MediaGenerator:
             provider_id=cast(str, self._image_provider_id),
             reference_count=len(ref_images),
             reference_paths=((reference_sources or {}).get(str(ref.path), ref.path) for ref in ref_images),
+            snapshot=self._image_snapshot,
         )
 
         async with _remove_staged_output_on_error(staged_output_path):
@@ -944,6 +972,7 @@ class MediaGenerator:
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         warnings: list[dict[str, Any]] | None = None,
         reference_sources: Mapping[str, Path] | None = None,
+        billed_audio: bool | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -996,22 +1025,52 @@ class MediaGenerator:
 
         model_name = self._video_backend.model
 
-        from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
+        from lib.backends.backend_assembly.specs import builtin_request_video_capabilities
         from lib.backends.video_frame_slots import (
             gate_video_request,
             plan_frame_slots,
             resolve_first_frame_aspect_ratio,
             resolve_video_capabilities,
+            snapshot_request_capabilities,
+            video_request_conditions,
         )
+        from lib.capabilities.kernel import IncompatibleInputsError
         from lib.custom_provider import is_custom_provider
 
-        video_caps = resolve_video_capabilities(
-            self._video_backend,
-            service_tier=version_metadata.get("service_tier", "default"),
-            resolution=resolution,
+        service_tier = version_metadata.get("service_tier", "default")
+        slot_plan = plan_frame_slots(
+            start_image=start_image,
+            end_image=end_image,
+            reference_images=reference_images,
         )
-        if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
-            video_caps = effective_builtin_video_capabilities(video_caps, self._video_provider_id, model_name)
+        conditions = video_request_conditions(
+            resolution=resolution,
+            service_tier=service_tier,
+            has_first_frame=slot_plan.start_index is not None,
+            has_last_frame=bool(end_image),
+            has_reference_images=bool(reference_images),
+            has_reference_audio=bool(reference_audio_files),
+        )
+        if self._video_snapshot is not None:
+            video_caps = snapshot_request_capabilities(self._video_snapshot, conditions, model=model_name)
+        else:
+            try:
+                if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
+                    video_caps = builtin_request_video_capabilities(
+                        self._video_backend, self._video_provider_id, model_name, conditions
+                    )
+                else:
+                    video_caps = resolve_video_capabilities(
+                        self._video_backend,
+                        service_tier=service_tier,
+                        resolution=resolution,
+                        bucket=conditions.bucket,
+                        inputs=conditions.inputs,
+                    )
+            except IncompatibleInputsError as exc:
+                from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
+                raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=model_name) from exc
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
@@ -1019,11 +1078,6 @@ class MediaGenerator:
         )
         asset_uris = _aligned_reference_asset_uris(
             self._video_backend, reference_images, reference_image_asset_uris, model=model_name
-        )
-        slot_plan = plan_frame_slots(
-            start_image=start_image,
-            end_image=end_image,
-            reference_images=reference_images,
         )
         if asset_uris is not None and slot_plan.reference_start_index is not None:
             for offset, uri in enumerate(asset_uris):
@@ -1047,13 +1101,22 @@ class MediaGenerator:
             has_first_frame=slot_plan.start_index is not None,
         )
 
-        if self._config is not None:
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name)
+        if "generate_audio" in version_metadata:
+            effective_generate_audio = version_metadata["generate_audio"]
+        elif self._config is not None:
+            from lib.project.project_manager import get_project_manager
+
+            project: dict | None = None
+            if self.project_name:
+                try:
+                    project = await asyncio.to_thread(lambda: get_project_manager().load_project(self.project_name))
+                except FileNotFoundError:
+                    project = None
+            effective_generate_audio = await self._config.video_generate_audio_for_project(project)
         else:
             from lib.config.resolver import ConfigResolver
 
-            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
-        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
+            effective_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
 
         staged_output_path, backend_output_path = await run_sync_transaction(
             self._prepare_video_output,
@@ -1064,6 +1127,10 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
+        if billed_audio is None:
+            billed_audio = billed_audio_for_request(
+                self._video_provider_id, video_caps, conditions.bucket, effective_generate_audio
+            )
         video_ref = None
         video_uri: str | None = None
         async with (
@@ -1076,7 +1143,7 @@ class MediaGenerator:
                 resolution=resolution,
                 duration_seconds=duration_int,
                 aspect_ratio=aspect_ratio,
-                generate_audio=effective_generate_audio,
+                generate_audio=effective_generate_audio if billed_audio is None else billed_audio,
                 provider=cast(str, self._video_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
@@ -1152,6 +1219,7 @@ class MediaGenerator:
                     service_tier=version_metadata.get("service_tier", "default"),
                     seed=version_metadata.get("seed"),
                     video_capabilities=video_caps,
+                    billed_audio=billed_audio,
                 )
                 sent_request[:] = [request]
                 return video_backend.generate(request)
@@ -1196,6 +1264,13 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
+        self._attach_formal_video_metadata(
+            version_metadata,
+            formal_output=formal_output,
+            task_id=task_id,
+            video_uri=video_uri,
+            warnings=warnings,
+        )
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
@@ -1263,13 +1338,7 @@ class MediaGenerator:
 
         api_call_id = await self.ledger.pending_call_id_for_task(task_id) if task_id is not None else None
 
-        if self._config is not None:
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name)
-        else:
-            from lib.config.resolver import ConfigResolver
-
-            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
-        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
+        effective_generate_audio = version_metadata.get("generate_audio", True)
 
         staged_output_path, backend_output_path = await run_sync_transaction(
             self._prepare_video_output,
@@ -1287,6 +1356,7 @@ class MediaGenerator:
         )
         from lib.backends.video_backends.registry import backend_metered_usage
 
+        checkpoint_caps = VideoCapabilities(audio_track=audio_track) if audio_track is not None else None
         request = VideoGenerationRequest(
             prompt=prompt,
             output_path=backend_output_path,
@@ -1305,7 +1375,10 @@ class MediaGenerator:
             service_tier=version_metadata.get("service_tier", "default"),
             seed=version_metadata.get("seed"),
             submitted_base_url=submitted_base_url,
-            video_capabilities=VideoCapabilities(audio_track=audio_track) if audio_track is not None else None,
+            billed_audio=billed_audio_for_request(
+                self._video_provider_id, checkpoint_caps, "i2v", effective_generate_audio
+            ),
+            video_capabilities=checkpoint_caps,
         )
 
         try:
@@ -1359,6 +1432,13 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
+        self._attach_formal_video_metadata(
+            version_metadata,
+            formal_output=formal_output,
+            task_id=task_id,
+            video_uri=video_uri,
+            warnings=warnings,
+        )
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,

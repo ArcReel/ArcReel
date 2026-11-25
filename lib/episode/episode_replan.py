@@ -65,15 +65,14 @@ from lib.episode.episode_paths import episode_script_relpath, episode_source_pat
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
     CutPlacement,
+    EpisodeFileArchives,
     SourceOrigin,
-    archive_episode_file_path,
     cut_episode_placements,
     discover_sources,
     episode_source_origin,
     first_cut_episode_id,
     is_cut_episode,
     legacy_cut_episode_ids,
-    source_snapshot_path,
     sync_source_snapshots,
     whole_source_files,
 )
@@ -532,8 +531,6 @@ class _StaleConfirmation(Exception):
 
 def _write_new_episode_file(project_dir: Path, episode: int, text: str) -> None:
     path = episode_source_path(project_dir, episode)
-    if path.exists() or path.is_symlink():
-        path.rename(archive_episode_file_path(path))
     path.parent.mkdir(exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
 
@@ -554,7 +551,6 @@ def _apply_adoption(
     texts = {doc.rel_path: doc.text for doc in docs}
     entries = _entries(project)
     by_id = {parse_positive_episode_num(entry.get("episode")): entry for entry in entries}
-    legacy = {num for num in adoption.replaced if parse_source_range(by_id[num]) is None}
     drafts = candidate_episodes(candidate)
     new_ids = allocate_episode_ids(project, len(drafts))
     new_entries: list[dict[str, Any]] = []
@@ -589,11 +585,8 @@ def _apply_adoption(
         path = episode_source_path(project_dir, num)
         if delete_retired and num in adoption.retired:
             continue
-        if num in legacy and path.is_file() and not path.is_symlink():
-            path.rename(archive_episode_file_path(path))
-        else:
-            # hard-delete: derived -- 重新规划采纳时替换掉的派生集原文，可由分集账本重新生成
-            path.unlink(missing_ok=True)
+        # hard-delete: derived -- 重新规划采纳时替换掉的派生集原文，可由分集账本重新生成
+        path.unlink(missing_ok=True)
     for num, entry in zip(new_ids, new_entries, strict=True):
         source_range = entry["source_range"]
         text = texts[source_range["source_file"]][source_range["start"] : source_range["end"]]
@@ -621,9 +614,18 @@ def adopt_replan_candidate(
         return ReplanConfirmationRequired(impact=impact)
 
     planned_first = episode_id_high_water(project) + 1
-    touched = [*adoption.replaced, *range(planned_first, planned_first + impact.new_count)]
+    new_ids = range(planned_first, planned_first + impact.new_count)
+    legacy = set(legacy_cut_episode_ids(project)).intersection(adoption.replaced)
+    if delete_retired:
+        legacy.difference_update(adoption.retired)
+    touched = [*adoption.replaced, *new_ids]
     formal_paths = [episode_source_path(project_dir, num) for num in touched]
-    formal_paths.extend(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project))
+    archives = EpisodeFileArchives(
+        project_dir,
+        legacy.union(new_ids),
+        formal_paths,
+        source_files=whole_source_files(project),
+    )
     committed: dict[str, Any] = {}
 
     def _commit(p: dict[str, Any]) -> None:
@@ -633,12 +635,13 @@ def adopt_replan_candidate(
             raise _StaleConfirmation(locked_impact)
         if episode_id_high_water(p) + 1 != planned_first:
             raise ReplanError("conflict", "分集账本刚被改动，这次采纳没有执行")
+        archives.apply()
         committed["episodes"] = _apply_adoption(
             project_dir, p, locked_candidate, locked_adoption, delete_retired=delete_retired
         )
 
     try:
-        pm.update_project(project_name, _commit, formal_paths=formal_paths)
+        pm.update_project(project_name, _commit, formal_paths=archives.prepare_protected_paths)
     except _StaleConfirmation as exc:
         return ReplanConfirmationRequired(impact=exc.impact)
     deleted = _delete_retired(pm, project_name, impact.retired) if delete_retired else []

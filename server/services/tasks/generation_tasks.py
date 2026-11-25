@@ -67,6 +67,7 @@ from lib.generation.video_request_facts import (
     end_frame_duration_failure,
     require_video_request_facts,
 )
+from lib.generation.video_result import build_video_task_result
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -1014,6 +1015,7 @@ async def execute_video_task(
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
+    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
     ctx = await resolve_generation_context(
         project_name,
         execution_payload,
@@ -1023,6 +1025,7 @@ async def execute_video_task(
             generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
             route="storyboard",
             uses_end_frame=bool(item.get("end_frame_image")),
+            service_tier=service_tier,
         ),
     )
     generator = ctx.generator
@@ -1090,7 +1093,6 @@ async def execute_video_task(
         if content_mode == "drama"
         else None,
     )
-    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     duration_seconds = (
         item.get("duration_seconds")
@@ -1289,6 +1291,7 @@ async def execute_video_task(
                 seed=seed,
                 service_tier=service_tier,
                 visual_basis_digest=visual_basis_digest,
+                billed_audio=request_facts.generate_audio,
                 generate_audio=requested_generate_audio,
                 poll_timeout_seconds=poll_timeout_seconds,
                 warnings=warnings,
@@ -1378,17 +1381,14 @@ async def finalize_video_task(
         lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
     )
 
-    result: dict[str, Any] = {
-        "version": version,
-        "file_path": f"videos/scene_{resource_id}.mp4",
-        "created_at": created_at,
-        "resource_type": "videos",
-        "resource_id": resource_id,
-        "video_uri": video_uri,
-    }
-    if warnings:
-        result["warnings"] = list(warnings)
-    return result
+    return build_video_task_result(
+        resource_type="videos",
+        resource_id=resource_id,
+        version=version,
+        created_at=created_at,
+        video_uri=video_uri,
+        warnings=warnings,
+    )
 
 
 async def execute_asset_sheet_task(

@@ -3,7 +3,7 @@
 每条 endpoint 是一个 EndpointSpec，绑定 media_type、family、HTTP 调用形态与 build_backend 闭包。
 实现形态有两种：Python backend，或随版声明式定义（``builtin_endpoints/*.json``，import 期经
 builtin_definitions 装入本注册表，用 EndpointSpec.definition 与前者区分）。两者共用同一键域。
-factory.create_custom_backend 通过 endpoint 字符串查表派发；
+运行时通过 endpoint 字符串查表派发；
 server.routers.custom_providers 通过 GET /custom-providers/endpoints 把目录暴露给前端，
 让前端的下拉选项、路径展示完全派生自此真相源。
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.dashscope_speech_synthesizer import (
     SPEECH_SYNTHESIZER_PATH,
@@ -31,6 +31,8 @@ from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.dashscope_shared import dashscope_native_base_url
+from lib.backends.endpoint_prefill import infer_endpoint as infer_endpoint
+from lib.backends.endpoint_prefill import infer_media_type as infer_media_type
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
@@ -44,7 +46,9 @@ from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
-from lib.backends.image_backends.registry import accepts_explicit_quality_of, reference_limit_of
+from lib.backends.image_backends.registry import (
+    describe_image_backend_class,
+)
 from lib.backends.kling_shared import kling_model_path_base_url
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
@@ -53,13 +57,15 @@ from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
-from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS, classify_wan_model
+from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.gemini_interactions import GeminiInteractionsVideoBackend
 from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import VIDU_BACKENDS
+from lib.backends.video_capabilities import channel_projection, video_endpoint
+from lib.capabilities.kernel import Endpoint, EndpointDurations, FixedDuration
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
     ensure_google_base_url,
@@ -75,24 +81,21 @@ from lib.custom_provider.backends import (
 )
 from lib.custom_provider.builtin_definitions import (
     BuiltinDefinitionError,
+    builtin_definitions,
     declarative_display_name,
     declarative_family,
     declarative_request_path,
-    declarative_video_capabilities,
     load_builtin_definitions,
 )
 from lib.custom_provider.comfyui.capabilities import (
-    default_supported_durations,
     duration_is_fixed,
-    frame_rate_is_missing,
     native_short_edge,
     size_is_fixed,
 )
-from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_image_backend import (
     ComfyuiImageBackend,
     binding_image_capabilities,
-    binding_reference_limit,
 )
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import (
@@ -103,9 +106,9 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.custom_provider.declarative_image_backend import (
     DeclarativeImageBackend,
-    definition_reference_limit,
     image_capabilities_from_definition,
 )
+from lib.custom_provider.definition_capabilities import decode_definition
 from lib.custom_provider.path_overrides import (
     NO_PATH_OVERRIDES,
     BaseUrlRule,
@@ -118,10 +121,26 @@ from lib.custom_provider.path_overrides import (
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
-    from lib.db.models.custom_provider import CustomProvider
 
 
 CUSTOM_ENDPOINT_FAMILY = "custom"
+
+
+class ProviderConnection(Protocol):
+    @property
+    def provider_id(self) -> str: ...
+    @property
+    def base_url(self) -> str: ...
+    @property
+    def api_key(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class ProviderConnectionSnapshot:
+    id: int | None
+    provider_id: str
+    base_url: str
+    api_key: str = field(repr=False)
 
 
 class BackendBuilder(Protocol):
@@ -132,7 +151,7 @@ class BackendBuilder(Protocol):
     """
 
     def __call__(
-        self, provider: CustomProvider, model_id: str, path_overrides: PathOverrides = ..., /
+        self, provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = ..., /
     ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend: ...
 
 
@@ -149,13 +168,48 @@ class EndpointSpec:
     build_backend: BackendBuilder
     source: Literal["builtin", "custom"] = "builtin"
     image_capabilities: frozenset[ImageCapability] | None = None
+    describe_image: Endpoint | None = None
     video_max_reference_images: int | None = None
-    video_caps_for_model: Callable[[str, CatalogEntry | None], VideoCapabilities] | None = None
-    end_image_capable: bool = False
-    reference_audio_capable: bool = False
+    describe_video: Callable[[str, CatalogEntry | None], Endpoint] | None = None
     definition: Mapping[str, Any] | None = None
     requests: tuple[EndpointRequest, ...] = ()
     metering_backend: type | None = None
+
+    def image_description(self) -> Endpoint:
+        if self.media_type != "image":
+            raise ValueError(f"endpoint {self.key!r} is {self.media_type}, not image")
+        if self.describe_image is not None:
+            return self.describe_image
+        if self.definition is not None:
+            return decode_definition(self.definition)
+        if self.metering_backend is not None:
+            return describe_image_backend_class(self.metering_backend, capabilities=self.image_capabilities)
+        if self.image_capabilities is None:
+            raise ValueError(f"invalid image capability declaration for {self.key!r}")
+        return Endpoint("image", frozenset(cap.value for cap in self.image_capabilities))
+
+    def video_description(self, model_id: str, entry: CatalogEntry | None = None) -> Endpoint:
+        if self.media_type != "video":
+            raise ValueError(f"endpoint {self.key!r} is {self.media_type}, not video")
+        if self.describe_video is not None:
+            return self.describe_video(model_id, entry)
+        if self.video_max_reference_images is None or self.video_max_reference_images < 0:
+            raise ValueError(f"invalid video capability declaration for {self.key!r}")
+        return video_endpoint(VideoCapabilities(max_reference_images=self.video_max_reference_images))
+
+    @property
+    def video_caps_for_model(self) -> Callable[[str, CatalogEntry | None], VideoCapabilities] | None:
+        if self.describe_video is None:
+            return None
+        return lambda model, entry=None: channel_projection(self.video_description(model, entry))
+
+    @property
+    def end_image_capable(self) -> bool:
+        return self.media_type == "video" and "last_frame" in self.video_description("").slots
+
+    @property
+    def reference_audio_capable(self) -> bool:
+        return self.media_type == "video" and "reference_audio" in self.video_description("").slots
 
     @property
     def kind(self) -> str:
@@ -196,6 +250,8 @@ class EndpointSpec:
         是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源时档位同样是空集，但那是一份
         可修的定义（补一个 ``fps`` 绑定或手填帧率），不是这份 workflow 的时长天生固定。
         """
+        if self.media_type == "video" and self.kind == COMFYUI_KIND:
+            return self.video_description("").duration == FixedDuration("no_frames")
         return (
             self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition["bindings"])
         )
@@ -208,7 +264,11 @@ class EndpointSpec:
         :attr:`duration_tier_empty`）。两位都为假而档位仍为空，说的是第三支：帧数已绑定、帧率也
         读得到，只是换算不出一档能原样写回的整秒时长——那一支既不是「天生固定」也补不出帧率来。
         """
-        return self.definition is not None and self.kind == COMFYUI_KIND and frame_rate_is_missing(self.definition)
+        return (
+            self.kind == COMFYUI_KIND
+            and self.media_type == "video"
+            and self.video_description("").duration == FixedDuration("missing_fps")
+        )
 
     @property
     def endpoint_durations(self) -> list[int] | None:
@@ -222,7 +282,8 @@ class EndpointSpec:
         """
         if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
             return None
-        return default_supported_durations(self.definition)
+        mode = self.video_description("").duration
+        return list(mode.seconds) if isinstance(mode, EndpointDurations) else []
 
     @property
     def duration_tier_empty(self) -> bool:
@@ -935,7 +996,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_openai_video,
         requests=_OPENAI_VIDEO_REQUESTS,
         metering_backend=OpenAIVideoBackend,
-        video_caps_for_model=OpenAIVideoBackend.video_capabilities_for_model,
+        describe_video=OpenAIVideoBackend.describe_video_endpoint,
     ),
     **{
         key: EndpointSpec(
@@ -948,9 +1009,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_ark_seedance, endpoint=key),
             requests=_ARK_SEEDANCE_REQUESTS,
             metering_backend=backend_class,
-            video_caps_for_model=backend_class.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=True,
+            describe_video=backend_class.describe_video_endpoint,
         )
         for key, backend_class in SEEDANCE_BACKENDS.items()
     },
@@ -980,9 +1039,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_vidu_video, endpoint=key),
             requests=_VIDU_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=backend.endpoint.max_reference_audio > 0,
+            describe_video=backend.describe_video_endpoint,
         )
         for key, backend in VIDU_BACKENDS.items()
     },
@@ -1045,8 +1102,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_gemini_video,
         requests=_GEMINI_VIDEO_REQUESTS,
         metering_backend=GeminiVideoBackend,
-        video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=GeminiVideoBackend.describe_video_endpoint,
     ),
     "gemini-interactions-video": EndpointSpec(
         key="gemini-interactions-video",
@@ -1062,8 +1118,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         ),
         requests=_GEMINI_INTERACTIONS_VIDEO_REQUESTS,
         metering_backend=GeminiInteractionsVideoBackend,
-        video_caps_for_model=GeminiInteractionsVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=GeminiInteractionsVideoBackend.describe_video_endpoint,
     ),
     "minimax-tts": EndpointSpec(
         key="minimax-tts",
@@ -1096,9 +1151,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_dashscope_async_video, endpoint=endpoint),
             requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=True,
+            describe_video=backend.describe_video_endpoint,
         )
         for endpoint, backend in DASHSCOPE_VIDEO_BACKENDS.items()
     },
@@ -1152,8 +1205,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_kling_video, endpoint=key),
             requests=_KLING_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
+            describe_video=backend.describe_video_endpoint,
         )
         for key, backend in KLING_BACKENDS.items()
     },
@@ -1167,8 +1219,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_kling_model_path_video,
         requests=_KLING_MODEL_PATH_VIDEO_REQUESTS,
         metering_backend=KlingModelPathVideoBackend,
-        video_caps_for_model=KlingModelPathVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=KlingModelPathVideoBackend.describe_video_endpoint,
     ),
 }
 
@@ -1184,20 +1235,18 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
     """
     key = spec.key
     cap = spec.video_max_reference_images
-    caps_fn = spec.video_caps_for_model
+    caps_fn = spec.describe_video
     has_int = cap is not None
     if caps_fn is not None and not callable(caps_fn):
         raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_model: {caps_fn!r}")
     has_fn = callable(caps_fn)
-    if spec.media_type != "video" and spec.reference_audio_capable:
-        raise ValueError(f"non-video endpoint {key!r} must not declare reference_audio_capable")
     if spec.media_type == "video":
         if has_int == has_fn:
             raise ValueError(
                 f"video endpoint {key!r} must declare exactly one of video_max_reference_images "
                 f"(int) or video_caps_for_model (callable), got "
                 f"video_max_reference_images={cap!r}, "
-                f"video_caps_for_model={caps_fn!r}"
+                f"describe_video={caps_fn!r}"
             )
         if cap is not None and cap < 0:
             raise ValueError(f"video endpoint {key!r} declares negative video_max_reference_images: {cap}")
@@ -1205,7 +1254,7 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
         raise ValueError(
             f"non-video endpoint {key!r} must not declare video caps, got "
             f"video_max_reference_images={cap!r}, "
-            f"video_caps_for_model={caps_fn!r}"
+            f"describe_video={caps_fn!r}"
         )
 
 
@@ -1234,7 +1283,7 @@ def declarative_requires_api_key(definition: Mapping[str, Any]) -> bool:
     return bool(definition.get("auth"))
 
 
-def _require_declarative_base_url(definition: Mapping[str, Any], provider: CustomProvider) -> None:
+def _require_declarative_base_url(definition: Mapping[str, Any], provider: ProviderConnection) -> None:
     if declarative_requires_base_url(definition) and not provider.base_url:
         raise ValueError("声明式调用端点需要 base_url")
 
@@ -1245,7 +1294,7 @@ def _build_declarative_video(
     """声明式视频端点的 backend 构造闭包。"""
 
     def build(
-        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomVideoBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
@@ -1267,7 +1316,7 @@ def _build_declarative_image(
     """声明式图片端点的 backend 构造闭包。"""
 
     def build(
-        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomImageBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeImageBackend(
@@ -1342,7 +1391,7 @@ def declarative_endpoint_spec(
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    caps = declarative_video_capabilities(definition) if is_video else None
+    description = decode_definition(definition) if media_type in ("image", "video") else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1353,9 +1402,8 @@ def declarative_endpoint_spec(
         request_path_template=declarative_request_path(definition),
         build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
         image_capabilities=None if is_video else image_capabilities_from_definition(definition),
-        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
-        end_image_capable=caps.last_frame if caps is not None else False,
-        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        describe_image=description if media_type == "image" else None,
+        describe_video=(lambda _model_id, _entry: description) if is_video and description is not None else None,
         definition=definition,
         requests=declarative_requests(definition),
     )
@@ -1384,7 +1432,7 @@ def _build_comfyui_runtime(
     """
 
     def build(
-        provider: CustomProvider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+        provider: ProviderConnection, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
     ) -> CustomImageBackend | CustomVideoBackend:
         media_type = str(definition.get("media_type"))
         if media_type not in ("image", "video"):
@@ -1427,7 +1475,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    caps = binding_video_capabilities(definition) if is_video else None
+    description = decode_definition(definition) if media_type in ("image", "video") else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1438,9 +1486,8 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else binding_image_capabilities(definition),
-        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
-        end_image_capable=caps.last_frame if caps is not None else False,
-        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        describe_image=description if media_type == "image" else None,
+        describe_video=(lambda _model_id, _entry: description) if is_video and description is not None else None,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
@@ -1453,7 +1500,8 @@ def merge_builtin_definitions(registry: dict[str, EndpointSpec], directory: Path
     定义不合法、目录缺失、键冲突在 import 期一律抛错——装载失败让进程起不来，好过带着一个装不出
     backend 的 endpoint 跑到用户发起生成那一刻。
     """
-    for key, definition in load_builtin_definitions(directory).items():
+    definitions = builtin_definitions() if directory is None else load_builtin_definitions(directory)
+    for key, definition in definitions.items():
         if key in registry:
             raise BuiltinDefinitionError(f"随版定义 {key}.json 的内置键与已有 endpoint 重复")
         registry[key] = declarative_endpoint_spec(key, definition)
@@ -1474,19 +1522,11 @@ def _validate_registry() -> None:
         if is_custom_endpoint(key):
             raise ValueError(f"builtin endpoint key {key!r} must not use the custom endpoint prefix")
         validate_video_caps_declaration(spec)
+        if spec.media_type == "image":
+            spec.image_description()
 
 
 _validate_registry()
-
-
-def _validate_builtin_provider_endpoints() -> None:
-    """import 期校验内置供应商声明的可选端点与本注册表一致：共用的端点名都是这里的内置端点，媒体类型相同。"""
-    from lib.backends.backend_assembly.specs import validate_endpoint_declarations
-
-    validate_endpoint_declarations()
-
-
-_validate_builtin_provider_endpoints()
 
 
 def get_endpoint_spec(endpoint: str) -> EndpointSpec:
@@ -1526,42 +1566,43 @@ def endpoint_to_image_capabilities(endpoint: str) -> frozenset[ImageCapability]:
 
 
 def endpoint_reference_image_limit(spec: EndpointSpec) -> int | None:
-    """图片端点静态声明的参考图上限（通道事实），与端点构造出的 backend 的 ``reference_image_limit()`` 同源。
-
-    ComfyUI 端点取节点绑定的参考图槽位数，声明式端点取定义里的声明，Python 端点取被包装调用通道类上的
-    ``CHANNEL_REFERENCE_LIMIT``；``None`` 表示通道本身不限张数。按模型运行时查询的通道（OpenRouter）这里只给出
-    端点上限，执行时可能再收窄。
-    """
-    if spec.definition is not None:
-        if spec.kind == COMFYUI_KIND:
-            return binding_reference_limit(spec.definition)
-        return definition_reference_limit(spec.definition)
-    if spec.metering_backend is None:
+    """图片端点静态声明的参考图上限（通道事实），与端点单一能力描述同源。"""
+    if spec.media_type != "image":
         return None
-    return reference_limit_of(spec.metering_backend)
+    description = spec.image_description()
+    limit = description.limits.get("max_reference_images")
+    if limit is None:
+        limit = description.defaults.get("max_reference_images")
+    return int(limit) if isinstance(limit, int) and limit > 0 else None
 
 
 def endpoint_accepts_explicit_quality(spec: EndpointSpec) -> bool:
-    """图片端点是否接受显式画质（通道事实），与端点构造出的 backend 同源。
-
-    Python 端点取被包装调用通道类上的 ``CHANNEL_ACCEPTS_QUALITY``；声明式端点与 ComfyUI 端点不接受。
-    """
-    if spec.definition is not None or spec.metering_backend is None:
-        return False
-    return accepts_explicit_quality_of(spec.metering_backend)
+    """图片端点是否接受显式画质（通道事实），与端点单一能力描述同源。"""
+    return spec.media_type == "image" and "explicit_quality" in spec.image_description().slots
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:
     return [ENDPOINT_REGISTRY[k] for k in ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ())]
 
 
+_ENDPOINT_SPEC_EXCLUDED_FIELDS = frozenset(
+    {"build_backend", "describe_image", "describe_video", "metering_backend", "definition"}
+)
+
+
 def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
-    """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
-    data = asdict(spec)
-    data.pop("build_backend", None)
-    data.pop("video_caps_for_model", None)
-    data.pop("metering_backend", None)
-    data.pop("definition", None)
+    """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包与内部描述）。"""
+    from dataclasses import fields
+
+    data = {
+        f.name: asdict(value) if is_dataclass(value) and not isinstance(value, type) else value
+        for f in fields(spec)
+        if f.name not in _ENDPOINT_SPEC_EXCLUDED_FIELDS
+        for value in (getattr(spec, f.name),)
+    }
+    data["requests"] = tuple(asdict(request) for request in spec.requests)
+    data["end_image_capable"] = spec.end_image_capable
+    data["reference_audio_capable"] = spec.reference_audio_capable
     data["kind"] = spec.kind
     data["display_name"] = spec.display_name
     data["size_fixed"] = spec.size_fixed
@@ -1574,198 +1615,3 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     else:
         data["image_capabilities"] = None
     return data
-
-
-_IMAGE_PATTERN = re.compile(r"image|dall|img|imagen|flux|seedream|jimeng|viduq[12](?:[-_].*)?", re.IGNORECASE)
-_VIDEO_PATTERN = re.compile(
-    r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|runway|"
-    r"vidu2(?:\.0)?(?:[-_].*)?|viduq[34](?:[-_].*)?",
-    re.IGNORECASE,
-)
-_AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
-_QWEN_TTS_PATTERN = re.compile(r"qwen3?-tts", re.IGNORECASE)
-_QWEN_AUDIO_TTS_PATTERN = re.compile(r"qwen-audio-[\d.]+-tts", re.IGNORECASE)
-_MINIMAX_TTS_PATTERN = re.compile(r"speech-[\d.]+-(?:hd|turbo)")
-_ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
-
-_MINIMAX_FAST_MODELS = frozenset({"minimax-hailuo-2.3-fast"})
-_MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
-
-
-_FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
-    ("kling", {"image": "kling-image", "video": "kling-video-pro-silent"}),
-    ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
-    ("seedance", {"video": "ark-seedance-1"}),
-    ("seedream", {"image": "ark-seedream-4"}),
-    ("viduq", {"video": "vidu-video-q3-turbo"}),
-    ("vidu2", {"video": "vidu-video-2"}),
-    ("hailuo", {"video": "minimax-hailuo-v1"}),
-)
-
-_DEFAULT_ENDPOINTS: Mapping[str, tuple[str, str]] = {
-    "text": ("gemini-generate", "openai-chat"),
-    "image": ("gemini-image", "openai-images"),
-    "video": ("gemini-video", "openai-video"),
-    "audio": ("gemini-tts", "openai-tts"),
-}
-
-
-def _request_profile_endpoint(provider: str, model_id: str) -> str:
-    from lib.backends.backend_assembly.specs import request_profile_endpoint_for_name
-    from lib.catalog.query import find_entry
-
-    entry = find_entry(model_id, media_type="video")
-    names = (entry.name, *entry.aliases) if entry is not None else (model_id,)
-    for name in names:
-        endpoint = request_profile_endpoint_for_name(provider, name)
-        if endpoint is not None:
-            return endpoint
-    return {
-        "vidu": "vidu-video-generic",
-        "kling": "kling-video-silent",
-    }[provider]
-
-
-def _seedance_endpoint(model_id: str) -> str:
-    """名字含 seedance 的视频模型预填的端点：名字写明 2.5 / 2.0 时取对应代际，否则取 1.x 端点。"""
-    from lib.backends.backend_assembly.specs import seedance_endpoint_for_name
-
-    return seedance_endpoint_for_name(model_id) or "ark-seedance-1"
-
-
-def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None = None) -> str:
-    """推默认调用端点；``media_type`` 是模型已知的媒体类型（对应上的条目给出），不给时按名字一并推断。
-
-    给了媒体类型时，名字规则推出的端点属于这个媒体类型就用它；否则在这个媒体类型内按名字族选
-    （见 :data:`_FAMILY_ENDPOINTS`），选不到时取该媒体类型在当前模型发现协议下的默认端点（docs/adr/0105）。
-    """
-    by_name = _infer_endpoint_by_name(model_id, discovery_format)
-    if media_type is None or endpoint_to_media_type(by_name) == media_type:
-        return by_name
-    lowered = model_id.lower()
-    for token, endpoints in _FAMILY_ENDPOINTS:
-        if token in lowered and media_type in endpoints:
-            if endpoints[media_type] in SEEDANCE_BACKENDS:
-                return _seedance_endpoint(model_id)
-            if endpoints[media_type] in SEEDREAM_BACKENDS:
-                from lib.backends.backend_assembly.specs import image_endpoint_for_name
-
-                return image_endpoint_for_name("ark", model_id)
-            if media_type == "video" and ("kling" in token or "vidu" in token):
-                return _request_profile_endpoint("kling" if "kling" in token else "vidu", model_id)
-            return endpoints[media_type]
-    google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
-    return google_default if discovery_format == "google" else other_default
-
-
-def infer_media_type(model_id: str, discovery_format: str) -> str:
-    """按名字推断的媒体类型，即名字规则推出的端点的媒体类型。"""
-    return endpoint_to_media_type(_infer_endpoint_by_name(model_id, discovery_format))
-
-
-def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
-    """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
-
-    model id 内容优先于 discovery_format：中转站普遍 discovery_format="openai"，但模型
-    列表常夹带 gemini-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
-    openai-chat/openai-images，每次都要手动改回。
-
-    1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
-       image-to-video 续接别名）走 "百炼异步视频端点"（原生异步端点）。happyhorse 不在
-       _VIDEO_PATTERN 须显式；万相视频抢在通用 is_video 前拦截。真正的图像变体不自动推 dashscope
-       （中转可能是 OpenAI 兼容）：qwen-image / wan2.7-image / wan-2.7-image / wan3.0-video-image
-       及带版本/日期后缀的同类 id 落到图像家族推断；wan-3-turbo-image-to-video /
-       wan3-image2video 这类显式 image-to-video 续接语法仍归视频（同 2.5 节 kling-image2video
-       的处理原则），按 classify_wan_model 的 is_image_to_video 精确挑出这一种形态，不对图像变体
-       的命名形态（结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方
-       classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
-       落到下方 4) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
-       请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
-    2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
-       image-01 走 "minimax-image"，MiniMax-H3-Image 系列走 "minimax-h3-image"。先于通用
-       is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
-       输入受限的 Fast / S2V 只认精确型号名（剥离中转命名空间前缀后比较），非精确海螺别名落
-       通用海螺键，其余 s2v 形态落 4) 的通用视频端点。
-    2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
-       语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
-       _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
-       默认归视频、图像手动选。
-    3) gemini-omni → "gemini-interactions-video"；其余 gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，
-       image 形态走 "gemini-image"，否则文本走 "gemini-generate"（不分 discovery_format）
-    4) 视频家族 → seedance 按名字里的代际取 "ark-seedance-2-5" / "ark-seedance-2"，没写明代际取
-       "ark-seedance-1"；viduq3 / viduq4→"vidu-video"、Veo 且 discovery_format=google→"gemini-video"、否则 "openai-video"
-    5) 图像家族 → seedream→"ark-seedream-3" / "ark-seedream-4"（不分 discovery_format），其余 discovery_format=google 走
-       "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
-    6) TTS 家族（tts/speech/cosyvoice）→ qwen-audio-<版本>-tts 走 "dashscope-speech-synthesizer"，
-       qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
-       speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
-       （不分 discovery_format；precedence 在 text 默认之前）
-    7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
-    """
-    lowered = model_id.lower()
-    is_image = bool(_IMAGE_PATTERN.search(model_id))
-    classification = classify_wan_model(model_id)
-    is_wan_family = classification.family is not None and classification.family != "happyhorse"
-    contains_wan_token = "wan" in lowered
-    wan_video_continuation = contains_wan_token and (
-        classification.is_image_to_video
-        or (classification.family == "wan2.7" and classification.is_known_video_modality)
-    )
-    wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
-    wan_unsupported_modality = is_wan_family and not classification.has_known_modality
-
-    if classification.family == "happyhorse":
-        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
-
-        return dashscope_video_endpoint_for_name(model_id)
-    if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
-        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
-
-        return dashscope_video_endpoint_for_name(model_id)
-
-    canonical = re.split(r"[/:]", lowered)[-1]
-    if "hailuo" in lowered:
-        return "minimax-hailuo-v1-fast" if canonical in _MINIMAX_FAST_MODELS else "minimax-hailuo-v1"
-    if canonical in _MINIMAX_S2V_MODELS:
-        return "minimax-s2v-01"
-    if "minimax-h3-image" in lowered:
-        return "minimax-h3-image"
-    if "minimax-h3" in lowered:
-        return "minimax-h3"
-    if "image-01" in lowered:
-        return "minimax-image"
-
-    if "kling" in lowered:
-        if "video" in lowered:
-            return _request_profile_endpoint("kling", model_id)
-        return "kling-image" if is_image else _request_profile_endpoint("kling", model_id)
-
-    is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
-
-    if "gemini-omni" in lowered:
-        return "gemini-interactions-video"
-    if "gemini" in lowered and not is_video:
-        if "tts" in lowered:
-            return "gemini-tts"
-        return "gemini-image" if is_image else "gemini-generate"
-    if is_video:
-        if "seedance" in lowered:
-            return _seedance_endpoint(model_id)
-        if "viduq3" in lowered or "viduq4" in lowered:
-            return _request_profile_endpoint("vidu", model_id)
-        if "veo" in lowered and discovery_format == "google":
-            return "gemini-video"
-        return "openai-video"
-    if is_image:
-        if "seedream" in lowered:
-            from lib.backends.backend_assembly.specs import image_endpoint_for_name
-
-            return image_endpoint_for_name("ark", model_id)
-        return "gemini-image" if discovery_format == "google" else "openai-images"
-    if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
-        if _QWEN_AUDIO_TTS_PATTERN.search(model_id):
-            return "dashscope-speech-synthesizer"
-        if _QWEN_TTS_PATTERN.search(model_id):
-            return "dashscope-tts"
-        return "minimax-tts" if _MINIMAX_TTS_PATTERN.fullmatch(canonical) else "openai-tts"
-    return "gemini-generate" if discovery_format == "google" else "openai-chat"

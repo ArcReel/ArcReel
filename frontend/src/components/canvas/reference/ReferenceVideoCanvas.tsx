@@ -59,12 +59,14 @@ import { VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { computeVoiceLegacyNotice } from "./voice-legacy-notice";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
-import { PromptAuthoringDraftPanel, usePromptAuthoringDraft } from "./PromptAuthoringDraftPanel";
+import { PromptAuthoringPartialNotice } from "./PromptAuthoringPartialNotice";
+import { parseReferenceAuthoringPartial } from "./prompt-authoring-partial";
 import { API } from "@/api";
 import {
   enqueueNarration,
   enqueueReferenceVideoBatch,
   enqueueReferenceVideoUnit,
+  promptAuthoringResourceId,
 } from "@/actions/generation";
 import {
   useReferenceVideoStore,
@@ -73,6 +75,7 @@ import {
 import {
   isResourceBusy,
   useActiveResourceIds,
+  useLatestEpisodeAuthoringTask,
   useLatestTasksByResource,
 } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
@@ -152,12 +155,14 @@ function UnitPromptEdit({
   unitLabel,
   onSave,
   allowNavigation,
+  editRef,
   children,
 }: {
   unit: ReferenceVideoUnit;
   unitLabel: string;
   onSave: (unitId: string, prompt: string) => Promise<string>;
   allowNavigation: (to: string) => boolean;
+  editRef?: React.RefObject<EditUnit<string> | null>;
   children: (edit: EditUnit<string>) => ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
@@ -169,6 +174,13 @@ function UnitPromptEdit({
     allowNavigation,
     leaveTitle: t("reference_unit_leave_title", { id: unitLabel }),
   });
+  useLayoutEffect(() => {
+    if (!editRef) return;
+    editRef.current = edit;
+    return () => {
+      if (editRef.current === edit) editRef.current = null;
+    };
+  }, [edit, editRef]);
   return <>{children(edit)}</>;
 }
 
@@ -291,7 +303,7 @@ export function ReferenceVideoCanvas({
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
-  const { view: promptDraft, refresh: refreshPromptDraft } = usePromptAuthoringDraft(projectName, episode);
+  const [dismissedPartialTaskId, setDismissedPartialTaskId] = useState<string | null>(null);
 
   const voiceLegacyNotice = useMemo(
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}, project?.character_voice_binding),
@@ -316,6 +328,15 @@ export function ReferenceVideoCanvas({
   }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
+  const latestAuthoringTask = useLatestEpisodeAuthoringTask(
+    projectName, promptAuthoringResourceId(episode), hasScript && showPreprocess,
+  );
+  const partialAuthoring = useMemo(
+    () => (hasScript && showPreprocess ? parseReferenceAuthoringPartial(latestAuthoringTask) : null),
+    [hasScript, showPreprocess, latestAuthoringTask],
+  );
+  const visiblePartialAuthoring =
+    partialAuthoring && partialAuthoring.taskId !== dismissedPartialTaskId ? partialAuthoring : null;
 
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
 
@@ -759,19 +780,39 @@ export function ReferenceVideoCanvas({
 
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
+  const [unitPromptSaving, setUnitPromptSaving] = useState(false);
   const handlePromptSave = useCallback(
     async (unitId: string, prompt: string) => {
-      const saved = await patchUnit(projectName, episode, unitId, { prompt });
-      return saved.text;
+      setUnitPromptSaving(true);
+      try {
+        const saved = await patchUnit(projectName, episode, unitId, { prompt });
+        return saved.text;
+      } finally {
+        setUnitPromptSaving(false);
+      }
     },
     [patchUnit, projectName, episode],
   );
+  const activeEditRef = useRef<EditUnit<string> | null>(null);
+  const runWithUnitSave = useCallback(async (action: () => Promise<boolean>): Promise<boolean> => {
+    const edit = activeEditRef.current;
+    if (!edit) return action();
+    if (edit.status === "saving") return false;
+    let result = false;
+    const ok = await edit.saveAndGenerate(async () => {
+      result = await action();
+    });
+    return ok && result;
+  }, []);
   const allowNavigation = useStaysInEpisodeView();
 
   const videoGap = useBatchGap(projectName, episode, "videos", "reference_video");
 
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  const workbenchRef = useRef<HTMLDivElement>(null);
+  const [unitToReveal, setUnitToReveal] = useState<{ id: string } | null>(null);
+  const revealedUnit = useRef<typeof unitToReveal>(null);
   useEffect(() => {
     if (scrollTarget?.type !== "reference_unit") return;
     const requestId = scrollTarget.request_id;
@@ -782,6 +823,7 @@ export function ReferenceVideoCanvas({
       const focusUnit = () => {
         onViewChange("board", { replace: true });
         select(unitId);
+        setUnitToReveal({ id: unitId });
         if (openPreview) setStackTab("preview");
       };
       if (view === "board" && unitId === selectedUnitId) focusUnit();
@@ -798,6 +840,16 @@ export function ReferenceVideoCanvas({
     const timer = setTimeout(() => clearScrollTarget(requestId), remaining);
     return () => clearTimeout(timer);
   }, [scrollTarget, units, loading, view, selectedUnitId, select, clearScrollTarget, onViewChange, confirmLeave, t]);
+
+  useLayoutEffect(() => {
+    if (view !== "board" || !unitToReveal || revealedUnit.current === unitToReveal) return;
+    const rows = workbenchRef.current?.querySelectorAll<HTMLButtonElement>('[data-reference-unit][aria-current="true"]');
+    const row = Array.from(rows ?? []).find(
+      (button) => button.dataset.referenceUnit === unitToReveal.id && button.getClientRects().length > 0,
+    );
+    revealedUnit.current = unitToReveal;
+    row?.scrollIntoView({ block: "nearest" });
+  }, [view, unitToReveal]);
 
   const [listSheetOpen, setListSheetOpen] = useState(false);
 
@@ -830,7 +882,7 @@ export function ReferenceVideoCanvas({
   const notices =
     view === "board" &&
     (voiceLegacyNotice.count > 0 ||
-      promptDraft?.editable_by === "agent" ||
+      visiblePartialAuthoring !== null ||
       (hasScript && !showPreprocess) ||
       Boolean(error));
 
@@ -1096,16 +1148,18 @@ export function ReferenceVideoCanvas({
             />
           )}
 
-          {promptDraft?.editable_by === "agent" && (
-            <div className="px-5 py-2">
-              <PromptAuthoringDraftPanel
-                key={`${projectName}:${episode}`}
-                projectName={projectName}
-                episode={episode}
-                view={promptDraft}
-                onSettled={refreshPromptDraft}
-              />
-            </div>
+          {visiblePartialAuthoring && (
+            <PromptAuthoringPartialNotice
+              key={`${projectName}:${episode}:${visiblePartialAuthoring.taskId}`}
+              projectName={projectName}
+              episode={episode}
+              partial={visiblePartialAuthoring}
+              units={units}
+              unitSaving={unitPromptSaving}
+              runWithSave={runWithUnitSave}
+              onEditUnit={editUnitReferences}
+              onDismiss={() => setDismissedPartialTaskId(visiblePartialAuthoring.taskId)}
+            />
           )}
 
           {hasScript && !showPreprocess && (
@@ -1120,7 +1174,7 @@ export function ReferenceVideoCanvas({
         </section>
       )}
 
-      <RetainedEditUnit identity={promptDraft?.editable_by === "user" ? "draft" : "workbench"} message={t("reference_prompt_draft_replaced")} value={view === "plan" ? (
+      {view === "plan" ? (
         <div className="relative min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
             <ReferenceScriptPlanPreviewPanel
@@ -1134,20 +1188,8 @@ export function ReferenceVideoCanvas({
             />
           </div>
         </div>
-      ) : promptDraft?.editable_by === "user" ? (
-        <div className="relative min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-6 py-5">
-            <PromptAuthoringDraftPanel
-              key={`${projectName}:${episode}`}
-              projectName={projectName}
-              episode={episode}
-              view={promptDraft}
-              onSettled={refreshPromptDraft}
-            />
-          </div>
-        </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-[3.5rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] @4xl/canvas:grid-cols-[3.5rem_minmax(0,1fr)_20rem] @6xl/canvas:grid-cols-[20rem_minmax(0,1fr)_20rem] @7xl/canvas:grid-cols-[20rem_minmax(0,1fr)_22.5rem]">
+        <div ref={workbenchRef} className="grid min-h-0 flex-1 grid-cols-[3.5rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] @4xl/canvas:grid-cols-[3.5rem_minmax(0,1fr)_20rem] @6xl/canvas:grid-cols-[20rem_minmax(0,1fr)_20rem] @7xl/canvas:grid-cols-[20rem_minmax(0,1fr)_22.5rem]">
           <div className="col-start-1 row-start-1 row-end-3 flex min-h-0 @6xl/canvas:hidden">
             <UnitRail
               units={units}
@@ -1177,6 +1219,7 @@ export function ReferenceVideoCanvas({
               unitLabel={unitPositionOf(selected.unit_id)}
               onSave={handlePromptSave}
               allowNavigation={allowNavigation}
+              editRef={activeEditRef}
             >
               {(edit) => renderSelectedUnit(selected, edit)}
             </UnitPromptEdit>
@@ -1207,9 +1250,7 @@ export function ReferenceVideoCanvas({
             {(detail) => detail}
           </RetainedEditUnit>
         </div>
-      )}>
-        {(content) => content}
-      </RetainedEditUnit>
+      )}
 
       <Sheet open={listSheetOpen} onOpenChange={setListSheetOpen}>
         <SheetContent

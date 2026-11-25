@@ -7,12 +7,12 @@ import { cn } from "cn";
 import { settingsSectionPath } from "@/app-routes";
 import { useShallow } from "zustand/react/shallow";
 
-import { API } from "@/api";
+import { ApiRequestError } from "@/api";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
-import { isOccupyingStatus, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import type { TaskItem, UsageSummary } from "@/types";
 import { voidPromise } from "@/utils/async";
@@ -34,13 +34,12 @@ import {
   usageRecordToView,
 } from "./usage-record-view";
 import type { UsageRecordView } from "./usage-record-view";
+import { DOWNLOAD_FAILED_CODE, useRefreshResumedDownloads } from "./use-refresh-resumed-downloads";
 import { useTaskCancellation } from "./use-task-cancellation";
 
 interface UsagePopoverProps {
   projectName: string;
 }
-
-const DOWNLOAD_FAILED_CODE = "download_failed";
 
 function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -115,10 +114,11 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
   const closeDetail = useUsageHeaderStore((s) => s.closeDetail);
   const refresh = useUsageHeaderStore((s) => s.refresh);
 
+  const truncated = useTasksStore((s) => s.activeTruncated);
   const activeTasks = useTasksStore(
     useShallow((s) =>
-      s.tasks.filter(
-        (task) => task.project_name === projectName && isOccupyingStatus(task.status),
+      selectActiveTasks(s).filter(
+        (task) => task.project_name === projectName,
       ),
     ),
   );
@@ -134,6 +134,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     ),
   );
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set());
+  const resumedRecordIds = useRefreshResumedDownloads(open ? recent : [], refresh, retryingIds);
 
   const dismissCancellation = cancellation.dismiss;
   useEffect(() => {
@@ -159,7 +160,10 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     }));
   }, [activeTasks, pendingRecords]);
 
-  const finishedRows = useMemo(() => recent.map(usageRecordToView), [recent]);
+  const finishedRows = useMemo(() => {
+    const resumed = new Set(resumedRecordIds);
+    return recent.filter((record) => !resumed.has(record.id)).map(usageRecordToView);
+  }, [recent, resumedRecordIds]);
 
   const empty =
     summary !== null &&
@@ -180,10 +184,14 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     async (taskId: string) => {
       markRetrying(taskId, true);
       try {
-        await API.retryTaskDownload(taskId);
+        await useTasksStore.getState().retryDownload(taskId);
         await Promise.all([useTasksStore.getState().refreshTasks(), refresh()]);
-      } catch {
-        useAppStore.getState().pushToast(t("retry_download_failed"), "error");
+      } catch (error) {
+        const message =
+          error instanceof ApiRequestError && error.status === 503
+            ? t("retry_download_service_unavailable")
+            : t("retry_download_failed");
+        useAppStore.getState().pushToast(message, "error");
       } finally {
         markRetrying(taskId, false);
       }
@@ -225,6 +233,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
         </div>
       )}
 
+      {truncated && <p role="status" className="text-sm text-warn">{t("usage_active_incomplete")}</p>}
       {empty ? (
         <p className="py-3 text-sm text-muted-foreground">{t("usage_popover_empty")}</p>
       ) : (

@@ -110,7 +110,7 @@ class TestCustomEndpointDispatch:
 
     def test_dashscope_async_video(self):
         from lib.custom_provider.backends import CustomVideoBackend
-        from lib.custom_provider.factory import create_custom_backend
+        from tests.custom_backend_support import create_custom_backend
 
         result = create_custom_backend(
             provider=self._provider(), model_id="happyhorse-1.0-r2v", endpoint="dashscope-reference-video"

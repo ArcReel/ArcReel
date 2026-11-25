@@ -193,7 +193,7 @@ class TestCapabilities:
     def test_decorated_model_name_resolves_r2v_request_shape(self):
         """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 百炼异步视频端点）
         必须解析出 r2v 的请求形态（必须带参考图），而非退回通道声明。"""
-        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+        from lib.backends.endpoint_prefill import dashscope_video_endpoint_for_name
 
         for model, _expected_key in (
             ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),
@@ -231,12 +231,12 @@ class TestCapabilities:
 
     def test_unknown_bare_series_falls_back_to_default(self):
         """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 认不得请求形态档，取通道声明。"""
-        from lib.backends.video_backends.dashscope import _CHANNEL_CAPABILITIES, DashScopeVideoBackend
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         assert _profile_key("happyhorse") is None
-        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities == replace(
-            _CHANNEL_CAPABILITIES, audio_track=DashScopeVideoBackend.endpoint.audio_track
-        )
+        caps = DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities
+        assert caps.max_prompt_chars is None
+        assert caps.audio_track == "always_on"
 
     def test_wan27_declares_prompt_char_limit(self):
         """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""
@@ -1447,8 +1447,8 @@ class TestPollErrorRedaction:
 
 async def test_custom_silent_model_executes_without_audio_switch_and_settles_silent(tmp_path):
     from lib.custom_provider.backends import CustomVideoBackend
-    from lib.custom_provider.factory import create_custom_backend
     from lib.db.models.custom_provider import CustomProvider
+    from tests.custom_backend_support import create_custom_backend
     from tests.http_capture import request_json
 
     backend = create_custom_backend(

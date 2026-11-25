@@ -162,7 +162,7 @@ class RateLimiter:
                 await asyncio.sleep(0.1)
 
 
-GEMINI_DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
+GEMINI_DEFAULT_IMAGE_MODEL = "gemini-nano-banana-2.1"
 GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-fast-generate-001"
 
 
@@ -206,14 +206,13 @@ def _rate_limiter_limits_from_env(
         image_rpm = 15
     if video_rpm is None:
         video_rpm = 10
-    if image_model is None:
-        image_model = GEMINI_DEFAULT_IMAGE_MODEL
+    image_models = (GEMINI_DEFAULT_IMAGE_MODEL, "gemini-3.1-flash-image") if image_model is None else (image_model,)
     if video_model is None:
         video_model = GEMINI_DEFAULT_VIDEO_MODEL
 
     limits: dict[str, int] = {}
     if image_rpm > 0:
-        limits[image_model] = image_rpm
+        limits.update(dict.fromkeys(image_models, image_rpm))
     if video_rpm > 0:
         limits[video_model] = video_rpm
     return limits

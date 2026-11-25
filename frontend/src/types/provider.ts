@@ -153,13 +153,15 @@ export interface AddProviderModelResponse {
 
 export type CapabilityKey = keyof CapabilityOverrides;
 
+type DisplayedCapability = CapabilityKey | "audio_switch_controllable" | "reference_route_audio_switch_controllable";
+
 export interface ProviderModelCapabilities {
   media_type: ProviderModelItem["media_type"];
   editable: CapabilityKey[];
-  displayed: CapabilityKey[];
-  base: Partial<Record<CapabilityKey, unknown>>;
+  displayed: DisplayedCapability[];
+  base: Partial<Record<DisplayedCapability, unknown>> & { duration_fixed?: boolean };
   overrides: CapabilityOverrides;
-  effective: Partial<Record<CapabilityKey, unknown>>;
+  effective: Partial<Record<DisplayedCapability, unknown>>;
 }
 
 export type PriceDimensionValue = string | number | boolean;

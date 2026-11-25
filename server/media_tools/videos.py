@@ -415,6 +415,7 @@ async def _admit_storyboard_specs(
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+    end_frame_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Admit the Storyboard-mode specs.
 
@@ -436,6 +437,7 @@ async def _admit_storyboard_specs(
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
         video_request_facts=video_request_facts,
+        end_frame_facts=end_frame_facts,
     )
 
 
@@ -1011,8 +1013,15 @@ class _StoryboardBatch:
     ) -> ToolOutcome[Any]:
         """整批准入后提交；准入未通过则零任务入队地转述拒绝，预检则只报价。"""
 
-        facts = (
-            await storyboard_video_request_facts(self.sb.project, self.call.services.capabilities) if specs else None
+        items_by_id = {str(storyboard_item_id(item, self.screening.id_field) or ""): item for item in items}
+        facts, end_frame_facts = (
+            await storyboard_video_request_facts(
+                self.sb.project,
+                self.call.services.capabilities,
+                has_end_frame=any(items_by_id[spec.resource_id].get("end_frame_image") for spec in specs),
+            )
+            if specs
+            else (None, None)
         )
         admission = await _admit_storyboard_specs(
             call=self.call,
@@ -1026,9 +1035,9 @@ class _StoryboardBatch:
             selection=self.selection,
             extra_tickets=extra_tickets,
             video_request_facts=facts,
+            end_frame_facts=end_frame_facts,
         )
         if self.call.preview:
-            items_by_id = {str(storyboard_item_id(item, self.screening.id_field) or ""): item for item in items}
             durations = {spec.resource_id: items_by_id[spec.resource_id].get("duration_seconds") for spec in specs}
             return _preview_outcome(
                 admission,
@@ -1036,7 +1045,9 @@ class _StoryboardBatch:
                 self.log,
                 storyboard_durations=durations,
                 storyboard_costs=await quote_storyboard_video_units(
-                    facts, durations, aspect_ratio=resolve_video_aspect_ratio(self.sb.project)
+                    {key: end_frame_facts if items_by_id[key].get("end_frame_image") else facts for key in durations},
+                    durations,
+                    aspect_ratio=resolve_video_aspect_ratio(self.sb.project),
                 ),
             )
         if not admission.admitted:

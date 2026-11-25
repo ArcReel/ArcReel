@@ -3,31 +3,56 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
+    _DRAMA_NOVEL,
     ToolHarness,
-    drama_project,
-    drama_quarantine_path,
     drama_scene,
-    drama_script_plan_path,
     nr_generator_returning,
-    nr_quarantine_path,
-    nr_script_plan_path,
     nr_segment,
     nr_source,
     run_declared_tool,
     run_rv_split,
-    rv_quarantine_path,
     rv_script_plan_path,
     rv_source,
     rv_unit,
     said,
     use_fake_caps,
 )
+
+
+def drama_project(fake_ctx: ToolHarness) -> None:
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "drama",
+                "generation_mode": "storyboard",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "drama"
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["characters"]["阿离"] = {"description": "少女，青衣"}
+    src = fake_ctx.project_path / "source"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "episode_1.txt").write_text(_DRAMA_NOVEL, encoding="utf-8")
+
+
+def drama_script_plan_path(fake_ctx: ToolHarness) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+
+
+def nr_script_plan_path(fake_ctx: ToolHarness) -> Path:
+    return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
 
 
 def _new(name: str, decision: str, **fields: Any) -> dict[str, Any]:
@@ -99,7 +124,7 @@ async def test_narration_plan_accepts_references_to_listed_new_assets(
     assert [item["description"] for item in saved["new_assets"]] == ["十岁女童"]
 
 
-async def test_narration_plan_refuses_an_unlisted_unregistered_reference(
+async def test_narration_plan_reports_an_unlisted_unregistered_reference(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
 
@@ -109,12 +134,13 @@ async def test_narration_plan_refuses_an_unlisted_unregistered_reference(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
-    assert out.problem is not None
-    codes = [v["code"] for v in json.loads(nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))["violations"]]
+    assert out.problem is None
+    assert nr_script_plan_path(fake_ctx).exists()
+    codes = [v["code"] for v in out.value.blocking_issues]
     assert codes == ["unregistered_asset"]
 
 
-async def test_narration_plan_quarantines_an_unresolvable_decision(
+async def test_narration_plan_reports_an_unresolvable_decision(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
 
@@ -125,8 +151,9 @@ async def test_narration_plan_quarantines_an_unresolvable_decision(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
-    assert out.problem is not None
-    codes = [v["code"] for v in json.loads(nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))["violations"]]
+    assert out.problem is None
+    assert nr_script_plan_path(fake_ctx).exists()
+    codes = [v["code"] for v in out.value.blocking_issues]
     assert codes == ["new_asset_target_unresolved"]
 
 
@@ -140,29 +167,29 @@ async def test_reference_plan_accepts_a_skipped_speaker_and_new_mentions(
     out = await run_rv_split(fake_ctx, monkeypatch, [unit], new_assets=new_assets)
 
     assert out.problem is None, out
-    assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert [item["name"] for item in saved["new_assets"]] == ["货郎", "路人"]
 
 
-async def test_reference_plan_still_refuses_an_unlisted_speaker(
+async def test_reference_plan_reports_an_unlisted_speaker(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     rv_source(fake_ctx)
 
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 在 @[村口] 等人。\n@[路人]{借过。}")])
 
-    assert out.problem is not None
-    assert rv_quarantine_path(fake_ctx).exists()
+    assert out.problem is None
+    assert rv_script_plan_path(fake_ctx).exists()
+    assert [v["code"] for v in out.value.blocking_issues] == ["unregistered_speaker"]
 
 
 @pytest.mark.parametrize(
-    ("new_assets", "saved"),
+    ("new_assets", "valid"),
     [([_new("小桃", "register", description="十岁女童")], True), ([], False)],
     ids=["listed", "unlisted"],
 )
 async def test_drama_plan_references_must_be_registered_or_listed(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts, new_assets: list[dict[str, Any]], saved: bool
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts, new_assets: list[dict[str, Any]], valid: bool
 ) -> None:
 
     drama_project(fake_ctx)
@@ -176,16 +203,12 @@ async def test_drama_plan_references_must_be_registered_or_listed(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
-    assert drama_script_plan_path(fake_ctx).exists() is saved
-    if not saved:
-        assert out.problem is not None
-        codes = [
-            v["code"] for v in json.loads(drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))["violations"]
-        ]
-        assert codes == ["unregistered_asset"]
+    assert out.problem is None
+    assert drama_script_plan_path(fake_ctx).exists()
+    assert [v["code"] for v in out.value.blocking_issues] == ([] if valid else ["unregistered_asset"])
 
 
-async def test_a_quarantined_reference_plan_keeps_its_new_assets(
+async def test_a_blocked_reference_plan_keeps_its_new_assets(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     rv_source(fake_ctx)
@@ -194,6 +217,7 @@ async def test_a_quarantined_reference_plan_keeps_its_new_assets(
 
     out = await run_rv_split(fake_ctx, monkeypatch, [unit], new_assets=new_assets)
 
-    assert out.problem is not None
-    draft = json.loads(rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
-    assert [item["name"] for item in draft["content"]["new_assets"]] == ["货郎"]
+    assert out.problem is None
+    assert [v["code"] for v in out.value.blocking_issues] == ["unregistered_asset"]
+    plan = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert [item["name"] for item in plan["new_assets"]] == ["货郎"]

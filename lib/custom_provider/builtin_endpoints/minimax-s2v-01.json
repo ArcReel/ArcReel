@@ -4,8 +4,7 @@
   "meta": {
     "name": "MiniMax S2V-01",
     "author": "ArcReel",
-    "version": "1.0.0",
-    "hints": {"suggested_models": [{"id": "S2V-01"}]}
+    "version": "1.0.0"
   },
   "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
   "inputs": {"refs": {"source": "reference_images", "encoding": "data_uri", "required": true}},

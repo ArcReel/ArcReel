@@ -101,6 +101,7 @@ from lib.project.asset_types import (
     record_asset_aliases,
     rekey_equivalent_entries,
     resolve_asset_key,
+    resolve_asset_type,
     validate_asset_name,
 )
 from lib.project.project_change_hints import emit_project_change_hint
@@ -108,7 +109,6 @@ from lib.project.project_schema import parse_project_schema_version
 from lib.project.script_entry_cleanup import trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
-from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.item_ids import (
     ItemIdIssuer,
     episode_item_id_high_water,
@@ -326,6 +326,15 @@ class _AssetReferenceScan:
         return self.episode_references.total()
 
 
+@contextmanager
+def project_names_lock(layout: DataRootLayout) -> Generator[None]:
+    """串行化同一数据根中新建与恢复的目录占名操作。"""
+    path = layout.project_names_lock_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with portalocker.Lock(path, flags=portalocker.LOCK_EX):
+        yield
+
+
 class ProjectManager:
     """视频项目管理器"""
 
@@ -444,10 +453,11 @@ class ProjectManager:
         name = self.normalize_project_name(name)
         project_dir = self.projects_dir / name
 
-        try:
-            project_dir.mkdir()
-        except FileExistsError as exc:
-            raise FileExistsError(f"项目 '{name}' 已存在") from exc
+        with project_names_lock(self.layout):
+            try:
+                project_dir.mkdir()
+            except FileExistsError as exc:
+                raise FileExistsError(f"项目 '{name}' 已存在") from exc
 
         try:
             for subdir in self.SUBDIRS:
@@ -1324,6 +1334,16 @@ class ProjectManager:
             max_item_number((item.get(id_field) for item in items if isinstance(item, Mapping)), episode),
         )
 
+    def episode_item_id_floor(self, project_name: str, project: Mapping[str, Any], episode: int) -> int:
+        entry = find_episode(project, episode)
+        script_file = entry.get("script_file") if entry is not None else None
+        script: Mapping[str, Any] = {}
+        if isinstance(script_file, str):
+            scripts_dir = self.get_project_path(project_name) / "scripts"
+            script_path = Path(self._safe_subpath(scripts_dir, self.normalize_script_filename(script_file)))
+            script = self._load_script_or_none(script_path) or {}
+        return self.item_id_floor(project, script, episode)
+
     def reserve_item_ids(self, project_name: str, episode: int, kind: str, count: int) -> list[str]:
         """为剧本之外先占号的写入点（脚本规划草稿）发 ``count`` 个新编号，并把本集最大号推进到最后一个。
 
@@ -1333,13 +1353,7 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             entry = find_episode(project, episode)
-            script: Mapping[str, Any] = {}
-            script_file = entry.get("script_file") if entry is not None else None
-            if isinstance(script_file, str):
-                scripts_dir = self.get_project_path(project_name) / "scripts"
-                script_path = Path(self._safe_subpath(scripts_dir, self.normalize_script_filename(script_file)))
-                script = self._load_script_or_none(script_path) or {}
-            issuer = ItemIdIssuer(episode, kind, self.item_id_floor(project, script, episode))
+            issuer = ItemIdIssuer(episode, kind, self.episode_item_id_floor(project_name, project, episode))
             issued[:] = [issuer.issue() for _ in range(count)]
             if entry is not None and issued:
                 raise_item_id_high_water(entry, issuer.last)
@@ -2026,7 +2040,7 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         *,
         on_commit: Callable[[Path], None] | None = None,
-        formal_paths: Sequence[Path] = (),
+        formal_paths: Sequence[Path] | Callable[[], Sequence[Path]] = (),
     ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
@@ -2044,7 +2058,8 @@ class ProjectManager:
 
         with self._project_lock(project_name), ExitStack() as transaction:
             if on_commit is not None or formal_paths:
-                transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
+                paths = formal_paths() if callable(formal_paths) else formal_paths
+                transaction.enter_context(formal_write_transaction(project_file, *paths))
             project = self.update_project_locked(project_name, mutate_fn)
             if on_commit is not None:
                 on_commit(project_file)
@@ -2801,15 +2816,10 @@ class ProjectManager:
             ),
         )
 
-    _BUCKET_TO_ASSET_TYPE: ClassVar[dict[str, str]] = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
-
     @classmethod
     def _resolve_asset_type(cls, table: str) -> str:
         """bucket_key → 资产类型；未知表名抛 ValueError（message 列出合法取值）。"""
-        asset_type = cls._BUCKET_TO_ASSET_TYPE.get(table)
-        if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(cls._BUCKET_TO_ASSET_TYPE)} 之一")
-        return asset_type
+        return resolve_asset_type(table)
 
     _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
 
@@ -2822,7 +2832,6 @@ class ProjectManager:
         {
             *SCRIPT_PLAN_FILENAMES.values(),
             REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-            *QUARANTINE_FILENAMES,
         }
     )
 
@@ -3407,10 +3416,9 @@ class ProjectManager:
                 if not changes.total:
                     continue
                 changed_drafts.append((path, payload, fingerprint))
-                category = "draft" if path.name in QUARANTINE_FILENAMES else "script_plan"
                 tally(
                     self.filename_episode(path.parent.name),
-                    **{category: changes.names},
+                    script_plan=changes.names,
                     speaker=changes.speakers,
                     prompt_text=changes.mentions,
                 )

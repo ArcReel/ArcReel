@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -77,7 +78,7 @@ def endpoint_spec_from_row(row: CustomEndpoint) -> EndpointSpec:
     Raises:
         ValueError: 行上定义的 ``kind`` 在本层没有投影实现。
     """
-    definition: Mapping[str, Any] = row.definition
+    definition: Mapping[str, Any] = deepcopy(row.definition)
     return _dispatch(_SPEC_BY_KIND, definition)(make_endpoint_key(row.id), definition)
 
 

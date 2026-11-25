@@ -1,4 +1,6 @@
 MESSAGES = {
+    "asset_resource_busy": "This asset has a queued or running task. Try again when it finishes.",
+    "apply_failed_resource_busy": "The project asset has a queued or running task and cannot be overwritten. Try again when the task finishes.",
     "episode_position_name": "Episode {position}",
     "episode_unlisted_name": "Untitled episode",
     "episode_script_name": "Script for “{name}”",
@@ -9,7 +11,6 @@ MESSAGES = {
     "operation_formal_script_missing": "{where} has no formal script; confirm a script plan or write a blank script before authoring prompts",
     "operation_formal_script_exists": "{where} already has a formal script. To replace it, regenerate it explicitly and confirm the overwrite. Prompt authoring fills pending entries only",
     "operation_no_pending_authoring": "{where} has no pending entries",
-    "operation_prompt_authoring_draft_pending": "{where} has a prompt-authoring draft to resolve, so prompts can't be written yet",
     "operation_ad_brief_and_products_missing": "Add a creative brief or at least one product before AI ad/short-film script generation",
     "operation_no_available_video": "{where} has no available video to edit; generate videos first",
     "operation_refused": "This operation can't run right now",
@@ -20,10 +21,6 @@ MESSAGES = {
     "operation_redo_episode": "Rerun script planning and confirm it again before rebuilding the episode.",
     "operation_admission_unavailable": "Operation admission for episode (id={episode}) cannot be read",
     "ad_script_rejected": "The AI-generated script did not pass validation, so no formal script was written and no assets were registered: {details}. Add instructions and generate again",
-    "operation_draft_repair_envelope": "Repair the draft envelope, then call {tool} to validate and promote it.",
-    "operation_draft_repair_violations": "Edit content at the draft violations locations, then call {tool} to promote it.",
-    "operation_draft_finish": "This draft is editable; preserve existing edits, then call {tool} to validate and promote it.",
-    "operation_draft_action": "Draft: {path}. {action}",
     "operation_episode_source_location": "Episode source location: {path}; plan_episodes creates source text for planned episodes.",
     "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the agent conversation, then retry the upgrade",
     "project_not_found": "Project '{name}' does not exist or is not initialized",
@@ -73,8 +70,10 @@ MESSAGES = {
     "invalid_encoding": "File encoding error, please use UTF-8 encoded text file",
     "unauthorized": "Invalid username or password",
     "task_not_found": "Task '{id}' does not exist",
+    "task_lookup_too_many_ids": "Look up at most {limit} task IDs per request",
     "task_running_not_cancellable": "Task '{id}' has already started and cannot be cancelled; it will run to completion and its result will be kept",
     "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
+    "task_retry_download_server_stopping": "The server is shutting down. Retry the download after it restarts.",
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
     "task_fail_provider_rejected": "The provider rejected this generation request (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
@@ -223,7 +222,6 @@ MESSAGES = {
     "bgm_silent": "This BGM is almost silent, so its loudness cannot be measured. Upload an audio file with audible sound",
     "bgm_ffmpeg_unavailable": "The bundled ffmpeg is unavailable, so BGM loudness cannot be measured and BGM cannot be uploaded right now",
     "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
-    "draft_generation_invalid": "The output has {count} violations and was saved as a draft. Edit the draft or ask AI to repair it.",
     "internal_server_error": "Internal server error, please try again later",
     "asset_field_must_be_string": "this field must be a text value",
     "asset_field_must_be_string_list": "this field must be a list of text values",
@@ -232,27 +230,9 @@ MESSAGES = {
     "asset_reference_file_not_owned": "Reference images and reference audio for “{name}” can only use files under its own name. Upload them for it separately",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
-    "invalid_draft_stage": "Invalid draft stage: {stage}",
-    "draft_file_not_found": "Draft file does not exist",
-    "draft_invalid_json": "The script plan draft has an invalid structure; please check and retry",
-    "draft_not_found": "Episode (id={episode}) has no such draft; it may already have been adopted or discarded",
-    "draft_revision_conflict": "The draft changed while you were editing, so this action was not applied; review the latest content and retry",
-    "draft_formal_revision_conflict": (
-        "The formal content changed after this draft was produced, so the save was not adopted; "
-        "discard the draft or hand it to the agent to merge"
-    ),
-    "draft_agent_owned": "The agent is editing this content; hand it to the agent to finish, or discard the edit",
     "blank_script_formal_exists": "This episode already has a formal script, so it cannot start from blank. Edit it on the timeline instead",
-    "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
-    "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
-    "draft_formal_unit_dialogue_overload": "The draft was saved but not adopted: video unit {position} in the script needs about {spoken_seconds} s to speak its lines, longer than its {duration_seconds} s duration. Lengthen the unit on the timeline, split it, or shorten the lines, then save the draft again",
-    "draft_formal_unit_duration_off_tier": "The draft was saved but not adopted: video unit {position} in the script is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s). Change the unit's duration on the timeline to an available option, then save the draft again",
-    "draft_formal_unit_invalid": "The draft was saved but not adopted: the text of video unit {position} in the script doesn't meet the prompt-writing requirements. Edit the unit's text or duration on the timeline, then save the draft again",
-    "draft_repair_failed": "AI repair did not finish and the draft is unchanged. Try again, edit it yourself, or hand it to the Agent",
-    "draft_repair_task_active": "AI is already repairing this draft. Try again after it finishes",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
     "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
-    "script_review_quarantined": ("This episode has a draft to resolve; fix or discard the draft before confirming"),
     "script_review_conflict": (
         "The script plan draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
@@ -307,9 +287,6 @@ MESSAGES = {
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
         "episode's script, so the confirmation was not completed — writing there would rebuild that other episode; "
         "point this episode's script_file back at its own script, then retry"
-    ),
-    "script_review_quarantine_unreadable": (
-        "The draft needing fixes is corrupted or malformed and can't be read; discard it and generate again"
     ),
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
     "source_name_reserved": "File names like episode_N.txt are reserved for episode source files; rename the file before uploading it as part of the whole source",
@@ -675,9 +652,9 @@ MESSAGES = {
     "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
     "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
     "model_not_in_provider_catalog": "{provider}/{model}: this model is not in the provider's model list; re-select a model in Settings",
-    "model_discontinued": "{provider}/{model}: this model was discontinued on {shutdown_date}; the official successor is {successor}. Re-select a model in Settings",
+    "model_discontinued": "{provider}/{model}: this model was discontinued on {shutdown_date}; the recommended replacement is {successor}. Re-select a model in Settings",
     "model_discontinued_no_successor": "{provider}/{model}: this model was discontinued on {shutdown_date}; re-select a model in Settings",
-    "model_discontinued_undated": "{provider}/{model}: this model has been discontinued; the official successor is {successor}. Re-select a model in Settings",
+    "model_discontinued_undated": "{provider}/{model}: this model has been discontinued; the recommended replacement is {successor}. Re-select a model in Settings",
     "model_discontinued_undated_no_successor": "{provider}/{model}: this model has been discontinued; re-select a model in Settings",
     "video_resolution_not_supported": "Model {model} does not support {resolution} resolution (only {supported}); choose a supported resolution",
     "video_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",

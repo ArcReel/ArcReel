@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import type { DramaNormalizedScript, ScriptReviewState } from "@/types";
 
 function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
@@ -12,7 +13,8 @@ function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSt
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
-    quarantine: null,
+    blocking_issues: [],
+    soft_violations: [],
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
@@ -205,7 +207,7 @@ describe("useScriptReviewDraft", () => {
     act(() => {
       result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
     });
-    let saving: Promise<void>;
+    let saving: Promise<boolean>;
     act(() => {
       saving = result.current.save();
     });
@@ -231,5 +233,94 @@ describe("useScriptReviewDraft", () => {
       await result.current.save();
     });
     expect(save.mock.calls[1][3]).toBe("fp3");
+  });
+
+  it("refreshes on script_plan invalidation, marks outdated when dirty, and preserves unsaved edits on 409 conflict", async () => {
+    const agentEdited = reviewState({ fingerprint: "fp2" });
+    (agentEdited.content as DramaNormalizedScript).scenes[0].utterances[0].text = "agent 增量修改后的台词";
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(reviewState())
+      .mockResolvedValueOnce(agentEdited)
+      .mockResolvedValue(agentEdited);
+    vi.spyOn(API, "saveScriptReviewContent").mockRejectedValueOnce(
+      new ApiRequestError("脚本规划在编辑期间已被其他编辑方修改", { code: "revision_conflict" }, 409),
+    );
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.draft).not.toBeNull());
+    expect(result.current.outdated).toBe(false);
+
+    act(() => {
+      result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
+    });
+
+    await act(async () => {
+      await result.current.save();
+    });
+
+    expect(result.current.outdated).toBe(true);
+    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑");
+    expect(useAppStore.getState().toast?.tone).toBe("warning");
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑");
+
+    act(() => {
+      result.current.reloadLatest();
+    });
+
+    await waitFor(() => expect(result.current.draft?.scenes[0].utterances[0].text).toBe("agent 增量修改后的台词"));
+    expect(result.current.outdated).toBe(false);
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it("adopts remaining blocking issues on save and skips confirm if dirty save still has blocking issues", async () => {
+    const issue = { code: "source_text_empty", label: "scene E1S01", message: "原文为空", line: null, item_index: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(reviewState());
+    vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(
+      reviewState({ fingerprint: "fp2", blocking_issues: [issue] }),
+    );
+    const confirm = vi.spyOn(API, "confirmScriptReview");
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.draft).not.toBeNull());
+
+    act(() => {
+      result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "改了一半") : prev));
+    });
+
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.confirm();
+    });
+
+    expect(ok).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(result.current.state?.blocking_issues).toEqual([issue]);
+    expect(useAppStore.getState().toast?.text).toContain("1 项确认阻断项");
+  });
+
+  it("re-fetches review state when video model capabilities are invalidated", async () => {
+    const capabilityIssue = {
+      code: "video_capability_unavailable",
+      label: "",
+      message: "视频模型能力不可用",
+      line: null,
+      item_index: null,
+    };
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(reviewState({ blocking_issues: [capabilityIssue] }))
+      .mockResolvedValueOnce(reviewState({ blocking_issues: [] }));
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.state?.blocking_issues).toEqual([capabilityIssue]));
+
+    act(() => {
+      useCapabilitiesStore.getState().invalidate();
+    });
+
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.state?.blocking_issues).toEqual([]));
   });
 });

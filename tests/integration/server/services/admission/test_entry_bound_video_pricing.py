@@ -12,19 +12,18 @@ from pathlib import Path
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
-from lib.backends.backend_assembly.assembler import assemble_backend
 from lib.backends.video_backends.registry import backend_metered_usage
 from lib.catalog import query as catalog
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import make_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.video_request_facts import (
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
-    evaluate_video_request_facts,
 )
+from lib.video_runtime.assembly import assemble_video
+from lib.video_runtime.resolution import VideoRuntime, read_video_request_facts
 from server.services.admission.cost_estimation import quote_video_request
 
 OPAQUE = "ep-20261103-opaque"
@@ -53,11 +52,10 @@ async def _custom_provider(db_factory, endpoint: str, models: list[dict]) -> str
 
 async def _facts(resolver: ConfigResolver, provider_id: str, model_id: str) -> VideoRequestFacts:
     project = {"generation_mode": "storyboard", "video_provider_i2v": f"{provider_id}/{model_id}"}
-    facts = await evaluate_video_request_facts(
+    facts = await read_video_request_facts(
         project,
         route="storyboard",
         generation_type="i2v",
-        identity=ExecutionVideoIdentity(provider_id, model_id),
         resolver=resolver,
     )
     assert isinstance(facts, VideoRequestFacts), facts
@@ -85,7 +83,8 @@ async def _quote_and_usage(db_factory, provider_id: str, model_id: str):
     quote = await quote_video_request(
         VideoRequestCostFacts(facts, 5, aspect_ratio="16:9", has_first_frame=True), db_factory
     )
-    backend = await assemble_backend(provider_id=provider_id, media_type="video", model_id=model_id, resolver=resolver)
+    target = await VideoRuntime(resolver).materialized(ProviderModel(provider_id, model_id))
+    backend = await assemble_video(target.spec)
     request = _sent_request(facts)
     result = VideoGenerationResult(
         video_path=Path("out.mp4"), provider=provider_id, model=model_id, duration_seconds=5, usage_tokens=108_000
@@ -166,10 +165,10 @@ async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_paramet
     )
     resolver = ConfigResolver(db_factory)
 
-    opaque = await resolver.video_capabilities_for_model("kling", OPAQUE, generation_type="i2v")
-    expected = await resolver.video_capabilities_for_model("kling", official, generation_type="i2v")
+    opaque = await _facts(resolver, "kling", OPAQUE)
+    expected = await _facts(resolver, "kling", official)
 
-    assert opaque["generate_audio"] is expected["generate_audio"] is generates_audio
+    assert opaque.generate_audio is expected.generate_audio is generates_audio
 
 
 @pytest.mark.parametrize("model", [OPAQUE, "kling-v2-6"])
@@ -182,7 +181,8 @@ async def test_custom_kling_id_bound_to_v2_6_meters_720p_as_silent(db_factory, m
     )
     resolver = ConfigResolver(db_factory)
     facts = await _facts(resolver, provider_id, model)
-    backend = await assemble_backend(provider_id=provider_id, media_type="video", model_id=model, resolver=resolver)
+    target = await VideoRuntime(resolver).materialized(ProviderModel(provider_id, model))
+    backend = await assemble_video(target.spec)
     request = _sent_request(
         facts, resolution="720p", generate_audio=True, video_capabilities=backend.video_capabilities_for_tier("std")
     )

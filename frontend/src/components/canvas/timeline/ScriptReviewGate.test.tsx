@@ -5,17 +5,14 @@ import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { makeScriptOverwrite, makeScriptOverwriteEntry, makeTask } from "@/test/factories";
+import { makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
 import type {
   NarrationScriptPlanDraft,
   PlanNewAsset,
   ProjectData,
-  ScriptReviewQuarantine,
   ScriptReviewState,
-  TaskItem,
   VideoCapabilities,
 } from "@/types";
 
@@ -54,7 +51,8 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
-    quarantine: null,
+    blocking_issues: [],
+    soft_violations: [],
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
@@ -92,19 +90,6 @@ const NARRATION_SEGMENT = {
   props: [],
 };
 
-function draftView(overrides: Partial<ScriptReviewQuarantine> = {}): ScriptReviewQuarantine {
-  return {
-    doc_type: "narration_script_plan",
-    revision: "rev-1",
-    editable_by: "user",
-    content: null,
-    violations: [],
-    soft_violations: [],
-    formal_exists: true,
-    ...overrides,
-  };
-}
-
 function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -112,7 +97,8 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
-    quarantine: null,
+    blocking_issues: [],
+    soft_violations: [],
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
@@ -206,11 +192,15 @@ describe("ScriptReviewGate", () => {
 
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
-    fireEvent.click(await screen.findByText("修复后保存"));
+    fireEvent.click(await screen.findByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
-    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
-    expect(screen.queryByText("修复后保存")).not.toBeInTheDocument();
+    expect(screen.getByText("我的本地编辑")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("下方保留了你未保存的内容");
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
   it("becomes editable again once a re-run script plan is pending review", async () => {
@@ -433,7 +423,7 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
 
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "你怎么才回来。" } });
-    const saveBtn = await screen.findByText("修复后保存");
+    const saveBtn = await screen.findByRole("button", { name: "保存" });
     fireEvent.click(saveBtn);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -477,280 +467,181 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByRole("img", { name: "分镜 1" })).toBeInTheDocument();
   });
 
-  it("presents a draft needing fixes with violations on their items and adopts it once a hand fix clears them", async () => {
-    const draftSegment = { ...NARRATION_SEGMENT, novel_text: "" };
-    const get = vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({
-        quarantine: draftView({
-          content: { segments: [draftSegment] },
-          violations: [
-            { code: "blank_novel_text", label: "segment E1S01", message: "segment E1S01 的原文为空", line: null, item_index: 0 },
-            { code: "coverage_gap", label: "", message: "源文末尾有一段未被任何分镜覆盖", line: null },
-          ],
-        }),
-      }),
-    );
+  it("renders item-level and episode-level blocking issues plus soft violations, refreshes on intermediate saves, unlocks confirm when cleared", async () => {
+    const initialSegment = { ...NARRATION_SEGMENT, novel_text: "" };
+    const initial = narrationState({
+      content: { segments: [initialSegment] },
+      blocking_issues: [
+        { code: "blank_novel_text", label: "segment E1S01", message: "segment E1S01 的原文为空", line: null, item_index: 0 },
+        { code: "coverage_gap", label: "", message: "源文末尾有一段未被任何分镜覆盖", line: null },
+      ],
+      soft_violations: [
+        { code: "long_text", params: {}, item_index: 0, item_id: "E1S01", message: "E1S01 的原文偏长" },
+      ],
+    });
+    const afterIntermediateSave = narrationState({
+      fingerprint: "fp2",
+      content: { segments: [{ ...NARRATION_SEGMENT, novel_text: "补了一半的原文。" }] },
+      blocking_issues: [
+        { code: "coverage_gap", label: "", message: "源文末尾有一段未被任何分镜覆盖", line: null },
+      ],
+      soft_violations: [
+        { code: "long_text", params: {}, item_index: 0, item_id: "E1S01", message: "E1S01 的原文偏长" },
+      ],
+    });
+    const afterFinalSave = narrationState({
+      fingerprint: "fp3",
+      content: { segments: [{ ...NARRATION_SEGMENT, novel_text: "补全的完整原文。" }] },
+      blocking_issues: [],
+      soft_violations: [
+        { code: "long_text", params: {}, item_index: 0, item_id: "E1S01", message: "E1S01 的原文偏长" },
+      ],
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(initial);
     const save = vi
-      .spyOn(API, "saveEpisodeDraft")
-      .mockResolvedValue({ episode: 1, doc_type: "narration_script_plan", adopted: true, draft: null });
+      .spyOn(API, "saveScriptReviewContent")
+      .mockResolvedValueOnce(afterIntermediateSave)
+      .mockResolvedValueOnce(afterFinalSave);
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockResolvedValue(narrationState({ ...CONFIRMED, fingerprint: "fp3", content: afterFinalSave.content }));
+
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
-    await waitFor(() => expect(screen.getByText("分镜 1 的原文为空")).toBeInTheDocument());
+    expect(await screen.findByText("2 项确认阻断项")).toBeInTheDocument();
+    expect(screen.getByText("整集层面的确认阻断项")).toBeInTheDocument();
+    expect(screen.getByText("分镜 1 的原文为空")).toBeInTheDocument();
     expect(screen.getByText("源文末尾有一段未被任何分镜覆盖")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
-    expect(screen.queryByText("确认并继续")).not.toBeInTheDocument();
+    expect(screen.getByText("降级提示")).toBeInTheDocument();
+    expect(screen.getByText("分镜 1 的原文偏长")).toBeInTheDocument();
+    expect(screen.queryByText("待修复草稿")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent 有一份未完成的修改")).not.toBeInTheDocument();
+    expect(screen.getByRole("article")).toHaveClass("border-destructive/45");
 
-    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "补上的原文。" } });
-    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+    const confirmBtn = screen.getByRole("button", { name: "确认并继续" });
+    expect(confirmBtn).toBeDisabled();
+    expect(confirmBtn).toHaveAttribute("title", expect.stringContaining("2 项确认阻断项"));
 
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith(
-        "p",
-        1,
-        "narration_script_plan",
-        { segments: [{ ...draftSegment, novel_text: "补上的原文。" }] },
-        "rev-1",
-      ),
-    );
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "整集 · 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "分镜 1 · 1" }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "补了一半的原文。" } });
+    expect(screen.getByRole("button", { name: "交给 Agent 处理" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][3]).toBe("fp1");
+    expect(await screen.findByText("1 项确认阻断项")).toBeInTheDocument();
+    expect(screen.queryByText("分镜 1 的原文为空")).not.toBeInTheDocument();
+    expect(screen.getByRole("article")).not.toHaveClass("border-destructive/45");
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "补全的完整原文。" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][3]).toBe("fp2");
+    await waitFor(() => expect(screen.queryByText(/确认阻断项/)).not.toBeInTheDocument());
+    expect(screen.getByText("降级提示")).toBeInTheDocument();
+    expect(screen.getByText("分镜 1 的原文偏长")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "确认并继续" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
+    expect(await screen.findByRole("button", { name: "已确认" })).toBeDisabled();
+
   });
 
-  it("keeps the draft with the refreshed violations when a save still violates", async () => {
-    const stillViolating = draftView({
-      revision: "rev-2",
-      content: { segments: [{ ...NARRATION_SEGMENT, novel_text: "仍然不对。" }] },
-      violations: [{ code: "blank_novel_text", label: "", message: "仍有一处违约", line: null, item_index: 0 }],
-    });
-    vi.spyOn(API, "getScriptReview")
-      .mockResolvedValueOnce(narrationState({ quarantine: draftView({ content: { segments: [NARRATION_SEGMENT] } }) }))
-      .mockResolvedValue(narrationState({ quarantine: stillViolating }));
-    vi.spyOn(API, "saveEpisodeDraft").mockResolvedValue({
-      episode: 1,
-      doc_type: "narration_script_plan",
-      adopted: false,
-      draft: { ...stillViolating, episode: 1, item_ids: null },
-    });
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-
-    await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "仍然不对。" } });
-    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
-
-    await waitFor(() => expect(screen.getByText("仍有一处违约")).toBeInTheDocument());
-    expect(screen.getByDisplayValue("仍然不对。")).toBeInTheDocument();
-  });
-
-  it("falls back to presenting violations when the draft's new assets carry an unknown type or decision", async () => {
-    const broken = { name: "宝剑", reason: "", description: "", target: "", asset_name: "", aliases: [] };
+  it("shows episode-level blocking issues clearly for an empty drama plan and prefills patch_script_plan for the Agent", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({
-        quarantine: draftView({
-          content: {
-            segments: [NARRATION_SEGMENT],
-            new_assets: [
-              { ...broken, type: "product", decision: "register" },
-              { ...broken, type: "prop", decision: "keep" },
-            ],
-          },
-          violations: [{ code: "invalid_new_assets", label: "", message: "新增资产的类型不对", line: null }],
-        }),
+      dramaState({
+        content: { title: "第一集", scenes: [] },
+        blocking_issues: [
+          { code: "empty_script_plan", label: "", message: "脚本规划没有条目。添加至少一条后再确认。", line: null },
+        ],
       }),
     );
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
-    await waitFor(() => expect(screen.getByText("新增资产的类型不对")).toBeInTheDocument());
-    expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
-  });
-
-  it("queues an AI repair of the saved draft with one-off instructions and adopts once the task clears the violations", async () => {
-    useTasksStore.setState(useTasksStore.getInitialState(), true);
-    const get = vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({
-        quarantine: draftView({
-          content: { segments: [NARRATION_SEGMENT] },
-          violations: [
-            { code: "duration_off_tier", label: "segment E1S01", message: "segment E1S01 的时长 5 不在模型档位内", line: null, item_index: 0 },
-          ],
-        }),
-      }),
-    );
-    const resourceId = "episode-1-narration_script_plan";
-    const repair = vi.spyOn(API, "repairEpisodeDraft").mockResolvedValue({
-      batch: { batch_id: "b-1", members: [{ unit_id: resourceId, task_id: "t-repair" }] },
-    });
-    const repairTask = (overrides: Partial<TaskItem>) =>
-      makeTask({
-        task_id: "t-repair",
-        project_name: "p",
-        task_type: "text_draft_repair",
-        resource_id: resourceId,
-        ...overrides,
-      });
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-
-    await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "改了一半。" } });
-    expect(screen.getByRole("button", { name: /AI 修复/ })).toBeDisabled();
-    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "裴与出征后的第二年。" } });
-
-    fireEvent.click(screen.getByRole("button", { name: /AI 修复/ }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "只调整时长" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /开始修复/ }));
-
-    await waitFor(() => expect(repair).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1", "只调整时长"));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    act(() => useTasksStore.setState({ tasks: [repairTask({ status: "running" })] }));
-    expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
-    expect(get).toHaveBeenCalledTimes(1);
-
-    act(() =>
-      useTasksStore.setState({
-        tasks: [repairTask({ status: "succeeded", result: { adopted: true, violation_count: 0 } })],
-      }),
-    );
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    expect(useAppStore.getState().toast?.text).toBe("违约已清零，草稿已采用为正式内容");
-  });
-
-  it("reports a failed AI repair task with its reason", async () => {
-    useTasksStore.setState(useTasksStore.getInitialState(), true);
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({
-        quarantine: draftView({
-          content: { segments: [NARRATION_SEGMENT] },
-          violations: [
-            { code: "duration_off_tier", label: "segment E1S01", message: "segment E1S01 的时长 5 不在模型档位内", line: null, item_index: 0 },
-          ],
-        }),
-      }),
-    );
-    const running = makeTask({
-      task_id: "t-repair",
-      project_name: "p",
-      task_type: "text_draft_repair",
-      resource_id: "episode-1-narration_script_plan",
-      status: "running",
-    });
-    useTasksStore.setState({ tasks: [running] });
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled());
-
-    act(() =>
-      useTasksStore.setState({
-        tasks: [{ ...running, status: "failed", error_message: "AI 修复没有完成，草稿未改动" }],
-      }),
-    );
-
-    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("AI 修复没有完成，草稿未改动"));
-    expect(screen.getByRole("button", { name: /AI 修复/ })).toBeEnabled();
-  });
-
-  it("hands a draft needing fixes to the assistant with its violations, or asks it to promote when none remain", async () => {
-    const get = vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({
-        quarantine: draftView({
-          content: { segments: [NARRATION_SEGMENT] },
-          violations: [
-            { code: "duration_off_tier", label: "segment E1S01", message: "segment E1S01 的时长 5 不在模型档位内", line: null, item_index: 0 },
-          ],
-        }),
-      }),
-    );
-    const { unmount } = render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+    expect(await screen.findByText("1 项确认阻断项")).toBeInTheDocument();
+    expect(screen.getByText("整集层面的确认阻断项")).toBeInTheDocument();
+    expect(screen.getByText("脚本规划没有条目。添加至少一条后再确认。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "整集 · 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
 
     act(() => useAppStore.getState().setAssistantPanelOpen(false));
-    fireEvent.click(await screen.findByRole("button", { name: /交给 Agent 修复/ }));
+    fireEvent.click(screen.getByRole("button", { name: "交给 Agent 处理" }));
+
     const input = useAssistantStore.getState().input;
-    expect(input).toContain("doc_type=narration_script_plan");
-    expect(input).toContain("1. segment E1S01 的时长 5 不在模型档位内");
+    expect(input).toContain("get_script_plan_content");
+    expect(input).toContain("patch_script_plan");
+    expect(input).toContain("1. 脚本规划没有条目。添加至少一条后再确认。");
+    expect(input).not.toContain("open_draft");
+    expect(input).not.toContain("patch_draft");
+    expect(input).not.toContain("promote_draft");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    unmount();
-
-    get.mockResolvedValue(dramaState({ quarantine: draftView({ doc_type: "drama_script_plan", content: { title: "第一集", scenes: [] } }) }));
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByRole("button", { name: /交给 Agent 修复/ }));
-    const promote = useAssistantStore.getState().input;
-    expect(promote).toContain("promote_draft");
-    expect(promote).toContain("doc_type=drama_script_plan");
-    expect(promote).not.toContain("违约待修复");
   });
 
-  it("shows only a status for the agent's editable draft, keeps the formal content read-only, and discards it on confirm", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      narrationState({ quarantine: draftView({ editable_by: "agent", content: null }) }),
-    );
-    const discard = vi
-      .spyOn(API, "discardEpisodeDraft")
-      .mockResolvedValue({ episode: 1, doc_type: "narration_script_plan", discarded: true });
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-
-    await waitFor(() => expect(screen.getByText("Agent 有一份未完成的修改")).toBeInTheDocument());
-    expect(screen.getByText("裴与出征后的第二年。")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.queryByText("确认并继续")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "丢弃这份修改" }));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("正式脚本规划");
-    fireEvent.click(within(dialog).getByRole("button", { name: "丢弃这份修改" }));
-
-    await waitFor(() => expect(discard).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1"));
-  });
-
-  it("discards only the draft version on screen and loads the newer one when it changed elsewhere", async () => {
-    const newer = draftView({
-      revision: "rev-2",
-      content: { segments: [{ ...NARRATION_SEGMENT, novel_text: "别处更新的原文。" }] },
+  it("adopts externally patched (agent) plan and diagnostics on script_plan invalidation when clean", async () => {
+    const initial = dramaState({
+      blocking_issues: [
+        { code: "source_text_empty", label: "scene E1S01", message: "scene E1S01 原文为空", line: null, item_index: 0 },
+      ],
     });
+    const patched = dramaState({ fingerprint: "fp2", blocking_issues: [] });
+    (patched.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
+      "agent 增量修复后的台词";
     const get = vi
       .spyOn(API, "getScriptReview")
-      .mockResolvedValueOnce(narrationState({ quarantine: draftView({ content: { segments: [NARRATION_SEGMENT] } }) }))
-      .mockResolvedValue(narrationState({ quarantine: newer }));
-    const discard = vi
-      .spyOn(API, "discardEpisodeDraft")
-      .mockRejectedValue(new ApiRequestError("草稿已变化", { code: "revision_conflict" }, 409));
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
-
-    await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
-    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "我的本地编辑" } });
-    act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
-    });
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
-    const dialog = await screen.findByRole("alertdialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "丢弃草稿" }));
-
-    await waitFor(() => expect(discard).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1"));
-    await waitFor(() => expect(screen.getByDisplayValue("别处更新的原文。")).toBeInTheDocument());
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {
-    const edited = dramaState();
-    (edited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
-      "agent 改写后的台词";
-    const get = vi
-      .spyOn(API, "getScriptReview")
-      .mockResolvedValueOnce(dramaState())
-      .mockResolvedValueOnce(edited);
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(patched);
 
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+    expect(await screen.findByText("分镜 1 原文为空")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
 
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
+      useAppStore.getState().invalidateEntities(["script_plan:episode_1"]);
     });
 
-    await waitFor(() => expect(screen.getByDisplayValue("agent 改写后的台词")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByDisplayValue("agent 增量修复后的台词")).toBeInTheDocument());
+    expect(screen.queryByText("分镜 1 原文为空")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeEnabled();
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+  it("alerts on save concurrency conflict without silently overwriting unsaved edits, and loads latest only on user action", async () => {
+    const serverEdited = dramaState({ fingerprint: "fp2" });
+    (serverEdited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
+      "服务端最新台词";
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValue(serverEdited);
+    vi.spyOn(API, "saveScriptReviewContent").mockRejectedValueOnce(
+      new ApiRequestError("脚本规划在编辑期间已被其他编辑方修改", { code: "revision_conflict" }, 409),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(await screen.findByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("服务端最新台词")).not.toBeInTheDocument();
+    expect(useAppStore.getState().toast?.tone).toBe("warning");
+
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByDisplayValue("服务端最新台词")).toBeInTheDocument();
+    expect(screen.queryByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).not.toBeInTheDocument();
+  });
+
   it("preserves the user's unsaved edits when an external refetch arrives", async () => {
-    const serverEdited = dramaState();
+    const serverEdited = dramaState({ fingerprint: "fp2" });
     (serverEdited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
       "服务端覆盖文案";
     const get = vi
@@ -762,15 +653,39 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
 
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
-    await screen.findByText("修复后保存");
+    await screen.findByRole("button", { name: "保存" });
 
     act(() => {
-      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
+      useAppStore.getState().invalidateEntities(["script_plan:episode_1"]);
     });
 
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("服务端覆盖文案")).not.toBeInTheDocument();
+    expect(screen.getByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+  });
+
+  it("retains unsaved local edits read-only when remote removes the plan until explicitly discarded", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValue(dramaState({ status: "no_script_plan", content: null, fingerprint: null }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地草稿" } });
+
+    act(() => {
+      useAppStore.getState().invalidateEntities(["script_plan:episode_1"]);
+    });
+
+    expect(await screen.findByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByText("我的本地草稿")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "这一集还没有脚本" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByRole("heading", { name: "这一集还没有脚本" })).toBeInTheDocument();
   });
 
   it("shows the first-plan starter when the episode has neither a plan nor a formal script", async () => {
@@ -931,7 +846,7 @@ describe("ScriptReviewGate new assets", () => {
     await user.click(await screen.findByRole("option", { name: "裴与" }));
 
     expect(screen.getByText("归到「裴与」，「将军」记为别名")).toBeInTheDocument();
-    fireEvent.click(await screen.findByText("修复后保存"));
+    fireEvent.click(await screen.findByRole("button", { name: "保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(save.mock.calls[0][2]).toMatchObject({ new_assets: [{ name: "将军", decision: "merge", target: "裴与" }] });
   });
@@ -1001,7 +916,7 @@ describe("ScriptReviewGate item fields", () => {
   }
 
   async function saveAndReadContent(save: MockInstance<typeof API.saveScriptReviewContent>) {
-    fireEvent.click(await screen.findByText("修复后保存"));
+    fireEvent.click(await screen.findByRole("button", { name: "保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     return save.mock.calls[0][2];
   }

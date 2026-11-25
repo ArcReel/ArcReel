@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -23,8 +24,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.infra.api_errors import NotFoundError, UnprocessableError
-from lib.infra.async_thread import run_sync_transaction
+from lib.generation.asset_admission import AssetTarget, asset_admission_locks, check_asset_write
+from lib.infra.api_errors import ApiError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.project import asset_trash
 from lib.project.asset_merge import (
     MERGEABLE_ASSET_TYPES,
@@ -55,6 +57,7 @@ from server.i18n import Translator
 from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
 from server.routers._asset_prompt_preview import register_asset_prompt_preview_routes
+from server.services.project.asset_identity import delete_project_asset, merge_project_asset, rename_project_asset
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +209,8 @@ def build_asset_router(
     result_key = asset_type
     update_fields: tuple[str, ...] = ("description", spec.sheet_field, *spec.extra_string_fields)
     update_list_fields: tuple[str, ...] = spec.extra_list_fields
+    image_fields = (spec.sheet_field, *spec.original_image_fields)
+    voice_fields = ("reference_audio",) if asset_type == "character" else ()
 
     router = APIRouter()
     register_asset_prompt_preview_routes(router, spec=spec, pm_getter=pm_getter)
@@ -278,6 +283,7 @@ def build_asset_router(
                 raise _not_a_string(field)
         _require_string_list_fields(req, update_list_fields)
 
+        bridge = EventLoopBridge.capture()
         try:
 
             def _sync():
@@ -285,6 +291,17 @@ def build_asset_router(
 
                 def _mutate(entry: dict) -> None:
                     _require_owned_files(spec, entry_name, entry, req)
+                    image_changed = any(
+                        req.get(field) is not None and req[field] != entry.get(field) for field in image_fields
+                    )
+                    voice_changed = any(
+                        req.get(field) is not None and req[field] != entry.get(field) for field in voice_fields
+                    )
+                    if image_changed or voice_changed:
+                        dimension = (
+                            "whole_asset" if image_changed and voice_changed else "image" if image_changed else "voice"
+                        )
+                        bridge.run(check_asset_write(project_name, AssetTarget(asset_type, entry_name, dimension)))
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             if field == "voice_notice_dismissed_at" and req[field] != entry.get("voice_updated_at"):
@@ -301,6 +318,9 @@ def build_asset_router(
                     result = manager.update_asset_entry(asset_type, project_name, entry_name, _mutate)
                 return {"success": True, result_key: result}
 
+            if any(req.get(field) is not None for field in (*image_fields, *voice_fields)):
+                async with asset_admission_locks(project_name, AssetTarget(asset_type, entry_name, "whole_asset")):
+                    return await run_sync_transaction(_sync)
             return await run_sync_transaction(_sync)
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
@@ -314,9 +334,7 @@ def build_asset_router(
             ) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        except HTTPException:
-            raise
-        except UnprocessableError:
+        except (HTTPException, ApiError):
             raise
         except Exception as exc:
             logger.exception("请求处理失败")
@@ -335,24 +353,19 @@ def build_asset_router(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.new_name)) from exc
         try:
-
-            def _sync():
-                manager = pm_getter()
-                with project_change_source("webui"):
-                    report = manager.rename_asset(
-                        project_name, spec.bucket_key, entry_name, req.new_name, dry_run=req.dry_run
-                    )
-                return {
-                    "success": True,
-                    "dry_run": report.dry_run,
-                    "old_name": report.old_name,
-                    "new_name": report.new_name,
-                    "episodes": report.episodes,
-                    "references": report.references,
-                    "files": report.files,
-                }
-
-            return await run_sync_transaction(_sync)
+            with project_change_source("webui"):
+                report = await rename_project_asset(
+                    pm_getter(), project_name, spec.bucket_key, entry_name, req.new_name, dry_run=req.dry_run
+                )
+            return {
+                "success": True,
+                "dry_run": report.dry_run,
+                "old_name": report.old_name,
+                "new_name": report.new_name,
+                "episodes": report.episodes,
+                "references": report.references,
+                "files": report.files,
+            }
         except AssetRenameNotFoundError as exc:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except ProjectAssetNameConflictError as exc:
@@ -372,7 +385,7 @@ def build_asset_router(
         except ValueError as exc:
             logger.exception("资产重命名被校验拒绝")
             raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name)) from exc
-        except HTTPException:
+        except (HTTPException, ApiError):
             raise
         except Exception as exc:
             logger.exception("请求处理失败")
@@ -389,21 +402,17 @@ def build_asset_router(
         ):
             """把该资产并入同类型的 ``target``（dry_run 形态即影响预览，与执行共用同一次扫描）。"""
             try:
-
-                def _sync():
-                    manager = pm_getter()
-                    with project_change_source("webui"):
-                        report = manager.merge_asset(
-                            project_name,
-                            spec.bucket_key,
-                            entry_name,
-                            req.target,
-                            as_derivative=req.as_derivative,
-                            dry_run=req.dry_run,
-                        )
-                    return {"success": True, **merge_report_payload(report)}
-
-                return await run_sync_transaction(_sync)
+                with project_change_source("webui"):
+                    report = await merge_project_asset(
+                        pm_getter(),
+                        project_name,
+                        spec.bucket_key,
+                        entry_name,
+                        req.target,
+                        as_derivative=req.as_derivative,
+                        dry_run=req.dry_run,
+                    )
+                return {"success": True, **merge_report_payload(report)}
             except AssetMergeNotFoundError as exc:
                 raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=exc.name)) from exc
             except AssetMergeRejectedError as exc:
@@ -429,7 +438,7 @@ def build_asset_router(
             except ValueError as exc:
                 logger.exception("资产合并被校验拒绝")
                 raise HTTPException(status_code=422, detail=_t("asset_merge_rejected", name=entry_name)) from exc
-            except HTTPException:
+            except (HTTPException, ApiError):
                 raise
             except Exception as exc:
                 logger.exception("请求处理失败")
@@ -442,33 +451,29 @@ def build_asset_router(
         删除不改写脚本里的引用，也不因有引用而拒绝：预览只用于删除前告知影响。
         """
         try:
+            manager = pm_getter()
+            if dry_run:
+                preview = await asyncio.to_thread(
+                    manager.preview_asset_deletion, project_name, spec.bucket_key, entry_name
+                )
+                return {
+                    "success": True,
+                    "dry_run": True,
+                    "name": preview.name,
+                    "references": preview.references,
+                    "episodes": [{"episode": item.episode, "references": item.references} for item in preview.episodes],
+                }
 
-            def _sync():
-                manager = pm_getter()
-                if dry_run:
-                    preview = manager.preview_asset_deletion(project_name, spec.bucket_key, entry_name)
-                    return {
-                        "success": True,
-                        "dry_run": True,
-                        "name": preview.name,
-                        "references": preview.references,
-                        "episodes": [
-                            {"episode": item.episode, "references": item.references} for item in preview.episodes
-                        ],
-                    }
-
-                with project_change_source("webui"):
-                    manager.delete_asset(project_name, spec.bucket_key, entry_name)
-                return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
-
-            return await run_sync_transaction(_sync)
+            with project_change_source("webui"):
+                await delete_project_asset(manager, project_name, spec.bucket_key, entry_name)
+            return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        except HTTPException:
+        except (HTTPException, ApiError):
             raise
         except Exception as exc:
             logger.exception("请求处理失败")

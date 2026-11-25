@@ -132,16 +132,11 @@ import type {
   ItemPromptPreview,
   RenderedPromptPreview,
   ScriptReviewState,
-  DraftDocType,
-  EpisodeDraftSummary,
-  EpisodeDraftView,
-  SaveEpisodeDraftResult,
   AuthorPromptsRequest,
   AuthorPromptsResponse,
   PlanScriptRequest,
   PlanScriptResponse,
   GenerateAdScriptRequest,
-  DraftRepairResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1537,80 +1532,6 @@ class API {
   }
 
 
-  static async listEpisodeDrafts(
-    projectName: string,
-    episode: number,
-    options: { signal?: AbortSignal } = {}
-  ): Promise<{ episode: number; drafts: EpisodeDraftSummary[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts`,
-      { signal: options.signal }
-    );
-  }
-
-  static async getEpisodeDraft(
-    projectName: string,
-    episode: number,
-    docType: DraftDocType,
-    options: { signal?: AbortSignal } = {}
-  ): Promise<EpisodeDraftView> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}`,
-      { signal: options.signal }
-    );
-  }
-
-  static async saveEpisodeDraft(
-    projectName: string,
-    episode: number,
-    docType: DraftDocType,
-    content: Record<string, unknown>,
-    baseRevision: string
-  ): Promise<SaveEpisodeDraftResult> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ content, base_revision: baseRevision }),
-      }
-    );
-  }
-
-  /**
-   * AI 修复，与 Agent 同一服务命令；以排队文本任务提交，立即返回生成批次。只改违约所在的条目，
-   * 修完照常重判，违约清零即采用，否则写回草稿。附加指令不保存。
-   * @enqueue
-   */
-  static async repairEpisodeDraft(
-    projectName: string,
-    episode: number,
-    docType: DraftDocType,
-    baseRevision: string,
-    instructions: string | null
-  ): Promise<DraftRepairResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}/repair`,
-      {
-        method: "POST",
-        body: JSON.stringify({ base_revision: baseRevision, instructions }),
-      }
-    );
-  }
-
-  static async discardEpisodeDraft(
-    projectName: string,
-    episode: number,
-    docType: DraftDocType,
-    baseRevision: string | null
-  ): Promise<{ episode: number; doc_type: DraftDocType; discarded: boolean }> {
-    const query = `?base_revision=${encodeURIComponent(baseRevision ?? "")}`;
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}${query}`,
-      { method: "DELETE" }
-    );
-  }
-
-
   static async updateSegment(
     projectName: string,
     segmentId: string,
@@ -1746,7 +1667,7 @@ class API {
       signal: options.signal,
     }));
 
-    if (response.status === 409) {
+    if (uploadType === "source" && response.status === 409) {
       let detail: { existing?: string; suggested_name?: string; message?: string } | null = null;
       try {
         const body = (await response.json()) as { detail?: { existing?: string; suggested_name?: string; message?: string } };
@@ -2182,51 +2103,6 @@ class API {
   }
 
 
-  static async getDraftContent(
-    projectName: string,
-    episode: number,
-    stage: string
-  ): Promise<string> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url)
-    );
-    await throwIfNotOk(response, i18n.t("errors:stage_file_load_failed"));
-    return response.text();
-  }
-
-  static async saveDraft(
-    projectName: string,
-    episode: number,
-    stage: string,
-    content: string
-  ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: content,
-      })
-    );
-    await throwIfNotOk(response, i18n.t("errors:stage_file_save_failed"));
-    return response.json() as Promise<SuccessResponse>;
-  }
-
-  static async deleteDraft(
-    projectName: string,
-    episode: number,
-    stage: string
-  ): Promise<SuccessResponse> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/${stage}`,
-      { method: "DELETE" }
-    );
-  }
-
-
   static async generateOverview(
     projectName: string
   ): Promise<{ success: boolean; overview: ProjectOverview }> {
@@ -2543,18 +2419,34 @@ class API {
     return task;
   }
 
+  static getActiveTasks(
+    projectName: string | null,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ items: TaskItem[]; truncated: boolean }> {
+    const query = projectName ? "?" + new URLSearchParams({ project_name: projectName }).toString() : "";
+    return this.request(`/tasks/active${query}`, { signal: options.signal });
+  }
+
+  static lookupTasks(taskIds: string[], projectName: string | null, signal: AbortSignal): Promise<{ items: TaskItem[]; missing_ids: string[] }> {
+    return this.request("/tasks/lookup", {
+      method: "POST", signal, body: JSON.stringify({ task_ids: taskIds, project_name: projectName }),
+    });
+  }
+
   static async listTasks(
-    filters: TaskListFilters = {}
+    filters: TaskListFilters = {},
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.projectName) params.append("project_name", filters.projectName);
     if (filters.status) params.append("status", filters.status);
+    if (filters.resourceId) params.append("resource_id", filters.resourceId);
     if (filters.taskType) params.append("task_type", filters.taskType);
     if (filters.source) params.append("source", filters.source);
     if (filters.page) params.append("page", String(filters.page));
     if (filters.pageSize) params.append("page_size", String(filters.pageSize));
     const query = params.toString();
-    return this.request(`/tasks${query ? "?" + query : ""}`);
+    return this.request(`/tasks${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
   static async listProjectTasks(
@@ -2563,6 +2455,7 @@ class API {
   ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.status) params.append("status", filters.status);
+    if (filters.resourceId) params.append("resource_id", filters.resourceId);
     if (filters.taskType) params.append("task_type", filters.taskType);
     if (filters.source) params.append("source", filters.source);
     if (filters.page) params.append("page", String(filters.page));
@@ -2574,12 +2467,13 @@ class API {
   }
 
   static async getTaskStats(
-    projectName: string | null = null
+    projectName: string | null = null,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ stats: TaskStats }> {
     const params = new URLSearchParams();
     if (projectName) params.append("project_name", projectName);
     const query = params.toString();
-    return this.request(`/tasks/stats${query ? "?" + query : ""}`);
+    return this.request(`/tasks/stats${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
 
@@ -3864,7 +3758,7 @@ class API {
     return this.request<{
       succeeded: Array<{ id: string; name: string }>;
       skipped: Array<{ id: string; name: string }>;
-      failed: Array<{ id: string; reason: string }>;
+      failed: Array<{ id: string; reason: string; message?: string }>;
     }>(`/assets/apply-to-project`, {
       method: "POST",
       body: JSON.stringify(payload),

@@ -21,6 +21,7 @@ from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.artifacts.video_artifact_commit import commit_paid_video_artifact
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.generation.generation_admission import generation_admission_lock, generation_admission_lock_sync
+from lib.generation.video_result import build_video_task_result
 from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync
 from lib.infra.json_io import atomic_write_bytes
 from lib.project.asset_types import asset_name_comparison_key
@@ -444,18 +445,16 @@ def paid_video_history_result(
     record = next((item for item in records if item.get("version") == version), None)
     if not isinstance(record, dict):
         raise RuntimeError("committed paid video version is missing from history")
-    result: dict[str, Any] = {
-        "version": version,
-        "file_path": record.get("file"),
-        "created_at": record.get("created_at"),
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "video_uri": video_uri,
-        "selected_current": False,
-    }
-    if resource_type == "reference_videos" or warnings:
-        result["warnings"] = list(warnings)
-    return result
+    return build_video_task_result(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        version=version,
+        file_path=record.get("file"),
+        created_at=record.get("created_at"),
+        video_uri=video_uri,
+        selected_current=False,
+        warnings=warnings,
+    )
 
 
 async def complete_video_artifact_commit(

@@ -26,9 +26,12 @@ from tests.http_capture import capture_http, only_request, request_json
 async def test_endpoint_controls_request_and_metering_when_model_name_changes(
     tmp_path: Path, provider: str, endpoint: str, size: str, resolution: str, ratio: str | None
 ):
+    from lib.video_runtime.builtin import build_builtin_backend
+
     spec = get_provider_spec(provider, "image", endpoint)
     for model in ("opaque-model", "wan-pro-seedream-3-agnes-image-2.5"):
-        backend = spec.build_backend(
+        backend = build_builtin_backend(
+            spec,
             LoadedConfig(
                 credentials={"api_key": "sk-test", "base_url": "https://api.test"},
                 provider_meta=None,

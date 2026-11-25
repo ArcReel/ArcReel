@@ -56,7 +56,7 @@ class _Routes(NamedTuple):
 
 @contextmanager
 def _routes(
-    *, synth: httpx.Response | None = None, synth_url: str = _SYNTH_URL, download: bytes = b"RIFFwav"
+    *, synth: httpx.Response | None = None, synth_url: str = _SYNTH_URL, download: bytes = b"audio-bytes"
 ) -> Generator[_Routes]:
     with capture_http() as router:
         synth_route = router.post(synth_url)
@@ -87,7 +87,7 @@ class TestMetadata:
 
 class TestRequest:
     async def test_posts_speech_synthesizer_body_and_downloads_audio_url(self, tmp_path: Path):
-        with _routes(download=b"RIFFbytes") as routes:
+        with _routes(download=b"audio-bytes") as routes:
             backend = DashScopeSpeechSynthesizerBackend(api_key="sk", model="qwen-audio-3.0-tts-flash", base_url=_HOST)
             result = await backend.synthesize(_request(tmp_path))
 
@@ -106,7 +106,7 @@ class TestRequest:
             },
         }
         assert str(only_request(routes.download).url) == _AUDIO_URL
-        assert (tmp_path / "o.wav").read_bytes() == b"RIFFbytes"
+        assert (tmp_path / "o.wav").read_bytes() == b"audio-bytes"
         assert result.text == "我家的后面有一个很大的花园。"
         assert result.input_tokens is None
         assert result.audio_output_tokens is None

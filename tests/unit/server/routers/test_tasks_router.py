@@ -44,25 +44,9 @@ class _RetryQueue:
         return {"task_id": task_id, "status": "running", "error_message": None}
 
 
-class _RetryWorker:
-    def __init__(self, *, timeout_error: Exception | None = None):
-        self.tasks = []
-        self.poll_timeouts = []
-        self._timeout_error = timeout_error
-
-    async def read_video_poll_timeout_seconds(self) -> int:
-        if self._timeout_error is not None:
-            raise self._timeout_error
-        return 3600
-
-    async def retry_artifact_download(self, task, *, poll_timeout_seconds: int):
-        self.tasks.append(task)
-        self.poll_timeouts.append(poll_timeout_seconds)
-
-
 class TestRetryArtifactDownload:
     @staticmethod
-    def _app(queue: _RetryQueue, worker: _RetryWorker | None) -> FastAPI:
+    def _app(worker):
         app = FastAPI()
         app.state.generation_worker = worker
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -70,40 +54,50 @@ class TestRetryArtifactDownload:
         register_error_handlers(app)
         return app
 
-    def test_dispatches_existing_task_without_creating_another(self, monkeypatch):
-        queue = _RetryQueue()
-        worker = _RetryWorker()
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+    def test_returns_the_reopened_task(self):
+        class Worker:
+            async def retry_artifact_download(self, task_id):
+                return {"task_id": task_id, "status": "running", "error_message": None}
 
-        with TestClient(self._app(queue, worker)) as client:
+        with TestClient(self._app(Worker())) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
-
         assert response.status_code == 200
-        assert queue.calls == ["task-1"]
-        assert worker.tasks == [{"task_id": "task-1", "status": "running", "error_message": None}]
-        assert worker.poll_timeouts == [3600]
+        assert response.json()["task"]["task_id"] == "task-1"
+        assert response.json()["task"]["status"] == "running"
 
     def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
+        from lib.generation.generation_worker import GenerationWorker
+
+        async def unavailable():
+            raise RuntimeError("config database unavailable")
+
+        monkeypatch.setattr("lib.generation.generation_worker.read_video_poll_timeout_seconds", unavailable)
         queue = _RetryQueue()
-        worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
-
-        with TestClient(self._app(queue, worker), raise_server_exceptions=False) as client:
+        worker = GenerationWorker(queue=queue, executor=None, resume_executor=None)
+        with TestClient(self._app(worker), raise_server_exceptions=False) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
-
         assert response.status_code == 500
         assert queue.calls == []
-        assert worker.tasks == []
 
-    def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
+    def test_worker_stopping_rejects_before_reopening_task_and_call(self):
+        from lib.generation.generation_worker import GenerationWorker
+
         queue = _RetryQueue()
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+        worker = GenerationWorker(queue=queue, executor=None, resume_executor=None)
+        worker.stop_admission()
+        with TestClient(self._app(worker)) as client:
+            response = client.post("/api/v1/tasks/task-1/retry-download")
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "停机" in detail
+        assert "task-1" not in detail
+        assert queue.calls == []
 
-        with TestClient(self._app(queue, None)) as client:
+    def test_unavailable_worker_returns_bad_request(self):
+        with TestClient(self._app(None)) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
 
         assert response.status_code == 400
-        assert queue.calls == []
 
 
 class _RenderQueue:
@@ -337,41 +331,6 @@ class TestTaskErrorLocalization:
             assert "custom-9" not in row["error_message"]
             assert row["error_params"] == {"provider": "custom-9", "model": "I2V_H3"}
             assert row["error_detail"] == encoded
-
-    def test_draft_failures_localize_summary_and_preserve_agent_report(self, monkeypatch):
-        from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
-
-        report = (
-            "❌ script_plan 拆分产出有 5 处违约，已保存为待修复草稿\nopen_draft(...)；patch_draft 携带 base_revision"
-        )
-        items = [
-            {
-                "task_id": "draft",
-                "error_message": encode_generation_problem(
-                    GenerationProblem(
-                        code="draft_generation_invalid",
-                        detail=report,
-                        action=GenerationAction.FIX_INPUT,
-                        params={"count": 5},
-                    )
-                ),
-            }
-        ]
-        original = items[0]["error_message"]
-        client = self._client(monkeypatch, _RenderQueue(items=items))
-        expected = {
-            "zh": "产出有 5 处违约，已保存为待修复草稿。可在草稿中修改，或交给 AI 修复。",
-            "en": "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.",
-            "vi": "Kết quả có 5 vi phạm và đã được lưu thành bản nháp. Hãy sửa bản nháp hoặc nhờ AI sửa.",
-            "ru": "В результате 5 нарушений. Он сохранён как черновик. Отредактируйте черновик или поручите исправление ИИ.",
-        }
-        for locale, summary in expected.items():
-            row = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"][0]
-            assert row["error_message"] == summary
-            assert row["error_detail"] == report
-            assert row["error_code"] == "draft_generation_invalid"
-            assert row["error_params"] == {"count": 5}
-        assert items[0]["error_message"] == original
 
     def test_text_database_problem_localizes_without_sql(self, monkeypatch):
         from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem

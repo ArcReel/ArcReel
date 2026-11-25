@@ -19,31 +19,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useTasksStore } from "@/stores/tasks-store";
-import { isTerminalStatus, type TaskItem } from "@/types";
-import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { isTerminalStatus } from "@/types";
+import { isAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
 
 const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
-const VOICE_SAMPLE_TASK_POLL_MS = 2000;
-const VOICE_SAMPLE_LOOKUP_TIMEOUT_MS = 10_000;
-
-async function lookupVoiceSampleTask(taskId: string, signal: AbortSignal): Promise<TaskItem | null> {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  signal.addEventListener("abort", abort, { once: true });
-  const aborted = new Promise<null>((resolve) => {
-    controller.signal.addEventListener("abort", () => resolve(null), { once: true });
-  });
-  const deadline = setTimeout(abort, VOICE_SAMPLE_LOOKUP_TIMEOUT_MS);
-  try {
-    const task = await Promise.race([API.getTask(taskId, { signal: controller.signal }).catch(() => null), aborted]);
-    return controller.signal.aborted ? null : task;
-  } finally {
-    clearTimeout(deadline);
-    signal.removeEventListener("abort", abort);
-  }
-}
 
 interface VoiceOption {
   id: string;
@@ -65,7 +46,7 @@ export function VoiceSampleButton({
 }: VoiceSampleButtonProps) {
   const { t } = useTranslation("dashboard");
   const track = useTrackWrite();
-  const occupied = useAssetBusyNames("character", projectName).has(characterName);
+  const occupied = useAssetBusy("voice", "character", projectName, characterName);
   const [open, setOpen] = useState(false);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [voicesConfigured, setVoicesConfigured] = useState(true);
@@ -82,55 +63,18 @@ export function VoiceSampleButton({
 
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
-  const liveTask = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
-
-  const [settledTask, setSettledTask] = useState<TaskItem | null>(null);
-  useEffect(() => {
-    if (!open || taskId === null) return;
-    const controller = new AbortController();
-    const captureTerminalTask = (tasks: TaskItem[]) => {
-      if (controller.signal.aborted) return;
-      const found = tasks.find((item) => item.task_id === taskId);
-      if (found && isTerminalStatus(found.status)) setSettledTask(found);
-    };
-    const unsubscribe = useTasksStore.subscribe((state) => captureTerminalTask(state.tasks));
-    void Promise.resolve().then(() => captureTerminalTask(useTasksStore.getState().tasks));
-    return () => {
-      controller.abort();
-      unsubscribe();
-    };
-  }, [open, taskId]);
-  const task = settledTask?.task_id === taskId ? settledTask : liveTask;
+  const scope = useTasksStore((s) => s.refreshScope);
+  const task = useTasksStore((s) => taskId === null ? undefined : s.rowsById.get(taskId));
+  const missing = useTasksStore((s) => taskId !== null && s.tracked.get(taskId)?.status === "missing");
 
   useEffect(() => {
-    if (!open || taskId === null || task !== undefined) return;
-    const controller = new AbortController();
-    let pending = false;
-    const poll = async () => {
-      if (pending) return;
-      pending = true;
-      const current = await lookupVoiceSampleTask(taskId, controller.signal);
-      pending = false;
-      if (controller.signal.aborted) return;
-      if (current && isTerminalStatus(current.status)) {
-        clearInterval(timer);
-        setSettledTask(current);
-        useTasksStore.getState().settleVoiceSample(current);
-      }
-    };
-    const timer = setInterval(() => void poll(), VOICE_SAMPLE_TASK_POLL_MS);
-    void poll();
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [open, taskId, task]);
+    if (!open || taskId === null || !scope || (scope.projectName !== null && scope.projectName !== projectName)) return;
+    return useTasksStore.getState().retainTask(projectName, taskId);
+  }, [open, projectName, scope, taskId]);
 
-  const generating =
-    localSubmitting ||
-    (taskId != null && (task == null || task.status === "queued" || task.status === "running"));
-  const failed = task?.status === "failed";
-  const succeeded = task?.status === "succeeded";
+  const generating = localSubmitting || (taskId !== null && !missing && (!task || !isTerminalStatus(task.status)));
+  const failed = !missing && task?.status === "failed";
+  const succeeded = !missing && task?.status === "succeeded";
   const previewFilePath =
     succeeded && task?.result && typeof task.result.file_path === "string" ? task.result.file_path : null;
   const previewUrl = previewFilePath ? API.getFileUrl(projectName, previewFilePath, taskId) : null;
@@ -159,14 +103,13 @@ export function VoiceSampleButton({
 
   const openModal = () => {
     if (disabled) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
-    setSettledTask(null);
     setIsPreviewPlaying(false);
     setVoicesLoading(true);
     setOpen(true);
@@ -198,13 +141,12 @@ export function VoiceSampleButton({
     const trimmed = text.trim();
     const voice = selectedVoice.trim();
     if (!trimmed || !voice || generating || confirming) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
     setLocalSubmitting(true);
     setTaskId(null);
-    setSettledTask(null);
     setIsPreviewPlaying(false);
     try {
       const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, voice);
@@ -218,7 +160,7 @@ export function VoiceSampleButton({
 
   const handleConfirm = async () => {
     if (!taskId || !succeeded || confirming) return;
-    if (busy || isAssetBusy("character", projectName, characterName)) {
+    if (busy || isAssetBusy("voice", "character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;
     }
@@ -297,9 +239,9 @@ export function VoiceSampleButton({
                   <p className="text-xs text-muted-foreground">{t("voice_sample_text_hint")}</p>
                 </div>
 
-                {failed && (
+                {(missing || failed) && (
                   <p role="alert" className="text-sm text-destructive">
-                    {task?.error_message ?? t("voice_sample_task_failed")}
+                    {missing ? t("voice_sample_task_missing") : task?.error_message ?? t("voice_sample_task_failed")}
                   </p>
                 )}
 
@@ -349,7 +291,7 @@ export function VoiceSampleButton({
               )}
               {generating
                 ? t("voice_sample_generating")
-                : succeeded || failed
+                : succeeded || failed || missing
                   ? t("voice_sample_regenerate")
                   : t("voice_sample_generate")}
             </Button>

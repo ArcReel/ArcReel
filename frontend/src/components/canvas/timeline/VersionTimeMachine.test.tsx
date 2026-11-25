@@ -347,7 +347,7 @@ describe("VersionTimeMachine", () => {
     expect(presentation).not.toHaveBeenCalled();
   });
 
-  it("previews manual-upload history through the shared raw presentation seam", async () => {
+  it("previews and restores manual-upload history with the selected presentation", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "videos",
       resource_id: "E1S01",
@@ -359,16 +359,17 @@ describe("VersionTimeMachine", () => {
           created_at: "2026-02-01T00:00:00Z",
           file_size: 10,
           is_current: false,
-          restorable: false,
+          restorable: true,
           presentation_available: true,
           source: "manual_upload",
           file_url: "/api/v1/files/demo/versions/videos/E1S01_v1.mp4",
         },
       ],
     });
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
     const presentation = vi.spyOn(API, "getPresentation").mockResolvedValue({
       schema_version: 1,
-      provenance: "unavailable",
+      provenance: "verified",
       episode: 1,
       resource_type: "videos",
       script_file: "episode_1.json",
@@ -377,15 +378,15 @@ describe("VersionTimeMachine", () => {
       persisted: false,
       unit_id: "E1S01",
       variant: "post_production",
-      speech_mode: null,
+      speech_mode: "silent",
       selection: "history",
-      currency: null,
+      currency: "current",
       video: {
         artifact_path: "versions/videos/E1S01_v1.mp4",
         version: 1,
         selection: "history",
-        currency: null,
-        basis: null,
+        currency: "current",
+        basis: { kind: "artifact-video/upload", kind_version: 1, digest: `sha256-v1:${"b".repeat(64)}` },
         content_digest: `sha256-v1:${"a".repeat(64)}`,
         actual_duration_seconds: 4,
         start_microseconds: 0,
@@ -395,11 +396,11 @@ describe("VersionTimeMachine", () => {
       },
       narration_audio: null,
       subtitles: [],
-      subtitle_basis: null,
-      presentation_basis: null,
-      timing: null,
-      subtitles_adjustable: false,
-      subtitles_webvtt: null,
+      subtitle_basis: { kind: "artifact-subtitle", kind_version: 1, digest: `sha256-v1:${"b".repeat(64)}` },
+      presentation_basis: { kind: "artifact-presentation", kind_version: 1, digest: `sha256-v1:${"b".repeat(64)}` },
+      timing: "mechanical",
+      subtitles_adjustable: true,
+      subtitles_webvtt: "WEBVTT\n",
     });
 
     useProjectsStore.setState({
@@ -426,8 +427,11 @@ describe("VersionTimeMachine", () => {
       "E1S01",
       expect.objectContaining({ videoVersion: 1 }),
     );
-    expect(screen.getByText("来源不可用")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("来源不可用")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
+    await waitFor(() => {
+      expect(restore).toHaveBeenCalledWith("demo", "videos", "E1S01", 1);
+    });
   });
 
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {

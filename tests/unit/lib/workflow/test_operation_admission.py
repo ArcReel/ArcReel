@@ -114,20 +114,16 @@ def test_script_plan_needs_the_episode_source(content_mode: str, episode_source:
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
-        ({"formal_script": True, "pending_ids": ["E1S01"], "draft_pending": False}, ("admitted", None)),
+        ({"formal_script": True, "pending_ids": ["E1S01"]}, ("admitted", None)),
         (
-            {"formal_script": True, "pending_ids": [], "draft_pending": False, "explicit_ids": ["E1S01"]},
+            {"formal_script": True, "pending_ids": [], "explicit_ids": ["E1S01"]},
             ("admitted", None),
         ),
-        ({"formal_script": True, "pending_ids": [], "draft_pending": False}, ("refused", "no_pending_authoring")),
-        ({"formal_script": False, "pending_ids": [], "draft_pending": False}, ("refused", "formal_script_missing")),
-        (
-            {"formal_script": False, "pending_ids": [], "draft_pending": True},
-            ("refused", "prompt_authoring_draft_pending"),
-        ),
+        ({"formal_script": True, "pending_ids": []}, ("refused", "no_pending_authoring")),
+        ({"formal_script": False, "pending_ids": []}, ("refused", "formal_script_missing")),
     ],
 )
-def test_prompt_authoring_needs_pending_entries_and_no_pending_draft(kwargs: dict, expected: tuple) -> None:
+def test_prompt_authoring_needs_pending_entries(kwargs: dict, expected: tuple) -> None:
     assert _conclusion(admit_author_prompts(**kwargs)) == expected
 
 

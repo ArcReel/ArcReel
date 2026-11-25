@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -11,14 +12,21 @@ import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
+import {
+  defaultTaskStats,
+  useActiveResourceIds,
+  useLatestTasksByResource,
+  useTasksStore,
+} from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
 import { useCostStore } from "@/stores/cost-store";
-import { API, ReferenceProjectionError } from "@/api";
-import { makeReferenceUnitCapability } from "@/test/factories";
+import { API, ApiRequestError, ReferenceProjectionError } from "@/api";
+import { makeReferenceUnitCapability, makeTask } from "@/test/factories";
 import addUnitContract from "@/test/contracts/reference-unit-add-requests.json";
 import { createDeferred } from "@/test/deferred";
 import type {
+  PromptOverwrite,
   ReferenceDurationPrecheck,
   ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
@@ -145,11 +153,10 @@ describe("ReferenceVideoCanvas", () => {
     vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
     useProjectsStore.setState({ currentProjectName: "proj", currentProjectData: STUB_PROJECT, currentScripts: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [],
       connected: false,
-      optimisticActive: new Set(),
-      optimisticActiveScriptFile: new Set(),
+      optimisticMarks: new Map(),
     });
     useAppStore.setState({ toast: null });
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
@@ -164,7 +171,6 @@ describe("ReferenceVideoCanvas", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
-    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({ episode: 1, drafts: [] });
     vi.spyOn(API, "previewReferenceVideoBatch").mockImplementation(async (_project, _episode, payload) =>
       mkPreview({
         units: (payload.unit_ids ?? []).map((unitId) => ({ unit_id: unitId, admitted: true, problems: [] })),
@@ -172,45 +178,6 @@ describe("ReferenceVideoCanvas", () => {
     );
   });
   afterEach(() => vi.restoreAllMocks());
-
-  it("presents a prompt authoring draft needing fixes in place of the unit workbench and saves a hand fix", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
-    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({
-      episode: 1,
-      drafts: [{ doc_type: "reference_prompt_authoring", editable_by: "user", violation_count: 1 }],
-    });
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      episode: 1,
-      doc_type: "reference_prompt_authoring",
-      revision: "rev-1",
-      editable_by: "user",
-      content: { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二｛全角｝" }] },
-      violations: [{ code: "fullwidth_braces", label: "unit E1U2", message: "unit E1U2 使用了全角花括号", line: 0, item_index: 1 }],
-      soft_violations: [],
-      formal_exists: true,
-      item_ids: ["E1U1", "E1U2"],
-    });
-    seedFormalUnits(["E1U1", "E1U2"]);
-    const save = vi
-      .spyOn(API, "saveEpisodeDraft")
-      .mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", adopted: true, draft: null });
-    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-
-    expect(await screen.findByText("视频单元 2 使用了全角花括号")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "视频单元 2 · 1" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 2 正文" }), { target: { value: "镜头二" } });
-    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
-
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith(
-        "proj",
-        1,
-        "reference_prompt_authoring",
-        { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二" }] },
-        "rev-1",
-      ),
-    );
-  });
 
   it("loads units on mount and renders the list", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
@@ -283,7 +250,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
     const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Move to project trash|移入项目回收站)$/ });
     await waitFor(() => expect(confirm).toBeDisabled());
@@ -322,7 +289,7 @@ describe("ReferenceVideoCanvas", () => {
       const leaveDialog = await editThenConfirmRemoval();
 
       act(() => {
-        useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+        seedTaskState({ tasks: [runningTask("E1U1")] as never });
       });
       fireEvent.click(within(leaveDialog).getByRole("button", { name: "放弃修改" }));
 
@@ -345,7 +312,7 @@ describe("ReferenceVideoCanvas", () => {
 
   it("blocks removing a unit while its narration audio is being generated", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
-    useTasksStore.setState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
+    seedTaskState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
 
     await screen.findByTestId("unit-row-E1U1");
@@ -367,22 +334,6 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.getByRole("combobox")).toHaveValue("unsaved edit");
     fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
     expect(screen.getByRole("combobox")).toHaveValue("next unit");
-  });
-
-  it("外部提示词草稿到达时保留正在编辑的单元，放弃后才显示草稿", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "正式正文")], unit_capabilities: {} });
-    const listDrafts = vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({ episode: 1, drafts: [] });
-    seedFormalUnits(["E1U1"]);
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", revision: "rev-2", editable_by: "user", content: { title: "第一集", units: [{ text: "新的提示词草稿" }] }, violations: [{ code: "fullwidth_braces", label: "unit E1U1", message: "草稿需要修复", line: 0, item_index: 0 }], soft_violations: [], formal_exists: true, item_ids: ["E1U1"] });
-    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "保留单元修改" } });
-    listDrafts.mockResolvedValue({ episode: 1, drafts: [{ doc_type: "reference_prompt_authoring", editable_by: "user", violation_count: 1 }] });
-    act(() => useAppStore.getState().invalidateEntities(["draft:episode_1_prompt_authoring"]));
-    expect(await screen.findByText(/本集有新的提示词草稿/)).toHaveAttribute("role", "status");
-    expect(screen.getByRole("combobox")).toHaveValue("保留单元修改");
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
-    expect(await screen.findByRole("textbox", { name: "视频单元 1 正文" })).toHaveValue("新的提示词草稿");
   });
 
   it("auto-selects first unit on load and shows preview generate button", async () => {
@@ -1139,7 +1090,6 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      quarantine: null,
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
@@ -1175,7 +1125,6 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      quarantine: null,
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
@@ -1213,7 +1162,7 @@ describe("ReferenceVideoCanvas", () => {
 
   it("重试失败 unit 后在真实任务行落库前即禁用按钮", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "t1",
@@ -1254,7 +1203,7 @@ describe("ReferenceVideoCanvas", () => {
     const unit = mkUnit("E1U1");
     unit.generated_assets.video_clip = "videos/E1U1.mp4";
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit], unit_capabilities: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "t1",
@@ -1303,7 +1252,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(generate).toBeEnabled();
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.click(generate);
@@ -1325,7 +1274,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(batch).toBeEnabled());
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.click(batch);
@@ -1395,7 +1344,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(input).not.toBeNull();
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
@@ -2345,6 +2294,389 @@ describe("ReferenceVideoCanvas", () => {
 
       await screen.findAllByRole("img", { name: "视频单元 1" });
       expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("提示词编写部分完成闭环", () => {
+    const ACCEPTED_AUTHORING = {
+      batch: { batch_id: "b-retry", members: [{ unit_id: "episode-1", task_id: "t-retry", deduped: false }] },
+    } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>;
+
+    async function loadPersistedTasks(tasks: ReturnType<typeof makeTask>[]) {
+      vi.spyOn(API, "getActiveTasks").mockResolvedValue({
+        items: tasks.filter((item) => item.status === "queued" || item.status === "running"),
+        truncated: false,
+      });
+      vi.spyOn(API, "listTasks").mockResolvedValue({
+        items: tasks,
+        total: tasks.length,
+        page: 1,
+        page_size: 200,
+      });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+      useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+      await act(async () => {
+        await useTasksStore.getState().refreshTasks();
+      });
+    }
+
+    afterEach(() => {
+      useTasksStore.getState().setRefreshScope(null);
+      useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    });
+
+    it("加载、重进页面读回持久 partial 任务与重试全程零 /drafts 请求，默认补缺失败单元保持待编写并支持一键重试、编辑与交 Agent", async () => {
+      const writtenUnit: ReferenceVideoUnit = { ...mkUnit("E1U1", "已补全的镜头一提示词"), pending_authoring: false };
+      const failedUnit: ReferenceVideoUnit = { ...mkUnit("E1U2", "原始大纲占位"), pending_authoring: true };
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [writtenUnit, failedUnit],
+        unit_capabilities: {},
+      });
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          episodes: [{ episode: 1, title: "雨夜开场", script_file: "episode_1.json" }],
+        },
+        currentScripts: {
+          "episode_1.json": { episode: 1, video_units: [writtenUnit, failedUnit] } as unknown as EpisodeScript,
+        },
+      });
+      const partialTask = makeTask({
+        task_id: "t-partial-fill",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        payload: { episode: 1, rewrite: false, instructions: "保持冷色调" },
+        result: {
+          message: "部分完成",
+          outcome: "partial",
+          written_ids: ["E1U1"],
+          failed_units: [
+            {
+              unit_id: "E1U2",
+              code: "dialogue_mismatch",
+              message: "unit E1U2 台词被改动；请用 entry_ids 点名重试（重写需重新认可覆盖），或用 patch_episode_script 修改",
+              abort_reason: "formal_revision_conflict: 正式脚本已变化，已停止写回",
+            },
+          ],
+        },
+        updated_at: "2026-11-24T10:00:00Z",
+      });
+      const authorSpy = vi.spyOn(API, "authorPrompts").mockResolvedValue(ACCEPTED_AUTHORING);
+
+      await loadPersistedTasks([partialTask]);
+      const firstMount = render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+      const notice = await screen.findByRole("status", { name: "提示词编写部分完成" });
+      expect(notice).toHaveTextContent("已写回 1 个单元，1 个单元未写回。");
+      expect(notice).toHaveTextContent("已写回：视频单元 1");
+      expect(notice).toHaveTextContent("视频单元 2 台词被改动");
+      expect(notice).not.toHaveTextContent("entry_ids");
+      expect(notice).toHaveTextContent("中止原因：正式脚本已变化，已停止写回");
+      expect(within(notice).getByText("待编写")).toBeInTheDocument();
+
+      expect(within(screen.getByTestId("unit-row-E1U1")).queryByText("待编写")).not.toBeInTheDocument();
+      expect(within(screen.getByTestId("unit-row-E1U2")).getByText("待编写")).toBeInTheDocument();
+
+      fireEvent.click(within(notice).getByRole("button", { name: "编辑" }));
+      await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("原始大纲占位"));
+      expect(screen.getByText(/^待编写：/)).toBeInTheDocument();
+
+      fireEvent.click(within(notice).getByRole("button", { name: "重试失败单元" }));
+      await waitFor(() =>
+        expect(authorSpy).toHaveBeenCalledWith("proj", 1, {
+          entry_ids: ["E1U2"],
+          rewrite: false,
+          instructions: "保持冷色调",
+          overwrite_revision: null,
+        }),
+      );
+
+      fireEvent.click(within(notice).getByRole("button", { name: "交给 Agent" }));
+      expect(useAssistantStore.getState().input).toContain("E1U2");
+      expect(useAssistantStore.getState().input).toContain("patch_episode_script");
+      expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+
+      firstMount.unmount();
+      const newerTasks = Array.from({ length: 200 }, (_, index) =>
+        makeTask({ task_id: `newer-${index}`, project_name: "proj", task_type: "video" }),
+      );
+      await loadPersistedTasks(newerTasks);
+      vi.mocked(API.listTasks).mockImplementation(async (filters) => {
+        const items = filters?.projectName === "proj" && filters.resourceId === "episode-1" && filters.taskType === "text_episode_script"
+          ? [partialTask] : newerTasks;
+        return { items, total: items.length, page: 1, page_size: items.length };
+      });
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      expect(await screen.findByRole("status", { name: "提示词编写部分完成" })).toHaveTextContent(
+        "视频单元 2 台词被改动",
+      );
+
+    });
+
+    it("显式重写部分失败时保留已编写旧正文与已编写状态，点名重试需重新确认覆盖范围后才携带 revision 重试", async () => {
+      const rewrittenUnit: ReferenceVideoUnit = { ...mkUnit("E1U1", "重写后的镜头一"), pending_authoring: false };
+      const keptUnit: ReferenceVideoUnit = { ...mkUnit("E1U2", "旧的已编写正文不可丢失"), pending_authoring: false };
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [rewrittenUnit, keptUnit],
+        unit_capabilities: {},
+      });
+      const partialRewriteTask = makeTask({
+        task_id: "t-partial-rewrite",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        payload: { episode: 1, rewrite: true, instructions: "加强光影对比" },
+        result: {
+          message: "部分完成",
+          outcome: "partial",
+          written_ids: ["E1U1"],
+          failed_units: [
+            {
+              unit_id: "E1U2",
+              code: "missing_unit",
+              message: "模型漏返单元；请用 entry_ids 点名重试（重写需重新认可覆盖），或用 patch_episode_script 修改",
+              abort_reason: "RuntimeError: provider timeout",
+            },
+          ],
+        },
+        updated_at: "2026-11-24T10:05:00Z",
+      });
+      const overwrite: PromptOverwrite = {
+        revision: "rev-overwrite-2",
+        entries: [{ id: "E1U2", fields: ["text"] }],
+        text: "将覆盖 E1U2 的正文。",
+      };
+      const authorSpy = vi
+        .spyOn(API, "authorPrompts")
+        .mockRejectedValueOnce(new ApiRequestError("需要确认覆盖", { prompt_overwrite: overwrite }, 409))
+        .mockResolvedValueOnce(ACCEPTED_AUTHORING);
+
+      await loadPersistedTasks([partialRewriteTask]);
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+      const notice = await screen.findByRole("status", { name: "提示词编写部分完成" });
+      expect(notice).toHaveTextContent("已编写的失败单元保留了原正文与已编写状态");
+      expect(notice).toHaveTextContent("模型漏返单元");
+      expect(notice).toHaveTextContent("RuntimeError: provider timeout");
+      expect(within(notice).getByText("已编写")).toBeInTheDocument();
+      expect(within(screen.getByTestId("unit-row-E1U2")).queryByText("待编写")).not.toBeInTheDocument();
+
+      fireEvent.click(within(notice).getByRole("button", { name: "编辑" }));
+      await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("旧的已编写正文不可丢失"));
+      expect(screen.queryByText(/^待编写：/)).not.toBeInTheDocument();
+
+      fireEvent.click(within(notice).getByRole("button", { name: "点名重写失败单元" }));
+      const confirmDialog = await screen.findByRole("alertdialog", { name: "确认覆盖已有提示词" });
+      expect(within(confirmDialog).getByText("将覆盖 视频单元 2 的正文。")).toBeInTheDocument();
+      expect(authorSpy).toHaveBeenCalledWith("proj", 1, {
+        entry_ids: ["E1U2"],
+        rewrite: true,
+        instructions: "加强光影对比",
+        overwrite_revision: null,
+      });
+
+      const confirmButton = within(confirmDialog).getByRole("button", { name: "AI 重写" });
+      let handle: ReturnType<ReturnType<typeof useTasksStore.getState>["beginOptimisticActive"]> | null = null;
+      act(() => {
+        handle = useTasksStore
+          .getState()
+          .beginOptimisticActive("proj", "text_episode_script", "episode-1", "text_episode_script");
+      });
+      await waitFor(() => expect(confirmButton).toBeDisabled());
+
+      act(() => {
+        handle?.rollback();
+      });
+      await waitFor(() => expect(confirmButton).toBeEnabled());
+
+      fireEvent.click(confirmButton);
+      await waitFor(() =>
+        expect(authorSpy).toHaveBeenLastCalledWith("proj", 1, {
+          entry_ids: ["E1U2"],
+          rewrite: true,
+          instructions: "加强光影对比",
+          overwrite_revision: "rev-overwrite-2",
+        }),
+      );
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+    });
+
+    it("后续提示词编写完成（outcome=complete）后自动收起旧的部分完成提示", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1", "镜头一"), mkUnit("E1U2", "镜头二")],
+        unit_capabilities: {},
+      });
+      const partialTask = makeTask({
+        task_id: "t-partial-1",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        result: {
+          message: "部分完成",
+          outcome: "partial",
+          written_ids: ["E1U1"],
+          failed_units: [{ unit_id: "E1U2", code: "missing_unit", message: "模型漏返单元" }],
+        },
+        updated_at: "2026-11-24T10:00:00Z",
+      });
+      await loadPersistedTasks([partialTask]);
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      expect(await screen.findByRole("status", { name: "提示词编写部分完成" })).toBeInTheDocument();
+
+      const completeTask = makeTask({
+        task_id: "t-complete-2",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        result: {
+          message: "生成完成",
+          outcome: "complete",
+          written_ids: ["E1U2"],
+          failed_units: [],
+        },
+        updated_at: "2026-11-24T10:10:00Z",
+      });
+      await loadPersistedTasks([completeTask, partialTask]);
+
+      await waitFor(() =>
+        expect(screen.queryByRole("status", { name: "提示词编写部分完成" })).not.toBeInTheDocument(),
+      );
+    });
+
+    it("编辑单元有未保存修改时，部分完成重试先保存再入队，保存失败不发起付费重试", async () => {
+      const pendingUnit: ReferenceVideoUnit = { ...mkUnit("E1U2", "旧失败正文"), pending_authoring: true };
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1", "已完成单元"), pendingUnit],
+        unit_capabilities: {},
+      });
+      const partialTask = makeTask({
+        task_id: "t-partial-save-first",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        payload: { episode: 1, rewrite: false },
+        result: {
+          message: "部分完成",
+          outcome: "partial",
+          written_ids: ["E1U1"],
+          failed_units: [{ unit_id: "E1U2", code: "missing_unit", message: "模型漏返单元" }],
+        },
+        updated_at: "2026-11-24T10:00:00Z",
+      });
+      const patchSpy = vi
+        .spyOn(API, "patchReferenceVideoUnit")
+        .mockRejectedValueOnce(new Error("保存失败"))
+        .mockResolvedValueOnce({
+          unit: { ...pendingUnit, text: "用户修正后的正文" },
+          unit_capability: makeReferenceUnitCapability("E1U2"),
+        });
+      const authorSpy = vi.spyOn(API, "authorPrompts").mockResolvedValue(ACCEPTED_AUTHORING);
+
+      await loadPersistedTasks([partialTask]);
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+
+      const notice = await screen.findByRole("status", { name: "提示词编写部分完成" });
+      fireEvent.click(within(notice).getByRole("button", { name: "编辑" }));
+      const editor = await screen.findByRole("combobox");
+      await waitFor(() => expect(editor).toHaveValue("旧失败正文"));
+
+      fireEvent.change(editor, { target: { value: "用户修正后的正文" } });
+      fireEvent.click(within(notice).getByRole("button", { name: "重试失败单元" }));
+
+      await waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(1));
+      expect(authorSpy).not.toHaveBeenCalled();
+      const retryButton = within(notice).getByRole("button", { name: "重试失败单元" });
+      await waitFor(() => expect(retryButton).toBeEnabled());
+
+      fireEvent.click(retryButton);
+      await waitFor(() => expect(patchSpy).toHaveBeenCalledTimes(2));
+      await waitFor(() =>
+        expect(authorSpy).toHaveBeenCalledWith("proj", 1, {
+          entry_ids: ["E1U2"],
+          rewrite: false,
+          instructions: null,
+          overwrite_revision: null,
+        }),
+      );
+      expect(patchSpy.mock.invocationCallOrder[1]).toBeLessThan(authorSpy.mock.invocationCallOrder[0]);
+    });
+
+    it("观察到较新的完整任务后清除旧归档缓存，后续完整任务被挤出且归档查询失败时不再回退展示过期部分完成提示", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1", "镜头一"), mkUnit("E1U2", "镜头二")],
+        unit_capabilities: {},
+      });
+      const partialTask = makeTask({
+        task_id: "t-archived-partial",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        result: {
+          message: "部分完成",
+          outcome: "partial",
+          written_ids: ["E1U1"],
+          failed_units: [{ unit_id: "E1U2", code: "missing_unit", message: "模型漏返单元" }],
+        },
+        updated_at: "2026-11-24T10:00:00Z",
+      });
+      const completeTask = makeTask({
+        task_id: "t-recent-complete",
+        project_name: "proj",
+        task_type: "text_episode_script",
+        resource_id: "episode-1",
+        status: "succeeded",
+        result: {
+          message: "生成完成",
+          outcome: "complete",
+          written_ids: ["E1U2"],
+          failed_units: [],
+        },
+        updated_at: "2026-11-24T10:10:00Z",
+      });
+      const fillerBatch1 = Array.from({ length: 200 }, (_, index) =>
+        makeTask({ task_id: `filler-1-${index}`, project_name: "proj", task_type: "video" }),
+      );
+      const fillerBatch2 = Array.from({ length: 200 }, (_, index) =>
+        makeTask({ task_id: `filler-2-${index}`, project_name: "proj", task_type: "video" }),
+      );
+
+      await loadPersistedTasks(fillerBatch1);
+      vi.mocked(API.listTasks).mockImplementation(async (filters) => {
+        if (filters?.projectName === "proj" && filters.resourceId === "episode-1" && filters.taskType === "text_episode_script") {
+          return { items: [partialTask], total: 1, page: 1, page_size: 1 };
+        }
+        return { items: fillerBatch1, total: fillerBatch1.length, page: 1, page_size: fillerBatch1.length };
+      });
+
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      expect(await screen.findByRole("status", { name: "提示词编写部分完成" })).toBeInTheDocument();
+
+      await loadPersistedTasks([completeTask, ...fillerBatch1.slice(0, 199)]);
+      await waitFor(() =>
+        expect(screen.queryByRole("status", { name: "提示词编写部分完成" })).not.toBeInTheDocument(),
+      );
+
+      vi.mocked(API.listTasks).mockImplementation(async (filters) => {
+        if (filters?.resourceId === "episode-1" && filters.taskType === "text_episode_script") {
+          throw new Error("archive lookup failed");
+        }
+        return { items: fillerBatch2, total: fillerBatch2.length, page: 1, page_size: fillerBatch2.length };
+      });
+      await act(async () => {
+        await useTasksStore.getState().refreshTasks();
+      });
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+      expect(screen.queryByRole("status", { name: "提示词编写部分完成" })).not.toBeInTheDocument();
     });
   });
 });

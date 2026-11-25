@@ -283,7 +283,8 @@ function ModelSheetForm({
           patch.multiplier = multiplier;
         }
         if (providerInvalid) throw new Error(t("pm_sheet_capabilities_invalid"));
-        if (!sameJson(value.overrides, saved.overrides)) {
+        const switchingEndpoint = (isCustom || builtinEndpoint) && value.endpoint !== saved.endpoint;
+        if (!switchingEndpoint && !sameJson(value.overrides, saved.overrides)) {
           patch.capability_overrides = Object.keys(value.overrides).length > 0 ? value.overrides : null;
         }
       }

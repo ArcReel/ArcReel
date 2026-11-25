@@ -40,7 +40,7 @@ _END_OF_STREAM = object()
 
 
 def _end_stream(queue: asyncio.Queue) -> None:
-    """清空 *queue* 并注入溢出信号，让消费循环终止而非永久阻塞。"""
+    """清空 *queue* 并注入结束信号，让消费循环终止而非永久阻塞。"""
     while not queue.empty():
         try:
             queue.get_nowait()
@@ -131,6 +131,11 @@ class DropSubscriber:
 SseOverflowPolicy = EvictNonCriticalAndSignal | DropSubscriber
 
 
+async def empty_stream() -> AsyncIterator[Any]:
+    for item in ():
+        yield item
+
+
 class SseChannel:
     """一组订阅队列的注册表 + 广播扇出。
 
@@ -197,6 +202,11 @@ class SseChannel:
         """
         self._subscribers.discard(queue)
         return not self._subscribers
+
+    def end_streams(self) -> None:
+        for queue in self._subscribers:
+            _end_stream(queue)
+        self._subscribers.clear()
 
     def broadcast(self, item: Any) -> None:
         """把 *item* 投递给全部订阅队列；投递失败的订阅者按溢出策略移除。"""

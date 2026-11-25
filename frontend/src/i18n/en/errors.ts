@@ -1,5 +1,7 @@
 
 export default {
+  "asset_resource_busy": "This asset has a queued or running task. Try again when it finishes.",
+  "apply_failed_resource_busy": "The project asset has a queued or running task and cannot be overwritten. Try again when the task finishes.",
   "text_default_model_not_set": "No default text model is set: choose one in Settings → Default models; if no provider is configured yet, add one in Settings → Providers first",
   "audio_default_model_not_set": "No default narration voice-over model is set: choose one in Settings → Default models; if no text-to-speech capable provider is configured yet, add one in Settings → Providers first",
   "image_default_model_not_set": "No default image model is set: choose one in Settings → Default models",
@@ -100,8 +102,6 @@ export default {
   'file_content_load_failed': 'Couldn\'t load the file content',
   'file_replace_failed': 'Couldn\'t replace the file',
   'file_delete_failed': 'Couldn\'t delete the file',
-  'stage_file_load_failed': 'Couldn\'t load the stage file',
-  'stage_file_save_failed': 'Couldn\'t save the stage file',
   'credential_upload_failed': 'Couldn\'t upload the credential',
   'market_icon_load_failed': 'Couldn\'t load the entry icon',
   'event_stream_connect_failed': 'Couldn\'t connect to the event stream',

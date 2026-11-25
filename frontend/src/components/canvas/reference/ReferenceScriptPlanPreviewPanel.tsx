@@ -1,30 +1,20 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ChevronDown, OctagonAlert, Pencil, RotateCcw } from "lucide-react";
 import type {
   DraftSoftViolation,
   PlanNewAsset,
   ReferenceScriptPlanDraft,
-  ReferenceScriptPlanFlatUnit,
   ReferenceUnitCapability,
   ScriptReviewState,
   ScriptReviewViolation,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { draftViolationMessage, groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
-import {
-  AgentDraftBar,
-  DiscardDraftDialog,
-  DraftEpisodeViolations,
-  DraftSoftViolationList,
-  InvalidDraftBar,
-} from "@/components/shared/DraftStatus";
-import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
@@ -37,11 +27,16 @@ import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
 import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
+import {
+  ReviewEpisodeBlockingIssues,
+  ReviewSoftViolationList,
+  ScriptReviewStatusHeader,
+} from "@/components/canvas/shared/ScriptReviewDiagnostics";
+import { scriptPlanFixRequestText, withUniqueKeys } from "@/components/canvas/shared/script-review-diagnostics";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/reference-mentions";
 import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
-import { hasValidNewAssets } from "@/utils/plan-new-assets";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef } from "@/utils/episode-display";
 import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
@@ -71,7 +66,6 @@ interface DisplayUnit {
   duration_seconds: number;
   sourceText: string;
   scriptText: string;
-  editable: boolean;
 }
 
 function unitStats(scriptText: string, lookup: MentionLookup): { utterances: number } {
@@ -88,25 +82,7 @@ function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] 
     duration_seconds: u.duration_seconds,
     sourceText: u.source_text,
     scriptText: u.text,
-    editable: true,
   }));
-}
-
-interface FlatUnitsDraft {
-  units: ReferenceScriptPlanFlatUnit[];
-  new_assets?: PlanNewAsset[];
-}
-
-function isFlatUnit(value: unknown): value is ReferenceScriptPlanFlatUnit {
-  if (value == null || typeof value !== "object") return false;
-  const u = value as Record<string, unknown>;
-  return typeof u.text === "string" && typeof u.duration_seconds === "number" && typeof u.source_text === "string";
-}
-
-function narrowFlatUnitsDraft(content: Record<string, unknown> | null): FlatUnitsDraft | null {
-  const units = content?.units;
-  if (!Array.isArray(units) || !units.every(isFlatUnit) || !hasValidNewAssets(content)) return null;
-  return content as unknown as FlatUnitsDraft;
 }
 
 function newAssetEntries(units: DisplayUnit[]): NewAssetEntryRefs[] {
@@ -128,40 +104,6 @@ function lookupWithNewAssets(lookup: MentionLookup, items: PlanNewAsset[]): Ment
     if (!(name in merged)) merged[name] = item.type;
   }
   return merged;
-}
-
-function draftUnitKey(episode: number, index: number): string {
-  return `E${episode}U${String(index + 1).padStart(2, "0")}`;
-}
-
-function flatDisplayUnits(draft: FlatUnitsDraft, episode: number): DisplayUnit[] {
-  return draft.units.map((u, i) => ({
-    key: draftUnitKey(episode, i),
-    position: i + 1,
-    duration_seconds: u.duration_seconds,
-    sourceText: u.source_text,
-    scriptText: u.text,
-    editable: true,
-  }));
-}
-
-function brokenDraftDisplayUnits(content: Record<string, unknown> | null, episode: number): DisplayUnit[] {
-  const units: unknown = content?.units;
-  if (!Array.isArray(units)) return [];
-  return units.flatMap((raw: unknown, i) => {
-    if (raw == null || typeof raw !== "object") return [];
-    const u = raw as Partial<ReferenceScriptPlanFlatUnit>;
-    return [
-      {
-        key: draftUnitKey(episode, i),
-        position: i + 1,
-        duration_seconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
-        sourceText: typeof u.source_text === "string" ? u.source_text : "",
-        scriptText: typeof u.text === "string" ? u.text : "",
-        editable: false,
-      },
-    ];
-  });
 }
 
 interface UnitViolations {
@@ -207,14 +149,15 @@ function InlineViolations({ violations, position }: { violations: ScriptReviewVi
         const location = v.locations
           ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
           .join(", ");
-        const message = speechKey && location
-          ? t(speechKey, { position, location })
-          : draftViolationMessage(v, t, position);
+        const message =
+          speechKey && location
+            ? t(speechKey, { position, location })
+            : draftViolationMessage(v, t, position);
         return (
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 违约由服务端整表算出、没有 ID，同一 code 可重复出现；只读文本、行内无状态
           <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-xs leading-snug text-destructive">
             <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
-            <span>{message}</span>
+            <span className="wrap-break-word">{message}</span>
           </p>
         );
       })}
@@ -224,6 +167,7 @@ function InlineViolations({ violations, position }: { violations: ScriptReviewVi
 
 function UnitCard({
   unit,
+  index,
   violations,
   softViolations,
   lookup,
@@ -242,11 +186,12 @@ function UnitCard({
   busy,
 }: {
   unit: DisplayUnit;
+  index: number;
   violations: UnitViolations;
   softViolations: DraftSoftViolation[];
   lookup: MentionLookup;
   projectHasScene: boolean;
-  onScrollRef: (key: string, el: HTMLElement | null) => void;
+  onScrollRef: (index: number, el: HTMLElement | null) => void;
   editing: boolean;
   onToggleEdit: () => void;
   onTextChange: ((text: string) => void) | null;
@@ -269,13 +214,17 @@ function UnitCard({
     [unit.scriptText, lookup, projectHasScene],
   );
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
+  const lineViolations = useMemo(
+    () => [...violations.byLine.entries()].sort(([a], [b]) => a - b).flatMap(([, list]) => list),
+    [violations.byLine],
+  );
 
   return (
     <article
-      ref={(el) => onScrollRef(unit.key, el)}
+      ref={(el) => onScrollRef(index, el)}
       className={`scroll-mt-28 rounded-lg border bg-card p-4 ${hasViolation ? "border-destructive/45" : "border-border"}`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <ItemPositionBadge position={unit.position} kind="unit" />
         {durationProblem ? (
           <span className="text-xs font-medium text-warn">
@@ -330,7 +279,7 @@ function UnitCard({
             </span>
           )}
         </summary>
-        {editing && unit.editable && onSourceTextChange ? (
+        {editing && onSourceTextChange ? (
           <Textarea
             value={unit.sourceText}
             onChange={(e) => onSourceTextChange(e.target.value)}
@@ -342,7 +291,7 @@ function UnitCard({
           />
         ) : (
           <p
-            className={`mt-1.5 border-l pl-3 text-xs leading-relaxed ${
+            className={`mt-1.5 border-l pl-3 text-xs leading-relaxed wrap-break-word ${
               anchorBroken ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground"
             }`}
           >
@@ -353,13 +302,16 @@ function UnitCard({
       </details>
 
       <div className="mt-3">
-        {editing && unit.editable && onTextChange ? (
-          <Textarea
-            value={unit.scriptText}
-            onChange={(e) => onTextChange(e.target.value)}
-            disabled={busy}
-            aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel })}
-          />
+        {editing && onTextChange ? (
+          <>
+            <Textarea
+              value={unit.scriptText}
+              onChange={(e) => onTextChange(e.target.value)}
+              disabled={busy}
+              aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel })}
+            />
+            <InlineViolations violations={lineViolations} position={unit.position} />
+          </>
         ) : (
           <ScriptHighlight
             text={unit.scriptText}
@@ -379,7 +331,7 @@ function UnitCard({
           <span>{t("reference_script_plan_unit_without_scene")}</span>
         </p>
       )}
-      <DraftSoftViolationList softViolations={softViolations} position={unit.position} />
+      <ReviewSoftViolationList softViolations={softViolations} position={unit.position} />
     </article>
   );
 }
@@ -417,7 +369,6 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
-  const [discardOpen, setDiscardOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     if (useProjectsStore.getState().currentProjectName !== projectName) return;
@@ -429,12 +380,13 @@ export function ReferenceScriptPlanPreviewPanel({
     draft,
     setDraft,
     dirty,
+    outdated,
     loading,
     loadError,
     saving,
     busy,
     retry: handleRetry,
-    refresh,
+    reloadLatest,
     save: handleSave,
     confirm: handleConfirm,
     confirming,
@@ -445,26 +397,8 @@ export function ReferenceScriptPlanPreviewPanel({
     onConfirmed: handleConfirmed,
   });
 
-  const quarantine = state?.quarantine ?? null;
-  const draftEditor = useDraftEditor<FlatUnitsDraft>({
-    projectName,
-    episode,
-    view: quarantine,
-    narrow: narrowFlatUnitsDraft,
-    onSettled: refresh,
-  });
-  const setDraftContent = draftEditor.setContent;
-  const onDraft = quarantine != null;
-
   const updateUnit = useCallback(
     (unitIndex: number, patch: { text?: string; source_text?: string; duration_seconds?: number }) => {
-      if (onDraft) {
-        setDraftContent((prev) => ({
-          ...prev,
-          units: prev.units.map((u, i) => (i === unitIndex ? { ...u, ...patch } : u)),
-        }));
-        return;
-      }
       setDraft((prev) => {
         if (!prev) return prev;
         return {
@@ -473,24 +407,23 @@ export function ReferenceScriptPlanPreviewPanel({
         };
       });
     },
-    [onDraft, setDraftContent, setDraft],
+    [setDraft],
   );
 
   const updateNewAssets = useCallback(
     (items: PlanNewAsset[]) => {
-      if (onDraft) setDraftContent((prev) => ({ ...prev, new_assets: items }));
-      else setDraft((prev) => (prev ? { ...prev, new_assets: items } : prev));
+      setDraft((prev) => (prev ? { ...prev, new_assets: items } : prev));
     },
-    [onDraft, setDraftContent, setDraft],
+    [setDraft],
   );
 
   const projectHasScene = useMemo(() => Object.values(lookup).some((kind) => kind === "scene"), [lookup]);
 
-  const cardRefs = useRef(new Map<string, HTMLElement>());
+  const cardRefs = useRef(new Map<number, HTMLElement>());
   const episodeLevelRef = useRef<HTMLElement | null>(null);
-  const setCardRef = useCallback((key: string, el: HTMLElement | null) => {
-    if (el) cardRefs.current.set(key, el);
-    else cardRefs.current.delete(key);
+  const setCardRef = useCallback((index: number, el: HTMLElement | null) => {
+    if (el) cardRefs.current.set(index, el);
+    else cardRefs.current.delete(index);
   }, []);
   const scrollTo = (el: HTMLElement | null | undefined) => el?.scrollIntoView({ behavior: "smooth", block: "center" });
 
@@ -515,7 +448,7 @@ export function ReferenceScriptPlanPreviewPanel({
   }
 
   const status = state?.status ?? "no_script_plan";
-  if (status === "no_script_plan" || (draft == null && quarantine == null)) {
+  if (draft == null || (status === "no_script_plan" && !dirty)) {
     if (status === "no_script_plan" && state?.script_overwrite == null) {
       return <ScriptPlanStart projectName={projectName} episode={episode} savedInstructions={savedInstructions} />;
     }
@@ -529,125 +462,27 @@ export function ReferenceScriptPlanPreviewPanel({
     );
   }
 
-  const draftBusy = draftEditor.saving || draftEditor.discarding || draftEditor.repairing;
-  const discardDialog = quarantine && (
-    <DiscardDraftDialog
-      open={discardOpen}
-      agentOwned={quarantine.editable_by === "agent"}
-      fallbackText={draftFallbackText(t, quarantine.doc_type, quarantine.formal_exists)}
-      loading={draftEditor.discarding}
-      onConfirm={async () => {
-        if (await draftEditor.discard()) setDiscardOpen(false);
-      }}
-      onCancel={() => setDiscardOpen(false)}
-    />
-  );
-
   const blankStartAction =
-    state?.script_overwrite == null && status !== "confirmed" && quarantine?.editable_by !== "agent" ? (
+    state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan />
     ) : null;
 
-  if (quarantine != null && quarantine.editable_by === "user") {
-    const content = draftEditor.content;
-    const displayUnits =
-      content != null ? flatDisplayUnits(content, episode) : brokenDraftDisplayUnits(quarantine.content, episode);
-    const groups = groupDraftViolations(
-      quarantine.violations,
-      displayUnits.map((u) => u.key),
-    );
-    const softByUnit = groupSoftViolations(quarantine.soft_violations, LIVE_SOFT_VIOLATION_CODES);
-    const supportedDurations = state?.supported_durations ?? null;
-    const draftNewAssets = content?.new_assets ?? [];
-    const draftLookup = lookupWithNewAssets(lookup, draftNewAssets);
-    return (
-      <div className="flex flex-col gap-3">
-        <InvalidDraftBar
-          violationCount={quarantine.violations.length}
-          itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
-            index,
-            label: t("common:item_position_unit", { position: index + 1 }),
-            count: list.length,
-          }))}
-          episodeLevelCount={groups.episodeLevel.length}
-          onJump={(index) => scrollTo(cardRefs.current.get(displayUnits[index].key))}
-          onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
-          editable={content != null}
-          dirty={draftEditor.dirty}
-          saving={draftEditor.saving}
-          repairing={draftEditor.repairing}
-          onRepair={draftEditor.repair}
-          busy={draftBusy}
-          outdated={draftEditor.outdated}
-          onSave={voidPromise(draftEditor.save)}
-          onReloadLatest={draftEditor.reloadLatest}
-          onHandToAgent={() =>
-            prefillAssistant(draftFixRequestText(t, episodeRef, "reference_script_plan", quarantine.violations))
-          }
-          onDiscard={() => setDiscardOpen(true)}
-          regenerateAction={
-            <>
-              {blankStartAction}
-              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" />
-            </>
-          }
-        />
-        {discardDialog}
-        <DraftEpisodeViolations
-          violations={groups.episodeLevel}
-          anchorRef={(el) => {
-            episodeLevelRef.current = el;
-          }}
-        />
-        {content != null && (
-          <NewAssetsSection
-            items={draftNewAssets}
-            entries={newAssetEntries(displayUnits)}
-            readOnly={false}
-            disabled={draftBusy}
-            onChange={updateNewAssets}
-          />
-        )}
-        {content != null && <PlanStructureHint />}
-        <div className="flex flex-col gap-2.5">
-          {displayUnits.map((unit, i) => (
-            <UnitCard
-              key={unit.key}
-              unit={unit}
-              violations={partitionViolations(groups.byItem.get(i) ?? [])}
-              softViolations={softByUnit.get(i) ?? []}
-              lookup={draftLookup}
-              projectHasScene={projectHasScene}
-              onScrollRef={setCardRef}
-              editing={unit.editable && editingUnitKey === unit.key}
-              onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
-              onTextChange={unit.editable ? (text) => updateUnit(i, { text }) : null}
-              onSourceTextChange={unit.editable ? (sourceText) => updateUnit(i, { source_text: sourceText }) : null}
-              supportedDurations={supportedDurations}
-              durationEndpointFixed={false}
-              durationProblem={null}
-              split={null}
-              outOfTier={false}
-              onDurationChange={unit.editable ? (seconds) => updateUnit(i, { duration_seconds: seconds }) : null}
-              busy={draftBusy}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const agentEditing = quarantine != null;
-  const confirmed = status === "confirmed" && !agentEditing;
-  const readOnly = agentEditing || confirmed;
-  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  const confirmed = status === "confirmed";
+  const removed = status === "no_script_plan";
+  const readOnly = confirmed || removed;
+  const overwrite = readOnly ? null : (state?.script_overwrite ?? null);
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
+  const blockingIssues = outdated ? [] : (state?.blocking_issues ?? []);
   const videoModelBlocked = modelUnresolved && !confirmLocked;
-  const displayUnits: DisplayUnit[] = draft ? structuredDisplayUnits(draft) : [];
-  const newAssets = draft?.new_assets ?? [];
+  const displayUnits = structuredDisplayUnits(draft);
+  const groups = groupDraftViolations(
+    blockingIssues,
+    displayUnits.map((u) => u.key),
+  );
+  const newAssets = draft.new_assets ?? [];
   const reviewLookup = lookupWithNewAssets(lookup, newAssets);
-  const softByUnit = groupSoftViolations(state?.soft_violations ?? [], LIVE_SOFT_VIOLATION_CODES);
+  const softByUnit = groupSoftViolations(outdated ? [] : (state?.soft_violations ?? []), LIVE_SOFT_VIOLATION_CODES);
   const durationTiers = state?.duration_tiers ?? null;
   const outOfTierUnitKeys = new Set(
     displayUnits
@@ -667,120 +502,93 @@ export function ReferenceScriptPlanPreviewPanel({
     unknownUnits.length > 0
       ? tierProblemText(t, unknownUnits[0].capability.problem!, unknownUnits[0].capability.hydrated_capability)
       : null;
-  const overwriteBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0;
-  const confirmBlockedHint = videoModelBlocked
-    ? t("dashboard:review_video_model_unresolved_hint")
-    : firstUnknownProblem
-      ? firstUnknownProblem.hint
-      : outOfTierUnitKeys.size > 0
-        ? t("reference_script_plan_duration_out_of_tier_hint")
-        : undefined;
+  const hasBlockingIssues = blockingIssues.length > 0;
+  const onlyCapabilityBlocking =
+    videoModelBlocked && hasBlockingIssues && blockingIssues.every((issue) => issue.code === "video_capability_unavailable");
+  const confirmBlocked =
+    outdated || removed || videoModelBlocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || hasBlockingIssues;
+  const confirmBlockedHint =
+    outdated || removed
+      ? t(confirmed ? "dashboard:review_confirmed_conflict_hint" : "dashboard:review_outdated_hint")
+      : hasBlockingIssues && !onlyCapabilityBlocking
+        ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
+        : videoModelBlocked
+          ? t("dashboard:review_video_model_unresolved_hint")
+          : firstUnknownProblem
+            ? firstUnknownProblem.hint
+            : outOfTierUnitKeys.size > 0
+              ? t("reference_script_plan_duration_out_of_tier_hint")
+              : undefined;
 
   return (
     <div className="flex flex-col gap-3">
-      {agentEditing ? (
-        <AgentDraftBar
-          busy={draftBusy}
-          onFinish={() =>
-            prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episodeRef, docType: "reference_script_plan" }))
-          }
-          onDiscard={() => setDiscardOpen(true)}
-        />
-      ) : (
-        <header className="sticky top-0 z-sticky flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-3.5 py-2.5">
-          <div className="flex items-center gap-2">
-            {confirmed ? (
-              <CheckCircle2 aria-hidden className="size-4 shrink-0 text-good" />
-            ) : (
-              <Clock aria-hidden className="size-4 shrink-0 text-warn" />
-            )}
-            <div className="flex flex-col">
-              <span className="text-sm font-medium text-foreground">
-                {confirmed ? t("dashboard:review_status_confirmed") : t("dashboard:review_status_pending")}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {scriptMissing
-                  ? t("dashboard:review_script_missing_hint")
-                  : confirmed
-                    ? t("dashboard:review_confirmed_hint")
-                    : overwrite
-                      ? t("dashboard:review_overwrite_hint")
-                      : t("dashboard:review_pending_hint")}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {confirmed && onOpenTimeline && (
-              <Button variant="outline" size="sm" onClick={onOpenTimeline}>
-                <ArrowRight aria-hidden data-icon="inline-start" />
-                {t("dashboard:review_open_timeline")}
-              </Button>
-            )}
+      <ScriptReviewStatusHeader
+        confirmed={confirmed}
+        readOnly={readOnly}
+        scriptMissing={scriptMissing}
+        overwrite={overwrite != null}
+        blockingCount={blockingIssues.length}
+        itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
+          index,
+          label: t("common:item_position_unit", { position: index + 1 }),
+          count: list.length,
+        }))}
+        episodeLevelCount={groups.episodeLevel.length}
+        onJump={(index) => scrollTo(cardRefs.current.get(index))}
+        onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
+        dirty={dirty}
+        outdated={outdated}
+        busy={busy}
+        saving={saving}
+        confirming={confirming}
+        confirmLocked={confirmLocked}
+        confirmBlocked={confirmBlocked}
+        confirmBlockedHint={confirmBlockedHint}
+        saveLabel={t("common:save")}
+        confirmLabel={t("reference_script_plan_confirm_continue")}
+        onSave={voidPromise(handleSave)}
+        onConfirm={voidPromise(() => handleConfirm())}
+        onRequestOverwrite={() => setOverwriteOpen(true)}
+        onReloadLatest={reloadLatest}
+        onHandToAgent={
+          !confirmed && hasBlockingIssues
+            ? () => prefillAssistant(scriptPlanFixRequestText(t, episodeRef, blockingIssues))
+            : undefined
+        }
+        onOpenTimeline={confirmed ? onOpenTimeline : undefined}
+        regenerateAction={
+          <>
             {blankStartAction}
             <ScriptPlanButton
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-             
-              disabledReason={!readOnly && dirty ? t("dashboard:script_plan_dirty_hint") : null}
+              disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
-            {!readOnly && dirty && (
-              <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
-                <Save aria-hidden data-icon="inline-start" />
-                {saving ? t("common:saving") : t("common:save")}
-              </Button>
-            )}
-            {overwrite ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setOverwriteOpen(true)}
-                disabled={busy || overwriteBlocked}
-                title={confirmBlockedHint}
-              >
-                <AlertTriangle aria-hidden data-icon="inline-start" />
-                {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={voidPromise(() => handleConfirm())}
-                disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || videoModelBlocked}
-                title={confirmBlockedHint}
-              >
-                {confirmLocked ? (
-                  <Lock aria-hidden data-icon="inline-start" />
-                ) : (
-                  <CheckCircle2 aria-hidden data-icon="inline-start" />
-                )}
-                {confirming
-                  ? t("dashboard:review_confirming")
-                  : scriptMissing
-                    ? t("dashboard:review_rematerialize_action")
-                    : confirmed
-                      ? t("dashboard:review_confirmed_badge")
-                      : t("reference_script_plan_confirm_continue")}
-              </Button>
-            )}
-          </div>
-        </header>
-      )}
-      {discardDialog}
+          </>
+        }
+      />
 
-      {videoModelBlocked && !agentEditing && <VideoModelUnresolvedNotice projectName={projectName} />}
-      {firstUnknownProblem && !agentEditing && (
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+      {firstUnknownProblem && (
         <p role="alert" className="rounded-md border border-warn/40 bg-warn/10 p-3 text-sm text-subtle-foreground">
           {firstUnknownProblem.hint}
         </p>
       )}
 
-      {overwrite && !agentEditing && (
+      <ReviewEpisodeBlockingIssues
+        issues={groups.episodeLevel}
+        anchorRef={(el) => {
+          episodeLevelRef.current = el;
+        }}
+      />
+
+      {overwrite && (
         <ScriptOverwriteConfirmDialog
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
-          confirmDisabled={overwriteBlocked}
+          confirmDisabled={confirmBlocked}
           onConfirm={async () => {
             if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
           }}
@@ -793,32 +601,31 @@ export function ReferenceScriptPlanPreviewPanel({
         targetSeconds={state?.episode_target_duration ?? null}
       />
 
-      {draft != null && (
-        <NewAssetsSection
-          items={newAssets}
-          entries={newAssetEntries(displayUnits)}
-          readOnly={readOnly}
-          disabled={busy}
-          onChange={updateNewAssets}
-        />
-      )}
+      <NewAssetsSection
+        items={newAssets}
+        entries={newAssetEntries(displayUnits)}
+        readOnly={readOnly}
+        disabled={busy}
+        onChange={updateNewAssets}
+      />
 
       {!readOnly && <PlanStructureHint />}
 
       <div className="flex flex-col gap-2.5">
-        {displayUnits.map((unit, i) => {
+        {withUniqueKeys(displayUnits, (unit) => unit.key).map(({ item: unit, key: unitKey, index: i }) => {
           const capability = unitCapability(unit, durationTiers);
           return (
             <UnitCard
-              key={unit.key}
+              key={unitKey}
               unit={unit}
-              violations={partitionViolations([])}
+              index={i}
+              violations={partitionViolations(groups.byItem.get(i) ?? [])}
               softViolations={softByUnit.get(i) ?? []}
               lookup={reviewLookup}
               projectHasScene={projectHasScene}
               onScrollRef={setCardRef}
-              editing={!readOnly && editingUnitKey === unit.key}
-              onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
+              editing={!readOnly && editingUnitKey === unitKey}
+              onToggleEdit={() => setEditingUnitKey((prev) => (prev === unitKey ? null : unitKey))}
               onTextChange={readOnly ? null : (text) => updateUnit(i, { text })}
               onSourceTextChange={readOnly ? null : (sourceText) => updateUnit(i, { source_text: sourceText })}
               supportedDurations={unitTiers(capability)}

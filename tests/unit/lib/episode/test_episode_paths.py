@@ -10,7 +10,6 @@ from pathlib import Path
 
 from lib.episode import episode_paths
 from lib.script import script_review
-from server.routers import files
 
 
 def test_script_plan_filename_by_content_mode():
@@ -41,7 +40,7 @@ def test_episode_drafts_dir():
     assert episode_paths.episode_drafts_dir(Path("/p"), 2) == Path("/p/drafts/episode_2")
 
 
-def test_new_content_mode_registered_once_covers_gate_and_web(monkeypatch, tmp_path):
+def test_gate_recognizes_registered_content_mode(monkeypatch, tmp_path):
     """在 SCRIPT_PLAN_FILENAMES 登记一处新模式，gate 路径与 web 阶段文件应自动一致。
 
     该集的脚本进度（``script_status``）由项目摘要按 script_plan 与正式脚本的产物态派生，探测的
@@ -54,17 +53,13 @@ def test_new_content_mode_registered_once_covers_gate_and_web(monkeypatch, tmp_p
     assert gate_path is not None
     assert gate_path == tmp_path / "drafts" / "episode_1" / "script_plan_docu.json"
 
-    assert files._stage_files("docudrama") == {"script_plan": "script_plan_docu.json"}
 
-
-def test_ad_has_no_structured_script_plan_across_web_and_gate(tmp_path):
+def test_ad_has_no_structured_script_plan(tmp_path):
     """ad 不走结构化 script_plan：web 阶段映射为空、gate 路径解析为 None。"""
-    assert files._stage_files("ad") == {}
-    assert files._stage_files("ad", generation_mode="reference_video") == {}
     assert script_review.script_plan_path(tmp_path, {"content_mode": "ad", "episodes": [{"episode": 1}]}, 1) is None
 
 
-def test_gate_only_json_and_web_also_md():
+def test_gate_only_json_and_legacy_read_candidates_also_md():
     """gate 只认结构化 .json；web 读取兼认旧版 .md。"""
     assert all(name.endswith(".json") for name in episode_paths.SCRIPT_PLAN_FILENAMES.values())
     assert "script_plan_segments.md" in episode_paths.script_plan_read_candidates("narration")
@@ -79,10 +74,6 @@ def test_script_plan_path_follows_reference_video_across_content_modes(tmp_path)
         project = {"content_mode": content_mode, "generation_mode": "reference_video", "episodes": [{"episode": 1}]}
         assert script_review.script_plan_path(tmp_path, project, 1) == (
             episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
-        )
-        assert script_review.script_plan_quarantine_path(tmp_path, project, 1) == (
-            episode_paths.episode_drafts_dir(tmp_path, 1)
-            / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
         )
 
     assert script_review.script_plan_path(tmp_path, {"content_mode": "narration", "episodes": [{"episode": 1}]}, 1) == (

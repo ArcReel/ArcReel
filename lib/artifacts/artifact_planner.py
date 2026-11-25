@@ -34,7 +34,11 @@ from lib.artifacts.artifact_provenance import (
     build_script_plan_basis,
     decode_script_plan_source,
 )
-from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
+from lib.artifacts.artifact_version_provenance import (
+    is_uploaded_video_version,
+    parse_typed_media_version_target,
+    uploaded_video_version_basis,
+)
 from lib.artifacts.generation_input import (
     ImageGenerationInput,
     InputRefused,
@@ -48,13 +52,13 @@ from lib.artifacts.media_artifact_currency import build_current_audio_artifact_b
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
+    UPLOADED_VIDEO_BASIS_KIND,
     GridStoryboardVisual,
     VisualReference,
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
     build_uploaded_asset_sheet_basis,
     build_uploaded_storyboard_basis,
-    build_uploaded_video_basis,
     project_basis_records_asset_names,
     project_basis_style_description,
     visual_file_digest,
@@ -64,6 +68,7 @@ from lib.edit_timeline.bgm import bgm_ids
 from lib.edit_timeline.model import BgmClip
 from lib.episode.episode_paths import episode_source_relpath
 from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, SourceOrigin, episode_entry, episode_source_origin
+from lib.infra.content_digest import unprefixed
 from lib.jianying_draft.basis import (
     DraftNarration,
     DraftUnitBasis,
@@ -1125,17 +1130,24 @@ class TargetStatePlanner:
             self._skip(key, artifact_path, "version history has no selected version")
             return
         record = selected[0]
-        if resource_type != "audio":
+        if is_uploaded_video_version(resource_type, record):
             if self.manifest_snapshot is None:
                 uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
             elif selected_manual_upload_snapshot(resource, resource_type) is not None:
                 uploaded = self._registered_media_digest(key, artifact_path)
             else:
                 uploaded = None
-            if uploaded is not None:
-                basis = self.bases[key] = build_uploaded_video_basis(content_digest=uploaded)
-                self.entries[key] = self._media_entry(artifact_path, basis.digest, uploaded)
+            if uploaded is None:
+                self._skip(key, artifact_path, "uploaded video snapshot cannot be verified")
                 return
+            try:
+                basis = uploaded_video_version_basis(record, snapshot_digest=uploaded)
+            except ValueError as exc:
+                self._skip(key, artifact_path, str(exc))
+                return
+            self.bases[key] = basis
+            self.entries[key] = self._media_entry(artifact_path, basis.digest, uploaded)
+            return
         try:
             target = parse_typed_media_version_target(resource_type, record)
         except (TypeError, ValueError):
@@ -1434,7 +1446,6 @@ class TargetStatePlanner:
                         episode=episode,
                         item=items[unit_id],
                         unit_id=unit_id,
-                        resource_type=resource_type,
                         narration=variant.narration,
                         versions=history,
                     )
@@ -1498,18 +1509,24 @@ class TargetStatePlanner:
                 episode=episode,
                 item=items[unit_id],
                 unit_id=unit_id,
-                resource_type=resource_type,
                 narration=narration,
                 versions=versions,
             )
             for unit_id in draft_unit_ids(document.latest.content, items)
         ]
+        bucket = versions.get(resource_type)
+        video_versions = {}
+        for unit in units:
+            history = bucket.get(unit.unit_id) if isinstance(bucket, Mapping) else None
+            if isinstance(history, Mapping) and type(version := history.get("current_version")) is int:
+                video_versions[unit.unit_id] = version
         basis = build_jianying_draft_basis(
             timeline_id=timeline_id,
             revision=document.latest,
             narration=narration,
             aspect_ratio=resolve_video_aspect_ratio(self.project, resource_type),
             units=units,
+            video_versions=video_versions,
             bgm_sources=self._bgm_sources(document.latest.content.bgm),
         )
         self._add_if_present(key, jianying_draft_artifact_path(episode_number, timeline_id, narration), basis)
@@ -1520,23 +1537,9 @@ class TargetStatePlanner:
         episode: _EpisodeState,
         item: Mapping[str, Any],
         unit_id: str,
-        resource_type: str,
         narration: DraftNarration,
         versions: Mapping[str, Any],
     ) -> DraftUnitBasis:
-        bucket = versions.get(resource_type)
-        history = bucket.get(unit_id) if isinstance(bucket, Mapping) else None
-        manual_snapshot = selected_manual_upload_snapshot(history, resource_type)
-        if manual_snapshot is not None:
-            assert isinstance(history, Mapping)
-            snapshot = self._safe_present_path(manual_snapshot)
-            if snapshot is None:
-                return DraftUnitBasis(unit_id, unavailable=True)
-            try:
-                content_digest = media_content_digest(snapshot)
-            except OSError:
-                return DraftUnitBasis(unit_id, unavailable=True)
-            return DraftUnitBasis(unit_id, manual_upload=(cast(int, history["current_version"]), content_digest))
         audio_bucket = versions.get("audio")
         audio = audio_bucket.get(unit_id) if isinstance(audio_bucket, Mapping) else None
         audio_version = audio.get("current_version") if isinstance(audio, Mapping) else None
@@ -1602,6 +1605,8 @@ class TargetStatePlanner:
             raw_audio_enabled.get("audio_enabled") if isinstance(raw_audio_enabled, Mapping) else None
         )
         if frozen_preparation is None or not isinstance(provider_audio_enabled, bool):
+            return None
+        if frozen_video.evidence.basis.kind == UPLOADED_VIDEO_BASIS_KIND and provider_audio_enabled is not True:
             return None
         try:
             frozen = materialize_speech_presentation(
@@ -1731,25 +1736,31 @@ class TargetStatePlanner:
             or raw.get("artifact_path") != snapshot_path
         ):
             return None
-        try:
-            target = parse_typed_media_version_target(resource_type, record)
-            embedded_basis = ArtifactBasisDescriptor.from_dict(raw.get("basis"))
-        except (TypeError, ValueError):
-            return None
-        if (
-            target.episode != episode.episode
-            or normalize_script_binding(target.script_file) != episode.script_file
-            or embedded_basis != target.basis
-        ):
-            return None
         snapshot = self._safe_present_path(cast(str, snapshot_path))
         artifact = self._safe_present_path(planned.artifact_path) if not unselected else None
         if snapshot is None or (not unselected and artifact is None):
             return None
         try:
-            if artifact is not None and (snapshot.samefile(artifact) or snapshot.read_bytes() != artifact.read_bytes()):
-                return None
             content_digest = media_content_digest(snapshot)
+            if artifact is not None and (
+                snapshot.samefile(artifact) or media_content_digest(artifact) != content_digest
+            ):
+                return None
+            embedded_basis = ArtifactBasisDescriptor.from_dict(raw.get("basis"))
+            if is_uploaded_video_version(resource_type, record):
+                expected_basis = ArtifactBasisDescriptor.from_basis(
+                    uploaded_video_version_basis(record, snapshot_digest=unprefixed(content_digest))
+                )
+            else:
+                target = parse_typed_media_version_target(resource_type, record)
+                if (
+                    target.episode != episode.episode
+                    or normalize_script_binding(target.script_file) != episode.script_file
+                ):
+                    return None
+                expected_basis = target.basis
+            if embedded_basis != expected_basis:
+                return None
             evidence = SelectedMediaEvidence(
                 basis=embedded_basis,
                 content_digest=cast(str, raw.get("content_digest")),
@@ -1773,7 +1784,7 @@ class TargetStatePlanner:
             artifact_path=frozen.artifact_path,
             version=frozen.version,
             selection=frozen.selection,
-            currency="current" if planned.basis_digest == target.basis.digest else "stale",
+            currency="current" if planned.basis_digest == embedded_basis.digest else "stale",
             evidence=evidence,
         )
         return frozen, current

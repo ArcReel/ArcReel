@@ -47,7 +47,7 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 
 ## Save to the Global Asset Library and Apply to Other Projects {#asset-library-across-projects}
 
-When **Add to Library** finds an entry of the same type and name, you can change the name before adding it or choose **Overwrite Existing** to update that entry. If the project asset is being generated or edited, wait for the task to finish before overwriting.
+When **Add to Library** finds an entry of the same type and name, you can change the name before adding it or choose **Overwrite Existing** to update that entry. If a generation or edit task for the asset image or any of its derivatives is queued or running, wait for it to finish before adding the asset to the library. You can add a character while a voice preview is in progress.
 
 When you save a project asset to the global asset library, or apply an asset from the global asset library to another project, the **Available** links of the current version of its asset image and derivative images go along with the images. They still belong to the original asset library account, site, region, and project.
 
@@ -55,6 +55,8 @@ When you save a project asset to the global asset library, or apply an asset fro
 - Generation still decides whether a link applies by the inference credential actually used for the call. If that credential is bound to a different account, the copied link does not apply and the image content is sent as usual.
 - Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
 - After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
+
+When you choose "Overwrite the project's asset of the same type", an asset with a queued or running task, including a character voice preview, stays as it is. Other idle assets in the batch can still be applied. Try overwriting again when the task finishes, or choose "Add with a new name".
 
 ## Project ZIPs and Provider Asset Links {#asset-library-in-project-zip}
 

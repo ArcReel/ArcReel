@@ -7,4 +7,4 @@
 - 音色列表（「豆包语音合成模型 2.0」一节）：[音色列表](https://docs.volcengine.com/docs/6561/1257544)
 - 计费字符的计数规则与按量价格（目录价目表的依据，不是套餐内调用的扣减规则）：[计费说明](https://docs.volcengine.com/docs/6561/1359370)
 - 套餐额度、语音模型的日限额与月限额、超额后付费：[套餐概览](https://docs.volcengine.com/docs/ark/agent-plan-personal-plan-overview?lang=zh)、[超额后付费管理](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh)
-- 代码：`lib/backends/backend_assembly/specs.py::PROVIDER_ONLY_ENDPOINTS["ark-agent-plan-tts"]`、`lib/backends/audio_backends/ark_agent_plan.py::ArkAgentPlanAudioBackend`
+- 代码：`lib/backends/builtin_endpoints.py::PROVIDER_ONLY_ENDPOINTS["ark-agent-plan-tts"]`、`lib/backends/audio_backends/ark_agent_plan.py::ArkAgentPlanAudioBackend`

@@ -24,6 +24,7 @@ export interface ProjectChange {
     | "shot"
     | "reference_unit"
     | "episode"
+    | "script_plan"
     | "overview"
     | "draft"
     | "grid"

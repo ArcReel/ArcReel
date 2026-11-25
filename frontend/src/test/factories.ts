@@ -59,7 +59,6 @@ export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowC
     episode_source: "present",
     episode_plan_stale: false,
     expected_stale_script_plan_revision: null,
-    drafts: [],
     formal_script: "present",
     script_item_count: 2,
     pending_authoring_ids: [],

@@ -10,7 +10,7 @@ invoked_by:
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]
-output_schema: lib.script.script_models:ReferencePromptAuthoringFlatScript
+output_schema: lib.script.script_models:ReferenceAuthoringResponse
 slots:
   target_language: 输出语言
   project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
@@ -21,7 +21,7 @@ slots:
   character_names: 角色候选引用名列表（含 本体/衍生）
   scene_names: 场景候选引用名列表
   prop_names: 道具候选引用名列表
-  units_content: 已确认视频单元的渲染文本（由代码投影：序号 + 时长 + 正文）
+  units_content: 已确认视频单元的渲染文本（由代码投影：unit_id + 时长 + 正文）
   episode: 当前集号
   max_refs: 单个视频单元的参考图上限；不限时传 null
   instructions: 附加指令正文；缺值传 null
@@ -35,9 +35,9 @@ protected: false
 **输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。
 **结构约束**：字段 / 必填项由 response_schema 强制；本提示只解释**如何写好正文**。
 
-# 保结构要求（违反即整份产出被拒）
+# 保结构要求
 
-- `units` 数组与 script_plan_units **等长、同序**：不合并、不拆分、不增删 unit。
+- `units` 数组与 script_plan_units 一一对应，每项原样返回对应的 `unit_id`：不合并、不拆分、不增删 unit。
 - 每个 unit 的**台词与画外音逐字保留**：不改词、不增删、不重排、不换说话人。
   台词配不上你想要的画面时，请按台词写画面——**不要**改台词。
 - 正文里新出现的 `@[名称]` 必须是候选表中的登记名（script_plan 没引用过的资产也可以引用，但必须已登记）。
@@ -90,7 +90,7 @@ protected: false
 - 场景引用逐 unit 保留：script_plan 正文里该 unit 引用的场景资产必须在展开后的正文中照常 `@` 引用，
   不因为上一个 unit 已经引用过同一场景就省略；script_plan 未引用场景而候选表里有匹配该地点的场景时，补上引用。
 
-`title` 给本集拟一个简短标题。请按 script_plan_units 顺序逐 unit 产出。
+请按 script_plan_units 顺序逐 unit 产出。
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

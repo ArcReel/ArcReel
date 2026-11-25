@@ -1982,7 +1982,9 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
     assert confirmed.next_action.type == "generate_storyboards"
 
 
-def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(tmp_path: Path) -> None:
+def test_unconfirmed_script_plan_points_to_confirm_and_ignores_legacy_invalid_file(tmp_path: Path) -> None:
+    from lib.episode.episode_paths import REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
+
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source(pm, project_path)
     pm.update_project(
@@ -1995,15 +1997,15 @@ def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(t
     draft_dir.mkdir(parents=True)
     _write_episode_source(project_path, 1)
     atomic_write_json(draft_dir / "script_plan_reference_units.json", {"units": []})
-    quarantine = script_review.script_plan_quarantine_path(project_path, pm.load_project("demo"), 1)
-    assert quarantine is not None
-    atomic_write_json(quarantine, {})
+    _register_script_plan(project_path)
+    legacy_invalid = draft_dir / REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
+    legacy_invalid.write_text('{"legacy": true}', encoding="utf-8")
 
     status = WorkflowStateService(pm).get_status("demo")
-    assert status.artifacts["script_plan"]["state"] == "blocked"
+    assert status.artifacts["script_plan"]["state"] == "current"
     assert status.blockers == []
-    assert status.next_action.type == "resolve_draft"
-    assert status.next_action.args["needs_repair"] is True
+    assert status.next_action.type == "confirm_script_plan"
+    assert legacy_invalid.read_text(encoding="utf-8") == '{"legacy": true}'
 
 
 def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool) -> tuple[ProjectManager, Path, Path]:
@@ -2069,23 +2071,6 @@ def test_confirmed_script_plan_change_keeps_the_formal_script_current(tmp_path: 
 
     assert status.artifacts["script"]["state"] == "current"
     assert status.next_action.type == "generate_storyboards"
-
-
-def test_quarantined_script_plan_rerun_is_resolved_before_the_formal_script_moves_on(tmp_path: Path) -> None:
-    """重跑落了待修复草稿、但正式脚本在用：脚本规划标 blocked 且不给阻塞项，下一步先处置草稿。"""
-    pm, project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
-    quarantine = script_review.script_plan_quarantine_path(project_path, pm.load_project("demo"), 1)
-    assert quarantine is not None
-    atomic_write_json(quarantine, {})
-
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.artifacts["script_plan"]["state"] == "blocked"
-    assert status.gates["script_plan_review"]["state"] == "pending"
-    assert not status.blockers
-    assert status.content is not None
-    assert [(draft.kind, draft.needs_repair) for draft in status.content.drafts] == [("narration_script_plan", True)]
-    assert status.next_action.type == "resolve_draft"
 
 
 def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_path: Path) -> None:
@@ -2587,8 +2572,11 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
     assert status.next_action.args["episode_id"] == 1
 
 
-def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
-    """参考生视频确认后单元全部待编写：下一步补写单元，而不是直接进入生成。"""
+@pytest.mark.parametrize("legacy_invalid_file", [False, True])
+def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path, legacy_invalid_file: bool) -> None:
+    """参考生视频确认后单元全部待编写：下一步补写单元，盘上历史 .invalid.json 不拦截也不被清理。"""
+    from lib.episode.episode_paths import REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME
+
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source(pm, project_path)
     pm.update_project(
@@ -2618,9 +2606,15 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
         },
     )
 
+    legacy_path = draft_dir / REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME
+    if legacy_invalid_file:
+        legacy_path.write_text('{"legacy": true}', encoding="utf-8")
     status = WorkflowStateService(pm).get_status("demo")
+    assert status.operations["author_prompts"].state == "admitted"
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1U01"]
+    if legacy_invalid_file:
+        assert legacy_path.read_text(encoding="utf-8") == '{"legacy": true}'
 
 
 def test_pending_ad_shots_ask_to_author_prompts(tmp_path: Path) -> None:

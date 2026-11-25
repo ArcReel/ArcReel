@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { BRAND } from "@/branding";
+import i18n from "@/i18n";
 import { AboutSection } from "./AboutSection";
 import type { GetSystemVersionResponse } from "@/types/system";
 
@@ -109,5 +111,42 @@ describe("AboutSection release notes", () => {
       "href",
       "https://github.com/example/ArcReel/releases/tag/v1.1.0",
     );
+  });
+});
+
+describe("AboutSection documentation link", () => {
+  beforeEach(() => {
+    vi.spyOn(API, "getSystemVersion").mockResolvedValue(VERSION_RESPONSE);
+  });
+
+  afterEach(async () => {
+    if (i18n.language !== "zh") {
+      await i18n.changeLanguage("zh");
+    }
+  });
+
+  it("renders the documentation external link for Chinese UI", async () => {
+    render(<AboutSection />);
+
+    const link = await screen.findByRole("link", { name: "打开使用文档" });
+    expect(link).toBeVisible();
+    expect(link).toHaveAttribute("href", `${BRAND.docsUrl}/`);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it.each([
+    ["en", "Open Documentation"],
+    ["vi", "Mở tài liệu hướng dẫn"],
+    ["ru", "Открыть документацию"],
+  ] as const)("points to /en/ when UI language is %s", async (lang, linkName) => {
+    await i18n.changeLanguage(lang);
+    render(<AboutSection />);
+
+    const link = await screen.findByRole("link", { name: linkName });
+    expect(link).toBeVisible();
+    expect(link).toHaveAttribute("href", `${BRAND.docsUrl}/en/`);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

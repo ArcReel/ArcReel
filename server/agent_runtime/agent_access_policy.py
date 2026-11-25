@@ -19,16 +19,9 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id
-from lib.episode.episode_paths import (
-    AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
-    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
-)
+from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_trash import TRASH_DIRNAME
-from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -715,7 +708,6 @@ class AgentAccessPolicy:
         return False
 
     _PROTECTED_SCRIPT_PLAN_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
-    _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
     def _is_protected_edit_timeline(cls, target: Path, bases: list[Path]) -> bool:
@@ -779,36 +771,15 @@ class AgentAccessPolicy:
         return any(cls._is_within_for_compare(target, base / "versions") for base in bases)
 
     @classmethod
-    def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
-        """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
-
-        与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这些文件各有多条写入路径
-        （迁移读改写、Web 端保存、重生成 / 晋升写盘、Agent 修改），除 Agent 外都持
-        ``ProjectManager.file_lock`` 的同一把 per-path 锁；Agent 的 Write/Edit 跑在沙箱里、
-        取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
-        ``open_draft`` → ``patch_draft`` → 晋升，写盘只发生在持锁的晋升侧。
-
-        按文件名匹配、不按项目变体解析：写禁在会话装配前就要成立，而项目的 content_mode /
-        generation_mode 运行时可变。多认一两个本项目用不到的 script_plan 文件名无害——那些文件在
-        该项目里本就没有合法写入者。
-
-        正式文件与 ``.invalid.json`` 草稿均拦截：草稿修改必须走 revisioned MCP 工具，才能与
-        Web/remote patch、promotion 和 generation 共用 per-path 锁与 OCC，避免直写绕过并发控制。
-
-        ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
-        集号不枚举、按 ``episode_*`` 目录名匹配：同上，集是运行时增删的。
-        """
+    def _matches_episode_draft(cls, target: Path, bases: list[Path], *, filenames: frozenset[str]) -> bool:
+        """Match an episode-level filename under a project drafts directory."""
         target_s = cls._normalize_path_for_protected_compare(target)
         for base in bases:
             drafts_dir = cls._normalize_path_for_protected_compare(base / "drafts")
             if not target_s.startswith(drafts_dir + os.sep):
                 continue
             parts = target_s[len(drafts_dir) + 1 :].split(os.sep)
-            if (
-                len(parts) == 2
-                and parts[0].startswith("episode_")
-                and parts[1] in cls._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM | cls._PROTECTED_QUARANTINE_FILENAMES_NORM
-            ):
+            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] in filenames:
                 return True
         return False
 
@@ -877,16 +848,17 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
     ),
     ProtectedWriteRule(
         name="formal_script_plan",
-        matches=AgentAccessPolicy._is_protected_formal_script_plan,
+        matches=lambda target, bases: AgentAccessPolicy._matches_episode_draft(
+            target, bases, filenames=AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM
+        ),
         deny_message=(
-            "访问被拒绝：正式 script_plan 与待修复草稿（"
+            "访问被拒绝：正式脚本规划（"
             + " / ".join(sorted(AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES))
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
-            f'请改用 MCP 工具——mcp__arcreel__{OPEN_DRAFT_TOOL_NAME}({{"episode_id": N, "doc_type": "..."}}) '
-            "读取可编辑草稿，用 mcp__arcreel__patch_draft 提交修改，再用 "
-            f"mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
+            "请先用 mcp__arcreel__get_script_plan_content 读取脚本规划与 revision，"
+            "再用 mcp__arcreel__patch_script_plan 提交增量修改。"
         ),
         sandbox_subpaths=("drafts",),
     ),
@@ -895,13 +867,4 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
 AgentAccessPolicy._PROTECTED_SCRIPT_PLAN_FILENAMES_NORM = frozenset(
     AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
     for name in AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
-)
-AgentAccessPolicy._PROTECTED_QUARANTINE_FILENAMES_NORM = frozenset(
-    AgentAccessPolicy._normalize_path_for_protected_compare(Path(name))
-    for name in (
-        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
-    )
 )

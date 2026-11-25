@@ -15,7 +15,7 @@ applies_to:
   source_kind:
   - novel
   - screenplay
-output_schema: lib.script.script_models:DramaNormalizedScript
+output_schema: lib.script.script_models:DramaScriptPlanOutput
 slots:
   source_kind: 源文类型
   target_language: 输出语言，取项目源语言
@@ -97,7 +97,6 @@ protected: false
 
 ## 基础字段
 
-- **scene_id**：`E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01），按分镜顺序递增，不得用其他集号前缀。
 - **duration_seconds**：
   - 档位：{% if default_duration %}从支持的秒数档位（{{ durations }}）中按画面内容选择：默认 {{ default_duration }} 秒，打斗 / 大场面 / 情绪铺陈等画面可取更长档至 {{ max_duration }} 秒，不要默认选最短档{% else %}从支持的秒数档位（{{ durations }}）中按画面内容复杂度匹配合适时长（最长 {{ max_duration }} 秒），不强制默认值{% endif %}。
   - 口播下界：先估算该场 utterances（台词 + 画外音）念完约需的秒数（口播语速约 {{ speech_rate }} {{ speech_unit }}/秒），在上述档位里取**不低于**这个秒数的最接近档位。这是单向下界，画面 / 情绪留白可在此之上取更长档位；utterances 为空的分镜没有此下界；若口播估算已超过最长 {{ max_duration }} 秒，取最长档即可，不删减台词。

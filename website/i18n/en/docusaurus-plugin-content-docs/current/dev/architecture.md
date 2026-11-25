@@ -85,11 +85,28 @@ Projects reference material identities. Material storage holds the bytes, and ea
 
 `lib/generation/` persists and schedules tasks. The generation worker allocates concurrency by provider and media type, and local rendering has a dedicated lane. Project state updates when a task reaches a terminal state.
 
+Clients can use `GET /api/v1/tasks/active` to read queued and running tasks. The optional `project_name` query parameter limits the snapshot to one project. `GET /api/v1/projects/{project_name}/tasks/active` provides the same project snapshot. The response contains `items` and `truncated`. When more than 5,000 visible tasks are active, the snapshot returns 5,000 rows and sets `truncated` to `true`. The recent task list remains paginated by update time.
+
+`POST /api/v1/tasks/lookup` takes a `task_ids` string array and an optional `project_name`. Each ID is processed once, and requests with more than 200 distinct IDs return HTTP 400. The `items` field follows the visibility and localization rules of the single-task endpoint. `missing_ids` contains IDs that do not exist or are outside the lookup scope. Task rows report `updated_at` in UTC ISO 8601 with microsecond precision. Retrying a download moves the task back to running with a strictly later timestamp than the failed row. See [ADR 0126](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0126-task-active-snapshot-and-asset-occupancy-guards.md).
+
+Project asset writes and generation requests share an asset admission lock. If an upload, provider asset import, version restore, or asset identity change conflicts with an active task, the API returns HTTP 409 with the code `asset_resource_busy`. Retry after the task using the target finishes. Character sheets and reference audio have independent checks. Asset merges check both the source and the retained asset. Text edits, unchanged field values, voice notice acknowledgements, appending product reference images, and `dry_run` previews can proceed during generation.
+
+When a generation batch includes both busy and idle asset sheets, busy items return `asset_resource_busy` and idle items can still be queued. The Agent sees the same reason when it reads the batch. When applying assets from the global library to a project, a provider asset link copy failure rolls back the whole batch and preserves the artifact manifest.
+
 Task identity correlates results and costs. A resumed video task looks up the original job using its submitted context, avoiding a second submission and charge. See [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) and the [provider standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md).
 
 ### Provider abstraction {#provider-abstraction}
 
-`lib/backends/` defines the text, image, video, and audio protocols and how to assemble their backends. A provider model pairs an API model name with an endpoint. A catalog entry holds model facts and pricing, the endpoint or backend declares protocol and execution facts, and applicable capability overrides express provider-model differences. Capability resolution determines the available inputs and limits. See [ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md) and [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md).
+Cross-media capability resolution and backend assembly follow a directed acyclic layering enforced by the `import-linter` contracts in `pyproject.toml`:
+
+| Module | Responsibility |
+| --- | --- |
+| `lib/capabilities/` | Pure capability kernel (free of config, assembly, backends, database, or network dependencies) that evaluates catalog entries, endpoint protocol hard bounds, and capability overrides into immutable capability snapshots. |
+| `lib/config/` | Low-level configuration reading for global/project settings, credentials, and project preferences, without cross-builtin/custom target selection, capability synthesis, or project capability projection. |
+| `lib/backends/` and `lib/custom_provider/` | Text, image, video, and audio backend protocols, built-in and custom endpoint descriptions, standalone endpoint-definition decoding, and settings capability views. |
+| `lib/video_runtime/` | Unified runtime layer for target selection and single-pass configuration resolution across built-in and custom providers, producing co-sourced capability snapshots and private assembly specs for text, image, and video, and private assembly specs for audio, shared by preflight, cost estimation, and execution across all four media types as well as in-flight resumption for video tasks. |
+
+A provider model pairs an API model name with an endpoint. A catalog entry holds model facts and pricing, the endpoint declares protocol hard bounds and execution facts, and capability overrides express channel differences within those bounds. Video planning, preflight, reference cost estimation, and execution share the same pure synchronous video request-fact evaluation. See [ADR 0049](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0049-generation-context-single-resolution.md), [ADR 0086](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0086-video-request-facts-evaluated-once.md), [ADR 0099](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0099-model-catalog-shared-entries-per-model.md), and [ADR 0104](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0104-capability-sources-split-by-dimension.md).
 
 For code entry points and upstream sources, see the [provider API index](https://github.com/ArcReel/ArcReel/tree/main/docs/api-docs). For setup, see [Providers and Models](../guide/providers.md).
 

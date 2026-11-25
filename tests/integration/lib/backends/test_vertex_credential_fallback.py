@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.backends.backend_assembly.assembler import assemble_backend
+from lib.backends.backend_assembly.assembler import load_builtin_config
+from lib.backends.backend_assembly.specs import builtin_model_spec
 from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.video_runtime.builtin import build_builtin_backend
 from tests.fakes import captured_vertex_credentials, patched_genai_client
 
 
@@ -32,16 +34,14 @@ async def test_vertex_uses_recorded_credential_when_derived_file_is_absent(
     await repo.activate(cred.id, "gemini-vertex")
     await db_session.commit()
 
+    model_id = catalog.default_model("gemini-vertex", media_type)
+    spec = builtin_model_spec("gemini-vertex", media_type, model_id)
+    config = await load_builtin_config(ConfigResolver(db_factory), "gemini-vertex", None)
     with (
         patched_genai_client(),
         captured_vertex_credentials() as load_credentials,
     ):
-        backend = await assemble_backend(
-            provider_id="gemini-vertex",
-            media_type=media_type,
-            model_id=catalog.default_model("gemini-vertex", media_type),
-            resolver=ConfigResolver(db_factory),
-        )
+        backend = build_builtin_backend(spec, config, model_id)
 
     assert backend is not None
     assert load_credentials.call_args.args[0] == str(recorded)

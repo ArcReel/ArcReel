@@ -1,21 +1,19 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_registration import register_artifact_entries_atomically
+from lib.episode.episode_paths import DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME, episode_drafts_dir
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migrations.runner import migrate_project_dir
 from lib.script import script_review
 from lib.script.blank_script import BlankScriptError, start_blank_script
-from lib.script.draft_quarantine import (
-    FORMAL_EDIT_META_KEY,
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    write_quarantine,
-)
 from lib.workflow.workflow_state import WorkflowStateService
 
 
@@ -96,19 +94,21 @@ def test_blank_start_keeps_an_empty_episode_title_empty(tmp_path: Path) -> None:
     assert pm.load_project("demo")["episodes"][0]["title"] == ""
 
 
-def test_blank_start_discards_the_unconfirmed_plan_and_its_draft(tmp_path: Path) -> None:
+def test_blank_start_discards_the_unconfirmed_plan_and_leaves_legacy_invalid_file_untouched(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path, "drama")
     plan = _write_plan(project_path)
-    draft = write_quarantine(project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, content=_drama_plan(), violations=[])
+    legacy_invalid = episode_drafts_dir(project_path, 1) / DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME
+    legacy_bytes = b'{"legacy": true}\n'
+    legacy_invalid.write_bytes(legacy_bytes)
 
     start_blank_script(pm, "demo", 1)
 
     assert not plan.exists()
-    assert not draft.exists()
+    assert legacy_invalid.read_bytes() == legacy_bytes
     project = pm.load_project("demo")
     assert script_review.review_status(project_path, project, 1) == "no_script_plan"
     trashed = sorted(path for record in project_trash.list_records(project_path) for path in record.files)
-    assert trashed == sorted(p.relative_to(project_path).as_posix() for p in (plan, draft))
+    assert trashed == [plan.relative_to(project_path).as_posix()]
 
 
 def _plan_claim(project_path: Path):
@@ -127,6 +127,10 @@ def test_a_deleted_script_plan_comes_back_with_its_claim(tmp_path: Path) -> None
     assert _plan_claim(project_path) is None
     (record,) = project_trash.list_records(project_path)
 
+    record_dir = project_trash.trash_dir(project_path) / record.id
+    for metadata in (project_path / "project.json", record_dir / "record.json", record_dir / "snapshot/project.json"):
+        atomic_write_json(metadata, {**json.loads(metadata.read_bytes()), "schema_version": 20})
+    assert migrate_project_dir(project_path)
     result = project_trash.restore(project_path, record.id)
     assert not result.degraded
     assert plan.is_file()
@@ -211,27 +215,6 @@ def test_blank_start_treats_an_unregistered_script_file_as_no_formal_script(tmp_
     after = WorkflowStateService(pm).get_status("demo")
     assert after.content is not None
     assert after.content.formal_script == "present"
-
-
-def test_blank_start_leaves_an_agent_owned_draft_alone(tmp_path: Path) -> None:
-    pm, project_path = _project(tmp_path, "drama")
-    plan = _write_plan(project_path)
-    draft = write_quarantine(
-        project_path,
-        1,
-        QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-        content=_drama_plan(),
-        violations=[],
-        meta={FORMAL_EDIT_META_KEY: True},
-    )
-
-    with pytest.raises(BlankScriptError) as excinfo:
-        start_blank_script(pm, "demo", 1)
-
-    assert excinfo.value.code == "draft_agent_owned"
-    assert plan.exists()
-    assert draft.exists()
-    assert not (project_path / "scripts" / "episode_1.json").exists()
 
 
 def test_blank_start_refuses_an_unknown_episode(tmp_path: Path) -> None:

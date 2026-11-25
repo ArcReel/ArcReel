@@ -9,20 +9,29 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel
 
 from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.edit_timeline.errors import edit_timeline_message
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import decode_generation_problem
+from lib.generation.generation_worker import WorkerStoppingError
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
-from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.project.project_manager import get_project_manager
 from server.i18n import DisplayNamesCatalog, Translator
 from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
+
+TASK_LOOKUP_LIMIT = 200
+
+
+class TaskLookupRequest(BaseModel):
+    task_ids: list[str]
+    project_name: str | None = None
 
 
 def get_task_queue():
@@ -147,6 +156,7 @@ async def list_tasks(
     project_name: str | None = None,
     status: str | None = None,
     task_type: str | None = None,
+    resource_id: str | None = None,
     source: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
@@ -156,6 +166,7 @@ async def list_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
+        resource_id=resource_id,
         source=source,
         page=page,
         page_size=page_size,
@@ -173,6 +184,7 @@ async def list_project_tasks(
     names: DisplayNamesCatalog,
     status: str | None = None,
     task_type: str | None = None,
+    resource_id: str | None = None,
     source: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
@@ -182,6 +194,7 @@ async def list_project_tasks(
         project_name=project_name,
         status=status,
         task_type=task_type,
+        resource_id=resource_id,
         source=source,
         page=page,
         page_size=page_size,
@@ -190,6 +203,34 @@ async def list_project_tasks(
         [_localize_task(task, _t, names) for task in result.get("items", [])], _t
     )
     return result
+
+
+@router.get("/tasks/active")
+async def get_active_tasks(_t: Translator, names: DisplayNamesCatalog, project_name: str | None = None):
+    queue = get_task_queue()
+    items, truncated = await queue.get_active_snapshot(project_name=project_name)
+    return {
+        "items": await _with_resource_refs([_localize_task(item, _t, names) for item in items], _t),
+        "truncated": truncated,
+    }
+
+
+@router.get("/projects/{project_name}/tasks/active")
+async def get_project_active_tasks(project_name: str, _t: Translator, names: DisplayNamesCatalog):
+    return await get_active_tasks(_t, names, project_name)
+
+
+@router.post("/tasks/lookup")
+async def lookup_tasks(body: TaskLookupRequest, _t: Translator, names: DisplayNamesCatalog):
+    task_ids = list(dict.fromkeys(body.task_ids))
+    if len(task_ids) > TASK_LOOKUP_LIMIT:
+        raise BadRequestError("task_lookup_too_many_ids", limit=TASK_LOOKUP_LIMIT)
+    tasks_by_id = await get_task_queue().get_tasks_by_id(task_ids, project_name=body.project_name)
+    items = [_localize_task(tasks_by_id[task_id], _t, names) for task_id in task_ids if task_id in tasks_by_id]
+    return {
+        "items": await _with_resource_refs(items, _t),
+        "missing_ids": [task_id for task_id in task_ids if task_id not in tasks_by_id],
+    }
 
 
 @router.get("/tasks/{task_id}/cancel-preview")
@@ -223,14 +264,13 @@ async def cancel_task(task_id: str, _t: Translator, names: DisplayNamesCatalog):
 
 @router.post("/tasks/{task_id}/retry-download")
 async def retry_artifact_download(task_id: str, request: Request, _t: Translator, names: DisplayNamesCatalog):
-    queue = get_task_queue()
     worker = getattr(request.app.state, "generation_worker", None)
     if worker is None:
         raise BadRequestError("task_retry_download_unavailable", id=task_id)
     try:
-        poll_timeout_seconds = await worker.read_video_poll_timeout_seconds()
-        task = await queue.retry_artifact_download(task_id)
-        await worker.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
+        task = await worker.retry_artifact_download(task_id)
+    except WorkerStoppingError as exc:
+        raise ServiceUnavailableError("task_retry_download_server_stopping") from exc
     except ValueError as exc:
         raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
     [task] = await _with_resource_refs([_localize_task(task, _t, names)], _t)

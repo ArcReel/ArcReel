@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import utc_now
@@ -56,16 +56,23 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> tu
     """
     now = utc_now()
     tombstone = _deleted_project_name(project_name, now)
-    await session.execute(
+    queued = Task.status == "queued"
+    retired_tasks = await session.execute(
         update(Task)
-        .where(Task.project_name == project_name, Task.status == "queued")
-        .values(status="cancelled", cancelled_by="user", finished_at=now, updated_at=now)
+        .where(Task.project_name == project_name)
+        .values(
+            project_name=tombstone,
+            status=case((queued, "cancelled"), else_=Task.status),
+            cancelled_by=case((queued, "user"), else_=Task.cancelled_by),
+            finished_at=case((queued, now), else_=Task.finished_at),
+            updated_at=case((queued, now), else_=Task.updated_at),
+        )
+        .returning(Task.task_id, Task.status)
     )
-    running = await session.execute(
-        select(Task.task_id).where(Task.project_name == project_name, Task.status == "running")
-    )
-    running_task_ids = list(running.scalars())
+    running_task_ids = [task_id for task_id, status in retired_tasks if status == "running"]
     for model in _PROJECT_KEYED_MODELS:
+        if model is Task:
+            continue
         stmt = update(model).where(model.project_name == project_name)
         if model is FormalObjectRef:
             stmt = stmt.where(FormalObjectRef.state != "pending")

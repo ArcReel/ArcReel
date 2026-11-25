@@ -137,6 +137,17 @@ ASSET_TYPES: frozenset[str] = frozenset(ASSET_SPECS.keys())
 
 BUCKET_KEY: dict[str, str] = {t: s.bucket_key for t, s in ASSET_SPECS.items()}
 
+_BUCKET_TO_ASSET_TYPE: dict[str, str] = {s.bucket_key: t for t, s in ASSET_SPECS.items()}
+
+
+def resolve_asset_type(table: str) -> str:
+    """bucket_key → 资产类型；未知表名抛 ValueError（message 列出合法取值）。"""
+    asset_type = _BUCKET_TO_ASSET_TYPE.get(table)
+    if asset_type is None:
+        raise ValueError(f"未知资产表: {table!r}，须是 {sorted(_BUCKET_TO_ASSET_TYPE)} 之一")
+    return asset_type
+
+
 SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)

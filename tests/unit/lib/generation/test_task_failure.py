@@ -108,11 +108,11 @@ class TestRenderKnownCodes:
         [
             (
                 {"shutdown_date": "2026-11-24", "successor": "bytedance/doubao-seedream-5-0-pro"},
-                "该模型已于 2026-11-24 下线，官方建议改用 Seedream 5.0 Pro；",
+                "该模型已于 2026-11-24 下线，推荐替代模型为 Seedream 5.0 Pro；",
             ),
             ({"shutdown_date": "2026-11-24"}, "该模型已于 2026-11-24 下线；"),
-            ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 GPT-5.6 Sol；"),
-            ({"successor": "acme/never-registered"}, "该模型已下线，官方建议改用 acme/never-registered；"),
+            ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，推荐替代模型为 GPT-5.6 Sol；"),
+            ({"successor": "acme/never-registered"}, "该模型已下线，推荐替代模型为 acme/never-registered；"),
             ({}, "该模型已下线；"),
         ],
     )

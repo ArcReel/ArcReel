@@ -45,7 +45,9 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
+from lib.backends.video_capabilities import VideoEndpointCapabilities, audio_protocol
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import Endpoint
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
@@ -59,11 +61,12 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
 
-class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
+class GeminiVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
     default_backend_type: ClassVar[str] = "aistudio"
+    default_model: ClassVar[str] = GEMINI_DEFAULT_VIDEO_MODEL
 
     def __init__(
         self,
@@ -89,7 +92,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         self._http_options: _types.HttpOptions | _types.HttpOptionsDict | None = None
 
-        self._video_model = video_model or GEMINI_DEFAULT_VIDEO_MODEL
+        self._video_model = video_model or self.default_model
 
         if self._backend_type == "vertex":
             import json as json_module
@@ -148,10 +151,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        有声与否跟随实际请求：Vertex 按下发的 ``generate_audio``（含用户添加、放宽了音轨的型号）；AI Studio
-        发不出静音请求，``generate_audio=False`` 在提交前即被拒绝（见 ``generate``），能提交的都是有声请求。
-        提交前预估的请求由调用方按执行时会发出的开关构造（音轨不可控的型号按有声，见 ``VideoRequestCostFacts``）。
-        结算时以 ``result.generate_audio`` 为准（见 ``_collect_video``）。各型号按同一组请求字段计量，不按型号或条目区分。
+        计费音频档使用请求求值时的决策；AI Studio 的出账规则由供应商声明。
         """
         del model, entry
         return video_usage(
@@ -163,9 +163,12 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """AI Studio 不带音轨开关；Vertex 调用端点可下发 generate_audio。"""
-        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"}),
+            audio=audio_protocol(cls.audio_track),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

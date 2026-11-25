@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 from alembic import command
 from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.custom_provider.backends import CustomVideoBackend
-from lib.custom_provider.factory import create_custom_backend
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from tests.custom_backend_support import create_custom_backend
 from tests.factories import image_bytes
 
 _REFERENCE = "vidu-video-q3-reference"

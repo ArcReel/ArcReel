@@ -23,6 +23,7 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_version_provenance import parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.infra.api_errors import BadRequestError
 from lib.infra.async_thread import run_sync_transaction
 from lib.material.work_files import local_work_files
@@ -376,17 +377,16 @@ async def restore_resource_version(
     """版本还原的实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
     try:
         if is_typed_media_restore_resource(resource_type):
+            vm = await asyncio.to_thread(get_version_manager, project_name)
             with project_change_source("webui"):
                 return await restore_typed_media_resource(
                     project_manager=get_project_manager(),
-                    versions=get_version_manager(project_name),
+                    versions=vm,
                     project_name=project_name,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     version=version,
                 )
-
-        project_path, file = await _locate_version_work_file(project_name, resource_type, resource_id, version)
 
         def _sync():
             if resource_type == "grids":
@@ -418,8 +418,16 @@ async def restore_resource_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
-        async with local_work_files(project_path, [file] if file is not None else []):
-            return await run_sync_transaction(_sync)
+        targets = []
+        if resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE:
+            owner, derivative = split_derivative_artifact_id(resource_id)
+            targets.append(AssetTarget("character", owner, "derivative_image", derivative))
+        elif (asset_type := _RESOURCE_TO_ASSET_TYPE.get(resource_type)) is not None:
+            targets.append(AssetTarget(asset_type, resource_id, "image"))
+        async with idle_asset_write(project_name, *targets):
+            project_path, file = await _locate_version_work_file(project_name, resource_type, resource_id, version)
+            async with local_work_files(project_path, [file] if file is not None else []):
+                return await run_sync_transaction(_sync)
 
     except ValueError as e:
         logger.warning("版本还原请求非法: %s", e)

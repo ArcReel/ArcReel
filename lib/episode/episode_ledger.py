@@ -22,7 +22,12 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
+from lib.episode.episode_paths import (
+    EPISODE_DRAFT_DIR_PATTERN,
+    SCRIPT_PLAN_PRODUCT_FILENAMES,
+    episode_drafts_dir,
+    episode_script_relpath,
+)
 from lib.infra.path_safety import safe_exists
 from lib.infra.text_utils import normalize_newlines
 from lib.project.project_schema import parse_project_schema_version
@@ -35,7 +40,6 @@ LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 _SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
-_DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
@@ -304,8 +308,8 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
     drafts_dir = project_dir / "drafts"
     if drafts_dir.is_dir():
         for path in drafts_dir.iterdir():
-            match = _DRAFT_DIR_RE.fullmatch(path.name)
-            if match and path.is_dir() and any(path.glob("script_plan_*")):
+            match = EPISODE_DRAFT_DIR_PATTERN.fullmatch(path.name)
+            if match and path.is_dir() and any((path / name).is_file() for name in SCRIPT_PLAN_PRODUCT_FILENAMES):
                 nums.add(int(match.group(1)))
     return nums
 
@@ -321,7 +325,7 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
     drafts_dir = episode_drafts_dir(project_dir, episode_num)
-    return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
+    return drafts_dir.is_dir() and any((drafts_dir / name).is_file() for name in SCRIPT_PLAN_PRODUCT_FILENAMES)
 
 
 def episode_has_products(

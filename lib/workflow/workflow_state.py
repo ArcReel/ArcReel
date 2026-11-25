@@ -39,7 +39,7 @@ from lib.project.asset_derivatives import derivative_artifact_key, derivative_ta
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.project.data_validator import DataValidator
 from lib.project.episode_asset_references import episode_referenced_assets
-from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
@@ -51,12 +51,6 @@ from lib.project.source_revision import SourceRevisionResult, SourceScope, compu
 from lib.references.reference_admission import admit_references, admit_storyboard_items
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script import script_review
-from lib.script.draft_quarantine import (
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    quarantine_exists,
-    quarantine_path,
-    read_quarantine,
-)
 from lib.script.reference_video.text_parser import derive_references_from_text
 from lib.script.script_models import get_generated_assets, script_duration_total
 from lib.script.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
@@ -129,7 +123,6 @@ class WorkflowActionType(StrEnum):
     DRAFT_SELLING_POINTS = "draft_selling_points"
     PLAN_EPISODES = "plan_episodes"
     RESET_EPISODE_PLANNING = "reset_episode_planning"
-    RESOLVE_DRAFT = "resolve_draft"
     PREPARE_SCRIPT_PLAN = "prepare_script_plan"
     START_BLANK_SCRIPT = "start_blank_script"
     PROVIDE_EPISODE_SOURCE = "provide_episode_source"
@@ -179,16 +172,6 @@ class WorkflowOperation(BaseModel):
     reason: AdmissionReason | None = None
 
 
-class WorkflowDraft(BaseModel):
-    """目标集上在场的一份草稿。``needs_repair`` 区分待修复草稿与 Agent 的可编辑草稿。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str
-    path: str
-    needs_repair: bool
-
-
 class WorkflowContent(BaseModel):
     """内容现状：各类内容此刻是什么样，不含「该做哪一步」的判断。
 
@@ -210,7 +193,6 @@ class WorkflowContent(BaseModel):
     episode_source: Literal["present", "absent", "not_applicable"] | None = None
     episode_plan_stale: bool = False
     expected_stale_script_plan_revision: str | None = None
-    drafts: list[WorkflowDraft] = Field(default_factory=list)
     formal_script: Literal["present", "absent", "invalid"] | None = None
     script_item_count: int | None = None
     pending_authoring_ids: list[str] = Field(default_factory=list)
@@ -1015,11 +997,7 @@ class WorkflowStateService:
             if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                 return "generated"
         script_plan = script_review.script_plan_path(project_path, project, number)
-        if script_plan is None:
-            return "none"
-        if script_review.script_plan_quarantined(project_path, project, number):
-            return "segmented"
-        if resolver is None:
+        if script_plan is None or resolver is None:
             return "none"
         state = self._artifact_state(
             resolver, ArtifactKey.episode_script_plan(number), script_plan.relative_to(project_path).as_posix(), []
@@ -1364,29 +1342,6 @@ class WorkflowStateService:
         )
 
     @staticmethod
-    def _episode_drafts(project_path: Path, project: dict[str, Any], number: int) -> list[WorkflowDraft]:
-        """目标集上在场的草稿：脚本规划草稿，以及参考生视频的提示词编写草稿。"""
-        kinds: list[str] = []
-        script_plan_kind = script_review.script_plan_quarantine_kind(project)
-        if script_plan_kind is not None:
-            kinds.append(script_plan_kind)
-        if is_reference_video_project(project):
-            kinds.append(QUARANTINE_KIND_PROMPT_AUTHORING)
-        drafts: list[WorkflowDraft] = []
-        for kind in kinds:
-            if not quarantine_exists(project_path, number, kind):
-                continue
-            draft = read_quarantine(project_path, number, kind)
-            drafts.append(
-                WorkflowDraft(
-                    kind=kind,
-                    path=quarantine_path(project_path, number, kind).relative_to(project_path).as_posix(),
-                    needs_repair=draft is None or bool(draft.violations),
-                )
-            )
-        return drafts
-
-    @staticmethod
     def _stale_episode_plan(
         project_path: Path, project: dict[str, Any], number: int, entry: Mapping[str, Any]
     ) -> tuple[bool, str | None]:
@@ -1559,7 +1514,6 @@ class WorkflowStateService:
 
         episode_source = not is_ad and episode_source_present(project_path, number, entry)
         content.episode_source = "not_applicable" if is_ad else ("present" if episode_source else "absent")
-        content.drafts = self._episode_drafts(project_path, project, number)
         stale, stale_revision = (
             (False, None) if is_ad else self._stale_episode_plan(project_path, project, number, entry)
         )
@@ -1572,9 +1526,7 @@ class WorkflowStateService:
             artifacts["script_plan"] = self._script_plan_artifact(
                 project_path, project, number, shared.currency, issues
             )
-            if script_review.script_plan_quarantined(project_path, project, number):
-                artifacts["script_plan"]["state"] = "blocked"
-            elif stale:
+            if stale and artifacts["script_plan"]["state"] != ArtifactStatus.BLOCKED.value:
                 artifacts["script_plan"]["state"] = "stale"
             script_plan_state = artifacts["script_plan"]["state"]
             review = script_review.review_status(project_path, project, number)
@@ -1682,7 +1634,6 @@ class WorkflowStateService:
         operations[WorkflowActionType.AUTHOR_PROMPTS] = admit_author_prompts(
             formal_script=formal_present,
             pending_ids=pending_ids,
-            draft_pending=any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
         )
 
         episode_args = {"episode_id": number}
@@ -1691,16 +1642,6 @@ class WorkflowStateService:
             return respond(
                 target,
                 _action(WorkflowActionType.NONE, "the episode plan is stale; its script plan awaits a rebuild"),
-            )
-        if content.drafts:
-            draft = content.drafts[0]
-            return respond(
-                target,
-                _action(
-                    WorkflowActionType.RESOLVE_DRAFT,
-                    "a draft awaits repair" if draft.needs_repair else "an editable draft awaits completion",
-                    args={**episode_args, "draft_kind": draft.kind, "needs_repair": draft.needs_repair},
-                ),
             )
         if content.formal_script == "invalid":
             return respond(target, _action(WorkflowActionType.NONE, "the formal script is invalid"))

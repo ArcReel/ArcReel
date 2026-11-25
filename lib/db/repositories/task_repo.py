@@ -6,17 +6,18 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
+from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select, text, update
+from sqlalchemy import ColumnElement, String, case, cast, func, literal, select, text, update
 from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.providers import CallStatus
-from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
+from lib.db.base import DEFAULT_USER_ID, as_utc, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
@@ -27,6 +28,7 @@ from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
+ACTIVE_TASK_SNAPSHOT_LIMIT = 5000
 
 
 def _active_dedupe_clauses(
@@ -111,7 +113,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
-        "updated_at": dt_to_iso(row.updated_at),
+        "updated_at": as_utc(row.updated_at).isoformat(timespec="microseconds"),
         "user_id": row.user_id,
     }
 
@@ -197,6 +199,7 @@ class TaskRepository(BaseRepository):
         batch_id: str | None = None,
         batch_unit_id: str | None = None,
         batch_unit_ids: tuple[str, ...] = (),
+        new_task_guard: Callable[[AsyncSession, str], Awaitable[None]] | None = None,
         dedupe_guard: Callable[[dict[str, Any], str], None] | None = None,
     ) -> dict[str, Any]:
         unit_ids = tuple(dict.fromkeys((*(batch_unit_ids or ()), *((batch_unit_id,) if batch_unit_id else ()))))
@@ -270,6 +273,8 @@ class TaskRepository(BaseRepository):
             else:
                 raise
         else:
+            if new_task_guard is not None:
+                await new_task_guard(self.session, task_id)
             status = "queued"
 
         if batch_id is not None:
@@ -312,6 +317,26 @@ class TaskRepository(BaseRepository):
             )
         )
         await self.session.commit()
+
+    async def save_batch_snapshot(
+        self,
+        *,
+        project_name: str,
+        batch_id: str,
+        requested: dict[str, Any],
+        user_id: str,
+    ) -> bool:
+        result = await self.session.execute(
+            update(GenerationBatch)
+            .where(
+                GenerationBatch.batch_id == batch_id,
+                GenerationBatch.project_name == project_name,
+                GenerationBatch.user_id == user_id,
+            )
+            .values(requested_json=_json_dumps(requested))
+        )
+        await self.session.commit()
+        return rowcount(result) == 1
 
     async def attach_batch_task(
         self,
@@ -456,6 +481,7 @@ class TaskRepository(BaseRepository):
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        owned_task_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
@@ -469,6 +495,9 @@ class TaskRepository(BaseRepository):
         此刻占满的 provider，它们的在跑任务结束后就会空出槽位，任务届时照常被领取，由执行
         入口按现状核对 provider，不一致时改写记录并原位回队。
 
+        ``owned_task_ids`` 排除仍由 Worker 持有的任务。回队已经提交、旧执行体尚未收到响应时，
+        任务应等旧归属释放后才允许下一次认领。
+
         采用黑名单语义而非白名单（早期实现）的原因：白名单会把"已知但未在当前
         ``_pools`` 里的 provider"任务永久过滤掉（例如自定义 provider 被禁用 / 删除），
         导致静默堆积。黑名单只排除已知池满，未知 provider 任务正常 claim 走 worker
@@ -481,6 +510,10 @@ class TaskRepository(BaseRepository):
         if pool_full_providers:
             provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
+        ownership_filter = ""
+        if owned_task_ids:
+            ownership_filter = "AND tasks.task_id NOT IN :owned_ids"
+            params["owned_ids"] = tuple(owned_task_ids)
 
         raw_stmt = text(f"""
             SELECT tasks.task_id
@@ -490,6 +523,7 @@ class TaskRepository(BaseRepository):
             WHERE tasks.status = 'queued'
               AND tasks.media_type = :media_type
               {provider_filter}
+              {ownership_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
@@ -499,6 +533,8 @@ class TaskRepository(BaseRepository):
         """)
         if "providers" in params:
             raw_stmt = raw_stmt.bindparams(sa_bindparam("providers", expanding=True))
+        if "owned_ids" in params:
+            raw_stmt = raw_stmt.bindparams(sa_bindparam("owned_ids", expanding=True))
 
         result = await self.session.execute(raw_stmt, params)
         row = result.first()
@@ -527,17 +563,17 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return task_data
 
-    async def mark_succeeded(self, task_id: str, result: dict[str, Any] | None = None) -> int:
-        """SQL `WHERE status='running'` 守卫；返回受影响行数。
-
-        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
-        """
+    async def mark_succeeded(
+        self, task_id: str, result: dict[str, Any] | None = None, *, expected_project_name: str | None = None
+    ) -> int:
+        """任务仍在 running 且项目归属相符时写入成功，返回受影响行数。"""
         now = utc_now()
 
+        statement = update(Task).where(Task.task_id == task_id, Task.status == "running")
+        if expected_project_name is not None:
+            statement = statement.where(Task.project_name == expected_project_name)
         update_result = await self.session.execute(
-            update(Task)
-            .where(Task.task_id == task_id, Task.status == "running")
-            .values(
+            statement.values(
                 status="succeeded",
                 result_json=_json_dumps(result or {}),
                 error_message=None,
@@ -581,12 +617,17 @@ class TaskRepository(BaseRepository):
         派发所需的 ``provider_id`` 一并作为资格条件：状态一旦翻成 running，本方法就已提交，
         派发侧再拒绝就没有回滚点，任务会永久停在 running 上无人接手。
         """
-        result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
-        task = result.scalar_one_or_none()
-        parsed = parse_failure(task.error_message or "") if task is not None else None
+        stored_version = cast(Task.updated_at, String)
+        result = await self.session.execute(
+            self._scope_query(select(Task, stored_version.label("stored_version")).where(Task.task_id == task_id), Task)
+        )
+        row = result.one_or_none()
+        if row is None:
+            raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
+        task, version = row
+        parsed = parse_failure(task.error_message or "")
         if (
-            task is None
-            or task.status != "failed"
+            task.status != "failed"
             or parsed is None
             or parsed[0] != "artifact_download_failed"
             or not task.provider_job_id
@@ -620,10 +661,11 @@ class TaskRepository(BaseRepository):
             await self.session.rollback()
             raise ValueError(f"api call is not eligible for artifact download retry: {call_id}")
         now = utc_now()
+        updated_at = max(now, as_utc(task.updated_at) + timedelta(microseconds=1))
         task_update = await self.session.execute(
             update(Task)
-            .where(Task.task_id == task_id, Task.status == "failed")
-            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
+            .where(Task.task_id == task_id, Task.status == "failed", stored_version == version)
+            .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=updated_at)
         )
         if rowcount(task_update) != 1:
             await self.session.rollback()
@@ -1031,12 +1073,42 @@ class TaskRepository(BaseRepository):
         task = result.scalar_one_or_none()
         return _task_to_dict(task) if task else None
 
+    async def get_active_snapshot(self, *, project_name: str | None = None) -> tuple[list[dict[str, Any]], bool]:
+        latest_model = (
+            select(ApiCall.model)
+            .where(ApiCall.task_id == Task.task_id)
+            .order_by(ApiCall.started_at.desc(), ApiCall.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        stmt = select(Task, case((Task.status == "running", latest_model)))
+        if project_name is None:
+            stmt = stmt.where(Task.status.in_(ACTIVE_TASK_STATUSES)).order_by(Task.status, Task.queued_at, Task.task_id)
+        else:
+            active_statuses = [literal(status, literal_execute=True) for status in ACTIVE_TASK_STATUSES]
+            stmt = stmt.where(Task.project_name == project_name, Task.status.in_(active_statuses)).order_by(
+                Task.project_name, Task.user_id, Task.task_type, Task.resource_id, Task.task_id
+            )
+        rows = (await self.session.execute(self._scope_query(stmt.limit(ACTIVE_TASK_SNAPSHOT_LIMIT + 1), Task))).all()
+        items = [{**_task_to_dict(task), "model": model} for task, model in rows[:ACTIVE_TASK_SNAPSHOT_LIMIT]]
+        return items, len(rows) > ACTIVE_TASK_SNAPSHOT_LIMIT
+
+    async def get_many(self, task_ids: list[str], *, project_name: str | None = None) -> dict[str, dict[str, Any]]:
+        if not task_ids:
+            return {}
+        stmt = select(Task).where(Task.task_id.in_(task_ids))
+        if project_name is not None:
+            stmt = stmt.where(Task.project_name == project_name)
+        rows = await self.session.execute(self._scope_query(stmt, Task))
+        return {task.task_id: _task_to_dict(task) for task in rows.scalars()}
+
     async def list_tasks(
         self,
         *,
         project_name: str | None = None,
         status: str | None = None,
         task_type: str | None = None,
+        resource_id: str | None = None,
         source: str | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -1052,6 +1124,8 @@ class TaskRepository(BaseRepository):
             filters.append(Task.status == status)
         if task_type:
             filters.append(Task.task_type == task_type)
+        if resource_id is not None:
+            filters.append(Task.resource_id == resource_id)
         if source:
             filters.append(Task.source == source)
 

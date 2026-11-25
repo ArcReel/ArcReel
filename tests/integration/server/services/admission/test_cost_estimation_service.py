@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
-from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.catalog import query as catalog
@@ -15,16 +14,16 @@ from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.video_request_facts import (
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.script.reference_video.request_projection import (
     configured_reference_request_facts,
     project_reference_unit_request,
 )
+from lib.video_runtime.builtin import builtin_video_metered_usage
+from lib.video_runtime.resolution import read_video_request_facts
 from server.services.admission import cost_estimation
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
 from tests.catalog_support import install_catalog, with_entry_changes
@@ -257,11 +256,10 @@ class TestCostEstimationService:
         assert estimate
         assert all(amount > 0 for amount in estimate.values())
 
-        executed = await evaluate_video_request_facts(
+        executed = await read_video_request_facts(
             project,
             route=generation_mode,
             generation_type="i2v",
-            identity=ExecutionVideoIdentity(provider, model),
             resolver=ConfigResolver(db_factory),
         )
         assert isinstance(executed, VideoRequestFacts)
@@ -326,13 +324,11 @@ class TestCostEstimationService:
             project, {"ep1.json": script}, project_name="bucket-resolutions"
         )
         segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
-        for bucket, pair, resolution, allowed in (("i2v", i2v, "720p", (4, 6, 8)), ("r2v", r2v, "1080p", (8,))):
-            provider, model = pair.split("/")
-            executed = await evaluate_video_request_facts(
+        for bucket, resolution, allowed in (("i2v", "720p", (4, 6, 8)), ("r2v", "1080p", (8,))):
+            executed = await read_video_request_facts(
                 project,
                 route="reference_video",
                 generation_type=bucket,
-                identity=ExecutionVideoIdentity(provider, model),
                 resolver=resolver,
             )
             assert isinstance(executed, VideoRequestFacts)
@@ -459,7 +455,7 @@ class TestCostEstimationService:
     @pytest.mark.parametrize(
         ("has_audio_track", "controllable", "requested", "expected"),
         [
-            (True, False, False, True),
+            (True, False, False, False),
             (True, True, False, False),
             (False, False, True, True),
             (True, True, True, True),
@@ -1955,15 +1951,17 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
-    async def test_cost_estimation_does_not_hide_unexpected_resolution_error(self, db_factory, monkeypatch):
+    async def test_cost_estimation_does_not_hide_unexpected_identity_error(self, db_factory, monkeypatch):
         """意外的程序错误应暴露，而不是作为能力不可用生成伪报价。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        async def _raise(self, project, provider_id, model_id):
+        from tests.fakes import use_video_read_bucket
+
+        async def _raise(self, project, bucket, *, payload=None):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(ConfigResolver, "resolve_resolution", _raise)
+        use_video_read_bucket(monkeypatch, _raise)
 
         project_data = {
             "title": "Test",
@@ -2719,17 +2717,18 @@ class TestImageBatchEstimate:
     async def test_lane_whose_provider_cannot_be_resolved_counts_all_its_images_as_unpriced(
         self, db_factory, monkeypatch
     ):
-        from lib.config.resolver import ConfigResolver as Resolver
+        from lib.video_runtime.image_resolution import ImageRuntime
         from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.fakes import use_image_read_identity
 
-        real = Resolver.resolve_image_backend
+        real = ImageRuntime.read_identity
 
-        async def resolve(self, project, payload, *, generation_type=None, **kwargs):
-            if generation_type == "i2i":
+        async def resolve(self, project, bucket, *, payload=None):
+            if bucket == "i2i":
                 raise ValueError("没有配置图片供应商")
-            return await real(self, project, payload, generation_type=generation_type, **kwargs)
+            return await real(self, project, bucket, payload=payload)
 
-        monkeypatch.setattr(Resolver, "resolve_image_backend", resolve)
+        use_image_read_identity(monkeypatch, resolve)
         project = {
             "title": "T",
             "content_mode": "narration",

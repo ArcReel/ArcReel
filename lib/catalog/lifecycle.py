@@ -18,7 +18,7 @@ LifecycleStatus = Literal["available", "retiring", "discontinued"]
 
 @dataclass(frozen=True)
 class Lifecycle:
-    """条目的生命周期状态，连同关停日期与官方后继（「模型厂商/官方模型名」，媒体类型与原条目相同）。
+    """条目的生命周期状态，连同关停日期与推荐替代模型（「模型厂商/官方模型名」，媒体类型与原条目相同）。
 
     关停日期与后继在任何状态下都原样带出：只登记了后继、没有关停日期的条目仍是可用的。
     """

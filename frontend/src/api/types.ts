@@ -121,6 +121,7 @@ export interface AssistantEntriesStreamOptions {
 }
 
 export interface TaskListFilters {
+  resourceId?: string;
   projectName?: string;
   status?: string;
   taskType?: string;

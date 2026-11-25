@@ -149,6 +149,8 @@ export default {
   "sheet_batch_submitted": "Submitted {{count}} asset sheets",
   "sheet_batch_done": "Asset sheet batch finished: {{count}} generated",
   "sheet_batch_done_with_failures": "Asset sheet batch finished: {{succeeded}} generated, {{failed}} failed",
+  "sheet_batch_done_with_missing": "Asset sheet batch finished: {{succeeded}} generated, {{failed}} failed, {{missing}} results unavailable",
+  "sheet_batch_clause_separator": "; ",
   "sheet_batch_owner_missing": "{{count}} derivative sheets weren't submitted because their base sheet wasn't generated",
   "sheet_batch_target_deleted": "{{count}} finished after their asset was deleted; the results are in the project trash",
   "sheet_regenerate_stale_title": "Regenerate this sheet?",

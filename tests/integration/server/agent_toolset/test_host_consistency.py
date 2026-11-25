@@ -42,6 +42,7 @@ from server.agent_toolset.asset_library import (
     SELECT_PROVIDER_LIBRARY_ASSET,
     UPLOAD_TO_PROVIDER_ASSET_LIBRARY,
 )
+from server.agent_toolset.content_read import GET_SCRIPT_PLAN_CONTENT
 from server.agent_toolset.declaration import (
     BLOCKED,
     MIGRATION_REFUSAL_NOTE,
@@ -72,11 +73,9 @@ from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
     CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
-    OPEN_DRAFT,
-    PATCH_DRAFT,
-    PROMOTE_DRAFT,
+    GENERATE_SCRIPT_PLAN,
 )
-from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
+from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT, PATCH_SCRIPT_PLAN
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
 from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
 from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
@@ -128,15 +127,11 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_episode_script": {"episode_id": 1, "dry_run": True},
     "generate_script_plan": {"episode_id": 1, "dry_run": True},
     "confirm_script_review": {"episode_id": 1},
-    "open_draft": {"episode_id": 1, "doc_type": "drama_script_plan"},
-    "patch_draft": {
+    "patch_script_plan": {
         "episode_id": 1,
-        "doc_type": "drama_script_plan",
-        "content": {"title": "第一集", "scenes": []},
-        "base_revision": _ABSENT_REVISION,
+        "base_revision": "0" * 64,
+        "operations": [{"op": "set_title", "title": "第一集"}],
     },
-    "promote_draft": {"episode_id": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
-    "discard_draft": {"episode_id": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
     "patch_episode_script": {
         "script": "episode_9.json",
         "base_revision": "sha256-v1:" + "0" * 64,
@@ -552,6 +547,31 @@ def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
     )
 
 
+async def test_plan_patch_returns_the_same_revision_and_issues_in_both_hosts(
+    seeded_projects: ProjectManager,
+    services: Services,
+    tmp_path: Path,
+    video_request_facts,
+) -> None:
+    seeded_projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    twin = _twin_services(seeded_projects, tmp_path)
+    read = await _call_embedded(GET_SCRIPT_PLAN_CONTENT, {"episode_id": 1}, services)
+    arguments = {
+        "episode_id": 1,
+        "base_revision": _embedded_json(read)["script_plan_content"]["revision"],
+        "operations": [{"op": "set_title", "title": "山门"}],
+    }
+    embedded = await _call_embedded(PATCH_SCRIPT_PLAN, arguments, services)
+    remote = await _call_remote(PATCH_SCRIPT_PLAN, {"project": "demo", **arguments}, twin)
+
+    assert not embedded.isError
+    assert not remote.isError
+    assert _embedded_json(embedded) == remote.structuredContent
+    result = _embedded_json(embedded)["script_plan_patch"]
+    assert result["revision"] != arguments["base_revision"]
+    assert any(issue["code"] == "empty_script_plan" for issue in result["blocking_issues"])
+
+
 _TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
 
 _PROBLEM_ON_SAMPLE = frozenset(
@@ -561,10 +581,8 @@ _PROBLEM_ON_SAMPLE = frozenset(
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
         CONFIRM_SCRIPT_REVIEW.name,
-        OPEN_DRAFT.name,
-        PATCH_DRAFT.name,
-        PROMOTE_DRAFT.name,
         PATCH_EPISODE_SCRIPT.name,
+        PATCH_SCRIPT_PLAN.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
         INSPECT_VIDEO_UNITS.name,
@@ -819,6 +837,29 @@ async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
     assert "DRY RUN" in remote.structuredContent["text_generation"]["message"]
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
+
+
+@pytest.mark.parametrize(
+    ("source", "dry_run"),
+    [(None, True), ("source/episode_1.txt", True), ("source/custom.txt", True), ("source/custom.txt", False)],
+)
+async def test_script_plan_source_contract_in_both_hosts(
+    seeded_projects, services, source, dry_run, video_request_facts
+):
+    seeded_projects.update_project(
+        "demo", lambda project: project.update(episodes=[{"episode": 1, "source_origin": "own"}])
+    )
+    args = {"episode_id": 1, "dry_run": dry_run}
+    if source is not None:
+        args["source"] = source
+    embedded = await _call_embedded(GENERATE_SCRIPT_PLAN, args, services)
+    remote = await _call_remote(GENERATE_SCRIPT_PLAN, {"project": "demo", **args}, services)
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert embedded.isError is remote.isError is (source == "source/custom.txt")
+    if embedded.isError:
+        assert "本集规范集原文路径" in remote.structuredContent["problem"]["detail"]
+    else:
+        assert "第一集原文" in remote.structuredContent["text_generation"]["message"]
 
 
 @pytest.fixture

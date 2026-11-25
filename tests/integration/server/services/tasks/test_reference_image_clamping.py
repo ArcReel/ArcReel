@@ -13,15 +13,16 @@ from PIL import Image
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.backends.image_backends.grok import GrokImageBackend
-from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.image_errors import ImageCapabilityError
+from lib.custom_provider import make_provider_id
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.services.tasks import generation_context, generation_tasks
 from tests.fakes import (
     bind_session_factory,
     hook_claim_recheck,
-    use_backend_assembler,
     use_generation_context,
+    use_image_assembler,
     use_project_manager,
 )
 from tests.http_capture import capture_http
@@ -151,21 +152,11 @@ class TestLimitComesFromTheResolvedBackend:
         bind_session_factory(monkeypatch, db_factory)
         generation_context.reset_backend_cache_for_tests()
 
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            assert (provider_id, media_type) == ("vidu", "image")
-            return ViduImageBackend(api_key="k", model=model_id, base_url="https://api.vidu.com/ent/v2")
+        async def _assemble(spec):
+            assert spec.snapshot.provider_id == "vidu"
+            return ViduImageBackend(api_key="k", model=spec.snapshot.model_id, base_url="https://api.vidu.com/ent/v2")
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         yield
         generation_context.reset_backend_cache_for_tests()
 
@@ -198,22 +189,12 @@ class TestGrokLaneLimit:
             return_value=SimpleNamespace(respect_moderation=True, url="https://grok.test/out.png")
         )
 
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            assert (provider_id, media_type) == ("grok", "image")
+        async def _assemble(spec):
+            assert spec.snapshot.provider_id == "grok"
             with patch("lib.backends.image_backends.grok.create_grok_client", return_value=client):
-                return GrokImageBackend(api_key="k", model=model_id)
+                return GrokImageBackend(api_key="k", model=spec.snapshot.model_id)
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_image_assembler(monkeypatch, _assemble)
         yield client
         generation_context.reset_backend_cache_for_tests()
 
@@ -241,34 +222,36 @@ class TestOpenRouterCatalogLimit:
     BASE_URL = "https://openrouter.ai/api/v1"
 
     @pytest.fixture
-    async def openrouter_lane(self, db_factory, monkeypatch):
+    async def openrouter_provider_id(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
         generation_context.reset_backend_cache_for_tests()
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            assert media_type == "image"
-            return OpenRouterImageBackend(api_key="k", model=self.MODEL, base_url=self.BASE_URL)
-
-        use_backend_assembler(monkeypatch, _assemble)
-        yield
+        async with db_factory() as session:
+            provider = await CustomProviderRepository(session).create_provider(
+                display_name="OpenRouter",
+                discovery_format="openai",
+                base_url=self.BASE_URL,
+                api_key="k",
+                models=[
+                    {
+                        "model_id": self.MODEL,
+                        "display_name": self.MODEL,
+                        "endpoint": "openrouter-images",
+                        "is_default": True,
+                        "is_enabled": True,
+                    }
+                ],
+            )
+            await session.commit()
+            provider_id = make_provider_id(provider.id)
+        yield provider_id
         generation_context.reset_backend_cache_for_tests()
 
     async def test_three_reference_model_rejects_overflow_before_submission(
-        self, tmp_path, monkeypatch, openrouter_lane
+        self, tmp_path, monkeypatch, openrouter_provider_id
     ):
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
-        pm.project["image_provider_i2i"] = "vidu/viduq2"
+        pm.project["image_provider_i2i"] = f"{openrouter_provider_id}/{self.MODEL}"
         (project_path / "project.json").write_text(json.dumps(pm.project, ensure_ascii=False), encoding="utf-8")
         use_project_manager(monkeypatch, pm)
         catalog = {

@@ -303,15 +303,128 @@ class TestVertex:
 
             credentials.refresh.side_effect = refresh
             backend = VertexInteractionsVideoBackend(
-                credentials_path=str(credentials_file), rate_limiter=_NoopRateLimiter(), video_model=MODEL
+                credentials_path=str(credentials_file), rate_limiter=_NoopRateLimiter()
             )
             with capture_http() as router:
                 create = router.post(VERTEX_INTERACTIONS).respond(200, json=_completed())
                 result = await backend.generate(request)
 
         assert create.calls.last.request.headers["authorization"] == "Bearer fresh-token"
+        assert request_json(create.calls.last.request)["model"] == "gemini-omni-1.2-flash"
         assert request.output_path.read_bytes() == MP4_BYTES
         assert result.generate_audio is True
+
+    async def test_vertex_omni_assembly_enforces_end_frame_duration_and_video_token_metering(
+        self, db_factory, tmp_path: Path, credentials_file: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from dataclasses import replace
+
+        from arcreel_catalog_core import BuiltinProviderModel, parse_entry
+        from lib.catalog import query as catalog
+        from lib.config.resolver import ConfigResolver, ProviderModel
+        from lib.config.service import ConfigService
+        from lib.generation.video_request_facts import (
+            VideoRequestFacts,
+            end_frame_duration_failure,
+        )
+        from lib.video_runtime.assembly import assemble_video
+        from lib.video_runtime.builtin import builtin_video_metered_usage
+        from lib.video_runtime.resolution import VideoRuntime, read_video_request_facts
+        from tests.catalog_support import install_catalog
+
+        provider = "gemini-vertex"
+        model = "gemini-omni-1.2-flash"
+        omni_entry = parse_entry(
+            {
+                "maker": "google",
+                "name": model,
+                "media_type": "video",
+                "display_name": "Gemini Omni 1.2 Flash",
+                "facts": {
+                    "durations": list(range(3, 16)),
+                    "resolutions": ["360p", "720p", "1080p", "4k"],
+                    "duration_constraints": {"with_end_frame": list(range(3, 11))},
+                    "max_reference_images": 6,
+                    "text_to_video": True,
+                    "first_frame": True,
+                    "last_frame": True,
+                    "reference_audio": False,
+                },
+                "price": {
+                    "currency": "USD",
+                    "meters": [{"meter": "video_tokens", "dims": [], "rows": [{"when": {}, "price": 12.0}]}],
+                },
+            }
+        )
+        base = catalog.factory_snapshot()
+        vertex_listing = base.builtin_providers[provider]
+        updated_listing = replace(
+            vertex_listing,
+            models=(
+                *vertex_listing.models,
+                BuiltinProviderModel(
+                    api_model_name=model,
+                    entry=omni_entry.key.ref,
+                    endpoint="gemini-vertex-interactions-video",
+                    min_app_version="0.35.1",
+                ),
+            ),
+            defaults={**vertex_listing.defaults, "video": model},
+        )
+        install_catalog(
+            monkeypatch,
+            replace(
+                base,
+                entries=(*base.entries, omni_entry),
+                builtin_providers={**base.builtin_providers, provider: updated_listing},
+            ),
+        )
+
+        start, end = tmp_path / "start.png", tmp_path / "end.png"
+        start.write_bytes(image_bytes(1))
+        end.write_bytes(image_bytes(2))
+        async with db_factory() as session:
+            await ConfigService(session).set_provider_config(provider, "credentials_path", str(credentials_file))
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        with captured_vertex_credentials() as load:
+            load.return_value.token = "test-token"
+            load.return_value.valid = True
+            load.return_value.quota_project_id = None
+            target = await VideoRuntime(resolver).materialized(ProviderModel(provider, model))
+            backend = await assemble_video(target.spec)
+
+        assert isinstance(backend, VertexInteractionsVideoBackend)
+        facts = await read_video_request_facts(
+            {"video_provider_i2v": f"{provider}/{backend.model}"},
+            route="storyboard",
+            generation_type="i2v",
+            resolver=resolver,
+            uses_end_frame=True,
+        )
+        assert isinstance(facts, VideoRequestFacts)
+        assert facts.supported_durations == tuple(range(3, 16))
+        assert facts.allowed_durations == tuple(range(3, 11))
+        failure = end_frame_duration_failure(facts, 11)
+        assert failure is not None
+        assert failure.code == "video_duration_end_frame_not_supported"
+
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=10, start_image=start, end_image=end
+        )
+        with capture_http() as router:
+            submit = router.post(VERTEX_INTERACTIONS).respond(200, json=_completed(tokens=42000))
+            result = await backend.generate(request)
+
+        body = request_json(submit.calls.last.request)
+        assert body["model"] == model
+        assert body["generation_config"]["video_config"]["task"] == "image_to_video"
+        assert body["response_format"]["duration"] == "10s"
+        assert [part["type"] for part in body["input"][0]["content"]] == ["image", "image", "text"]
+        assert request.output_path.read_bytes() == MP4_BYTES
+        assert builtin_video_metered_usage(provider, model, request).quantities["video_tokens"] == 57920
+        assert builtin_video_metered_usage(provider, model, request, result).quantities["video_tokens"] == 42000
 
 
 class TestDeclarations:

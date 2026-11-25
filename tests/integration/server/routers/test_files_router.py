@@ -1,10 +1,10 @@
 import dataclasses
-import json
 import os
 import shutil
 import sys
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -15,7 +15,6 @@ from PIL import Image
 import lib.project.project_manager as project_manager_module
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, register_current_resource_artifact
 from lib.artifacts.artifact_manifest import (
-    MANIFEST_FILENAME,
     ArtifactKey,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
@@ -29,7 +28,6 @@ from lib.i18n.zh import errors as zh_errors
 from lib.project import project_trash
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.prompt_templates.builtin import builtin_templates
-from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -37,7 +35,6 @@ from server.routers import files
 from tests.factories import wav_bytes
 from tests.fakes import (
     fail_project_json_write,
-    use_artifact_registration,
     use_project_manager,
     use_text_backend_sessions,
     use_text_generator,
@@ -68,7 +65,7 @@ class _FakeTextBackend:
 
 
 async def _fake_create_backend(*args, **kwargs):
-    return _FakeTextBackend(), "fake"
+    return _FakeTextBackend(), SimpleNamespace(provider_id="fake", max_output_tokens=None, is_custom=False)
 
 
 def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
@@ -87,7 +84,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
     use_project_manager(monkeypatch, pm)
-    monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _fake_create_backend)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -499,7 +496,7 @@ class TestFilesRouter:
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["resource_not_found"]
 
-    def test_upload_assets_and_drafts(self, tmp_path, monkeypatch):
+    def test_upload_assets(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
 
         with client:
@@ -547,26 +544,6 @@ class TestFilesRouter:
                 files={"file": ("bad.png", b"not-image", "image/png")},
             )
             assert bad_image.status_code == 400
-
-            update_draft = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content="draft content",
-                headers={"content-type": "text/plain"},
-            )
-            assert update_draft.status_code == 200
-
-            get_draft = client.get("/api/v1/projects/demo/drafts/1/script_plan")
-            assert get_draft.status_code == 200
-            assert "draft content" in get_draft.text
-
-            bad_stage = client.get("/api/v1/projects/demo/drafts/1/prompt_authoring")
-            assert bad_stage.status_code == 400
-
-            delete_draft = client.delete("/api/v1/projects/demo/drafts/1/script_plan")
-            assert delete_draft.status_code == 200
-
-            missing_draft = client.get("/api/v1/projects/demo/drafts/1/script_plan")
-            assert missing_draft.status_code == 404
 
             project = pm.load_project("demo")
             assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
@@ -1113,11 +1090,11 @@ class TestFilesRouter:
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
     def test_style_image_without_a_default_text_model(self, tmp_path, monkeypatch, file_db_factory, locale):
-        from lib.backends.text_backends.factory import create_text_backend_for_task
         from lib.i18n import MESSAGES
+        from lib.video_runtime.text import resolve_and_assemble_text
 
         client, pm = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", create_text_backend_for_task)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", resolve_and_assemble_text)
         use_text_backend_sessions(monkeypatch, file_db_factory)
         project_dir = pm.get_project_path("demo")
         original_image = _img_bytes("PNG", color=(0, 0, 255))
@@ -1330,7 +1307,7 @@ class TestFilesRouter:
             assert resp.status_code == 400
             assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=1)
 
-    def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
+    def test_source_decode(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
         source_dir = project_dir / "source"
@@ -1340,194 +1317,6 @@ class TestFilesRouter:
         with client:
             bad_encoding = client.get("/api/v1/projects/demo/source/binary.txt")
             assert bad_encoding.status_code == 400
-
-            project_json = project_dir / "project.json"
-            payload = json.loads(project_json.read_text(encoding="utf-8"))
-            payload["content_mode"] = "drama"
-            project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-            reject_text = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content="drama draft",
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_text.status_code == 400
-
-            reject_empty = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content='{"title": "第二集", "scenes": []}',
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_empty.status_code == 400
-
-            reject_non_dict_scene = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}, 42]}',
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_non_dict_scene.status_code == 400
-
-            reject_missing_scene_id = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content='{"title": "第二集", "scenes": [{}]}',
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_missing_scene_id.status_code == 400
-
-            reject_empty_scene_id = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content='{"title": "第二集", "scenes": [{"scene_id": ""}]}',
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_empty_scene_id.status_code == 400
-
-            update_drama = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}]}',
-                headers={"content-type": "text/plain"},
-            )
-            assert update_drama.status_code == 200
-            assert update_drama.json()["path"] == "drafts/episode_2/script_plan_normalized_script.json"
-
-            missing_stage = client.delete("/api/v1/projects/demo/drafts/2/unknown_stage")
-            assert missing_stage.status_code == 400
-
-            payload["content_mode"] = "future_unregistered_mode"
-            project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            reject_dirty_mode = client.put(
-                "/api/v1/projects/demo/drafts/3/script_plan",
-                content="not json at all",
-                headers={"content-type": "text/plain"},
-            )
-            assert reject_dirty_mode.status_code == 400
-
-            prompt_authoring_resp = client.get("/api/v1/projects/demo/drafts/1/prompt_authoring")
-            assert prompt_authoring_resp.status_code == 400
-
-            unknown_stage_resp = client.put(
-                "/api/v1/projects/demo/drafts/1/unknown_stage",
-                content="test",
-                headers={"content-type": "text/plain"},
-            )
-            assert unknown_stage_resp.status_code == 400
-
-            unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/script_plan")
-            assert unknown_draft.status_code == 404
-
-    def test_plain_script_plan_save_is_rejected_once_confirmed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        client, pm = _client(monkeypatch, tmp_path)
-        project_dir = pm.get_project_path("demo")
-        plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
-        plan_path.parent.mkdir(parents=True)
-        plan_path.write_text('{"episode": 1, "segments": []}', encoding="utf-8")
-        (project_dir / "scripts").mkdir(exist_ok=True)
-        (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": []}', encoding="utf-8")
-        fingerprint = script_review.content_fingerprint(plan_path)
-        assert fingerprint is not None
-
-        def _confirm(project: dict) -> None:
-            project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
-            script_review.apply_confirmation(project, 1, fingerprint, "2026-01-01T00:00:00+00:00")
-
-        pm.update_project("demo", _confirm)
-        before = plan_path.read_bytes()
-
-        with client:
-            refused = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content='{"episode": 1, "segments": [{"segment_id": "E1S01"}]}',
-                headers={"content-type": "text/plain"},
-            )
-
-        assert refused.status_code == 409, refused.text
-        assert refused.json()["diagnostic"] == {"code": "script_plan_confirmed"}
-        assert plan_path.read_bytes() == before
-
-    def test_plain_script_plan_save_registers_active_manifest_and_rolls_back_on_registration_failure(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        client, pm = _client(monkeypatch, tmp_path)
-        project_dir = pm.get_project_path("demo")
-
-        def _activate(project: dict) -> None:
-            project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
-            project["content_mode"] = "narration"
-            project["generation_mode"] = "storyboard"
-            project["episodes"] = [
-                {
-                    "episode": 1,
-                    "title": "第一集",
-                    "script_file": "scripts/episode_1.json",
-                    "ledger_status": "planned",
-                }
-            ]
-
-        pm.update_project("demo", _activate)
-        source = project_dir / "source" / "episode_1.txt"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("第一集原文", encoding="utf-8")
-        content = json.dumps(
-            {
-                "episode": 1,
-                "segments": [
-                    {
-                        "segment_id": "E1S01",
-                        "novel_text": "第一集原文",
-                        "duration_seconds": 6,
-                        "segment_break": False,
-                        "characters_in_segment": [],
-                        "scenes": [],
-                        "props": [],
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        )
-
-        with client:
-            response = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content=content,
-                headers={"content-type": "text/plain"},
-            )
-        assert response.status_code == 200, response.text
-        draft_path = project_dir / response.json()["path"]
-        key = ArtifactKey.episode_script_plan(1)
-        adapter = ProjectArtifactManifestAdapter(project_dir)
-        entry = adapter.get_entry(key)
-        assert entry is not None
-        assert entry.artifact_path == draft_path.relative_to(project_dir).as_posix()
-        assert (
-            ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=entry.artifact_path).status
-            is ArtifactStatus.CURRENT
-        )
-
-        draft_before = draft_path.read_bytes()
-        manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
-
-        def _fail_registration(*_args, **_kwargs):
-            raise RuntimeError("manifest unavailable")
-
-        with monkeypatch.context() as registration_patch:
-            use_artifact_registration(registration_patch, _fail_registration)
-            with pytest.raises(RuntimeError, match="manifest unavailable"):
-                files._write_plain_draft(
-                    "demo",
-                    project_dir,
-                    1,
-                    draft_path,
-                    content.replace("第一集原文", "修改后原文"),
-                    lambda key, **_kwargs: key,
-                )
-
-        assert draft_path.read_bytes() == draft_before
-        assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
-
-        with client:
-            deleted = client.delete("/api/v1/projects/demo/drafts/1/script_plan")
-        assert deleted.status_code == 200, deleted.text
-        assert not draft_path.exists()
-        assert adapter.get_entry(key) is None
 
     def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):
         """带 ?v= 参数时应返回 immutable 缓存头"""
@@ -1591,158 +1380,6 @@ class TestFilesRouter:
             resp = client.get("/api/v1/files/demo/videos/clip.mp4?v=1", headers={"Range": "bytes=2-5"})
             assert resp.status_code == 206
             assert resp.content == b"2345"
-
-    def test_files_helper_functions(self, tmp_path):
-        assert files._stage_files("narration") == {"script_plan": "script_plan_segments.json"}
-        assert files._stage_files("drama") == {"script_plan": "script_plan_normalized_script.json"}
-        assert files._stage_files("drama", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
-        assert files._stage_files("narration", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
-        assert files._stage_files("narration", "storyboard") == {"script_plan": "script_plan_segments.json"}
-
-    def test_resolve_script_plan_path_narration_prefers_own_legacy_md(self, tmp_path):
-        """narration script_plan 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
-        drafts_dir = tmp_path / "drafts" / "episode_1"
-        drafts_dir.mkdir(parents=True)
-        (drafts_dir / "script_plan_reference_units.md").write_text("ref leftover", encoding="utf-8")
-        (drafts_dir / "script_plan_segments.md").write_text("narration legacy", encoding="utf-8")
-        resolved = files._resolve_script_plan_path(drafts_dir, "script_plan", drafts_dir / "script_plan_segments.json")
-        assert resolved.name == "script_plan_segments.md"
-
-    def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
-        """参考生视频下读/写 script_plan_reference_units.json，避免被按 content_mode 错误路由；
-        旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
-        client, pm = _client(monkeypatch, tmp_path)
-        project_dir = pm.get_project_path("demo")
-
-        project_json = project_dir / "project.json"
-        payload = json.loads(project_json.read_text(encoding="utf-8"))
-        payload["generation_mode"] = "reference_video"
-        payload["episodes"] = [
-            {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "own"}
-        ]
-        project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        (project_dir / "source").mkdir(parents=True, exist_ok=True)
-        (project_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
-
-        drafts_dir = project_dir / "drafts" / "episode_1"
-        drafts_dir.mkdir(parents=True, exist_ok=True)
-        (drafts_dir / "script_plan_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
-
-        with client:
-            resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
-            assert resp.status_code == 200
-            assert resp.text == "E1U1 stub"
-
-            bad = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content="raw text",
-                headers={"content-type": "text/plain"},
-            )
-            assert bad.status_code == 400
-            invalid = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content='{"units": [{"bogus": 1}]}',
-                headers={"content-type": "text/plain"},
-            )
-            assert invalid.status_code == 422
-
-            unit = {"unit_id": "E1U01", "text": "镜头描述", "duration_seconds": 8}
-            update = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content=json.dumps({"units": [unit]}, ensure_ascii=False),
-                headers={"content-type": "text/plain"},
-            )
-            assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_1/script_plan_reference_units.json"
-
-            resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
-            assert resp.status_code == 200
-            saved = json.loads(resp.text)
-            assert saved["units"][0]["unit_id"] == "E1U01"
-
-    def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
-        """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
-        client, pm = _client(monkeypatch, tmp_path)
-        project_dir = pm.get_project_path("demo")
-
-        drafts_dir = project_dir / "drafts" / "episode_3"
-        drafts_dir.mkdir(parents=True, exist_ok=True)
-        (drafts_dir / "script_plan_reference_units.md").write_text("fallback content", encoding="utf-8")
-
-        with client:
-            resp = client.get("/api/v1/projects/demo/drafts/3/script_plan")
-            assert resp.status_code == 200
-            assert resp.text == "fallback content"
-
-    def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
-        """草稿文件名按项目生成模式路由：参考生视频全项目落 script_plan_reference_units.json。"""
-        client, pm = _client(monkeypatch, tmp_path)
-        project_dir = pm.get_project_path("demo")
-
-        project_json = project_dir / "project.json"
-        payload = json.loads(project_json.read_text(encoding="utf-8"))
-        payload["generation_mode"] = "reference_video"
-        payload["episodes"] = [
-            {"episode": 2, "title": "", "script_file": "scripts/episode_2.json", "source_origin": "own"}
-        ]
-        project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        drafts_dir = project_dir / "drafts" / "episode_2"
-        drafts_dir.mkdir(parents=True, exist_ok=True)
-        (project_dir / "source").mkdir(parents=True, exist_ok=True)
-        (project_dir / "source" / "episode_2.txt").write_text("原文", encoding="utf-8")
-
-        with client:
-            unit = {"unit_id": "E2U01", "text": "镜头描述", "duration_seconds": 8}
-            update = client.put(
-                "/api/v1/projects/demo/drafts/2/script_plan",
-                content=json.dumps({"units": [unit]}, ensure_ascii=False),
-                headers={"content-type": "text/plain"},
-            )
-            assert update.status_code == 200
-            assert update.json()["path"] == "drafts/episode_2/script_plan_reference_units.json"
-
-        content_mode, gen_mode = files._load_project_modes("no-such-project")
-        assert content_mode == "drama"
-        assert gen_mode is None
-        content_mode, gen_mode = files._load_project_modes("demo")
-        assert content_mode == "narration"
-        assert gen_mode == "reference_video"
-
-    def test_draft_event_emission(self, tmp_path, monkeypatch):
-        """PUT drafts 端点应发射 draft:created/updated 事件"""
-        from unittest.mock import patch
-
-        client, _ = _client(monkeypatch, tmp_path)
-
-        with client, patch("server.routers.files.emit_project_change_batch") as mock_emit:
-            resp = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content="new draft",
-                headers={"content-type": "text/plain"},
-            )
-            assert resp.status_code == 200
-            mock_emit.assert_called_once()
-            args = mock_emit.call_args
-            change = args[0][1][0]
-            assert change["entity_type"] == "draft"
-            assert change["action"] == "created"
-            assert change["episode"] == 1
-            assert change["important"] is True
-            assert "分镜拆分" in change["label"]
-
-            mock_emit.reset_mock()
-
-            resp2 = client.put(
-                "/api/v1/projects/demo/drafts/1/script_plan",
-                content="updated draft",
-                headers={"content-type": "text/plain"},
-            )
-            assert resp2.status_code == 200
-            mock_emit.assert_called_once()
-            change2 = mock_emit.call_args[0][1][0]
-            assert change2["action"] == "updated"
-            assert change2["important"] is False
 
     def test_serve_global_asset_image(self, tmp_path, monkeypatch):
         """全局资产图片能够被正确读取返回"""
@@ -2433,7 +2070,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_vision_error)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _raise_vision_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",
@@ -2453,7 +2090,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             raise ValueError(f"凭证文件 {sentinel} 中未找到 project_id")
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_backend_error)
+        monkeypatch.setattr("lib.backends.text_generator.resolve_and_assemble_text", _raise_backend_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",

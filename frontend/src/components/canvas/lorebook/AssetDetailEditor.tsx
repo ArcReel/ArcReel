@@ -17,7 +17,7 @@ import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import type { AssetSheetStatusRow, AssetSheetType, Character, Product } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
-import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
+import { rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { AssetOriginalsField } from "./AssetOriginalsField";
@@ -105,7 +105,7 @@ export function AssetDetailEditor({
     (s) => s.currentProjectData?.character_voice_binding ?? DEFAULT_CHARACTER_VOICE_BINDING,
   );
   const writes = useAssetWrites();
-  const occupied = useAssetBusyNames(assetType, projectName).has(name);
+  const occupied = useAssetBusy("image", assetType, projectName, name);
 
   const source = useMemo(() => assetFieldsOf(assetType, asset), [assetType, asset]);
   const save = useCallback(
@@ -126,7 +126,8 @@ export function AssetDetailEditor({
   useLeaveGuard({ dirty: false, saving: writes.writing || writing, save: unit.save });
 
   const saving = unit.status === "saving";
-  const busy = generating || occupied || saving || writes.writing || writing;
+  const writingBusy = saving || writes.writing || writing;
+  const imageBusy = writingBusy || generating || occupied;
 
   const gallery = toGalleryAsset(assetType, name, asset);
   const sheetFp = useProjectsStore((s) => (gallery.sheetPath ? s.getAssetFingerprint(gallery.sheetPath) : null));
@@ -148,14 +149,14 @@ export function AssetDetailEditor({
   });
 
   const generate = () => {
-    if (busy || rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
+    if (imageBusy || rejectIfAssetBusy("image", assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
     const willBeStale = value.description !== unit.savedValue.description;
     void unit.saveAndGenerate(() => {
-      if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
+      if (!rejectIfAssetBusy("image", assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
     }, {
       confirm: async () => {
         if (!(await staleConfirm.confirm({ willBeStale }))) return false;
-        return !rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint");
+        return !rejectIfAssetBusy("image", assetType, projectName, name, t, "assets:gallery_busy_hint");
       },
     });
   };
@@ -188,7 +189,7 @@ export function AssetDetailEditor({
               name={name}
               assetType={assetType}
               readOnly={readOnly}
-              busy={busy}
+              busy={writingBusy}
               onRenamed={onRenamed}
               renderTitle={(hidden) => (
                 <SheetTitle className={cn("min-w-0", hidden && "sr-only")}>
@@ -236,7 +237,7 @@ export function AssetDetailEditor({
                 <GenerateButton
                   onClick={generate}
                   loading={generating}
-                  disabled={!describable || busy}
+                  disabled={!describable || imageBusy}
                   label={generateLabel}
                   className="w-full"
                 />
@@ -257,7 +258,7 @@ export function AssetDetailEditor({
                     assetType={product ? "product" : "character"}
                     paths={originals}
                     readOnly={readOnly}
-                    busy={busy}
+                    busy={assetType === "character" ? imageBusy : writingBusy}
                   />
                 </EditorSection>
               )}
@@ -321,7 +322,7 @@ export function AssetDetailEditor({
                 referenceAudio={character.reference_audio}
                 voiceBinding={voiceBinding}
                 readOnly={readOnly}
-                busy={busy}
+                busy={writingBusy}
               />
             </EditorSection>
           )}
@@ -334,7 +335,7 @@ export function AssetDetailEditor({
                 assetType={assetType}
                 aliases={aliases}
                 readOnly={readOnly}
-                busy={busy}
+                busy={writingBusy}
               />
             </EditorSection>
           )}
@@ -347,7 +348,7 @@ export function AssetDetailEditor({
                 derivatives={character.derivatives ?? {}}
                 ownerSheet={character.character_sheet}
                 readOnly={readOnly}
-                busy={busy}
+                busy={writingBusy}
               />
             </EditorSection>
           )}

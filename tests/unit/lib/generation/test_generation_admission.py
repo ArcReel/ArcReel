@@ -9,22 +9,25 @@ import portalocker
 import pytest
 
 from lib.generation import generation_admission
+from lib.generation.asset_admission import AssetTarget, asset_admission_locks
+from lib.infra.data_root_layout import DataRootLayout
+from tests.fakes import observe_file_lock_contention
+
+
+async def test_asset_admission_uses_one_lock_for_equivalent_project_names(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    target = AssetTarget("character", "Alice", "image")
+    for project_name in ("demo", " demo "):
+        async with asset_admission_locks(project_name, target):
+            pass
+
+    assert len(list(DataRootLayout.current().generation_admission_locks_dir.glob("*.lock"))) == 1
 
 
 async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    contended = asyncio.Event()
+    contended = observe_file_lock_contention(monkeypatch)
     acquired = asyncio.Event()
-    lock = portalocker.lock
-
-    def observe_lock_attempt(handle, flags):
-        try:
-            lock(handle, flags)
-        except portalocker.AlreadyLocked:
-            contended.set()
-            raise
-
-    monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
 
     async def _acquire_rebound_binding() -> None:
         async with generation_admission.generation_admission_lock(

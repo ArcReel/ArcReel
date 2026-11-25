@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import synthesize_video_capabilities, two_sided_video_capabilities
-from lib.custom_provider.loader import load_custom_backend
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.video_runtime.assembly import assemble_video
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -410,12 +410,9 @@ class TestSaveValidatesOpenOverrides:
         assert resp.status_code == 422
         assert "reference_audio_mode" in resp.json()["detail"]
 
-    def test_reference_audio_none_accepted_on_endpoint_without_audio_support(self, capability_client: TestClient):
-        """守卫只拦「宣称支持」的方向：关掉音色能力无需运输能力背书。"""
-        pid = _create_provider(capability_client, [_video_model(capability_overrides={"reference_audio_mode": "none"})])
-
-        models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
-        assert models[0]["capability_overrides"] == {"reference_audio_mode": "none"}
+    def test_unimplemented_reference_audio_dimension_is_locked(self, capability_client: TestClient):
+        resp = _post_provider(capability_client, [_video_model(capability_overrides={"reference_audio_mode": "none"})])
+        assert resp.status_code == 422
 
     def test_reference_audio_direct_accepted_on_audio_capable_endpoint(self, capability_client: TestClient):
         resp = _post_provider(
@@ -493,6 +490,22 @@ class TestSaveValidatesOpenOverrides:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.parametrize("bad_value", [[], {}, {"mode": "always_on"}, 1, None])
+    def test_unhashable_or_non_string_legacy_audio_mode_rejected(self, capability_client: TestClient, bad_value):
+        """旧音轨键收到列表/对象等非字符串值时返回结构化 422，不在集合成员检查中抛 TypeError 导致 500。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                    capability_overrides={"audio_track": bad_value},
+                )
+            ],
+        )
+        assert resp.status_code == 422
+        assert "has_audio_track" in resp.json()["detail"]
+
     def test_non_video_endpoint_rejected(self, capability_client: TestClient):
         resp = _post_provider(
             capability_client,
@@ -548,8 +561,8 @@ class TestModelFactOverrides:
             "durations": [5, 10],
             "resolutions": ["720p", "1080p"],
             "duration_constraints": {"by_resolution": {"1080p": [5]}},
-            "max_reference_images": 2,
-            "audio_track": "always_off",
+            "max_reference_images": 1,
+            "has_audio_track": False,
         }
         text = {"image_input": False, "structured_output": True, "max_output_tokens": 4096}
         image = {"text_to_image": False}
@@ -696,12 +709,9 @@ class TestFullUpdateOverrideSemantics:
         reloaded = capability_client.get(f"/api/v1/custom-providers/{pid}")
         assert reloaded.json()["models"][0]["capability_overrides"] is None
 
-    async def test_endpoint_change_validated_even_when_override_dict_unchanged(
+    async def test_endpoint_change_drops_incompatible_carried_override(
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
-        """每行都按提交上来的 (endpoint, 覆盖值) 校验：model_id 与覆盖字典原样不动、只切 endpoint
-        时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法依赖 endpoint 的
-        end_image_capable），须针对新 endpoint 拒绝。"""
         pid = await _seed_provider_with_raw_models(
             custom_providers_app_session_factory,
             [
@@ -730,7 +740,8 @@ class TestFullUpdateOverrideSemantics:
                 ],
             },
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["capability_overrides"] is None
 
 
 class TestResolverReturnsEffectiveCapabilities:
@@ -767,13 +778,17 @@ class TestResolverReturnsEffectiveCapabilities:
     @staticmethod
     async def _resolve(db_session: AsyncSession, provider_id: str, model_id: str = VIDEO_MODEL) -> dict:
         from lib.config.resolver import ConfigResolver
-        from lib.config.service import ConfigService
+        from lib.video_runtime.resolution import VideoRuntime
 
         factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         resolver = ConfigResolver(factory, _bound_session=db_session)
-        return await resolver._resolve_video_caps_for_model(
-            ConfigService(db_session), db_session, provider_id, model_id, None
-        )
+        target = await VideoRuntime(resolver).default({"video_backend": f"{provider_id}/{model_id}"})
+        eff = target.snapshot.effective
+        return {
+            "first_frame": eff["first_frame"],
+            "last_frame": eff["last_frame"],
+            "max_reference_images": eff["max_reference_images"],
+        }
 
     async def test_custom_model_without_overrides_follows_system(self, db_session: AsyncSession):
         pid = await self._seed(db_session, overrides=None)
@@ -811,9 +826,12 @@ class TestResolverReturnsEffectiveCapabilities:
 
         caps = await self._resolve(db_session, pid, model_id=LAST_FRAME_MODEL)
         db_session.expunge_all()
-        backend = await load_custom_backend(
-            session=db_session, provider_id=pid, model_id=LAST_FRAME_MODEL, media_type="video"
-        )
+        from lib.config.resolver import ConfigResolver
+        from lib.video_runtime.resolution import VideoRuntime
+
+        factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+        target = await VideoRuntime(ConfigResolver(factory)).default({"video_backend": f"{pid}/{LAST_FRAME_MODEL}"})
+        backend = await assemble_video(target.spec)
 
         executed = backend.video_capabilities
         assert caps["first_frame"] is executed.first_frame
@@ -900,17 +918,9 @@ class TestResolverReturnsEffectiveCapabilities:
     async def test_builtin_boolean_caps_come_from_backend(self, db_session: AsyncSession):
         """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.config.resolver import ConfigResolver
-        from lib.config.service import ConfigService
 
-        factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
-        resolver = ConfigResolver(factory, _bound_session=db_session)
-        caps = await resolver._resolve_video_caps_for_model(
-            ConfigService(db_session), db_session, "grok", "grok-imagine-video", None
-        )
-
+        caps = await self._resolve(db_session, "grok", "grok-imagine-video")
         backend_caps = builtin_video_capabilities_for_model("grok", "grok-imagine-video")
-        assert caps["source"] == "registry"
         assert caps["first_frame"] is backend_caps.first_frame
         assert caps["last_frame"] is backend_caps.last_frame
 
@@ -1022,3 +1032,102 @@ def test_custom_model_catalog_exposes_effective_audio_for_settings(capability_cl
     assert model["audio_track"] == expected
     assert model["reference_route_audio_track"] == expected
     assert model["voice_consistency"] == ("none" if expected == "always_off" else "soft")
+
+
+async def test_legacy_silent_model_survives_full_replacement(capability_client, custom_providers_app_session_factory):
+    pid = await _seed_provider_with_raw_models(
+        custom_providers_app_session_factory,
+        [_video_model(endpoint="newapi-video", capability_overrides={"audio_track": "always_off"})],
+    )
+    url = f"/api/v1/custom-providers/{pid}"
+    model = capability_client.get(url).json()["models"][0]
+    assert model["capability_overrides"] == {"has_audio_track": False}
+    model["capability_overrides"]["max_prompt_chars"] = 500
+    saved = capability_client.put(
+        url, json={"models": [model], "display_name": "Relay", "base_url": "https://relay.test/v1"}
+    )
+    assert saved.status_code == 200, saved.text
+    reopened = capability_client.get(url).json()["models"][0]
+    assert reopened["capability_overrides"] == {"has_audio_track": False, "max_prompt_chars": 500}
+    async with custom_providers_app_session_factory() as session:
+        (row,) = await CustomProviderRepository(session).list_models(pid)
+        assert row.capability_overrides == reopened["capability_overrides"]
+        caps = synthesize_video_capabilities(
+            endpoint=row.endpoint, model_id=row.model_id, overrides=row.capability_overrides
+        )
+        assert caps.audio_track_for_route("i2v").value == caps.audio_track_for_route("r2v").value == "always_off"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides"),
+    [
+        ("dashscope-video", {"audio_track": "controllable"}),
+        ("dashscope-video", {"audio_track": "always_off", "has_audio_track": True}),
+        ("kling-video-audio", {"reference_route_has_audio_track": True}),
+        ("openai-video", {"max_reference_images": 2}),
+    ],
+)
+def test_batch_save_rejects_invalid_video_overrides_atomically(capability_client, endpoint, overrides):
+    initial = _video_model(endpoint=endpoint, capability_overrides={"has_audio_track": True})
+    pid = _create_provider(capability_client, [initial])
+    url = f"/api/v1/custom-providers/{pid}"
+    response = capability_client.put(
+        url,
+        json={
+            "display_name": "Changed",
+            "base_url": "https://relay.test/v1",
+            "models": [{**initial, "capability_overrides": overrides}],
+        },
+    )
+    assert response.status_code == 422
+    saved = capability_client.get(url).json()
+    assert saved["display_name"] == "Relay"
+    assert saved["models"][0]["capability_overrides"] == {"has_audio_track": True}
+
+
+async def test_endpoint_change_drops_carried_legacy_controllable_audio(
+    capability_client, custom_providers_app_session_factory
+):
+    pid = await _seed_provider_with_raw_models(
+        custom_providers_app_session_factory,
+        [_video_model(endpoint="newapi-video", capability_overrides={"audio_track": "controllable", "durations": [5]})],
+    )
+    url = f"/api/v1/custom-providers/{pid}"
+    saved = capability_client.put(
+        url,
+        json={
+            "display_name": "Relay",
+            "base_url": "https://relay.test/v1",
+            "models": [
+                _video_model(
+                    endpoint="dashscope-video",
+                    capability_overrides={"audio_track": "controllable", "durations": [5]},
+                )
+            ],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["models"][0]["capability_overrides"] == {"durations": [5]}
+
+
+def test_video_override_rejection_reports_specific_guidance(capability_client):
+    incoherent = _post_provider(
+        capability_client,
+        [
+            _video_model(
+                endpoint="ark-seedance-2",
+                model_id="doubao-seedance-2-0",
+                capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 0},
+            )
+        ],
+    )
+    assert incoherent.status_code == 422
+    assert "max_reference_audio_count" in incoherent.json()["detail"]
+    assert "none" in incoherent.json()["detail"]
+
+    invalid_type = _post_provider(
+        capability_client,
+        [_video_model(endpoint="dashscope-video", capability_overrides={"last_frame": "true"})],
+    )
+    assert invalid_type.status_code == 422
+    assert "bool" in invalid_type.json()["detail"]

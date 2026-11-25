@@ -2,23 +2,33 @@
 
 出厂快照由发版 PR 刷新成目录数据仓库的最新数据，这里只核对与具体模型和取值无关的约定：快照能通过校验、
 能被目录查询完整读出，快照里的内置供应商就是注册表登记的那些，供应商在某个媒体类型下有模型时，代码里登记了
-这一媒体类型的调用通道。模型级内容（有哪些模型、取什么值）由目录数据仓库按 ``arcreel_catalog_core`` 的构建侧
-校验把关，这里不断言。
+这一媒体类型的调用通道，各推荐模型均未下线且能完成装配。模型级内容（有哪些模型、取什么值）由目录数据仓库按
+``arcreel_catalog_core`` 的构建侧校验把关，这里不断言。
 """
+
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 
 from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, check_catalog_files, dump_entry, parse_entry
-from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.backends.backend_assembly.assembler import load_builtin_config
+from lib.backends.backend_assembly.specs import builtin_model_spec, get_provider_spec
 from lib.catalog import query as catalog
 from lib.catalog.query import SNAPSHOT_DIR, factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.resolver import ConfigResolver
+from lib.config.service import ConfigService
+from lib.video_runtime.builtin import build_builtin_backend
+from tests.catalog_support import set_catalog_today
+from tests.fakes import captured_vertex_credentials
 
 
 @pytest.fixture(autouse=True)
 def read_factory_snapshot(monkeypatch):
     """根 conftest 让目录查询读测试目录数据；本文件换回出厂快照。模块导入早于任何替换，``factory_snapshot`` 是原函数。"""
     monkeypatch.setattr(catalog, "factory_snapshot", factory_snapshot)
+    set_catalog_today(monkeypatch, datetime.fromisoformat(factory_snapshot().dataset_version).date())
 
 
 def test_snapshot_passes_build_side_check():
@@ -70,3 +80,40 @@ def test_reset_for_tests_reloads_snapshot_and_index():
 
     assert catalog.factory_snapshot() is not before
     assert catalog.list_models(provider_id) == models
+
+
+async def test_every_recommended_model_is_callable_and_assembles(db_factory, tmp_path: Path):
+    credentials = tmp_path / "vertex.json"
+    credentials.write_text('{"project_id": "factory-project"}', encoding="utf-8")
+    async with db_factory() as session:
+        config = ConfigService(session)
+        for provider_id in PROVIDER_REGISTRY:
+            for key, value in (
+                ("api_key", "test-key"),
+                ("access_key", "ak-test"),
+                ("secret_key", "sk-test"),
+                ("credentials_path", str(credentials)),
+                ("gcs_bucket", "factory-bucket"),
+            ):
+                await config.set_provider_config(provider_id, key, value)
+        await session.commit()
+
+    resolver = ConfigResolver(db_factory)
+    checked = 0
+    with captured_vertex_credentials() as load:
+        load.return_value.token = "test-token"
+        load.return_value.valid = True
+        load.return_value.quota_project_id = None
+        for provider_id in sorted(PROVIDER_REGISTRY):
+            for media_type in sorted(catalog.provider_media_types(provider_id)):
+                model = catalog.default_model(provider_id, media_type)
+                if model is None:
+                    continue
+                catalog.require_callable(provider_id, model, media_type)
+                spec = builtin_model_spec(provider_id, media_type, model)
+                loaded = await load_builtin_config(resolver, provider_id, None)
+                backend = build_builtin_backend(spec, loaded, model)
+                assert backend.model == model
+                checked += 1
+
+    assert checked > 0

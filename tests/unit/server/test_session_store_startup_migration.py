@@ -12,8 +12,10 @@ from lib.project.project_manager import ProjectManager
 @pytest.mark.asyncio
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
+    from tests.fakes import use_project_manager
+
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(tmp_path))
+    use_project_manager(monkeypatch, ProjectManager(tmp_path))
     with (
         patch(
             "server.app.migrate_local_transcripts_to_store",
@@ -38,14 +40,18 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start": AsyncMock(),
                 "stop": AsyncMock(),
+                "stop_admission": lambda self: None,
             },
         )()
         svc_mock.startup = AsyncMock()
+        svc_mock.shutdown = AsyncMock()
         svc_mock.session_manager = type(
             "S",
             (),
             {
                 "start_patrol": lambda self: None,
+                "reset_streams": lambda self: None,
+                "stop_streams": lambda self: None,
                 "stop_patrol": lambda self: None,
                 "set_autonomous_turn_listener": lambda self, listener: None,
             },
@@ -56,6 +62,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start": AsyncMock(),
                 "shutdown": AsyncMock(),
+                "stop_streams": lambda self: None,
                 "publish_assistant_session_resumed": lambda self, project_name, session_id: None,
             },
         )()

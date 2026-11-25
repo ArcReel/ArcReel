@@ -12,7 +12,7 @@ applies_to:
   - narration
   generation_mode:
   - storyboard
-output_schema: lib.script.script_models:NarrationScriptPlanDraft
+output_schema: lib.script.script_models:NarrationScriptPlanOutput
 slots:
   target_language: 输出语言
   project_overview: 项目概述，键齐全的对象 {synopsis, genre, theme, world_setting}；缺值传 null
@@ -61,7 +61,6 @@ protected: false
 - **novel_text**：逐字保留小说原文，不改编 / 不删减 / 不添加 / 不改标点（后期配音与透传的真相源）；
   对话片段含完整说话内容与引导语（如「他说道」）。在句号 / 问号 / 感叹号 / 省略号等标点或段落结束处拆分，
   保持语义完整，不拆断完整的语义单元。
-- **segment_id**：`E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01），按顺序递增，不得用其他集号前缀。
 - **duration_seconds**：{% if default_duration %}单分镜默认取 {{ default_duration }} 秒（按朗读语速估算该秒数内能念完的字数）；长句 / 情绪铺陈 / 关键对话等可从档位中取更长值（至 {{ max_duration }} 秒）——偏好可被内容需要覆盖，硬约束不可{% else %}按朗读节奏从档位（{{ durations }}）中取值（最长 {{ max_duration }} 秒），不强制默认值{% endif %}{% if episode_target_duration %}。{{ partial("shared/episode_target_duration_rule") }}{% endif %}。取值必须落在支持档位（{{ durations }}）内。
 - **segment_break**：在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`，同一连续场景内标 `false`，不要滥用。
 - **characters_in_segment / scenes / props**：列出该分镜 `novel_text` 中实际出现（被叙述或对话提及）的已登记资产，

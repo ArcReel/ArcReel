@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Loader2, Lock, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { cn } from "cn";
 import type {
   DraftSoftViolation,
@@ -15,31 +15,28 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
-import {
-  AgentDraftBar,
-  DiscardDraftDialog,
-  DraftEpisodeViolations,
-  DraftSoftViolationList,
-  DraftViolationList,
-  InvalidDraftBar,
-} from "@/components/shared/DraftStatus";
-import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
+import {
+  ReviewBlockingIssueList,
+  ReviewEpisodeBlockingIssues,
+  ReviewSoftViolationList,
+  ScriptReviewStatusHeader,
+} from "@/components/canvas/shared/ScriptReviewDiagnostics";
+import { scriptPlanFixRequestText, withUniqueKeys } from "@/components/canvas/shared/script-review-diagnostics";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import { durationIncompatibleLabel } from "@/components/canvas/shared/duration-incompatible";
 import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
-import { hasValidNewAssets, speakerCandidates } from "@/utils/plan-new-assets";
+import { speakerCandidates } from "@/utils/plan-new-assets";
 import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,10 +77,10 @@ function SectionLabel({ children, className }: { children: React.ReactNode; clas
   return <h4 className={cn("mb-1.5 text-xs font-medium text-muted-foreground", className)}>{children}</h4>;
 }
 
-type ReviewDraft = DramaNormalizedScript | NarrationScriptPlanDraft;
+type ReviewPlan = DramaNormalizedScript | NarrationScriptPlanDraft;
 
-function selectReviewContent(state: ScriptReviewState): ReviewDraft | null {
-  return (state.content ?? null) as ReviewDraft | null;
+function selectReviewContent(state: ScriptReviewState): ReviewPlan | null {
+  return (state.content ?? null) as ReviewPlan | null;
 }
 
 function MetaChips({ items }: { items: string[] }) {
@@ -218,24 +215,25 @@ function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
   );
 }
 
-interface ItemDraftNotes {
-  violations: ScriptReviewViolation[];
+interface ItemReviewNotes {
+  position: number;
+  blockingIssues: ScriptReviewViolation[];
   softViolations: DraftSoftViolation[];
   anchorRef: (el: HTMLElement | null) => void;
 }
 
-function ItemCardShell({ notes, children }: { notes?: ItemDraftNotes; children: React.ReactNode }) {
-  const violating = (notes?.violations.length ?? 0) > 0;
+function ItemCardShell({ notes, children }: { notes?: ItemReviewNotes; children: React.ReactNode }) {
+  const blocked = (notes?.blockingIssues.length ?? 0) > 0;
   return (
     <article
       ref={notes?.anchorRef}
-      className={cn("scroll-mt-28 rounded-lg border bg-card p-3.5", violating ? "border-destructive/45" : "border-border")}
+      className={cn("scroll-mt-28 rounded-lg border bg-card p-3.5", blocked ? "border-destructive/45" : "border-border")}
     >
       {children}
       {notes && (
         <>
-          <DraftViolationList violations={notes.violations} />
-          <DraftSoftViolationList softViolations={notes.softViolations} />
+          <ReviewBlockingIssueList issues={notes.blockingIssues} position={notes.position} />
+          <ReviewSoftViolationList softViolations={notes.softViolations} position={notes.position} />
         </>
       )}
     </article>
@@ -255,7 +253,7 @@ function DramaSceneCard({
   position: number;
   disabled: boolean;
   readOnly: boolean;
-  notes?: ItemDraftNotes;
+  notes?: ItemReviewNotes;
   context: PlanItemContext;
   onChange: (patch: Partial<DramaSceneContent>) => void;
 }) {
@@ -327,7 +325,7 @@ function NarrationSegmentCard({
   position: number;
   disabled: boolean;
   readOnly: boolean;
-  notes?: ItemDraftNotes;
+  notes?: ItemReviewNotes;
   context: PlanItemContext;
   onChange: (patch: Partial<NarrationScriptPlanSegment>) => void;
 }) {
@@ -374,63 +372,14 @@ function NarrationSegmentCard({
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object" && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isUtterance(value: unknown): value is Utterance {
-  if (!isRecord(value) || typeof value.text !== "string") return false;
-  return value.kind === "voiceover" || (value.kind === "dialogue" && typeof value.speaker === "string");
-}
-
-function isDramaScene(value: unknown): value is DramaSceneContent {
-  return (
-    isRecord(value) &&
-    typeof value.scene_id === "string" &&
-    typeof value.duration_seconds === "number" &&
-    typeof value.segment_break === "boolean" &&
-    isStringArray(value.characters_in_scene) &&
-    Array.isArray(value.utterances) &&
-    value.utterances.every(isUtterance) &&
-    typeof value.source_text === "string"
-  );
-}
-
-function isNarrationSegment(value: unknown): value is NarrationScriptPlanSegment {
-  return (
-    isRecord(value) &&
-    typeof value.segment_id === "string" &&
-    typeof value.novel_text === "string" &&
-    typeof value.duration_seconds === "number" &&
-    typeof value.segment_break === "boolean" &&
-    isStringArray(value.characters_in_segment)
-  );
-}
-
-function narrowDramaDraft(content: Record<string, unknown> | null): ReviewDraft | null {
-  const scenes = content?.scenes;
-  if (!Array.isArray(scenes) || !scenes.every(isDramaScene) || !hasValidNewAssets(content)) return null;
-  return content as unknown as DramaNormalizedScript;
-}
-
-function narrowNarrationDraft(content: Record<string, unknown> | null): ReviewDraft | null {
-  const segments = content?.segments;
-  if (!Array.isArray(segments) || !segments.every(isNarrationSegment) || !hasValidNewAssets(content)) return null;
-  return content as unknown as NarrationScriptPlanDraft;
-}
-
-function reviewItems(content: ReviewDraft | null): { id: string }[] {
+function reviewItems(content: ReviewPlan | null): { id: string }[] {
   if (content == null) return [];
   return "scenes" in content
     ? content.scenes.map((scene) => ({ id: scene.scene_id }))
     : content.segments.map((segment) => ({ id: segment.segment_id }));
 }
 
-function newAssetEntries(content: ReviewDraft | null): NewAssetEntryRefs[] {
+function newAssetEntries(content: ReviewPlan | null): NewAssetEntryRefs[] {
   if (content == null) return [];
   return "scenes" in content
     ? content.scenes.map((scene, i) => ({
@@ -474,7 +423,6 @@ export function ScriptReviewGate({
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
-  const [discardOpen, setDiscardOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     pushToast(t("dashboard:review_confirmed"), "success");
@@ -485,37 +433,28 @@ export function ScriptReviewGate({
     draft,
     setDraft,
     dirty,
+    outdated,
     loading,
     loadError,
     saving,
     busy,
     retry: handleRetry,
-    refresh,
+    reloadLatest,
     save: handleSave,
     confirm: handleConfirm,
     confirming,
-  } = useScriptReviewDraft<ReviewDraft>({
+  } = useScriptReviewDraft<ReviewPlan>({
     projectName,
     episode,
     selectContent: selectReviewContent,
     onConfirmed: handleConfirmed,
   });
 
-  const quarantine = state?.quarantine ?? null;
-  const draftEditor = useDraftEditor<ReviewDraft>({
-    projectName,
-    episode,
-    view: quarantine,
-    narrow: contentMode === "drama" ? narrowDramaDraft : narrowNarrationDraft,
-    onSettled: refresh,
-  });
-
   const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
   const savedInstructions = useProjectsStore(
     (s) => s.currentProjectData?.episodes?.find((entry) => entry.episode === episode)?.script_plan_instructions ?? "",
   );
-  const shownContent = quarantine != null && quarantine.editable_by === "user" ? draftEditor.content : draft;
-  const shownNewAssets = shownContent?.new_assets;
+  const shownNewAssets = draft?.new_assets;
   const itemContext = useMemo<PlanItemContext>(() => {
     const newAssets = shownNewAssets ?? [];
     return {
@@ -542,25 +481,23 @@ export function ScriptReviewGate({
   const scrollTo = (el: HTMLElement | null | undefined) => el?.scrollIntoView({ behavior: "smooth", block: "center" });
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
-    const apply = (prev: ReviewDraft) =>
-      "scenes" in prev ? { ...prev, scenes: prev.scenes.map((s, i) => (i === index ? { ...s, ...patch } : s)) } : prev;
-    if (quarantine != null) draftEditor.setContent(apply);
-    else setDraft((prev) => (prev ? apply(prev) : prev));
+    setDraft((prev) =>
+      prev && "scenes" in prev
+        ? { ...prev, scenes: prev.scenes.map((s, i) => (i === index ? { ...s, ...patch } : s)) }
+        : prev,
+    );
   };
 
   const updateNarrationSegment = (index: number, patch: Partial<NarrationScriptPlanSegment>) => {
-    const apply = (prev: ReviewDraft) =>
-      "segments" in prev
+    setDraft((prev) =>
+      prev && "segments" in prev
         ? { ...prev, segments: prev.segments.map((s, i) => (i === index ? { ...s, ...patch } : s)) }
-        : prev;
-    if (quarantine != null) draftEditor.setContent(apply);
-    else setDraft((prev) => (prev ? apply(prev) : prev));
+        : prev,
+    );
   };
 
   const updateNewAssets = (items: PlanNewAsset[]) => {
-    const apply = (prev: ReviewDraft): ReviewDraft => ({ ...prev, new_assets: items });
-    if (quarantine != null) draftEditor.setContent(apply);
-    else setDraft((prev) => (prev ? apply(prev) : prev));
+    setDraft((prev) => (prev ? { ...prev, new_assets: items } : prev));
   };
 
   if (loading) {
@@ -584,7 +521,7 @@ export function ScriptReviewGate({
   }
 
   const status = state?.status ?? "no_script_plan";
-  if (status === "no_script_plan" || (draft == null && quarantine == null)) {
+  if (draft == null || (status === "no_script_plan" && !dirty)) {
     const formalScript = state?.script_overwrite != null || onOpenTimeline !== undefined;
     if (status === "no_script_plan" && !formalScript) {
       return (
@@ -603,222 +540,114 @@ export function ScriptReviewGate({
     );
   }
 
-  const docType = contentMode === "drama" ? "drama_script_plan" : "narration_script_plan";
-  const draftBusy = draftEditor.saving || draftEditor.discarding || draftEditor.repairing;
-  const discardDialog = quarantine && (
-    <DiscardDraftDialog
-      open={discardOpen}
-      agentOwned={quarantine.editable_by === "agent"}
-      fallbackText={draftFallbackText(t, quarantine.doc_type, quarantine.formal_exists)}
-      loading={draftEditor.discarding}
-      onConfirm={async () => {
-        if (await draftEditor.discard()) setDiscardOpen(false);
-      }}
-      onCancel={() => setDiscardOpen(false)}
-    />
-  );
-
   const blankStartAction =
-    state?.script_overwrite == null && status !== "confirmed" ? (
+    state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
     ) : null;
 
-  if (quarantine != null && quarantine.editable_by === "user") {
-    const content = draftEditor.content;
-    const items = reviewItems(content);
-    const groups = groupDraftViolations(
-      quarantine.violations,
-      items.map((item) => item.id),
-    );
-    const softByItem = groupSoftViolations(quarantine.soft_violations);
-    const notesFor = (index: number): ItemDraftNotes => ({
-      violations: groups.byItem.get(index) ?? [],
-      softViolations: softByItem.get(index) ?? [],
-      anchorRef: (el) => {
-        if (el) itemRefs.current.set(index, el);
-        else itemRefs.current.delete(index);
-      },
-    });
-    return (
-      <div className="mx-auto flex w-full max-w-240 flex-col gap-3">
-        <InvalidDraftBar
-          violationCount={quarantine.violations.length}
-          itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
-            index,
-            label: t("common:item_position_shot", { position: index + 1 }),
-            count: list.length,
-          }))}
-          episodeLevelCount={groups.episodeLevel.length}
-          onJump={(index) => scrollTo(itemRefs.current.get(index))}
-          onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
-          editable={content != null}
-          dirty={draftEditor.dirty}
-          saving={draftEditor.saving}
-          repairing={draftEditor.repairing}
-          onRepair={draftEditor.repair}
-          busy={draftBusy}
-          outdated={draftEditor.outdated}
-          onSave={voidPromise(draftEditor.save)}
-          onReloadLatest={draftEditor.reloadLatest}
-          onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, docType, quarantine.violations))}
-          onDiscard={() => setDiscardOpen(true)}
-          regenerateAction={
-            <>
-              {blankStartAction}
-              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" />
-            </>
-          }
-        />
-        {discardDialog}
-        <DraftEpisodeViolations
-          violations={groups.episodeLevel}
-          anchorRef={(el) => {
-            episodeLevelRef.current = el;
-          }}
-        />
-        {content != null && (
-          <NewAssetsSection
-            items={content.new_assets ?? []}
-            entries={newAssetEntries(content)}
-            readOnly={false}
-            disabled={draftBusy}
-            onChange={updateNewAssets}
-          />
-        )}
-        {content != null && <PlanStructureHint />}
-        {content != null && (
-          <div className="flex flex-col gap-2.5">
-            {"scenes" in content
-              ? content.scenes.map((scene, i) => (
-                  <DramaSceneCard
-                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 待修复草稿的 scene_id 可能缺失或重复（正是违约所在），批注、锚点与修改都按位置寻址且不重排；带上 ID 让换内容时重新挂载
-                    key={`${String(i)}-${scene.scene_id}`}
-                    scene={scene}
-                    position={i + 1}
-                    disabled={draftBusy}
-                    readOnly={false}
-                    notes={notesFor(i)}
-                    context={itemContext}
-                    onChange={(patch) => updateDramaScene(i, patch)}
-                  />
-                ))
-              : content.segments.map((segment, i) => (
-                  <NarrationSegmentCard
-                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 待修复草稿的 segment_id 可能缺失或重复（正是违约所在），批注、锚点与修改都按位置寻址且不重排；带上 ID 让换内容时重新挂载
-                    key={`${String(i)}-${segment.segment_id}`}
-                    segment={segment}
-                    position={i + 1}
-                    disabled={draftBusy}
-                    readOnly={false}
-                    notes={notesFor(i)}
-                    context={itemContext}
-                    onChange={(patch) => updateNarrationSegment(i, patch)}
-                  />
-                ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const agentEditing = quarantine != null;
-  const confirmed = status === "confirmed" && !agentEditing;
-  const readOnly = confirmed || agentEditing;
-  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  const confirmed = status === "confirmed";
+  const removed = status === "no_script_plan";
+  const readOnly = confirmed || removed;
+  const overwrite = readOnly ? null : (state?.script_overwrite ?? null);
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
+  const blockingIssues = outdated ? [] : (state?.blocking_issues ?? []);
+  const items = reviewItems(draft);
+  const groups = groupDraftViolations(
+    blockingIssues,
+    items.map((item) => item.id),
+  );
+  const softByItem = groupSoftViolations(outdated ? [] : (state?.soft_violations ?? []));
   const videoModelBlocked = modelUnresolved && !confirmLocked;
   const durationBlocked =
     !confirmLocked &&
-    draft != null &&
     ("scenes" in draft ? draft.scenes : draft.segments).some((item) =>
       durationOutOfTier(item.duration_seconds, itemContext.durationOptions),
     );
-  const confirmBlocked = videoModelBlocked || durationBlocked;
-  const confirmBlockedHint = videoModelBlocked
-    ? t("dashboard:review_video_model_unresolved_hint")
-    : durationBlocked
-      ? t("dashboard:review_duration_out_of_tier_hint")
-      : undefined;
+  const hasBlockingIssues = blockingIssues.length > 0;
+  const onlyCapabilityBlocking =
+    videoModelBlocked && hasBlockingIssues && blockingIssues.every((issue) => issue.code === "video_capability_unavailable");
+  const confirmBlocked = outdated || removed || videoModelBlocked || durationBlocked || hasBlockingIssues;
+  const confirmBlockedHint =
+    outdated || removed
+      ? t(confirmed ? "dashboard:review_confirmed_conflict_hint" : "dashboard:review_outdated_hint")
+      : hasBlockingIssues && !onlyCapabilityBlocking
+        ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
+        : videoModelBlocked
+          ? t("dashboard:review_video_model_unresolved_hint")
+          : durationBlocked
+            ? t("dashboard:review_duration_out_of_tier_hint")
+            : undefined;
+
+  const notesFor = (index: number): ItemReviewNotes => ({
+    position: index + 1,
+    blockingIssues: groups.byItem.get(index) ?? [],
+    softViolations: softByItem.get(index) ?? [],
+    anchorRef: (el) => {
+      if (el) itemRefs.current.set(index, el);
+      else itemRefs.current.delete(index);
+    },
+  });
 
   return (
     <div className="mx-auto flex w-full max-w-240 flex-col gap-3">
-      {agentEditing ? (
-        <AgentDraftBar
-          busy={draftBusy}
-          onFinish={() => prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episodeRef, docType }))}
-          onDiscard={() => setDiscardOpen(true)}
-        />
-      ) : (
-        <ReviewStatusBar
-          confirmed={confirmed}
-          scriptMissing={scriptMissing}
-          overwrite={overwrite != null}
-          onOpenTimeline={confirmed ? onOpenTimeline : undefined}
-          regenerateAction={
-            <>
-              {blankStartAction}
-              <ScriptPlanButton
-                projectName={projectName}
-                episode={episode}
-                replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-                disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
-              />
-            </>
-          }
-          saveAction={
-            dirty && !confirmed ? (
-              <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
-                {saving ? (
-                  <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-                ) : (
-                  <Save aria-hidden data-icon="inline-start" />
-                )}
-                {saving ? t("common:saving") : t("dashboard:review_save_action")}
-              </Button>
-            ) : null
-          }
-          confirmAction={
-            overwrite ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setOverwriteOpen(true)}
-                disabled={busy || confirmBlocked}
-                title={confirmBlockedHint}
-              >
-                <AlertTriangle aria-hidden data-icon="inline-start" />
-                {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                onClick={voidPromise(() => handleConfirm())}
-                disabled={busy || confirmLocked || confirmBlocked}
-                title={confirmBlockedHint}
-              >
-                {confirmLocked ? (
-                  <Lock aria-hidden data-icon="inline-start" />
-                ) : (
-                  <CheckCircle2 aria-hidden data-icon="inline-start" />
-                )}
-                {confirming
-                  ? t("dashboard:review_confirming")
-                  : scriptMissing
-                    ? t("dashboard:review_rematerialize_action")
-                    : confirmed
-                      ? t("dashboard:review_confirmed_badge")
-                      : t("dashboard:review_confirm_action")}
-              </Button>
-            )
-          }
-        />
-      )}
-      {discardDialog}
+      <ScriptReviewStatusHeader
+        confirmed={confirmed}
+        readOnly={readOnly}
+        scriptMissing={scriptMissing}
+        overwrite={overwrite != null}
+        blockingCount={blockingIssues.length}
+        itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
+          index,
+          label: t("common:item_position_shot", { position: index + 1 }),
+          count: list.length,
+        }))}
+        episodeLevelCount={groups.episodeLevel.length}
+        onJump={(index) => scrollTo(itemRefs.current.get(index))}
+        onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
+        dirty={dirty}
+        outdated={outdated}
+        busy={busy}
+        saving={saving}
+        confirming={confirming}
+        confirmLocked={confirmLocked}
+        confirmBlocked={confirmBlocked}
+        confirmBlockedHint={confirmBlockedHint}
+        saveLabel={t("dashboard:review_save_action")}
+        confirmLabel={t("dashboard:review_confirm_action")}
+        onSave={voidPromise(handleSave)}
+        onConfirm={voidPromise(() => handleConfirm())}
+        onRequestOverwrite={() => setOverwriteOpen(true)}
+        onReloadLatest={reloadLatest}
+        onHandToAgent={
+          !confirmed && hasBlockingIssues
+            ? () => prefillAssistant(scriptPlanFixRequestText(t, episodeRef, blockingIssues))
+            : undefined
+        }
+        onOpenTimeline={confirmed ? onOpenTimeline : undefined}
+        regenerateAction={
+          <>
+            {blankStartAction}
+            <ScriptPlanButton
+              projectName={projectName}
+              episode={episode}
+              replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+              disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
+            />
+          </>
+        }
+      />
 
-      {videoModelBlocked && !agentEditing && <VideoModelUnresolvedNotice projectName={projectName} />}
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
 
-      {overwrite && !agentEditing && (
+      <ReviewEpisodeBlockingIssues
+        issues={groups.episodeLevel}
+        anchorRef={(el) => {
+          episodeLevelRef.current = el;
+        }}
+      />
+
+      {overwrite && (
         <ScriptOverwriteConfirmDialog
           open={overwriteOpen}
           overwrite={overwrite}
@@ -832,46 +661,44 @@ export function ScriptReviewGate({
       )}
 
       <EpisodeDurationSummary
-        totalSeconds={sumItemDuration(draft == null ? [] : "scenes" in draft ? draft.scenes : draft.segments)}
+        totalSeconds={sumItemDuration("scenes" in draft ? draft.scenes : draft.segments)}
         targetSeconds={state?.episode_target_duration ?? null}
       />
 
-      {draft != null && (
-        <NewAssetsSection
-          items={draft.new_assets ?? []}
-          entries={newAssetEntries(draft)}
-          readOnly={readOnly}
-          disabled={busy}
-          onChange={updateNewAssets}
-        />
-      )}
+      <NewAssetsSection
+        items={draft.new_assets ?? []}
+        entries={newAssetEntries(draft)}
+        readOnly={readOnly}
+        disabled={busy}
+        onChange={updateNewAssets}
+      />
 
       {!readOnly && <PlanStructureHint />}
 
       <div className="flex flex-col gap-2.5">
-        {contentMode === "drama" && draft != null && "scenes" in draft
-          ? draft.scenes.map((scene, i) => (
+        {contentMode === "drama" && "scenes" in draft
+          ? withUniqueKeys(draft.scenes, (scene) => scene.scene_id).map(({ item: scene, key, index: i }) => (
               <DramaSceneCard
-                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 以 scene_id 为 key，只在 Agent 草稿缺 ID 时以位置兜底；卡片只就地修改、不重排增删
-                key={scene.scene_id || i}
+                key={key}
                 scene={scene}
                 position={i + 1}
                 disabled={busy}
                 readOnly={readOnly}
+                notes={notesFor(i)}
                 context={itemContext}
                 onChange={(patch) => updateDramaScene(i, patch)}
               />
             ))
           : null}
-        {contentMode === "narration" && draft != null && "segments" in draft
-          ? draft.segments.map((segment, i) => (
+        {contentMode === "narration" && "segments" in draft
+          ? withUniqueKeys(draft.segments, (segment) => segment.segment_id).map(({ item: segment, key, index: i }) => (
               <NarrationSegmentCard
-                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 以 segment_id 为 key，只在 Agent 草稿缺 ID 时以位置兜底；卡片只就地修改、不重排增删
-                key={segment.segment_id || i}
+                key={key}
                 segment={segment}
                 position={i + 1}
                 disabled={busy}
                 readOnly={readOnly}
+                notes={notesFor(i)}
                 context={itemContext}
                 onChange={(patch) => updateNarrationSegment(i, patch)}
               />
@@ -879,62 +706,5 @@ export function ScriptReviewGate({
           : null}
       </div>
     </div>
-  );
-}
-
-function ReviewStatusBar({
-  confirmed,
-  scriptMissing,
-  overwrite,
-  onOpenTimeline,
-  regenerateAction,
-  saveAction,
-  confirmAction,
-}: {
-  confirmed: boolean;
-  scriptMissing: boolean;
-  overwrite: boolean;
-  onOpenTimeline?: () => void;
-  regenerateAction: React.ReactNode;
-  saveAction: React.ReactNode;
-  confirmAction: React.ReactNode;
-}) {
-  const { t } = useTranslation("dashboard");
-  return (
-    <header className="sticky top-0 z-sticky flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-border bg-card px-3.5 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        {confirmed ? (
-          <CheckCircle2 aria-hidden className="size-4 shrink-0 text-good" />
-        ) : (
-          <Clock aria-hidden className="size-4 shrink-0 text-warn" />
-        )}
-        <div className="flex min-w-0 flex-col">
-          <span className="text-sm font-medium text-foreground">
-            {confirmed ? t("review_status_confirmed") : t("review_status_pending")}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {scriptMissing
-              ? t("review_script_missing_hint")
-              : confirmed
-                ? t("review_confirmed_hint")
-                : overwrite
-                  ? t("review_overwrite_hint")
-                  : t("review_pending_hint")}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {onOpenTimeline && (
-          <Button variant="ghost" size="sm" onClick={onOpenTimeline}>
-            <ArrowRight aria-hidden data-icon="inline-start" />
-            {t("review_open_timeline")}
-          </Button>
-        )}
-        {regenerateAction}
-        {saveAction}
-        {confirmAction}
-      </div>
-    </header>
   );
 }

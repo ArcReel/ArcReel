@@ -1,19 +1,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Loader2, Sparkles } from "lucide-react";
-import { API, ApiRequestError } from "@/api";
-import { enqueuePromptAuthoring, promptAuthoringResourceId } from "@/actions/generation";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogBody,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Bot, Sparkles } from "lucide-react";
+import { API } from "@/api";
+import { usePromptAuthoringSubmit } from "@/hooks/usePromptAuthoringSubmit";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -35,8 +24,6 @@ import {
   type PromptAuthoringOpenRequest,
   type PromptAuthoringScope,
 } from "@/stores/prompt-authoring-store";
-import { isResourceBusy } from "@/stores/tasks-store";
-import type { PromptOverwrite } from "@/types";
 import { errMsg } from "@/utils/async";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, episodeItemAgentRef, itemIdsAsPositionsInText } from "@/utils/episode-display";
@@ -44,12 +31,7 @@ import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef"
 import { useProjectsStore } from "@/stores/projects-store";
 import { promptAuthoringEntries, type PromptAuthoringEntry } from "./prompt-authoring-entries";
 import { promptAuthoringHandoffText } from "./prompt-authoring-handoff";
-
-function readPromptOverwrite(err: unknown): PromptOverwrite | null {
-  if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
-  const diagnostic = err.diagnostic as { prompt_overwrite?: PromptOverwrite } | undefined;
-  return diagnostic?.prompt_overwrite ?? null;
-}
+import { PromptOverwriteDialog } from "./PromptOverwriteDialog";
 
 interface HostProps {
   projectName: string;
@@ -120,8 +102,12 @@ export function PromptAuthoringDialog({
   );
   const [rewrite, setRewrite] = useState(false);
   const [instructions, setInstructions] = useState(savedInstructions);
-  const [submitting, setSubmitting] = useState(false);
-  const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
+  const { busy, submitting: enqueuing, overwrite, enqueue, confirmOverwrite, closeOverwrite } = usePromptAuthoringSubmit(
+    projectName,
+    episode,
+  );
+  const [handingOff, setHandingOff] = useState(false);
+  const submitting = enqueuing || handingOff;
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const selectedIds = useMemo(
@@ -137,49 +123,31 @@ export function PromptAuthoringDialog({
       ? t("prompt_authoring_scope_pending_prefill", { count: pendingCount })
       : (entryIds ?? []).map((id) => episodeItemAgentRef(id, scripts, t)).join(t("prompt_authoring_id_separator"));
 
-  const guardBusy = (): boolean => {
-    if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episode))) {
-      useAppStore.getState().pushToast(t("prompt_authoring_busy"), "error");
-      return true;
-    }
-    return false;
-  };
-
   const submit = async (overwriteRevision: string | null) => {
-    if (submitting || scopeEmpty || guardBusy()) return;
-    setSubmitting(true);
-    try {
-      await enqueuePromptAuthoring(projectName, episode, {
-        entry_ids: entryIds,
-        rewrite,
-        instructions: instructions.trim() || null,
-        overwrite_revision: overwriteRevision,
-      });
-      setOverwrite(null);
-      onClose();
-    } catch (err) {
-      const loss = readPromptOverwrite(err);
-      if (loss) {
-        setOverwrite(loss);
-      } else {
-        setOverwrite(null);
-        useAppStore.getState().pushToast(errMsg(err), "error");
-      }
-    } finally {
-      setSubmitting(false);
+    if (submitting) return;
+    if (overwriteRevision !== null) {
+      if (await confirmOverwrite(overwriteRevision)) onClose();
+      return;
     }
+    if (scopeEmpty) return;
+    if (await enqueue({
+      entry_ids: entryIds,
+      rewrite,
+      instructions: instructions.trim() || null,
+      overwrite_revision: null,
+    })) onClose();
   };
 
   const handOff = async () => {
     if (submitting || scopeEmpty) return;
-    setSubmitting(true);
+    setHandingOff(true);
     try {
       await API.savePromptAuthoringInstructions(projectName, episode, instructions.trim());
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
       return;
     } finally {
-      setSubmitting(false);
+      setHandingOff(false);
     }
     useAssistantStore.getState().setInput(
       promptAuthoringHandoffText(t, {
@@ -307,11 +275,11 @@ export function PromptAuthoringDialog({
             </div>
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" onClick={() => void submit(null)} disabled={submitting || scopeEmpty}>
+            <Button variant="outline" onClick={() => void submit(null)} disabled={busy || submitting || scopeEmpty}>
               <Sparkles aria-hidden data-icon="inline-start" />
               {rewrite ? t("prompt_authoring_ai_rewrite") : t("prompt_authoring_ai_write")}
             </Button>
-            <Button onClick={() => void handOff()} disabled={submitting || scopeEmpty}>
+            <Button onClick={() => void handOff()} disabled={busy || submitting || scopeEmpty}>
               <Bot aria-hidden data-icon="inline-start" />
               {t("prompt_authoring_hand_to_agent")}
             </Button>
@@ -319,36 +287,14 @@ export function PromptAuthoringDialog({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={overwrite !== null}
-        onOpenChange={(next) => {
-          if (!next && !submitting) setOverwrite(null);
-        }}
-      >
-        <AlertDialogContent size="lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("prompt_authoring_overwrite_title")}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody tabIndex={0} role="region" aria-label={t("prompt_authoring_overwrite_title")}>
-            <AlertDialogDescription>
-              <span className="whitespace-pre-line wrap-break-word">
-                {overwrite ? itemIdsAsPositionsInText(overwrite.text, scripts, t) : null}
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogBody>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={submitting}
-              onClick={() => void submit(overwrite?.revision ?? null)}
-            >
-              {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
-              {t("prompt_authoring_ai_rewrite")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PromptOverwriteDialog
+        overwrite={overwrite}
+        text={overwrite ? itemIdsAsPositionsInText(overwrite.text, scripts, t) : null}
+        submitting={submitting}
+        confirmDisabled={busy}
+        onConfirm={(revision) => void submit(revision)}
+        onClose={closeOverwrite}
+      />
     </>
   );
 }

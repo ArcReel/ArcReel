@@ -45,7 +45,6 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     SourceSpan,
     compute_source_fingerprints,
-    discover_episode_file_aliases,
     has_downstream_products,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -62,15 +61,14 @@ from lib.episode.episode_replan import (
 )
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
+    EpisodeFileArchives,
     SourceOrigin,
-    archive_episode_file_path,
     cut_episode_placements,
     cut_insert_index,
     discover_sources,
     is_cut_episode,
     legacy_cut_episode_ids,
     planning_start,
-    source_snapshot_path,
     span_text,
     sync_source_snapshots,
     unsplit_range_ending_at,
@@ -666,7 +664,7 @@ class EpisodePlanner:
             p["episodes"] = [*episodes_list[:insert_at], *new_entries, *episodes_list[insert_at:]]
             p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
             text_cache = {source_rel: text}
-            self._write_new_episode_files(p, text_cache, new_ids=frozenset(new_ids))
+            self._write_new_episode_files(p, text_cache, new_ids=frozenset(new_ids), archives=archives)
             sync_source_snapshots(self.project_path, p, text_cache)
             committed["cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
             committed["exhausted"] = (
@@ -675,16 +673,15 @@ class EpisodePlanner:
                 and (gap is not None or _next_source_rel(source_order, source_rel) is None)
             )
 
-        def protected_paths() -> tuple[Path, ...]:
-            aliases = discover_episode_file_aliases(self.project_path)
-            formal_paths = {episode_source_path(self.project_path, num) for num in protected_ids}
-            formal_paths.update(path for num in protected_ids for path in aliases.get(num, []))
-            formal_paths.add(self.project_path / "source" / "_remaining.txt")
-            formal_paths.update(source_snapshot_path(self.project_path, rel) for rel in whole_source_files(project))
-            return tuple(sorted(formal_paths))
-
-        formal_paths = await asyncio.to_thread(protected_paths)
-        final_project = await self._update_project(_commit, formal_paths=formal_paths)
+        formal_paths = [episode_source_path(self.project_path, num) for num in protected_ids]
+        formal_paths.append(self.project_path / "source" / "_remaining.txt")
+        archives = EpisodeFileArchives(
+            self.project_path,
+            protected_ids,
+            formal_paths,
+            source_files=whole_source_files(project),
+        )
+        final_project = await self._update_project(_commit, formal_paths=archives.prepare_protected_paths)
         exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,
@@ -1038,7 +1035,7 @@ class EpisodePlanner:
         self,
         mutate: Callable[[dict], None],
         *,
-        formal_paths: tuple[Path, ...] = (),
+        formal_paths: tuple[Path, ...] | Callable[[], list[Path]] = (),
     ) -> dict:
         return await run_sync_transaction(
             self.pm.update_project,
@@ -1048,7 +1045,12 @@ class EpisodePlanner:
         )
 
     def _write_new_episode_files(
-        self, project: Mapping[str, Any], text_cache: dict[str, str], *, new_ids: frozenset[int]
+        self,
+        project: Mapping[str, Any],
+        text_cache: dict[str, str],
+        *,
+        new_ids: frozenset[int],
+        archives: EpisodeFileArchives,
     ) -> None:
         """写本次新规划的集的派生集文件，其他集的集文件不动。
 
@@ -1086,10 +1088,7 @@ class EpisodePlanner:
                 )
             writes.append((episode_source_path(self.project_path, num), content))
         source_dir.mkdir(exist_ok=True)
-        for num, aliases in discover_episode_file_aliases(self.project_path).items():
-            if num in new_ids:
-                for alias in aliases:
-                    alias.rename(archive_episode_file_path(alias))
+        archives.apply()
         for episode_path, content in writes:
             episode_path.write_text(content, encoding="utf-8", newline="\n")
         remaining = source_dir / "_remaining.txt"

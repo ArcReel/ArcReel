@@ -4,9 +4,7 @@ import { ListChecks } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
 import {
-  draftRepairResourceId,
   enqueueAdScript,
-  enqueueDraftRepair,
   enqueuePromptAuthoring,
   promptAuthoringResourceId,
 } from "@/actions/generation";
@@ -26,10 +24,7 @@ import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBa
 import { createScriptEditTimeline } from "@/components/canvas/edit-render/create-script-timeline";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
-import { DiscardDraftDialog } from "@/components/shared/DraftStatus";
-import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
-import { diagnosticCode } from "@/hooks/useDraftEditor";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useAdScriptStore } from "@/stores/ad-script-store";
@@ -37,11 +32,10 @@ import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { selectProjectTaskFingerprint, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { ProjectData, StoryboardBatchKind } from "@/types";
 import type { EpisodeEditOverview } from "@/types/edit-timeline";
-import type { DraftDocType } from "@/types/reference-video";
 import { errMsg } from "@/utils/async";
 import { episodeAgentRef, episodeItemAgentRef, itemPositionLabel } from "@/utils/episode-display";
 import { episodeItemKind, findEpisodeItem } from "@/utils/episode-item";
@@ -96,20 +90,12 @@ const CLOSES_POPOVER = new Set<StepAct["intent"]["type"]>([
   "open_author_prompts",
   "open_script_plan",
   "open_ad_script",
-  "open_script_plan_over_draft",
   "asset_batch",
   "storyboard_batch",
   "show_surface",
   "view_unit",
   "route",
 ]);
-
-interface PendingDiscard {
-  docType: DraftDocType;
-  revision: string | null;
-  agentOwned: boolean;
-  fallbackText: string;
-}
 
 interface Props {
   projectName: string;
@@ -130,8 +116,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   );
   const [instructionDraft, setInstructionDraft] = useState<{ key: string; value: string } | null>(null);
   const [running, setRunning] = useState(false);
-  const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
-  const [discarding, setDiscarding] = useState(false);
 
   const plan = useWorkflowStore((s) => s.plan);
   const planKey = useWorkflowStore((s) => s.planKey);
@@ -146,12 +130,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const ledger = useEpisodeLedger();
 
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
-  const taskFingerprint = useTasksStore((s) =>
-    s.tasks
-      .filter((task) => task.project_name === projectName)
-      .map((task) => `${task.task_id}:${task.status}`)
-      .join("|"),
-  );
+  const taskFingerprint = useTasksStore((s) => selectProjectTaskFingerprint(s, projectName));
   const settledTaskFingerprint = useDebouncedValue(taskFingerprint, PLAN_REFRESH_DEBOUNCE_MS);
 
   useEffect(() => {
@@ -234,9 +213,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         case "open_ad_script":
           useAdScriptStore.getState().open({ projectName, episode: episodeId, regenerate: intent.regenerate });
           return;
-        case "open_script_plan_over_draft":
-          useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "draft" });
-          return;
         case "asset_batch":
           setAssetBatchEpisode(intent.episodeId);
           return;
@@ -307,30 +283,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             await refreshAfterWrite(projectName, t);
             void refreshPlan(projectName, episode);
             break;
-          case "draft_to_agent": {
-            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
-            prefillAssistant(withInstruction(draftFixRequestText(t, episodeRef, intent.docType, draft.violations)));
-            break;
-          }
-          case "repair_draft": {
-            if (isResourceBusy("text_draft_repair", projectName, draftRepairResourceId(episodeId, intent.docType))) {
-              pushToast(t("dashboard:draft_repair_busy"), "error");
-              break;
-            }
-            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
-            await enqueueDraftRepair(projectName, episodeId, intent.docType, draft.revision ?? "", instruction.trim() || null);
-            break;
-          }
-          case "discard_draft": {
-            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
-            setPendingDiscard({
-              docType: intent.docType,
-              revision: draft.revision,
-              agentOwned: draft.editable_by === "agent",
-              fallbackText: draftFallbackText(t, intent.docType, draft.formal_exists),
-            });
-            break;
-          }
           default:
             break;
         }
@@ -353,24 +305,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         : undefined,
     [onViewUnit],
   );
-
-  const confirmDiscard = async () => {
-    if (!pendingDiscard || episodeId == null) return;
-    setDiscarding(true);
-    try {
-      await API.discardEpisodeDraft(projectName, episodeId, pendingDiscard.docType, pendingDiscard.revision);
-      pushToast(t("dashboard:draft_discarded_toast"), "success");
-    } catch (err) {
-      pushToast(
-        diagnosticCode(err) === "revision_conflict" ? t("dashboard:draft_conflict_toast") : errMsg(err),
-        diagnosticCode(err) === "revision_conflict" ? "warning" : "error",
-      );
-    } finally {
-      setDiscarding(false);
-      setPendingDiscard(null);
-      void refreshPlan(projectName, episode);
-    }
-  };
 
   const headline = view
     ? view.summary
@@ -475,16 +409,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           episode={storyboardBatch.episodeId}
           kind={storyboardBatch.kind}
           onClose={() => setStoryboardBatch(null)}
-        />
-      )}
-      {pendingDiscard && (
-        <DiscardDraftDialog
-          open
-          agentOwned={pendingDiscard.agentOwned}
-          fallbackText={pendingDiscard.fallbackText}
-          loading={discarding}
-          onConfirm={() => void confirmDiscard()}
-          onCancel={() => setPendingDiscard(null)}
         />
       )}
     </>

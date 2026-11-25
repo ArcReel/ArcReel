@@ -8,6 +8,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { findEpisodeItem } from "@/utils/episode-item";
 
 export interface ErrorResponse {
+  code?: string;
   diagnostic?: unknown;
   detail:
     | string

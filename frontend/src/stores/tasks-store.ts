@@ -1,16 +1,20 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { API } from "@/api";
+import { errMsg } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import type { TaskItem, TaskStats, TaskStatus } from "@/types";
 import { isTerminalStatus } from "@/types/task";
 
 const TASKS_PAGE_SIZE = 200;
-const VOICE_SAMPLE_LOOKUP_TIMEOUT_MS = 10_000;
+const LOOKUP_LIMIT = 200;
+const TASK_READ_TIMEOUT_MS = 10_000;
 
 export type ResourceKind =
   | "character"
   | "character_derivative"
+  | "voice_sample"
   | "scene"
   | "prop"
   | "product"
@@ -21,8 +25,7 @@ export type ResourceKind =
   | "grid"
   | "text_episode_script"
   | "text_episode_plan"
-  | "text_script_plan"
-  | "text_draft_repair";
+  | "text_script_plan";
 
 export type ImageEditResourceKind = Extract<
   ResourceKind,
@@ -38,314 +41,360 @@ export interface OptimisticHandle {
   rollback: () => void;
 }
 
-interface TasksState {
-  tasks: TaskItem[];
+type Target =
+  | { kind: "resource"; resourceKind: ResourceKind; resourceId: string }
+  | { kind: "script"; scriptFile: string };
+
+type Mark = {
+  projectName: string;
+  taskType: string;
+  target: Target;
+} & (
+  | { phase: "inflight" }
+  | { phase: "awaiting_server"; pendingIds: string[] }
+);
+
+interface Lease {
+  retainCount: number;
+  projectName: string;
+  status: "pending" | "resolved" | "missing";
+}
+
+interface TaskRows {
+  rowsById: Map<string, TaskItem>;
+  recentTaskIds: string[];
+  activeTaskIds: Set<string>;
+  activeTruncated: boolean;
+  optimisticMarks: Map<number, Mark>;
+  tracked: Map<string, Lease>;
+}
+
+function emptyRows(): TaskRows {
+  return {
+    rowsById: new Map(), recentTaskIds: [], activeTaskIds: new Set(), activeTruncated: false,
+    optimisticMarks: new Map(), tracked: new Map(),
+  };
+}
+
+interface TasksState extends TaskRows {
   stats: TaskStats;
   connected: boolean;
   refreshScope: TasksRefreshScope | null;
-  optimisticActive: Set<string>;
-  optimisticActiveScriptFile: Set<string>;
-
-  setTasks: (tasks: TaskItem[] | ((prev: TaskItem[]) => TaskItem[])) => void;
-  setStats: (stats: TaskStats) => void;
-  setConnected: (connected: boolean) => void;
   setRefreshScope: (scope: TasksRefreshScope | null) => void;
   refreshTasks: () => Promise<void>;
-  settleVoiceSample: (task: TaskItem) => void;
-  beginOptimisticActive: (
-    projectName: string,
-    resourceKind: ResourceKind,
-    resourceId: string,
-    pendingTaskType: string,
-  ) => OptimisticHandle;
-  beginOptimisticActiveForScriptFile: (
-    projectName: string,
-    taskType: string,
-    scriptFile: string,
-  ) => OptimisticHandle;
+  retainTask: (projectName: string, taskId: string) => () => void;
+  cancelTask: (id: string) => Promise<void>;
+  retryDownload: (id: string) => Promise<void>;
+  beginOptimisticActive: (project: string, kind: ResourceKind, id: string, taskType: string) => OptimisticHandle;
+  beginOptimisticActiveForScriptFile: (project: string, taskType: string, file: string) => OptimisticHandle;
 }
 
 export const defaultTaskStats: TaskStats = {
   queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0,
 };
 
-const TASK_ID_SEP = "\u0001";
-
-let optimisticSeq = 0;
-
-function encodeTaskIds(taskIds: readonly string[]): string {
-  return taskIds.join(TASK_ID_SEP);
+export function selectRecentTasks(s: TaskRows): TaskItem[] {
+  return s.recentTaskIds.map((id) => s.rowsById.get(id)!);
 }
 
-function markTaskIds(key: string): string[] {
-  const encoded = key.split("\0").at(-1);
-  return encoded ? encoded.split(TASK_ID_SEP) : [];
+export function selectActiveTasks(s: TaskRows): TaskItem[] {
+  return Array.from(s.activeTaskIds, (id) => s.rowsById.get(id)!);
 }
 
-function optimisticKey(
-  projectName: string,
-  resourceKind: ResourceKind,
-  resourceId: string,
-  pendingTaskType: string,
-  seq: number,
-  taskIds: readonly string[],
-): string {
-  return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}\0${seq}\0${encodeTaskIds(taskIds)}`;
+export function selectProjectTaskFingerprint(s: TaskRows, projectName: string): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const task of [...selectRecentTasks(s), ...selectActiveTasks(s)]) {
+    if (task.project_name !== projectName || seen.has(task.task_id)) continue;
+    seen.add(task.task_id);
+    parts.push(`${task.task_id}:${task.status}`);
+  }
+  return parts.join("|");
 }
 
-function optimisticScriptFileKey(
-  projectName: string,
-  taskType: string,
-  scriptFile: string,
-  seq: number,
-  taskIds: readonly string[],
-): string {
-  return `${projectName}\0${taskType}\0${stripScriptsPrefix(scriptFile)}\0${seq}\0${encodeTaskIds(taskIds)}`;
+function versionOrder(a: TaskItem, b: TaskItem): number {
+  const millis = Date.parse(a.updated_at) - Date.parse(b.updated_at);
+  if (millis) return millis;
+  const fraction = (stamp: string) => /\.(\d+)/.exec(stamp)?.[1].replace(/0+$/, "") ?? "";
+  const left = fraction(a.updated_at);
+  const right = fraction(b.updated_at);
+  if (left !== right) return left > right ? 1 : -1;
+  const rank = (status: TaskStatus) => status === "queued" ? 0 : status === "running" ? 1 : 2;
+  return rank(a.status) - rank(b.status);
 }
 
-function withTaskIds(key: string, taskIds: readonly string[]): string {
-  return key.slice(0, key.lastIndexOf("\0") + 1) + encodeTaskIds(taskIds);
+function pruneUnreferencedRows(s: TaskRows) {
+  const referenced = new Set([...s.activeTaskIds, ...s.recentTaskIds, ...s.tracked.keys()]);
+  for (const id of s.rowsById.keys()) if (!referenced.has(id)) s.rowsById.delete(id);
+  return s;
 }
 
-type OptimisticField = "optimisticActive" | "optimisticActiveScriptFile";
-
-function supersedingTaskIds(tasks: TaskItem[], field: OptimisticField): Set<string> {
-  const ids = new Set<string>();
-  for (const task of tasks) {
-    if (field === "optimisticActive" && task.task_type === "voice_sample" && !isTerminalStatus(task.status)) {
-      continue;
+function reconcile(s: TaskRows, landed: Set<string>, missing = new Set<string>()) {
+  for (const [id, lease] of s.tracked) {
+    const row = s.rowsById.get(id);
+    if (missing.has(id)) {
+      s.tracked.set(id, { ...lease, status: "missing" });
+    } else if (lease.status !== "missing" && row?.project_name === lease.projectName) {
+      const status = isTerminalStatus(row.status) ? "resolved" : "pending";
+      if (status !== lease.status) s.tracked.set(id, { ...lease, status });
     }
-    ids.add(task.task_id);
   }
-  return ids;
+  for (const [key, mark] of s.optimisticMarks) {
+    if (mark.phase === "inflight") continue;
+    const pendingIds = mark.pendingIds.filter((id) => {
+      const row = s.rowsById.get(id);
+      return !landed.has(id) && !missing.has(id) && !(row && isTerminalStatus(row.status));
+    });
+    if (!pendingIds.length) s.optimisticMarks.delete(key);
+    else if (pendingIds.length !== mark.pendingIds.length) s.optimisticMarks.set(key, { ...mark, pendingIds });
+  }
+  return pruneUnreferencedRows(s);
 }
 
-function keepMark(key: string, landed: ReadonlySet<string>): string | null {
-  const taskIds = markTaskIds(key);
-  if (taskIds.length === 0) return key;
-  const remaining = taskIds.filter((id) => !landed.has(id));
-  if (remaining.length === 0) return null;
-  return remaining.length === taskIds.length ? key : withTaskIds(key, remaining);
+function copyRows(s: TaskRows): TaskRows {
+  return {
+    rowsById: new Map(s.rowsById), activeTaskIds: new Set(s.activeTaskIds),
+    recentTaskIds: s.recentTaskIds, activeTruncated: s.activeTruncated,
+    optimisticMarks: new Map(s.optimisticMarks), tracked: new Map(s.tracked),
+  };
 }
 
-function pruneSupersededOptimistic(
-  landed: ReadonlySet<string>,
-  marks: ReadonlySet<string>,
-): Set<string> {
-  const next = new Set<string>();
-  for (const key of marks) {
-    const kept = keepMark(key, landed);
-    if (kept !== null) next.add(kept);
+function mergeRow(s: TaskRows, row: TaskItem) {
+  const prev = s.rowsById.get(row.task_id);
+  if (prev) {
+    const order = versionOrder(row, prev);
+    if (order < 0 || (order === 0 && prev.status !== row.status)) return false;
+    if (order === 0 && prev.model && !row.model) row = { ...row, model: prev.model };
   }
-  return next;
+  s.rowsById.set(row.task_id, row);
+  if (isTerminalStatus(row.status)) s.activeTaskIds.delete(row.task_id);
+  return true;
+}
+
+function hasNewReferenceOutput(row: TaskItem, previous: TaskItem | undefined): boolean {
+  return (
+    (row.task_type === "reference_video" ||
+      row.task_type === "tts" ||
+      row.task_type === "text_episode_script") &&
+    row.status === "succeeded" &&
+    previous?.status !== "succeeded"
+  );
+}
+
+export function mergeTaskSnapshot(
+  prev: TaskRows,
+  active: { items: TaskItem[]; truncated: boolean },
+  recent: TaskItem[],
+  protectedIds = new Set<string>(),
+): TaskRows {
+  const next = copyRows(prev);
+  next.activeTruncated = active.truncated;
+  if (!active.truncated) next.activeTaskIds = protectedIds;
+  const landed = new Set<string>();
+  for (const row of active.items) {
+    mergeRow(next, row);
+    if (isActiveStatus(next.rowsById.get(row.task_id)!.status)) {
+      next.activeTaskIds.add(row.task_id);
+      if (!active.truncated) landed.add(row.task_id);
+    }
+  }
+  next.recentTaskIds = recent.map((row) => row.task_id);
+  for (const row of recent) mergeRow(next, row);
+  return reconcile(next, landed);
 }
 
 export const useTasksStore = create<TasksState>((set, get) => {
-  let refreshRunning = false;
-  let refreshQueued = false;
-  let queuedResolvers: Array<() => void> = [];
-  let baselineScopeKey: string | null = null;
+  let generation = 0;
+  let revision = 0;
+  let markSeq = 0;
+  let connectedOnce = false;
+  let writeRevisions = new Map<string, number>();
+  let flight: Promise<void> | null = null;
+  let waiters: Array<() => void> = [];
+  let requestAbort: AbortController | undefined;
 
-  const hasNewlySucceededReferenceUnitAsset = (
-    prev: readonly TaskItem[],
-    next: readonly TaskItem[],
-  ): boolean => {
-    const prevStatus = new Map(prev.map((t) => [t.task_id, t.status]));
-    return next.some(
-      (t) =>
-        (t.task_type === "reference_video" || t.task_type === "tts") &&
-        t.status === "succeeded" &&
-        prevStatus.get(t.task_id) !== "succeeded",
-    );
-  };
+  function applyRows(items: TaskItem[], missing = new Set<string>()) {
+    const next = copyRows(get());
+    const landed = new Set<string>();
+    let invalidateReferenceUnits = false;
+    for (const row of items) {
+      const previous = next.rowsById.get(row.task_id);
+      if (!mergeRow(next, row)) continue;
+      if (isActiveStatus(row.status)) next.activeTaskIds.add(row.task_id);
+      writeRevisions.set(row.task_id, ++revision);
+      landed.add(row.task_id);
+      invalidateReferenceUnits ||= hasNewReferenceOutput(row, previous);
+    }
+    for (const id of missing) next.activeTaskIds.delete(id);
+    set(reconcile(next, landed, missing));
+    if (invalidateReferenceUnits) useAppStore.getState().invalidateReferenceVideoUnits();
+  }
 
-  let reconciliationController: AbortController | undefined;
-  let scopeGeneration = 0;
-  let voiceSamplesSettledDuringList: Map<string, TaskItem> | undefined;
-
-  const reconcileMissingVoiceSamples = async (projectName: string | null): Promise<void> => {
-    const listed = new Set(get().tasks.map((task) => task.task_id));
-    const taskIds = new Set(
-      [...get().optimisticActive].flatMap((key) => {
-        const [markProject, , , taskType] = key.split("\0");
-        return taskType === "voice_sample" && (projectName === null || projectName === markProject)
-          ? markTaskIds(key).filter((taskId) => !listed.has(taskId))
-          : [];
-      }),
-    );
-    if (taskIds.size === 0) return;
+  async function lookupPending(projectName: string | null, seenRows: TaskItem[], epoch: number) {
+    const seen = new Set(seenRows.map((row) => row.task_id));
+    const ids = new Set<string>();
+    const inScope = (project: string) => projectName === null || project === projectName;
+    const { tracked, optimisticMarks } = get();
+    for (const [id, lease] of tracked) {
+      if (lease.status === "pending" && inScope(lease.projectName) && !seen.has(id)) ids.add(id);
+    }
+    for (const mark of optimisticMarks.values()) {
+      if (mark.phase === "awaiting_server" && inScope(mark.projectName)) {
+        for (const id of mark.pendingIds) ids.add(id);
+      }
+    }
+    if (!ids.size) return;
 
     const controller = new AbortController();
-    reconciliationController = controller;
-    const { signal } = controller;
-    const aborted = new Promise<void>((resolve) => {
-      signal.addEventListener("abort", () => resolve(), { once: true });
-    });
-    const deadline = setTimeout(() => controller.abort(), VOICE_SAMPLE_LOOKUP_TIMEOUT_MS);
+    requestAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
+    const start = revision;
+    const lookup = async (chunk: string[]) => {
+      const result = await API.lookupTasks(chunk, projectName, controller.signal);
+      if (generation !== epoch || controller.signal.aborted) return;
+      const untouched = (id: string) => (writeRevisions.get(id) ?? 0) <= start;
+      const items = result.items.filter((row) => untouched(row.task_id) || get().rowsById.has(row.task_id));
+      applyRows(items, new Set(result.missing_ids.filter(untouched)));
+    };
     try {
-      const lookups = Promise.all(
-        [...taskIds].map(async (taskId) => {
-          const task = await API.getTask(taskId, { signal }).catch(() => null);
-          if (!signal.aborted && task && isTerminalStatus(task.status)) {
-            get().settleVoiceSample(task);
-          }
-        }),
-      );
-      await Promise.race([lookups, aborted]);
+      const pending = [...ids];
+      const batches = [];
+      for (let i = 0; i < pending.length; i += LOOKUP_LIMIT) {
+        batches.push(lookup(pending.slice(i, i + LOOKUP_LIMIT)));
+      }
+      await Promise.allSettled(batches);
     } finally {
-      clearTimeout(deadline);
-      if (reconciliationController === controller) reconciliationController = undefined;
+      clearTimeout(timeout);
+      if (requestAbort === controller) requestAbort = undefined;
     }
-  };
+  }
 
-  const runTasksRefresh = async (): Promise<void> => {
+  async function refresh() {
     const scope = get().refreshScope;
     if (!scope) return;
+    const epoch = generation;
     const { projectName } = scope;
-
-    const generation = scopeGeneration;
-    const scopeUnchanged = () => scopeGeneration === generation;
-    const settledDuringList = new Map<string, TaskItem>();
-    voiceSamplesSettledDuringList = settledDuringList;
-
+    const start = ++revision;
+    writeRevisions.clear();
+    const controller = new AbortController();
+    requestAbort = controller;
+    const { signal } = controller;
+    const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
+    let observedActive: TaskItem[] = [];
     try {
-      const [tasksRes, statsRes] = await Promise.all([
-        API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }),
-        API.getTaskStats(projectName ?? null),
+      const [active, recent, stats] = await Promise.all([
+        API.getActiveTasks(projectName, { signal }),
+        API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }, { signal }),
+        API.getTaskStats(projectName, { signal }),
       ]);
-      voiceSamplesSettledDuringList = undefined;
-      if (!scopeUnchanged()) return;
-      const items = tasksRes.items.map((task) =>
-        isTerminalStatus(task.status) ? task : (settledDuringList.get(task.task_id) ?? task),
+      if (generation !== epoch) return;
+      signal.throwIfAborted();
+      const prev = get();
+      const protectedIds = new Set([...prev.activeTaskIds].filter((id) => (writeRevisions.get(id) ?? 0) > start));
+      const notDeletedLocally = (row: TaskItem) => !writeRevisions.has(row.task_id) || prev.rowsById.has(row.task_id);
+      const next = mergeTaskSnapshot(
+        prev,
+        { ...active, items: active.items.filter(notDeletedLocally) },
+        recent.items.filter(notDeletedLocally),
+        protectedIds,
       );
-      const scopeKey = projectName ?? "";
-      const unitsStale =
-        baselineScopeKey === scopeKey &&
-        hasNewlySucceededReferenceUnitAsset(get().tasks, items);
-      baselineScopeKey = scopeKey;
-      get().setTasks(items);
-      get().setStats(statsRes.stats);
-      get().setConnected(true);
-      if (unitsStale) {
-        useAppStore.getState().invalidateReferenceVideoUnits();
-      }
-      if (scopeUnchanged()) await reconcileMissingVoiceSamples(projectName);
+      const invalidate = connectedOnce && selectRecentTasks(next).some((row) =>
+        hasNewReferenceOutput(row, prev.rowsById.get(row.task_id)),
+      );
+      connectedOnce = true;
+      set({ ...next, stats: stats.stats, connected: true });
+      if (invalidate) useAppStore.getState().invalidateReferenceVideoUnits();
+      observedActive = active.items;
     } catch {
-      if (!scopeUnchanged()) return;
-      get().setConnected(false);
+      controller.abort();
+      if (generation === epoch) set({ connected: false });
     } finally {
-      voiceSamplesSettledDuringList = undefined;
+      clearTimeout(timeout);
+      if (requestAbort === controller) requestAbort = undefined;
     }
-  };
+    if (generation === epoch) await lookupPending(projectName, observedActive, epoch);
+  }
 
-  function beginMark(
-    field: OptimisticField,
-    keyOf: (taskIds: readonly string[]) => string,
-  ): OptimisticHandle {
-    const pendingKey = keyOf([]);
-    set((s) => {
-      const next = pruneSupersededOptimistic(supersedingTaskIds(s.tasks, field), s[field]);
-      next.add(pendingKey);
-      return { [field]: next };
+  function startRefresh(): Promise<void> {
+    const epoch = generation;
+    flight = refresh().finally(() => {
+      if (generation !== epoch) return;
+      flight = null;
+      const next = waiters;
+      waiters = [];
+      if (next.length) void startRefresh().then(() => next.forEach((resolve) => resolve()));
     });
+    return flight;
+  }
 
-    const drop = (replacement: string | null): void => {
-      if (!get()[field].has(pendingKey)) return;
-      set((s) => {
-        const next = new Set(s[field]);
-        next.delete(pendingKey);
-        if (replacement !== null) {
-          const kept = keepMark(replacement, supersedingTaskIds(s.tasks, field));
-          if (kept !== null) next.add(kept);
-        }
-        return { [field]: next };
-      });
-    };
-
-    return {
-      settle: (taskIds) => drop(taskIds.length > 0 ? keyOf(taskIds) : null),
-      rollback: () => drop(null),
-    };
+  function begin(projectName: string, taskType: string, target: Target): OptimisticHandle {
+    const key = ++markSeq;
+    const mark: Mark = { projectName, taskType, target, phase: "inflight" };
+    set({ optimisticMarks: new Map(get().optimisticMarks).set(key, mark) });
+    function settle(ids: string[]) {
+      if (get().optimisticMarks.get(key) !== mark) return;
+      const next = copyRows(get());
+      next.optimisticMarks.set(key, { ...mark, phase: "awaiting_server", pendingIds: [...new Set(ids)] });
+      const landed = next.activeTruncated ? new Set<string>() : next.activeTaskIds;
+      for (const id of ids) if (landed.has(id)) writeRevisions.set(id, ++revision);
+      set(reconcile(next, landed));
+    }
+    return { settle, rollback: () => settle([]) };
   }
 
   return {
-    tasks: [],
-    stats: defaultTaskStats,
-    connected: false,
-    refreshScope: null,
-    optimisticActive: new Set(),
-    optimisticActiveScriptFile: new Set(),
-
-    setRefreshScope: (scope) => {
-      if (get().refreshScope?.projectName !== scope?.projectName) {
-        scopeGeneration++;
-        const previous = reconciliationController;
-        reconciliationController = undefined;
-        previous?.abort();
-      }
-      baselineScopeKey = null;
-      set({ refreshScope: scope });
+    ...emptyRows(), stats: defaultTaskStats, connected: false, refreshScope: null,
+    setRefreshScope(scope) {
+      if (scope && get().refreshScope?.projectName === scope.projectName) return;
+      generation++;
+      connectedOnce = false;
+      waiters.forEach((resolve) => resolve());
+      waiters = [];
+      flight = null;
+      requestAbort?.abort();
+      writeRevisions = new Map();
+      set({ ...emptyRows(), refreshScope: scope, stats: defaultTaskStats, connected: false });
     },
-    refreshTasks: async () => {
-      if (refreshRunning) {
-        refreshQueued = true;
-        return new Promise<void>((resolve) => {
-          queuedResolvers.push(resolve);
-        });
-      }
-      refreshRunning = true;
-      try {
-        await runTasksRefresh();
-        while (refreshQueued) {
-          refreshQueued = false;
-          const resolvers = queuedResolvers;
-          queuedResolvers = [];
-          await runTasksRefresh();
-          for (const resolve of resolvers) resolve();
-        }
-      } finally {
-        refreshRunning = false;
-      }
+    refreshTasks() {
+      if (!flight) return startRefresh();
+      return new Promise<void>((resolve) => waiters.push(resolve));
     },
-
-    setTasks: (tasks) =>
-      set((s) => {
-        const next = typeof tasks === "function" ? tasks(s.tasks) : tasks;
-        return {
-          tasks: next,
-          optimisticActive: pruneSupersededOptimistic(
-            supersedingTaskIds(next, "optimisticActive"),
-            s.optimisticActive,
-          ),
-          optimisticActiveScriptFile: pruneSupersededOptimistic(
-            supersedingTaskIds(next, "optimisticActiveScriptFile"),
-            s.optimisticActiveScriptFile,
-          ),
-        };
-      }),
-    setStats: (stats) => set({ stats }),
-    setConnected: (connected) => set({ connected }),
-    settleVoiceSample: (task) => {
-      voiceSamplesSettledDuringList?.set(task.task_id, task);
-      set((s) => ({
-        tasks: s.tasks.map((row) =>
-          row.task_id === task.task_id && !isTerminalStatus(row.status) ? task : row,
-        ),
-        optimisticActive: pruneSupersededOptimistic(new Set([task.task_id]), s.optimisticActive),
-      }));
+    retainTask(projectName, id) {
+      const epoch = generation;
+      const { tracked, rowsById } = get();
+      const existing = tracked.get(id);
+      const row = rowsById.get(id);
+      const lease: Lease = {
+        projectName, retainCount: (existing?.retainCount ?? 0) + 1,
+        status: existing?.status ?? (row?.project_name === projectName && isTerminalStatus(row.status) ? "resolved" : "pending"),
+      };
+      set({ tracked: new Map(tracked).set(id, lease) });
+      let released = false;
+      return () => {
+        if (released || epoch !== generation) return;
+        released = true;
+        const state = copyRows(get());
+        const lease = state.tracked.get(id);
+        if (!lease) return;
+        if (lease.retainCount === 1) state.tracked.delete(id);
+        else state.tracked.set(id, { ...lease, retainCount: lease.retainCount - 1 });
+        set(pruneUnreferencedRows(state));
+      };
     },
-    beginOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) => {
-      const seq = ++optimisticSeq;
-      return beginMark("optimisticActive", (taskIds) =>
-        optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, seq, taskIds),
-      );
+    async cancelTask(id) {
+      const epoch = generation;
+      const { cancelled, skipped_terminal } = await API.cancelTask(id);
+      if (epoch === generation) applyRows([...cancelled, ...skipped_terminal]);
     },
-    beginOptimisticActiveForScriptFile: (projectName, taskType, scriptFile) => {
-      const seq = ++optimisticSeq;
-      return beginMark("optimisticActiveScriptFile", (taskIds) =>
-        optimisticScriptFileKey(projectName, taskType, scriptFile, seq, taskIds),
-      );
+    async retryDownload(id) {
+      const epoch = generation;
+      const { task } = await API.retryTaskDownload(id);
+      if (epoch === generation) applyRows([task]);
     },
+    beginOptimisticActive: (project, resourceKind, resourceId, type) =>
+      begin(project, type, { kind: "resource", resourceKind, resourceId }),
+    beginOptimisticActiveForScriptFile: (project, type, file) =>
+      begin(project, type, { kind: "script", scriptFile: stripScriptsPrefix(file) }),
   };
 });
 
@@ -353,36 +402,11 @@ export function isActiveStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
 }
 
-function hasOptimisticInScope(
-  marks: ReadonlySet<string>,
-  scopeProjectName: string | null,
-): boolean {
-  if (marks.size === 0) return false;
-  if (scopeProjectName === null) return true;
-  const prefix = `${scopeProjectName}\0`;
-  for (const key of marks) {
-    if (key.startsWith(prefix)) return true;
-  }
-  return false;
-}
-
-export function selectNeedsFastPolling(s: {
-  tasks: readonly TaskItem[];
-  stats: TaskStats;
-  connected: boolean;
-  refreshScope: TasksRefreshScope | null;
-  optimisticActive: ReadonlySet<string>;
-  optimisticActiveScriptFile: ReadonlySet<string>;
-}): boolean {
-  const scope = s.refreshScope;
-  return (
-    !s.connected ||
-    s.stats.queued + s.stats.running > 0 ||
-    s.tasks.some((t) => isOccupyingStatus(t.status)) ||
-    (scope !== null &&
-      (hasOptimisticInScope(s.optimisticActive, scope.projectName) ||
-        hasOptimisticInScope(s.optimisticActiveScriptFile, scope.projectName)))
-  );
+export function selectNeedsFastPolling(s: TasksState): boolean {
+  const inScope = (project: string) => s.refreshScope && (!s.refreshScope.projectName || s.refreshScope.projectName === project);
+  return !s.connected || s.stats.running + s.stats.queued > 0 || s.activeTaskIds.size > 0 ||
+    [...s.tracked.values()].some((lease) => lease.status === "pending" && inScope(lease.projectName)) ||
+    [...s.optimisticMarks.values()].some((mark) => inScope(mark.projectName));
 }
 
 export function isOccupyingStatus(status: TaskStatus): boolean {
@@ -397,10 +421,8 @@ export const SCRIPT_PLAN_TASK_TYPES: ReadonlySet<string> = new Set([
 
 export function taskResourceKind(task: TaskItem): ResourceKind | "" {
   if (task.task_type === "image_edit") {
-    return (task.resource_type as ResourceKind | null) ?? "";
-  }
-  if (task.task_type === "voice_sample") {
-    return "character";
+    const kind = task.resource_type ?? task.payload.resource_type;
+    return typeof kind === "string" ? kind as ResourceKind : "";
   }
   if (SCRIPT_PLAN_TASK_TYPES.has(task.task_type)) {
     return "text_script_plan";
@@ -417,43 +439,27 @@ export function selectLatestTaskByResource(
     if (filter.projectName !== undefined && task.project_name !== filter.projectName) continue;
     if (filter.taskType !== undefined && taskResourceKind(task) !== filter.taskType) continue;
     const prev = latest.get(task.resource_id);
-    if (!prev || task.updated_at > prev.updated_at) latest.set(task.resource_id, task);
+    if (!prev || versionOrder(task, prev) > 0) latest.set(task.resource_id, task);
   }
   return latest;
 }
 
 export function selectActiveResourceIds(
-  tasks: TaskItem[],
+  s: TaskRows,
   taskType: ResourceKind,
   projectName: string,
-  optimisticActive: ReadonlySet<string> = EMPTY_OPTIMISTIC,
 ): Set<string> {
-  const latestByResourceAndTaskType = new Map<string, TaskItem>();
-  for (const task of tasks) {
-    if (task.project_name !== projectName) continue;
-    if (taskResourceKind(task) !== taskType) continue;
-    const key = `${task.resource_id}\0${task.task_type}`;
-    const prev = latestByResourceAndTaskType.get(key);
-    if (!prev || task.updated_at > prev.updated_at) latestByResourceAndTaskType.set(key, task);
-  }
-  const ids = new Set<string>();
-  for (const task of latestByResourceAndTaskType.values()) {
-    if (isOccupyingStatus(task.status)) ids.add(task.resource_id);
-  }
-  const landed = supersedingTaskIds(tasks, "optimisticActive");
-  for (const key of optimisticActive) {
-    const [kProject, kResourceKind, kResourceId] = key.split("\0");
-    if (kProject !== projectName || kResourceKind !== taskType) continue;
-    if (keepMark(key, landed) !== null) ids.add(kResourceId);
+  const ids = new Set(selectActiveTasks(s).filter((row) =>
+    row.project_name === projectName && taskResourceKind(row) === taskType,
+  ).map((row) => row.resource_id));
+  for (const { target, projectName: project } of s.optimisticMarks.values()) {
+    if (project === projectName && target.kind === "resource" && target.resourceKind === taskType) ids.add(target.resourceId);
   }
   return ids;
 }
 
-const EMPTY_OPTIMISTIC: ReadonlySet<string> = new Set();
-
 export function isResourceBusy(kind: ResourceKind, projectName: string, resourceId: string): boolean {
-  const { tasks, optimisticActive } = useTasksStore.getState();
-  return selectActiveResourceIds(tasks, kind, projectName, optimisticActive).has(resourceId);
+  return selectActiveResourceIds(useTasksStore.getState(), kind, projectName).has(resourceId);
 }
 
 function stripScriptsPrefix(path: string): string {
@@ -461,30 +467,13 @@ function stripScriptsPrefix(path: string): string {
 }
 
 export function selectHasActiveTaskForScriptFile(
-  tasks: TaskItem[],
-  taskType: string,
-  scriptFile: string,
-  projectName: string,
-  optimisticActiveScriptFile: ReadonlySet<string> = EMPTY_OPTIMISTIC,
+  s: TaskRows, taskType: string, scriptFile: string, projectName: string,
 ): boolean {
   const normalized = stripScriptsPrefix(scriptFile);
-  const hasRealActive = tasks.some(
-    (task) =>
-      task.project_name === projectName &&
-      task.task_type === taskType &&
-      task.script_file != null &&
-      stripScriptsPrefix(task.script_file) === normalized &&
-      isOccupyingStatus(task.status),
-  );
-  if (hasRealActive) return true;
-
-  const landed = supersedingTaskIds(tasks, "optimisticActiveScriptFile");
-  for (const key of optimisticActiveScriptFile) {
-    const [kProject, kTaskType, kScriptFile] = key.split("\0");
-    if (kProject !== projectName || kTaskType !== taskType || kScriptFile !== normalized) continue;
-    if (keepMark(key, landed) !== null) return true;
-  }
-  return false;
+  return selectActiveTasks(s).some((row) => row.project_name === projectName && row.task_type === taskType &&
+    row.script_file && stripScriptsPrefix(row.script_file) === normalized) ||
+    [...s.optimisticMarks.values()].some((mark) => mark.projectName === projectName && mark.taskType === taskType &&
+      mark.target.kind === "script" && mark.target.scriptFile === normalized);
 }
 
 export function isScriptFileBusy(
@@ -493,14 +482,7 @@ export function isScriptFileBusy(
   projectName: string | undefined | null,
 ): boolean {
   if (!scriptFile || !projectName) return false;
-  const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
-  return selectHasActiveTaskForScriptFile(
-    tasks,
-    taskType,
-    scriptFile,
-    projectName,
-    optimisticActiveScriptFile,
-  );
+  return selectHasActiveTaskForScriptFile(useTasksStore.getState(), taskType, scriptFile, projectName);
 }
 
 export function useHasActiveTaskForScriptFile(
@@ -511,11 +493,10 @@ export function useHasActiveTaskForScriptFile(
   return useTasksStore((s) =>
     scriptFile && projectName
       ? selectHasActiveTaskForScriptFile(
-          s.tasks,
+          s,
           taskType,
           scriptFile,
           projectName,
-          s.optimisticActiveScriptFile,
         )
       : false,
   );
@@ -530,7 +511,7 @@ export function useActiveResourceIds(
   return useTasksStore(
     useShallow((s) =>
       projectName
-        ? selectActiveResourceIds(s.tasks, taskType, projectName, s.optimisticActive)
+        ? selectActiveResourceIds(s, taskType, projectName)
         : EMPTY_ACTIVE_IDS,
     ),
   );
@@ -541,17 +522,41 @@ export function useLatestTasksByResource(
   taskType: string,
 ): Map<string, TaskItem> {
   return useTasksStore(
-    useShallow((s) => selectLatestTaskByResource(s.tasks, { projectName, taskType })),
+    useShallow((s) => selectLatestTaskByResource([...selectRecentTasks(s), ...selectActiveTasks(s)], { projectName, taskType })),
   );
 }
 
+export function useLatestEpisodeAuthoringTask(projectName: string, resourceId: string, enabled: boolean) {
+  const recent = useLatestTasksByResource(projectName, "text_episode_script").get(resourceId);
+  const fullPage = useTasksStore((s) => s.recentTaskIds.length >= TASKS_PAGE_SIZE);
+  const connected = useTasksStore((s) => s.connected);
+  const [archived, setArchived] = useState<TaskItem>();
+  if (recent && archived) {
+    setArchived(undefined);
+  }
+  useEffect(() => {
+    if (!enabled || !connected || recent || !fullPage) return;
+    const controller = new AbortController();
+    void API.listTasks(
+      { projectName, resourceId, taskType: "text_episode_script", pageSize: 1 },
+      { signal: controller.signal },
+    ).then(({ items }) => {
+      if (!controller.signal.aborted) setArchived(items[0]);
+    }).catch((err: unknown) => {
+      if (!controller.signal.aborted) useAppStore.getState().pushToast(errMsg(err), "error");
+    });
+    return () => controller.abort();
+  }, [enabled, connected, fullPage, recent, projectName, resourceId]);
+  return recent ?? (fullPage && archived?.project_name === projectName && archived.resource_id === resourceId ? archived : undefined);
+}
+
 export function useTaskRowsByIds(taskIds: readonly string[]): Map<string, TaskItem> {
-  const wanted = new Set(taskIds);
   return useTasksStore(
     useShallow((s) => {
       const rows = new Map<string, TaskItem>();
-      for (const task of s.tasks) {
-        if (wanted.has(task.task_id)) rows.set(task.task_id, task);
+      for (const id of taskIds) {
+        const task = s.rowsById.get(id);
+        if (task) rows.set(id, task);
       }
       return rows;
     }),

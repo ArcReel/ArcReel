@@ -218,6 +218,9 @@ class TestGeminiVideoBackendGenerate:
         assert result.generate_audio is True
 
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
+        assert (
+            gemini_backend._client.aio.models.generate_videos.call_args.kwargs["model"] == "veo-3.1-fast-generate-001"
+        )
         assert output.read_bytes() == b"aistudio-bytes"
         assert not output.with_name("out.mp4.part").exists()
         gemini_backend._client.files.download.assert_called_once()

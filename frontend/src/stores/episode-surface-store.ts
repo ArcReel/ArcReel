@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
-export type EpisodeSurface = "script_plan" | "prompt_authoring_draft" | "episode_source";
+export type EpisodeSurface = "script_plan" | "episode_source";
 
 interface EpisodeSurfaceRequest {
   projectName: string;

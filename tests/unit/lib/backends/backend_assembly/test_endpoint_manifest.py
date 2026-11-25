@@ -8,30 +8,33 @@ from pathlib import Path
 from packaging.version import Version
 
 from arcreel_catalog_core import BUILTIN_ENDPOINTS, BUILTIN_PROVIDER_ENDPOINTS, ENDPOINT_DECLARATIONS_SINCE
-from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINTS, endpoint_media_type
+from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS
+from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
-def test_endpoint_manifest_matches_registry_and_provider_declarations():
-    """清单列出的端点、媒体类型，以及每个内置供应商按媒体类型的可选端点与默认端点，都与代码相同。"""
-    code_options = {
-        (declared.provider_id, declared.media_type): (set(declared.endpoints), declared.default)
-        for declared in PROVIDER_ENDPOINTS.values()
-    }
-    manifest_options = {
-        (provider_id, media_type): (set(options.endpoints), options.default)
+def test_endpoint_manifest_matches_assembly_and_custom_endpoints():
+    manifest_specs = {
+        (provider_id, media_type, endpoint)
         for provider_id, by_media in BUILTIN_PROVIDER_ENDPOINTS.items()
         for media_type, options in by_media.items()
+        for endpoint in options.endpoints
     }
-    code_endpoints = {
-        endpoint: endpoint_media_type(endpoint)
-        for declared in PROVIDER_ENDPOINTS.values()
-        for endpoint in declared.endpoints
-    }
+    assembly_specs = {(spec.provider_id, spec.media_type, spec.endpoint) for spec in PROVIDER_ENDPOINT_SPECS.values()}
+    manifest_media = {endpoint: spec.media_type for endpoint, spec in BUILTIN_ENDPOINTS.items()}
+    shared_endpoints = manifest_media.keys() - PROVIDER_ONLY_ENDPOINTS.keys()
 
-    assert manifest_options == code_options
-    assert {name: endpoint.media_type for name, endpoint in BUILTIN_ENDPOINTS.items()} == code_endpoints
+    assert manifest_specs == assembly_specs
+    assert manifest_media.keys() == {endpoint for _, _, endpoint in assembly_specs}
+    assert all(manifest_media[endpoint] == media_type for _, media_type, endpoint in assembly_specs)
+    assert {endpoint: manifest_media[endpoint] for endpoint in shared_endpoints} == {
+        endpoint: ENDPOINT_REGISTRY[endpoint].media_type
+        for endpoint in shared_endpoints
+        if ENDPOINT_REGISTRY[endpoint].source == "builtin"
+    }
+    assert not (PROVIDER_ONLY_ENDPOINTS.keys() & ENDPOINT_REGISTRY.keys())
 
 
 def test_start_versions_do_not_exceed_next_release():

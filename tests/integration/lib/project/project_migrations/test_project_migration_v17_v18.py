@@ -69,13 +69,16 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     migrated = _read_json(project_dir / "project.json")
+    from lib.config.resolver import project_resolution
+    from lib.video_runtime.image_resolution import ImageRuntime
+
     resolver = ConfigResolver(db_factory)
-    t2i = await resolver.resolve_image_backend(migrated, None, generation_type="t2i")
-    i2i = await resolver.resolve_image_backend(migrated, None, generation_type="i2i")
+    t2i, t2i_default = await ImageRuntime(resolver).read_identity(migrated, "t2i")
+    i2i, i2i_default = await ImageRuntime(resolver).read_identity(migrated, "i2i")
     assert (t2i.provider_id, t2i.model_id) == ("gemini-aistudio", "gemini-3.1-flash-image")
     assert (i2i.provider_id, i2i.model_id) == ("gemini-vertex", "gemini-3-pro-image")
-    assert await resolver.resolve_resolution(migrated, t2i.provider_id, t2i.model_id) == "4K"
-    assert await resolver.resolve_resolution(migrated, i2i.provider_id, i2i.model_id) == "1K"
+    assert (project_resolution(migrated, t2i.provider_id, t2i.model_id) or t2i_default) == "4K"
+    assert (project_resolution(migrated, i2i.provider_id, i2i.model_id) or i2i_default) == "1K"
 
 
 @pytest.mark.parametrize(

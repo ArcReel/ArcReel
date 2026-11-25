@@ -13,6 +13,7 @@ from typing import Any
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
 from lib.backends.resume_guard import resume_guard_accepts
+from lib.config.resolver import ProviderModel
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.generation.deleted_target import GenerationTargetDeletedError
 from lib.project.project_change_hints import project_change_source
@@ -27,7 +28,7 @@ from server.services.currency.video_artifact_currency import (
     VideoArtifactCommitter,
     complete_video_artifact_commit,
 )
-from server.services.tasks.generation_context import VideoLaneRequest, resolve_generation_context
+from server.services.tasks.generation_context import SubmittedVideoLaneRequest, resolve_generation_context
 from server.services.tasks.generation_tasks import (
     DEFAULT_USER_ID,
     emit_generation_success_batch,
@@ -101,7 +102,7 @@ async def execute_resume_video_task(
 ) -> dict[str, Any]:
     """重启自愈入口：`VideoResumeRunner.run` 直接调。
 
-    1. 解析项目 + 构造 MediaGenerator（受 task["provider_id"] 锁定 payload.video_provider）
+    1. 按检查点的供应商、模型与协议守卫构造 MediaGenerator
     2. 调 `generator.resume_video_async(job_id=..., ...)`——内部走 backend.resume_video
     3. finalize：写 scene asset / unit assets、抽缩略图、返回 result dict
 
@@ -119,24 +120,18 @@ async def execute_resume_video_task(
         raise NotImplementedError(f"resume not supported for task_type={task_type}")
 
     checkpoint = load_task_video_checkpoint(task)
-    resolver_payload = {
-        f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
-    }
-    video_request = VideoLaneRequest(generation_type=checkpoint.generation_type, submitted_job=True)
-
-    project, project_path = await asyncio.to_thread(
-        lambda: (
-            get_project_manager().load_project(project_name),
-            get_project_manager().get_project_path(project_name),
-        )
+    video_request = SubmittedVideoLaneRequest(
+        ProviderModel(checkpoint.provider_id, checkpoint.provider_model_id), checkpoint.endpoint_guard, job_id
     )
+    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
 
     artifact_committer: VideoArtifactCommitter | None = None
     try:
         ctx = await resolve_generation_context(
             project_name,
-            resolver_payload,
-            project=project,
+            None,
+            project={},
+            project_path=project_path,
             user_id=user_id,
             video=video_request,
         )

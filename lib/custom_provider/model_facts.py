@@ -19,8 +19,11 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import EllipsisType
 
 from arcreel_catalog_core import CatalogEntry, DurationConstraints, ImageFacts, TextFacts, VideoFacts
+from lib.capabilities.kernel import TEXT_ENDPOINT, CapabilitySnapshot, resolve
+from lib.capabilities.override_schema import valid_value
 from lib.catalog import query as catalog
 from lib.custom_provider.duration_presets import infer_supported_durations
 
@@ -36,57 +39,10 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})
-_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
-
-
-def _is_positive_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def _is_duration_list(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and all(_is_positive_int(item) for item in value)
-
-
-def _is_constraints(value: object) -> bool:
-    if not isinstance(value, dict) or not value.keys() <= _CONSTRAINT_KEYS:
-        return False
-    by_resolution = value.get("by_resolution", {})
-    if not isinstance(by_resolution, dict):
-        return False
-    if any(
-        not isinstance(res, str) or not res.strip() or not _is_duration_list(allowed)
-        for res, allowed in by_resolution.items()
-    ):
-        return False
-    with_reference = value.get("with_reference_images", [])
-    with_end_frame = value.get("with_end_frame", [])
-    return (
-        isinstance(with_reference, list)
-        and all(_is_positive_int(item) for item in with_reference)
-        and isinstance(with_end_frame, list)
-        and all(_is_positive_int(item) for item in with_end_frame)
-    )
 
 
 def model_fact_value_matches(key: str, value: object) -> bool:
-    """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
-
-    布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
-    ``by_resolution``（分辨率 → 非空时长列表）、``with_reference_images`` 与 ``with_end_frame``（时长列表）三个键。
-    """
-    if key in _BOOL_KEYS:
-        return isinstance(value, bool)
-    if key == "max_reference_images":
-        return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    if key == "max_output_tokens":
-        return _is_positive_int(value)
-    if key == "durations":
-        return _is_duration_list(value)
-    if key == "resolutions":
-        return isinstance(value, list) and bool(value) and all(isinstance(r, str) and r.strip() for r in value)
-    if key == "duration_constraints":
-        return _is_constraints(value)
-    return False
+    return key in ALL_MODEL_FACT_OVERRIDE_KEYS and valid_value(key, value)
 
 
 _TYPE_NAMES: Mapping[str, str] = {
@@ -150,22 +106,119 @@ class VideoModelFacts:
     duration_constraints: DurationConstraints = field(default_factory=DurationConstraints)
 
 
-def model_entry(model_id: str, media_type: str, entry_binding: str | None = None) -> CatalogEntry | None:
+def model_entry(
+    model_id: str, media_type: str, entry_binding: str | None = None, *, pending: CatalogEntry | None = None
+) -> CatalogEntry | None:
     """供应商模型对应的条目：先看条目绑定，再按名字现查（docs/adr/0105）。媒体类型取调用端点。"""
-    return catalog.find_entry(model_id, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
+    binding = catalog.binding_key(entry_binding, media_type)
+    if pending and binding == pending.key:
+        return pending
+    matched = catalog.find_entry(model_id, media_type=media_type, binding=binding)
+    return pending if pending and matched and pending.key == matched.key else matched
+
+
+def _text_entry_facts(entry: CatalogEntry | None) -> dict[str, object]:
+    if entry is not None and isinstance(entry.facts, TextFacts):
+        return {
+            "image_input": entry.facts.image_input,
+            "structured_output": entry.facts.structured_output,
+            "max_output_tokens": entry.facts.max_output_tokens,
+        }
+    return {}
+
+
+def text_capability_snapshot(
+    model_id: str,
+    overrides: object | None = None,
+    *,
+    entry: CatalogEntry | EllipsisType | None = ...,
+    entry_binding: str | None = None,
+    official: bool = False,
+    provider_id: str = "",
+    pending: CatalogEntry | None = None,
+    base_facts: Mapping[str, object] | None = None,
+) -> CapabilitySnapshot:
+    """经纯能力内核求值文本模型的能力快照：能力覆盖 > 模型事实 > 无约束。"""
+    if base_facts is not None:
+        facts: Mapping[str, object] = base_facts
+    else:
+        resolved_entry = model_entry(model_id, "text", entry_binding, pending=pending) if entry is ... else entry
+        facts = _text_entry_facts(resolved_entry)
+    return resolve(
+        TEXT_ENDPOINT,
+        facts=facts,
+        overrides=overrides,
+        official=official,
+        provider_id=provider_id,
+        model_id=model_id,
+    )
+
+
+def builtin_text_snapshot_from_view(
+    provider_id: str,
+    model_id: str,
+    view: catalog.ProviderModelView | None,
+    *,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    """内置文本模型的能力快照：有目录条目取条目事实，否则取目录模型基线，未收录时不加约束。"""
+    entry = view.entry if view is not None else None
+    fallback = (view.base_model or view.model) if view is not None else base_model
+    base_facts: dict[str, object] | None = None
+    if entry is None and fallback is not None:
+        caps = set(fallback.capabilities)
+        base_facts = {
+            "image_input": "vision" in caps,
+            "structured_output": "structured_output" in caps,
+            "max_output_tokens": fallback.max_output_tokens,
+        }
+    effective_overrides = view.capability_overrides if view is not None and overrides is None else overrides
+    is_official = view.official if official is None and view is not None else bool(official)
+    return text_capability_snapshot(
+        model_id,
+        effective_overrides,
+        entry=entry,
+        official=is_official,
+        provider_id=provider_id,
+        base_facts=base_facts,
+    )
+
+
+def builtin_text_snapshot(
+    provider_id: str,
+    model_id: str,
+    *,
+    overrides: object = None,
+    official: bool | None = None,
+    base_model: catalog.CatalogModel | None = None,
+) -> CapabilitySnapshot:
+    view = catalog.provider_model_view(provider_id, model_id, media_type="text")
+    return builtin_text_snapshot_from_view(
+        provider_id,
+        model_id,
+        view,
+        overrides=overrides,
+        official=official,
+        base_model=base_model,
+    )
 
 
 def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> TextModelFacts:
-    """文本供应商模型的生效模型事实：能力覆盖 > 对应条目；都没有时不加约束。"""
-    applied = model_fact_overrides(overrides, "text", model_id=model_id)
-    entry = model_entry(model_id, "text", entry_binding)
-    facts = entry.facts if entry is not None and isinstance(entry.facts, TextFacts) else None
-    max_output_tokens = applied.get("max_output_tokens")
-    if max_output_tokens is None and facts is not None:
-        max_output_tokens = facts.max_output_tokens
+    """文本供应商模型的生效模型事实：经纯能力内核求值（能力覆盖 > 对应条目；都没有时不加约束）。"""
+    if isinstance(overrides, Mapping):
+        text_keys = MODEL_FACT_OVERRIDE_KEYS["text"]
+        for key, value in overrides.items():
+            if key in text_keys and not model_fact_value_matches(key, value):
+                logger.warning("忽略 %s 的能力覆盖 %s=%r：值不合法，该维度回到条目或回落值", model_id, key, value)
+    snapshot = text_capability_snapshot(model_id, overrides, entry_binding=entry_binding)
+    image_input = snapshot.effective.get("image_input")
+    structured_output = snapshot.effective.get("structured_output")
+    max_output_tokens = snapshot.effective.get("max_output_tokens")
     return TextModelFacts(
-        image_input=_bool_fact(applied, "image_input", None if facts is None else facts.image_input),
-        structured_output=_bool_fact(applied, "structured_output", None if facts is None else facts.structured_output),
+        image_input=image_input if isinstance(image_input, bool) else None,
+        structured_output=structured_output if isinstance(structured_output, bool) else None,
         max_output_tokens=max_output_tokens if isinstance(max_output_tokens, int) else None,
     )
 

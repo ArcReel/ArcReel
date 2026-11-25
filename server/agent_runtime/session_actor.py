@@ -109,10 +109,13 @@ class SessionActor:
         client_factory: ClientFactory,
         on_message: OnMessage,
         on_command_lifecycle: OnCommandLifecycle | None = None,
+        *,
+        disconnect_interrupt_timeout: float = 3.0,
     ):
         self._client_factory = client_factory
         self._on_message = on_message
         self._on_command_lifecycle = on_command_lifecycle
+        self._disconnect_interrupt_timeout = disconnect_interrupt_timeout
         self._cmd_queue: asyncio.Queue[SessionCommand] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._started: asyncio.Event = asyncio.Event()
@@ -206,7 +209,9 @@ class SessionActor:
         try:
             if cmd.type == "disconnect":
                 if cmd.interrupt_first:
-                    await client.interrupt()
+                    with contextlib.suppress(TimeoutError):
+                        async with asyncio.timeout(self._disconnect_interrupt_timeout):
+                            await client.interrupt()
             elif cmd.type == "interrupt":
                 await client.interrupt()
             elif cmd.type == "query":
@@ -259,11 +264,14 @@ class SessionActor:
             self._task.add_done_callback(callback)
 
     async def wait(self) -> None:
-        """Await actor task completion, swallowing any raised exception."""
-        if self._task is None:
+        """Wait for the actor without cancelling it when the waiter is cancelled."""
+        task = self._task
+        if task is None:
             return
-        with contextlib.suppress(BaseException):
-            _ = await self._task
+        if not task.done():
+            await asyncio.wait({task})
+        if not task.cancelled():
+            _ = task.exception()
 
     async def cancel_and_wait(self) -> None:
         """Cancel the actor task and wait for it to finish."""

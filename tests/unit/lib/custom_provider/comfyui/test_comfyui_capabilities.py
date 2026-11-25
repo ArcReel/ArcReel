@@ -11,7 +11,6 @@ from lib.custom_provider.comfyui.capabilities import (
     derive_video_capabilities,
     duration_is_fixed,
     frame_rate_is_missing,
-    keeps_its_own_frame_count,
     native_duration,
     native_short_edge,
     size_is_fixed,
@@ -255,11 +254,6 @@ class TestNativeDurationAndTheDefaultTier:
         assert native_duration(definition) is None
 
     def test_one_unreadable_target_among_several_voids_the_tier_too(self):
-        """接了链接的那一格照样会被填值层写，它回写成什么无从判断，这一档因此不成立。
-
-        这一形态与「换算不出整秒」同落第三支（两个文案位都为假），但帧数并不保留：填值层照常
-        按请求的秒数改写它，故第三支的文案只说档位给不出来，不说成片长度以 workflow 自身为准。
-        """
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["length"] = 81
         definition["workflow"]["12"] = {"class_type": "WanVideoLength", "inputs": {"num_frames": ["5", 0]}}
@@ -271,7 +265,6 @@ class TestNativeDurationAndTheDefaultTier:
         assert native_duration(definition) is None
         assert duration_is_fixed(definition["bindings"]) is False
         assert frame_rate_is_missing(definition) is False
-        assert keeps_its_own_frame_count(definition) is False
 
     def test_a_second_frames_input_that_the_tier_would_rewrite_leaves_no_native_tier(self):
         """两个帧数入口字面值不一致：选中 5 秒会把 65 那个也写成 81，这一档不算原生。"""

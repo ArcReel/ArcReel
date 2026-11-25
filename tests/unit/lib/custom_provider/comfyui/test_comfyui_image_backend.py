@@ -25,7 +25,7 @@ from lib.backends.image_backends.base import (
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
-from lib.custom_provider.factory import create_custom_backend
+from tests.custom_backend_support import create_custom_backend
 from tests.factories import comfyui_endpoint_definition, image_bytes
 from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http, only_request, request_json

@@ -105,6 +105,7 @@ const STRESS: ApiOverrides = {
       ],
     },
   },
+  "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: RUNNING_STORYBOARDS.map(runningTask), truncated: false } },
   "GET /api/v1/tasks?page_size=200&project_name=demo": {
     status: 200,
     body: { items: RUNNING_STORYBOARDS.map(runningTask), total: RUNNING_STORYBOARDS.length, page: 1, page_size: 200 },
@@ -212,8 +213,11 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
       content_mode: "narration",
       status: "no_script_plan",
       fingerprint: null,
+      revision: null,
       confirmed_at: null,
       content: null,
+      blocking_issues: [],
+      soft_violations: [],
       quarantine: null,
       supported_durations: null,
       duration_tiers: null,
@@ -253,6 +257,21 @@ async function pageReady(page: Page) {
 }
 
 defineRegionScenarios("集页页头", [
+  {
+    name: "直接打开分镜链接后选中目标，刷新已清理的地址后不再定位",
+    path: `${EPISODE_PATH}?view=board&unit=E1S16&from=agent`,
+    api: PROGRESS_STRESS,
+    ready: pageReady,
+    act: async (page) => {
+      const shots = page.getByRole("navigation", { name: "分镜列表" });
+      const target = shots.locator('[data-shot-id="E1S16"]').locator('button[aria-current="true"]');
+      await expect(target).toBeInViewport();
+      await expect(page).toHaveURL(`${EPISODE_PATH}?view=board&from=agent`);
+      await page.reload();
+      await pageReady(page);
+      await expect(shots.locator('[data-shot-id="E1S01"]').locator('button[aria-current="true"]')).toBeVisible();
+    },
+  },
   {
     name: "两行页头约 85px，批量按钮写明补几份，没有可补的置灰",
     path: EPISODE_PATH,

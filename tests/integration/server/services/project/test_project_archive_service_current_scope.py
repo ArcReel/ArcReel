@@ -3,11 +3,15 @@
 import json
 import shutil
 import zipfile
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, activate_artifact_target_state
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.artifacts.visual_artifact_provenance import build_uploaded_storyboard_basis
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import (
@@ -17,6 +21,7 @@ from lib.project.resource_paths import (
 )
 from server.routers import versions as versions_router
 from server.services.project.project_archive import CURRENT_EXPORT_VERSION_RETENTION, ProjectArchiveService
+from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 _DERIVATIVE_ID = "Hero/Armor"
 _PRODUCT_ID = "Cup"
@@ -110,6 +115,92 @@ def test_current_package_packs_exactly_the_snapshots_its_version_records_name(tm
     assert (imported_dir / resource_relative_path(resource_type, resource_id)).read_bytes() == exported_content
     history = VersionManager(imported_dir).get_versions(resource_type, resource_id)
     assert all((imported_dir / record["file"]).is_file() for record in history["versions"])
+
+
+def test_current_package_keeps_selected_storyboard_upload_but_drops_generated_history(tmp_path):
+    source = ProjectManager(tmp_path / "source")
+    source.create_project("demo")
+    source.create_project_metadata("demo", "Demo", "Anime", "narration")
+    project_dir = source.get_project_path("demo")
+    versions = VersionManager(project_dir)
+    upload_id, generated_id = "E1S01", "E1S02"
+    upload_path = resource_relative_path("storyboards", upload_id)
+    generated_path = resource_relative_path("storyboards", generated_id)
+    uploaded = solid_png_bytes((200, 30, 10))
+    generated = solid_png_bytes((10, 30, 200))
+    for shot_id, path, history in (
+        (upload_id, upload_path, [(generated, {}), (uploaded, {"source": MANUAL_UPLOAD_VERSION_SOURCE})]),
+        (generated_id, generated_path, [(uploaded, {"source": MANUAL_UPLOAD_VERSION_SOURCE}), (generated, {})]),
+    ):
+        current = project_dir / path
+        current.parent.mkdir(parents=True, exist_ok=True)
+        for content, metadata in history:
+            current.write_bytes(content)
+            versions.add_version("storyboards", shot_id, "林间小路", source_file=current, **metadata)
+
+    script_file = "episode_1.json"
+    source.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "E1",
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": shot_id,
+                    "novel_text": "她走过树林。",
+                    "duration_seconds": 5,
+                    "characters_in_segment": [],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "林间小路",
+                    "video_prompt": "镜头缓慢推进",
+                    "generated_assets": {"storyboard_image": path},
+                }
+                for shot_id, path in ((upload_id, upload_path), (generated_id, generated_path))
+            ],
+        },
+        script_file,
+        validate=False,
+    )
+    activate_artifact_target_state(project_dir, bump_schema=False)
+    upload_history = versions.get_versions("storyboards", upload_id)
+    [selected_upload] = [record for record in upload_history["versions"] if record["is_current"]]
+    snapshot = selected_upload["file"]
+
+    archive_path, _ = ProjectArchiveService(source).export_project("demo", scope="current")
+    target = ProjectManager(tmp_path / "target")
+    ProjectArchiveService(target).import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+    imported_dir = target.get_project_path("demo")
+    imported_versions = VersionManager(imported_dir)
+    assert imported_versions.get_versions("storyboards", upload_id) == {
+        "current_version": selected_upload["version"],
+        "versions": [selected_upload],
+    }
+    assert imported_versions.get_versions("storyboards", generated_id)["versions"] == []
+    snapshots, recorded, _ = _packed_history(archive_path)
+    assert snapshots == recorded == {snapshot}
+    assert (imported_dir / snapshot).read_bytes() == (imported_dir / upload_path).read_bytes() == uploaded
+    assert (imported_dir / generated_path).read_bytes() == generated
+
+    upload_key = ArtifactKey.episode_storyboard(1, upload_id)
+    entry = ProjectArtifactManifestAdapter(imported_dir).get_entry(upload_key)
+    assert entry is not None
+    assert entry.basis_digest == build_uploaded_storyboard_basis(content_digest=sha256(uploaded).hexdigest()).digest
+
+    generated_key = ArtifactKey.episode_storyboard(1, generated_id)
+    resolver = ArtifactCurrencyResolver(imported_dir)
+    assert resolver.compare(upload_key, artifact_path=upload_path).status is ArtifactStatus.CURRENT
+    assert resolver.compare(generated_key, artifact_path=generated_path).status is ArtifactStatus.CURRENT
+
+    with target.locked_script("demo", script_file, validate=False) as script:
+        for segment in script["segments"]:
+            segment["image_prompt"] = "黄昏的街角"
+
+    resolver = ArtifactCurrencyResolver(imported_dir)
+    assert resolver.compare(upload_key, artifact_path=upload_path).status is ArtifactStatus.CURRENT
+    assert resolver.compare(generated_key, artifact_path=generated_path).status is ArtifactStatus.STALE
 
 
 @pytest.mark.parametrize("resource_type", ["products", "grids", CHARACTER_DERIVATIVE_RESOURCE_TYPE])

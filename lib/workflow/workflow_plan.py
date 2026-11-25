@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lib.generation.generation_result import GenerationAction, GenerationProblem
 from lib.project.asset_types import ASSET_SPECS
-from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
 from lib.workflow.workflow_state import (
     INVALID_EDIT_TIMELINES_CODE,
@@ -172,16 +171,9 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "edit": "edit_timelines",
 }
 
-TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
-_PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
 EPISODE_PLANNING_SLOT = "episode-planning"
 EPISODE_PLANNING_NEXT_SLOT = "episode-planning-next"
 EPISODE_PLANNING_SLOTS = (EPISODE_PLANNING_SLOT, EPISODE_PLANNING_NEXT_SLOT)
-
-
-def draft_repair_resource_id(episode: int, doc_type: str) -> str:
-    """AI 修复任务的占用槽：一份草稿一个，同一集的脚本规划草稿与提示词编写草稿互不占用。"""
-    return f"episode-{episode}-{doc_type}"
 
 
 _TASK_STEP: dict[str, str] = {
@@ -199,10 +191,6 @@ _TASK_STEP: dict[str, str] = {
 
 
 def _task_step(observation: WorkflowTaskObservation) -> str | None:
-    """任务归入的步骤：草稿 AI 修复按草稿归入脚本规划或正式脚本（提示词编写草稿），其余按任务类型。"""
-    if observation.task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
-        prompt_authoring = observation.unit_id.endswith(f"-{_PROMPT_AUTHORING_DRAFT_DOC_TYPE}")
-        return "final_script" if prompt_authoring else "script_plan_content"
     return _TASK_STEP.get(observation.task_type)
 
 
@@ -232,12 +220,6 @@ _ACTION_STEP: dict[WorkflowActionType, str] = {
 def _owner_step(status: WorkflowStatus) -> str:
     """建议下一步所属的步骤 id；没有动作时按陈述了问题的那类内容归属。"""
     action = status.next_action
-    if action.type is WorkflowActionType.RESOLVE_DRAFT:
-        return (
-            "final_script"
-            if action.args.get("draft_kind") == QUARANTINE_KIND_PROMPT_AUTHORING
-            else "script_plan_review"
-        )
     if action.type is not WorkflowActionType.NONE:
         return _ACTION_STEP.get(action.type, "project_input")
     if workflow_finished(status):

@@ -332,7 +332,7 @@ NoticeStatus = Literal["retiring", "discontinued", "unavailable"]
 
 
 class LifecycleNotice(BaseModel):
-    """引用处的下线提示：状态、关停日期、官方后继，以及每个引用位置可一键切换的目标。"""
+    """引用处的下线提示：状态、关停日期、推荐替代模型，以及每个引用位置可一键切换的目标。"""
 
     status: NoticeStatus
     shutdown_date: date | None
@@ -601,7 +601,9 @@ class AutoBackendsResponse(BaseModel):
 @router.get("/system/config/auto-backends", response_model=AutoBackendsResponse)
 async def get_auto_backends() -> AutoBackendsResponse:
     """「自动选择」的实际模型：与执行期解析同口径，设置界面据此显示当前模型并按它查询能力。"""
-    resolved = await ConfigResolver(async_session_factory).auto_resolved_backends()
+    from lib.video_runtime.auto_backends import auto_resolved_backends
+
+    resolved = await auto_resolved_backends(ConfigResolver(async_session_factory))
     return AutoBackendsResponse(
         **{purpose: f"{pair[0]}/{pair[1]}" if pair else None for purpose, pair in resolved.items()}
     )

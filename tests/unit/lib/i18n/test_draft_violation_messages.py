@@ -16,8 +16,8 @@ PRODUCERS = (
     "lib/script/draft_violation.py",
     "lib/script/reference_video/draft_validation.py",
     "lib/script/script_generator.py",
+    "lib/script/script_plan_validation.py",
     "server/text_generation.py",
-    "server/draft_workflow.py",
     "lib/script/plan_new_assets.py",
 )
 

@@ -14,7 +14,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
+from lib.artifacts.visual_artifact_provenance import build_uploaded_video_basis
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE
 from lib.project.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
@@ -31,6 +33,13 @@ class TypedMediaVersionTarget:
     script_file: str
     basis: ArtifactBasisDescriptor
     created_at: str | None
+
+
+def uploaded_video_version_basis(record: Mapping[str, Any], *, snapshot_digest: str) -> ArtifactBasis:
+    """Check an upload's optional recorded SHA-256 against its observed snapshot."""
+    if record.get("content_digest", snapshot_digest) != snapshot_digest:
+        raise ValueError("upload record digest differs from snapshot")
+    return build_uploaded_video_basis(content_digest=snapshot_digest)
 
 
 _VIDEO_VISUAL_KINDS = {
@@ -55,6 +64,11 @@ _IMAGE_VISUAL_KINDS: dict[str, frozenset[str]] = {
     ),
     "grids": frozenset({"artifact-visual/grid-composite"}),
 }
+
+
+def is_uploaded_video_version(resource_type: str, record: Mapping[str, Any]) -> bool:
+    """Whether a version record represents a manually uploaded video artifact."""
+    return resource_type in _VIDEO_VISUAL_KINDS and record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE
 
 
 def is_typed_media_resource(resource_type: str) -> bool:
@@ -254,7 +268,9 @@ __all__ = [
     "VIDEO_CURRENCY_DURATION_FIELD",
     "TypedMediaVersionTarget",
     "is_typed_media_resource",
+    "is_uploaded_video_version",
     "parse_image_version_basis",
     "parse_typed_audio_settings",
     "parse_typed_media_version_target",
+    "uploaded_video_version_basis",
 ]

@@ -24,7 +24,12 @@ from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import timeline_renders_dir
-from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, UnmanagedSnapshotPathError, VersionManager
+from lib.artifacts.version_manager import (
+    MANUAL_UPLOAD_VERSION_SOURCE,
+    VERSION_CONTENT_DIGEST,
+    UnmanagedSnapshotPathError,
+    VersionManager,
+)
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.bgm.library import BgmSource
 from lib.edit_timeline.bgm import bgm_sources_input
@@ -152,7 +157,7 @@ def current_video(
 
 def provider_audio_recorded(record: Mapping[str, Any]) -> bool:
     """版本记录的供应商原声开关：只有明确记录为未生成原声才为 False，没有记录按带原声处理。"""
-    return record.get("execution_generate_audio") is not False
+    return record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE or record.get("execution_generate_audio") is not False
 
 
 def current_provider_audio(versions: VersionManager, resource_type: str, unit_id: str) -> bool:

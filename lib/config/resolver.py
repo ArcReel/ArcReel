@@ -10,25 +10,19 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, get_args
+from typing import TYPE_CHECKING, Any, Literal, get_args
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from lib.db.models.custom_provider import CustomProviderModel
-
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import DurationConstraints
-from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoAudioMode
-from lib.backends.backend_assembly.specs import (
-    builtin_effective_generate_audio_for_model,
-    builtin_video_capabilities_for_model,
-)
 from lib.backends.input_limits import InputLimit
-from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.backends.providers import is_custom_provider
+from lib.capabilities.kernel import video_bucket_unmet
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError, ModelNotSelectedError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -37,12 +31,8 @@ from lib.config.service import (
     DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
     ConfigService,
 )
-from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.episode.episode_target_duration import project_episode_target_duration
-from lib.project.project_manager import get_project_manager
-from lib.speech.character_voice import CharacterVoiceBinding, character_voice_binding
+from lib.speech.character_voice import CharacterVoiceBinding
 
 logger = logging.getLogger(__name__)
 
@@ -241,14 +231,13 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoGenera
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
-def _payload_video_pinned_pair(
+def payload_video_pinned_pair(
     payload: dict, generation_type: VideoGenerationType | None
 ) -> tuple[VideoGenerationType, tuple[str, str]] | None:
     """读请求 payload 里显式的视频执行身份（桶键 ``video_provider_<generation_type>``），连同命中的桶一并返回。
 
     值是 ``ProviderModel.pair_key`` 形态的复合值。正常队列执行会先移除 enqueue payload
-    中的这类旧键，再按当前配置求值；已提交视频的 resume executor 则根据 immutable
-    checkpoint 构造恰好一个桶键，用它重建原 backend。``generation_type`` 未声明时按固定桶序
+    中的这类旧键，再按当前配置求值。``generation_type`` 未声明时按固定桶序
     扫两个桶键——至多命中一个，桶序不产生歧义。
 
     provider 不可信（见 ``_trusted_payload_provider``）不在此丢弃：视频侧身份可用性由
@@ -308,53 +297,20 @@ def video_capability_satisfied(
     text_to_video: bool = True,
     has_image: bool = True,
 ) -> bool:
-    """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
-
-    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.backends.generation_type_buckets``）共用本
-    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
-    i2v 桶内的纯文生与带首帧请求。取标量参数而非
-    ``VideoCapabilities``，一是不在 lib.config 层导入 arcreel_market_core.video_backend_contract（分层契约），二是让
-    内置与自定义供应商的生效能力（条目与通道两侧求值 ⊕ 能力覆盖）都能直接喂进来。``max_reference_images`` 是参考图
-    上限的生效值：``None`` 为未收录（接受参考图、不限张数），``0`` 为不接受。
-    """
-    if generation_type == "i2v":
-        return first_frame if has_image else text_to_video
-    return InputLimit.from_json(max_reference_images).accepts_input
+    """检查请求对应的任务类型桶；i2v 桶内无首帧时检查文生路径。"""
+    unmet = video_bucket_unmet(first_frame if has_image else text_to_video, InputLimit.from_json(max_reference_images))
+    return generation_type not in unmet
 
 
-def builtin_video_audio_track(
-    provider_id: str, model_id: str, *, generation_type: VideoGenerationType, builtin_endpoint: str | None = None
-) -> str | None:
-    """内置视频 model 在该任务类型桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
+TextTierKey = Literal["simple", "complex"]
 
-    真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
-    有没有音轨开关」就是这一位的字面含义，也只有它表达得了「同一 model 内按执行子路径分叉」
-    （可灵 v3-omni 走多图主体子路径时请求体不含 ``sound``，成片必然无声）。展示层、入队预检与
-    声音一致性派生共读本函数，不各自解读一份声明。
-
-    返回值是 ``arcreel_market_core.video_backend_contract.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
-    lib.config 为最底层，与 ``derive_voice_consistency`` 按字面量比较 ``ReferenceAudioMode`` 同一
-    做法（``StrEnum`` 与字面量可直接 ``==``）。
-
-    None 的三种成因都归到「无信号」：供应商不在注册表（自定义供应商走
-    ``synthesize_video_capabilities``，不经本函数）、该 model 不是视频模型、backend 未声明能力。
-    """
-    if catalog.get_model(provider_id, model_id, media_type="video") is None:
-        return None
-    try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
-    except ValueError:
-        return None
-    return caps.audio_track_for_route(generation_type).value
-
-
-_TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
-    TextTaskTier.SIMPLE: "text_backend_simple",
-    TextTaskTier.COMPLEX: "text_backend_complex",
+_TEXT_TIER_SETTING_KEYS: dict[TextTierKey, str] = {
+    "simple": "text_backend_simple",
+    "complex": "text_backend_complex",
 }
 
 
-_TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
+_TEXT_LAYERED_KEYS: dict[TextTierKey, _LayeredBackendKeys] = {
     tier: _LayeredBackendKeys(
         media_type="text",
         project_bucket_key=tier_key,
@@ -367,28 +323,6 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 
 
 AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text"]
-
-_AUTO_RESOLVE_PURPOSE_KEYS: dict[AutoResolvePurpose, _LayeredBackendKeys] = {
-    "t2i": _IMAGE_LAYERED_KEYS["t2i"],
-    "i2i": _IMAGE_LAYERED_KEYS["i2i"],
-    "i2v": _VIDEO_LAYERED_KEYS["i2v"],
-    "r2v": _VIDEO_LAYERED_KEYS["r2v"],
-    "text": _TEXT_LAYERED_KEYS[TextTaskTier.COMPLEX],
-}
-
-
-_VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
-
-
-def _video_audio_always_billed(provider_id: str) -> bool:
-    """该 provider 是否无视请求值恒按含音档出账。
-
-    AI Studio 的 Veo 请求不下发 ``generate_audio``（该开关仅存在于 Vertex 定价页，AI Studio
-    定价页无 audio-off 档），``GeminiVideoBackend`` 结算时对 ``backend_type != "vertex"`` 强制
-    True；这是 provider 级出账规则，registry 名 ``gemini`` 同时映射 aistudio / vertex，故按
-    provider_id 而非 backend 静态接口判定。
-    """
-    return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
 
 
 VoiceConsistency = Literal["native", "soft", "none"]
@@ -445,7 +379,13 @@ def _safe_dict(value: object, *, field: str) -> dict:
     return {}
 
 
-def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
+def reference_limits_from_config(cfg: Mapping[str, str | None]) -> tuple[int, int]:
+    total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
+    single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
+    return total, single
+
+
+def project_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
     """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
 
     逐层用 ``_safe_dict`` 防御非 dict 中间层（见 ``_safe_dict`` docstring）；叶子值同样按
@@ -576,12 +516,13 @@ class VisionCapabilityError(ValueError):
     携带结构化字段供调用方（如面向用户的 router）按需本地化；``str(exc)`` 是英文技术
     消息，供 log / 非用户可见路径直接使用。"""
 
-    def __init__(self, *, task_type: TextTaskType, provider_id: str, model_id: str):
-        self.task_type = task_type
+    def __init__(self, *, task_type: object, provider_id: str, model_id: str):
+        self.task_type: Any = task_type
         self.provider_id = provider_id
         self.model_id = model_id
+        task_label = getattr(task_type, "value", str(task_type))
         super().__init__(
-            f"text model {provider_id}/{model_id} does not support vision, cannot perform task {task_type.value}"
+            f"text model {provider_id}/{model_id} does not support vision, cannot perform task {task_label}"
         )
 
 
@@ -644,7 +585,7 @@ class ImageBucketCapabilityError(ValueError):
         )
 
 
-def _video_bucket_capability_missing(
+def video_bucket_capability_missing(
     generation_type: VideoGenerationType, provider_id: str, model_id: str
 ) -> VideoBucketCapabilityError:
     return VideoBucketCapabilityError(
@@ -656,7 +597,7 @@ def _video_bucket_capability_missing(
     )
 
 
-def _video_bucket_reference_unavailable(
+def video_bucket_reference_unavailable(
     generation_type: VideoGenerationType, provider_id: str, model_id: str
 ) -> VideoBucketCapabilityError:
     return VideoBucketCapabilityError(
@@ -668,30 +609,23 @@ def _video_bucket_reference_unavailable(
     )
 
 
-def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
-    """校验解析出的内置模型支持图像输入；不满足直接报错，不静默换模型。
+class _SnapshotConfigService(ConfigService):
+    _settings: dict[str, str] | None = None
 
-    只按模型目录判定，不在目录中的模型放行；自定义供应商的模型见 ``ConfigResolver._ensure_text_model_vision_capable``。"""
-    model_info = catalog.get_model(provider_id, model_id)
-    if model_info is not None and "vision" not in model_info.capabilities:
-        raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
+    async def get_all_settings(self) -> dict[str, str]:
+        if self._settings is None:
+            self._settings = await super().get_all_settings()
+        return self._settings
 
-
-async def _load_project_snapshot(project_name: str | None) -> dict | None:
-    """读取项目快照；读 project.json 是文件 I/O，放进工作线程，不占事件循环线程。"""
-
-    if not project_name:
-        return None
-    return await asyncio.to_thread(lambda: get_project_manager().load_project(project_name))
+    async def get_setting(self, key: str, default: str = "") -> str:
+        return (await self.get_all_settings()).get(key, default)
 
 
 class ConfigResolver:
-    """运行时配置解析器。
+    """运行时配置读取器。
 
-    作为 ConfigService 的上层薄封装，提供：
-    - 唯一的默认值定义点
-    - 类型化输出（bool / tuple / dict）
-    - 内置优先级解析（全局配置 → 项目级覆盖）
+    作为 ConfigService 的上层薄封装，只承载全局/项目设置、凭证与项目偏好读取，
+    不承载跨内置与自定义供应商的目标选型、能力合成或项目能力投影。
     """
 
     _DEFAULT_VIDEO_GENERATE_AUDIO = True
@@ -701,395 +635,54 @@ class ConfigResolver:
         session_factory: async_sessionmaker,
         *,
         _bound_session: AsyncSession | None = None,
+        _snapshot_settings: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._bound_session = _bound_session
+        self._bound_service = (
+            _SnapshotConfigService(_bound_session) if _bound_session is not None and _snapshot_settings else None
+        )
 
     @asynccontextmanager
-    async def session(self) -> AsyncGenerator[ConfigResolver]:
+    async def session(self, *, snapshot_settings: bool = False) -> AsyncGenerator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
         if self._bound_session is not None:
-            yield self
+            if snapshot_settings and self._bound_service is None:
+                yield ConfigResolver(self._session_factory, _bound_session=self._bound_session, _snapshot_settings=True)
+            else:
+                yield self
         else:
             async with self._session_factory() as sess:
-                yield ConfigResolver(self._session_factory, _bound_session=sess)
+                yield ConfigResolver(self._session_factory, _bound_session=sess, _snapshot_settings=snapshot_settings)
 
     @asynccontextmanager
     async def _open_session(self) -> AsyncGenerator[tuple[AsyncSession, ConfigService]]:
         """获取 (session, ConfigService)，优先复用 bound session。"""
         if self._bound_session is not None:
-            yield self._bound_session, ConfigService(self._bound_session)
+            yield self._bound_session, self._bound_service or ConfigService(self._bound_session)
         else:
             async with self._session_factory() as session:
                 yield session, ConfigService(session)
 
-    async def video_generate_audio(self, project_name: str | None = None) -> bool:
-        """解析 video_generate_audio。
-
-        优先级：项目级覆盖 > 全局配置 > 默认值(True)。
-        """
+    async def video_generate_audio(self) -> bool:
+        """读取全局 video_generate_audio 设置（默认值 True）。"""
         async with self._open_session() as (_session, svc):
-            return await self._resolve_video_generate_audio(svc, project_name)
+            return await self._resolve_video_generate_audio_from_project(svc, None)
 
     async def video_generate_audio_for_project(self, project: dict | None) -> bool:
-        """同 :meth:`video_generate_audio`，但接收调用方已加载的 project 字典，不重复读盘。
-
-        供需要与 video capabilities 解析**独立**判定用户无声意图的调用方使用：能力解析（如
-        ``video_capabilities_for_model``）失败不应连带丢失这个值——它本就不依赖能力接口。
-        """
+        """解析项目级 video_generate_audio 偏好：项目级覆盖 > 全局配置 > 默认值(True)。"""
         async with self._open_session() as (_session, svc):
             return await self._resolve_video_generate_audio_from_project(svc, project)
 
-    async def default_video_backend(self) -> tuple[str, str]:
-        """返回系统级默认 (provider_id, model_id)（不含项目级覆盖）。"""
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_video_backend(svc, session)
+    async def default_text_backend(self) -> tuple[str, str]:
+        """返回全局默认文本 (provider_id, model_id)。"""
+        async with self._open_session() as (_session, svc):
+            return await svc.get_default_text_backend()
 
-    async def video_backend(self, project_name: str | None = None) -> tuple[str, str]:
-        """解析当前项目应使用的视频 (provider_id, model_id)。
-
-        优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
-        auto-resolve（按 registry 顺序挑第一个 ready 且目录里有可用默认视频模型的供应商）。
-
-        返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
-        判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_video_backend(svc, session, project_name)
-
-    async def resolve_image_backend(
-        self,
-        project: dict | None,
-        payload: dict | None,
-        *,
-        generation_type: Literal["t2i", "i2i"],
-    ) -> ProviderModel:
-        """解析图片任务应使用的 ProviderModel。
-
-        优先级：payload > 项目桶（``image_provider_<generation_type>``）> 项目默认（``default_image_backend``）
-        > 全局桶（``default_image_backend_<generation_type>``）> 全局默认（``default_image_backend``）> 自动推断。
-        桶是可选覆盖，无值（含显式清空）回退默认层（``docs/adr/0054``）。
-        ``generation_type`` 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
-
-        Raises:
-            ImageBucketCapabilityError: （ValueError 子类）解析出的自定义模型缺该桶所需能力
-                （``_ensure_image_bucket_capability``），不静默换模型。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_image_provider_model(svc, session, project, payload, generation_type)
-
-    async def resolve_video_backend(
-        self,
-        project: dict | None,
-        payload: dict | None,
-        *,
-        generation_type: VideoGenerationType | None = None,
-        submitted_job: bool = False,
-    ) -> ProviderModel:
-        """解析视频任务应使用的 ProviderModel。
-
-        payload 恒为最高优先级：已写入任务类型桶键 ``video_provider_<generation_type>`` 的物化执行身份优先。
-        其后按 ``generation_type`` 分两条路径（``docs/adr/0054``）：
-
-        - ``generation_type`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<generation_type>``）
-          > 项目默认（``video_backend``）> 全局桶（``default_video_backend_<generation_type>``）> 全局默认
-          （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
-          所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
-          ``VideoBucketCapabilityError``，不静默换模型；内置模型不在供应商的视频模型清单中时抛
-          ``ModelNotInCatalogError``。payload 命中时跳过能力闸——已入队任务按 payload 照常执行，
-          不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样报错。
-        - ``generation_type`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
-          （``default_video_backend``）> 自动推断，无能力闸；自定义供应商的 model 不存在、
-          已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
-          model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
-          （费用估算、限流路由兜底）使用。
-
-        ``submitted_job`` 为真表示续跑已提交给厂商的任务（只轮询厂商侧已存在的任务、不发起新的生成）：payload 必须锁定
-        执行身份，身份可用性校验不拦已下线的模型，其余校验照旧。只由续跑入口声明，新提交恒为假。
-
-        provider id 不做归一化。只要字面配置结果（不经收敛）请改用 ``video_backend()``。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_video_provider_model(
-                svc, session, project, payload, generation_type, submitted_job=submitted_job
-            )
-
-    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
-        """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
-
-        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。前两级纯读 project
-        dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
-        整体为 async 并在同一 session 内完成。
-        """
-        from_project = _resolution_from_project(project, provider_id, model_id)
-        if from_project:
-            return from_project
-        if not provider_id or not model_id or not is_custom_provider(provider_id):
-            return None
-        async with self._open_session() as (session, _svc):
-            return await self._resolve_custom_resolution_default(session, provider_id, model_id)
-
-    async def _resolve_custom_resolution_default(
-        self,
-        session: AsyncSession,
-        provider_id: str,
-        model_id: str,
-    ) -> str | None:
-        """自定义供应商的模型默认 resolution（``CustomProviderModel.resolution``），其他一律 None。"""
-        if not provider_id or not model_id or not is_custom_provider(provider_id):
-            return None
-        try:
-            db_id = parse_provider_id(provider_id)
-        except ValueError:
-            return None
-        repo = CustomProviderRepository(session)
-        model = await repo.get_model_by_ids(db_id, model_id)
-        return model.resolution if (model and model.resolution) else None
-
-    async def default_audio_backend(self) -> tuple[str, str]:
-        """返回系统级默认音频 (provider_id, model_id)（不含项目级覆盖）。"""
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_audio_backend(svc, session)
-
-    async def default_narration_tts(self) -> tuple[ProviderModel, str, float | None]:
-        """新建 TTS 项目的预填值：全局默认音频 (provider, model)、旁白音色与配音语速。
-
-        未配置任何音频供应商时抛 ValueError。项目创建后不再读取这些全局值（docs/adr/0089）。
-        """
-        async with self._open_session() as (session, svc):
-            provider_id, model_id = await self._resolve_default_audio_backend(svc, session)
-            return (
-                ProviderModel(provider_id, model_id),
-                await svc.get_narration_voice(),
-                await svc.get_narration_speed(),
-            )
-
-    async def resolve_audio_backend(
-        self,
-        project: dict | None,
-        payload: dict | None,
-    ) -> ProviderModel:
-        """解析语音合成任务应使用的 ProviderModel。
-
-        优先级：payload（历史任务携带的 ``audio_provider``）> project（``audio_backend``）> 全局默认。
-        语音任务无任务类型维度。不做任何 provider 归一化。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_audio_provider_model(svc, session, project, payload)
-
-    async def video_capabilities_for_project(
-        self,
-        project: dict,
-        *,
-        generation_type: VideoGenerationType | None = None,
-    ) -> dict:
-        """解析调用方已加载的项目当前视频 model 的综合能力 + 用户项目偏好。
-
-        model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
-        执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
-        生成模式创建即定、整个项目按同一种模式生成，解析因此不需要剧集上下文。
-
-        ``generation_type`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
-        内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
-
-        ``supported_durations`` 是型号声明全集；按请求分辨率与参考图收窄的档位由视频请求事实给出
-        （``lib.generation.video_request_facts``），不在能力合成里组装。
-
-        Returns:
-            {
-              "provider_id": str,
-              "model": str,
-              "supported_durations": list[int],    # 来自 model (单一真相源)；ComfyUI 端点上可为空集
-              "max_duration": int,                 # max(supported_durations) 派生；空集时为 0
-              "max_reference_images": int | None,  # 生效值（条目与通道两侧求值 ⊕ 能力覆盖）；None 未收录，0 不接受
-              "first_frame": bool,                 # 生效值（两侧求值 ⊕ 能力覆盖），与执行层同源
-              "last_frame": bool,                  # 同上
-              "generate_audio": bool,              # backend 默认执行档生效后的计价参数
-              "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
-              "max_reference_audio_count": int | None,  # 每请求参考音频段数上限的生效值；None 未收录
-              "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
-              "source": "registry" | "custom",
-              "default_duration": int | None,      # 用户在 project.json 里设置的偏好
-              "episode_target_duration": int | None,  # 用户设置的单集目标时长（秒）软偏好，非模型能力
-              "content_mode": str | None,
-              "generation_mode": str | None,       # 项目生成模式（无项目上下文时 None）
-              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode × 绑定方式
-            }
-
-        Raises:
-            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空
-                （ComfyUI 端点除外：该协议上空集是「时长不由 ArcReel 驱动」的合法态）。
-            VideoBucketCapabilityError: （ValueError 子类）解析出的模型缺该桶所需能力，或配置
-                引用已不可用。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities_from_project(
-                svc, session, project, generation_type=generation_type
-            )
-
-    async def video_duration_constraints(self, provider_id: str, model_id: str) -> DurationConstraints | None:
-        """视频模型的时长联动约束（模型事实）；没有约束时为 None。
-
-        内置模型取目录；自定义供应商的模型取能力覆盖 > 对应条目，对应不上条目时不加约束。ComfyUI 端点的
-        时长只从节点绑定推导，没有联动约束。模型行或端点解析不出时为 None：引用失效由能力解析报错，
-        这里不重复。
-        """
-        if not is_custom_provider(provider_id):
-            return builtin_duration_constraints(provider_id, model_id)
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.custom_provider.model_facts import video_model_facts
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-        async with self._open_session() as (session, _svc):
-            try:
-                model = await CustomProviderRepository(session).get_model_by_ids(
-                    parse_provider_id(provider_id), model_id
-                )
-                if model is None:
-                    return None
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-            except ValueError:
-                return None
-            if endpoint_spec.endpoint_durations is not None:
-                return None
-            return video_model_facts(
-                model_id, model.capability_overrides, entry_binding=model.entry_binding
-            ).duration_constraints
-
-    async def video_audio_facts(
-        self,
-        provider_id: str,
-        model_id: str,
-        *,
-        generation_type: VideoGenerationType,
-        builtin_endpoint: str | None = None,
-    ) -> VideoAudioFacts | None:
-        """独立返回端点是否下发音轨开关与模型是否有声；无法解析身份时为 None。"""
-        if not is_custom_provider(provider_id):
-            mode = builtin_video_audio_track(
-                provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
-            )
-            if mode is None:
-                return None
-            audio = VideoAudioMode(mode)
-            return VideoAudioFacts(audio.has_audio_track, audio.audio_switch_controllable)
-        from lib.custom_provider.capabilities import (
-            synthesize_video_capabilities,
-            system_video_capabilities,
-            video_audio_facts,
-        )
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-        async with self._open_session() as (session, _svc):
-            try:
-                model = await CustomProviderRepository(session).get_model_by_ids(
-                    parse_provider_id(provider_id), model_id
-                )
-                if model is None:
-                    return None
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps = synthesize_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    overrides=model.capability_overrides,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-                channel = system_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-            except ValueError:
-                return None
-        return video_audio_facts(channel, caps, generation_type)
-
-    async def video_capabilities_for_model(
-        self,
-        provider_id: str,
-        model_id: str,
-        project: dict | None = None,
-        *,
-        generation_type: VideoGenerationType | None = None,
-        builtin_endpoint: str | None = None,
-    ) -> dict:
-        """读取指定 provider/model 的视频能力，不再二次解析 provider。
-
-        供执行层使用：调用方已通过 `resolve_video_backend(project, payload)` 解析出实际
-        要调用的 ProviderModel（含历史任务 payload 覆盖），用此变体取能力可保证 duration
-        守卫所依据的 supported_durations 与实际调用的 model 一致，避免「按项目默认 model
-        的能力去校验 payload 解析出的 model」的错配。
-
-        入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
-        拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
-
-        声音一致性等二维值按 ``project`` 的生成模式派生；``generation_type`` 显式给定时按该任务类型桶派生
-        逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
-        执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
-        ``builtin_endpoint`` 为构造后端时选定的内置调用端点；缺省时读模型当前挂接的端点。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_video_caps_for_model(
-                svc,
-                session,
-                provider_id,
-                model_id,
-                project,
-                generation_type=generation_type,
-                builtin_endpoint=builtin_endpoint,
-            )
-
-    async def video_pricing_generate_audio(
-        self,
-        provider_id: str,
-        model_id: str,
-        project: dict | None = None,
-    ) -> bool:
-        """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
-
-        能力解析会对目录里已下线的 model id 抛错，估算不应因此中断（价目查询对它记为未定价）。降级口径分两层：
-        恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
-        只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
-        会被按静音档低估。
-        """
-        try:
-            caps = await self.video_capabilities_for_model(provider_id, model_id, project)
-        except Exception as exc:
-            logger.info(
-                "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则与请求值：%s",
-                provider_id,
-                model_id,
-                exc,
-            )
-            if _video_audio_always_billed(provider_id):
-                return True
-            async with self._open_session() as (_session, svc):
-                return await self._resolve_video_generate_audio_from_project(svc, project)
-        return bool(caps["generate_audio"])
-
-    async def default_image_backend_t2i(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)，T2I 默认。"""
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_image_backend(svc, session, "t2i")
-
-    async def default_image_backend_i2i(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)，I2I 默认。"""
-        async with self._open_session() as (session, svc):
-            return await self._resolve_default_image_backend(svc, session, "i2i")
-
-    async def default_image_backend(self) -> tuple[str, str]:
-        """兼容 shim：旧调用方仍可调；返回 T2I 变体。"""
-        return await self.default_image_backend_t2i()
-
-    async def auto_resolved_backends(self) -> dict[AutoResolvePurpose, tuple[str, str] | None]:
-        """各用途在项目与全局各层都留空时自动推断选中的 (provider_id, model_id)，选不出即 None。
-
-        只读预览，供设置界面显示「自动选择」的实际模型、并按它查询能力。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_auto_backends(svc, session)
+    async def narration_defaults(self) -> tuple[str, float | None]:
+        """返回全局默认旁白音色与配音语速。"""
+        async with self._open_session() as (_session, svc):
+            return await svc.get_narration_voice(), await svc.get_narration_speed()
 
     async def provider_config(self, provider_id: str) -> dict[str, str]:
         """获取单个供应商配置。"""
@@ -1110,24 +703,60 @@ class ConfigResolver:
             return await self._resolve_all_provider_configs(svc, session)
 
     async def reference_payload_limits(self, provider_id: str | None) -> tuple[int, int]:
-        """解析参考上传副本的 (total_max_bytes, single_max_bytes)。
-
-        优先级：per-provider 配置覆盖 > service 层保守通用默认。provider_id 为 None（零配置 /
-        通用上限场景）直接返回默认元组、不触 DB。返回纯 int 元组、不 import reference_compression，
-        避免把 PIL 间接拖进被广泛依赖的 resolver。
-        """
+        """解析参考上传副本的 (total_max_bytes, single_max_bytes)。"""
         if provider_id is None:
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         async with self._open_session() as (session, svc):
             return await self._resolve_reference_payload_limits(svc, session, provider_id)
 
-    async def _resolve_video_generate_audio(
+    async def configured_image_identity(
         self,
-        svc: ConfigService,
-        project_name: str | None,
-    ) -> bool:
-        project = await _load_project_snapshot(project_name)
-        return await self._resolve_video_generate_audio_from_project(svc, project)
+        project: dict | None,
+        payload: dict | None,
+        bucket: Literal["t2i", "i2i"],
+    ) -> ProviderModel | None:
+        if payload:
+            provider_id = _trusted_payload_provider(payload.get("image_provider"))
+            if provider_id is not None:
+                model = _payload_model(payload.get("image_model"))
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(
+                svc, project, _IMAGE_LAYERED_KEYS[bucket], require_fallback_allowed=True
+            )
+            return ProviderModel(*pair) if pair else None
+
+    async def configured_video_identity(
+        self, project: dict | None, bucket: VideoGenerationType | None
+    ) -> ProviderModel | None:
+        keys = _VIDEO_LAYERED_KEYS[bucket] if bucket else _VIDEO_DEFAULT_LAYERED_KEYS
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, keys, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
+
+    async def configured_text_identity(self, tier: TextTierKey, project: dict | None = None) -> ProviderModel | None:
+        keys = _TEXT_LAYERED_KEYS[tier]
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, keys, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
+
+    async def configured_audio_identity(self, project: dict | None, payload: dict | None) -> ProviderModel | None:
+        if payload:
+            provider_id = _trusted_payload_provider(payload.get("audio_provider"))
+            if provider_id is not None:
+                model = _payload_model(payload.get("audio_model"))
+                if model is not None:
+                    return ProviderModel(provider_id, model)
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, _AUDIO_LAYERED_KEYS, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
+
+    async def require_auto_fallback(self, media_type: str) -> None:
+        from lib.config.recommended_models import FROZEN_SETTING_KEY
+
+        async with self._open_session() as (_, svc):
+            self._require_auto_fallback(await svc.get_setting(FROZEN_SETTING_KEY, ""), media_type)
 
     async def _resolve_video_generate_audio_from_project(
         self,
@@ -1144,39 +773,14 @@ class ConfigResolver:
 
         return value
 
-    async def _resolve_default_video_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
-        """仅全局层解析视频默认 backend：全局默认键 > 自动推断。
-
-        走四级骨架但不带项目（project=None 跳过项目层），键位不含桶层（``_VIDEO_DEFAULT_LAYERED_KEYS``）。
-        """
-        return await self._resolve_layered_backend(svc, session, None, _VIDEO_DEFAULT_LAYERED_KEYS)
-
-    async def _resolve_video_backend(
+    async def _configured_backend_pair(
         self,
         svc: ConfigService,
-        session: AsyncSession,
-        project_name: str | None,
-    ) -> tuple[str, str]:
-        """三级解析当前项目应使用的 video backend：项目默认 > 全局默认 > 自动推断。
-
-        走四级骨架的不定桶键位（``_VIDEO_DEFAULT_LAYERED_KEYS``），桶层缺席由骨架跳过。
-        """
-        project = await _load_project_snapshot(project_name)
-        return await self._resolve_layered_backend(svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS)
-
-    async def _resolve_layered_backend(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
         project: dict | None,
         keys: _LayeredBackendKeys,
-    ) -> tuple[str, str]:
-        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自定义供应商默认模型。
-
-        媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。各层都要求 ``provider/model``
-        完整形态；项目层只写了内置供应商的报错，不按目录推荐补模型（docs/adr/0099）。payload 层与运行时身份收敛
-        （如视频自定义供应商的有效身份收敛）不属于骨架，由各媒体的调用方在骨架外处理。
-        """
+        *,
+        require_fallback_allowed: bool = False,
+    ) -> tuple[str, str] | None:
         if project:
             for project_key in (keys.project_bucket_key, keys.project_default_key):
                 if project_key is None:
@@ -1200,474 +804,11 @@ class ConfigResolver:
             if "/" in raw:
                 provider_id, model_id = raw.split("/", 1)
                 return provider_id, model_id
-        return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
+        if require_fallback_allowed:
+            from lib.config.recommended_models import FROZEN_SETTING_KEY
 
-    async def _resolve_image_provider_model(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-        payload: dict | None,
-        generation_type: Literal["t2i", "i2i"],
-    ) -> ProviderModel:
-        """payload 优先解析图片 ProviderModel，无 payload 时走四级骨架。
-
-        payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
-        ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
-        短，排队期间配置漂移的窗口小），故 payload 层无任务类型桶键。payload 供应商须是已知
-        供应商（见
-        ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
-        键位见 ``_IMAGE_LAYERED_KEYS``）。
-
-        两层解析出的身份都过能力闸（``_ensure_image_bucket_capability``）：图片侧的桶只在执行时
-        才确定（``docs/adr/0001``），payload 层没有已物化的桶键可豁免。
-        """
-        selected: ProviderModel | None = None
-        if payload:
-            provider_id = _trusted_payload_provider(payload.get("image_provider"))
-            if provider_id is not None:
-                model = _payload_model(payload.get("image_model"))
-                if model is not None:
-                    selected = ProviderModel(provider_id, model)
-        if selected is None:
-            provider_id, model_id = await self._resolve_layered_backend(
-                svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
-            )
-            selected = ProviderModel(provider_id, model_id)
-        await self._ensure_image_bucket_capability(session, selected, generation_type)
-        return selected
-
-    async def _ensure_image_bucket_capability(
-        self,
-        session: AsyncSession,
-        selected: ProviderModel,
-        generation_type: Literal["t2i", "i2i"],
-    ) -> None:
-        """能力闸：解析出的自定义模型不具备该桶所需能力时直接报错，不静默换模型。
-
-        判定与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份口径，经
-        ``lib.custom_provider.default_models.lacks_bucket``。与
-        ``_ensure_video_bucket_capability`` 两处不同：
-
-        - 只判自定义供应商。内置图片模型的桶能力由执行层 ``MediaGenerator`` 按同一份生效能力
-          （``lib.backends.image_capabilities``）把关（``image_capability_missing_*``，与本闸同一批 code）。
-        - 引用失效（模型被删 / 禁用 / endpoint 改成别的媒体类型）不在此报错：图片侧按设计回退到
-          该桶的默认模型（``lib.custom_provider.loader``），回退本身也按桶过滤。
-        """
-        if not is_custom_provider(selected.provider_id):
-            return
-
-        from lib.custom_provider.default_models import lacks_bucket
-
-        try:
-            db_pid = parse_provider_id(selected.provider_id)
-        except ValueError:
-            return
-        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, selected.model_id)
-        if model is None or not model.is_enabled:
-            return
-        if await lacks_bucket(session, model, generation_type):
-            raise ImageBucketCapabilityError(
-                generation_type=generation_type,
-                provider_id=selected.provider_id,
-                model_id=selected.model_id,
-            )
-
-    async def _resolve_video_provider_model(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-        payload: dict | None,
-        generation_type: VideoGenerationType | None = None,
-        *,
-        submitted_job: bool = False,
-    ) -> ProviderModel:
-        """payload 优先解析视频 ProviderModel；无 payload 时按 ``generation_type`` 走桶骨架或不定桶骨架。
-
-        payload 层只认已物化的任务类型桶键（``video_provider_<generation_type>`` 复合值，见
-        ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
-        （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
-        供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
-
-        ``submitted_job`` 只作用于锁定身份：续跑的身份来自提交时冻结的检查点，没有锁定身份时说明调用方不是续跑，
-        直接报错，不让豁免落到按当前配置解析出的身份上。
-        """
-        pinned = _payload_video_pinned_pair(payload, generation_type) if payload else None
-        if pinned is not None:
-            pinned_generation_type, pair = pinned
-            selected = ProviderModel(*pair)
-            await self._ensure_video_identity_resolvable(
-                session, selected, pinned_generation_type, submitted_job=submitted_job
-            )
-            return selected
-        if submitted_job:
-            raise ValueError(
-                "续跑已提交的视频任务须在 payload 里锁定提交时的执行身份（video_provider_<generation_type>）"
-            )
-        if generation_type is None:
-            provider_id, model_id = await self._resolve_layered_backend(
-                svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS
-            )
-            return await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
-        provider_id, model_id = await self._resolve_layered_backend(
-            svc, session, project, _VIDEO_LAYERED_KEYS[generation_type]
-        )
-        selected = ProviderModel(provider_id, model_id)
-        await self._ensure_video_bucket_capability(session, selected, generation_type)
-        return selected
-
-    async def _ensure_video_identity_resolvable(
-        self,
-        session: AsyncSession,
-        selected: ProviderModel,
-        generation_type: VideoGenerationType,
-        *,
-        submitted_job: bool = False,
-    ) -> CustomProviderModel | None:
-        """校验视频身份现在仍解析得到，悬空即报错。
-
-        判的是身份存在性而非能力声明：内置模型看模型目录，已下线时抛 ``ModelDiscontinuedError``（带下线日期与后继），
-        不在该供应商的视频模型清单里（已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、
-        图片路径同一个「请重新选择模型」（``catalog.require_callable``）；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
-        悬空抛 ``VideoBucketCapabilityError``，所对应的条目已下线同样抛 ``ModelDiscontinuedError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
-        查库；内置返回 None。
-
-        backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意 model id
-        返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），故身份需单独判。
-
-        ``submitted_job`` 为真（续跑已提交给厂商的任务）时不拦已下线的模型，其余判定不变。
-        """
-        provider_id, model_id = selected.provider_id, selected.model_id
-        if not is_custom_provider(provider_id):
-            if submitted_job:
-                catalog.require_listed(provider_id, model_id, "video")
-            else:
-                catalog.require_callable(provider_id, model_id, "video")
-            return None
-
-        from lib.custom_provider.default_models import requested_model
-
-        try:
-            db_pid = parse_provider_id(provider_id)
-        except ValueError as exc:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        model = await requested_model(
-            session,
-            provider_id=provider_id,
-            db_id=db_pid,
-            model_id=model_id,
-            media_type="video",
-            submitted_job=submitted_job,
-        )
-        if model is None:
-            raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
-        return model
-
-    async def _ensure_video_bucket_capability(
-        self,
-        session: AsyncSession,
-        selected: ProviderModel,
-        generation_type: VideoGenerationType,
-    ) -> None:
-        """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
-
-        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
-        口径：两维都取调用通道声明与模型条目两侧求值的生效能力（docs/adr/0104），与执行闸门同一个结果。身份先过
-        ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
-        能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
-        （``docs/adr/0054``）。
-        """
-        provider_id, model_id = selected.provider_id, selected.model_id
-        model = await self._ensure_video_identity_resolvable(session, selected, generation_type)
-        if model is not None:
-            from lib.custom_provider.capabilities import synthesize_video_capabilities
-
-            try:
-                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps = synthesize_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    overrides=model.capability_overrides,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-            except ValueError as exc:
-                raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        else:
-            try:
-                caps = builtin_video_capabilities_for_model(provider_id, model_id)
-            except ValueError as exc:
-                raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id) from exc
-        satisfied = video_capability_satisfied(
-            generation_type=generation_type,
-            first_frame=caps.first_frame,
-            max_reference_images=caps.max_reference_images,
-            text_to_video=caps.text_to_video,
-        )
-        if not satisfied:
-            raise _video_bucket_capability_missing(generation_type, provider_id, model_id)
-
-    async def _resolve_effective_video_provider_model(
-        self,
-        session: AsyncSession,
-        selected: ProviderModel,
-    ) -> ProviderModel:
-        """把选择身份收敛为 backend 构造时会实际使用的视频身份。
-
-        内置供应商的 registry 身份已是有效身份；自定义供应商需与 loader 共用同一规则
-        （``lib.custom_provider.default_models.requested_model``）：model 不存在、禁用或 endpoint 已改成其它
-        media_type 时，回退到默认启用 video model；所对应的条目已下线时抛 ``ModelDiscontinuedError``，不回退。
-
-        已物化的身份不走这条收敛（见 ``_resolve_video_provider_model``）：换 model 执行等于
-        静默换模型。
-        """
-        if not is_custom_provider(selected.provider_id):
-            return selected
-
-        from lib.custom_provider.default_models import requested_model, resolve_default_model
-
-        try:
-            db_pid = parse_provider_id(selected.provider_id)
-        except ValueError as exc:
-            raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
-        model = await requested_model(
-            session, provider_id=selected.provider_id, db_id=db_pid, model_id=selected.model_id, media_type="video"
-        )
-        if model is not None:
-            return selected
-
-        logger.warning(
-            "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
-            selected.provider_id,
-            selected.model_id,
-        )
-        try:
-            default_model = await resolve_default_model(
-                session, provider_id=selected.provider_id, db_id=db_pid, media_type="video"
-            )
-        except ValueError as exc:
-            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}") from exc
-        return ProviderModel(selected.provider_id, default_model.model_id)
-
-    async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
-        """仅全局层解析音频默认 backend：全局默认键 > 自动推断。
-
-        走四级骨架但不带项目（project=None 跳过项目层）。
-        """
-        return await self._resolve_layered_backend(svc, session, None, _AUDIO_LAYERED_KEYS)
-
-    async def _resolve_audio_provider_model(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-        payload: dict | None,
-    ) -> ProviderModel:
-        """payload > project > 全局默认 三级解析音频 ProviderModel。
-
-        payload 层服务于历史任务（携带 ``audio_provider`` + ``audio_model``）的排空。payload
-        供应商须是已知供应商（见 ``_trusted_payload_provider``），否则回退 project/global。
-        """
-        if payload:
-            provider_id = _trusted_payload_provider(payload.get("audio_provider"))
-            if provider_id is not None:
-                model = _payload_model(payload.get("audio_model"))
-                if model is not None:
-                    return ProviderModel(provider_id, model)
-        provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)
-        return ProviderModel(provider_id, model_id)
-
-    async def _resolve_video_capabilities_from_project(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-        *,
-        generation_type: VideoGenerationType | None = None,
-    ) -> dict:
-        """按任务类型桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
-
-        与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
-        generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型
-        （``docs/adr/0054``）。payload 传 None——能力查询回答的是当前配置，不排空历史任务。
-
-        只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
-        自定义供应商多跑一轮 model 查询。
-        """
-        if generation_type is None:
-            generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
-        selected = await self._resolve_video_provider_model(svc, session, project, None, generation_type)
-        return await self._resolve_video_caps_for_model(
-            svc, session, selected.provider_id, selected.model_id, project, generation_type=generation_type
-        )
-
-    async def _resolve_video_caps_for_model(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        provider_id: str,
-        model_id: str,
-        project: dict | None,
-        *,
-        generation_type: VideoGenerationType | None = None,
-        builtin_endpoint: str | None = None,
-    ) -> dict:
-        if generation_type is None:
-            generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
-        effective = await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
-        provider_id, model_id = effective.provider_id, effective.model_id
-        if is_custom_provider(provider_id):
-            from lib.custom_provider.capabilities import (
-                synthesize_video_capabilities,
-            )
-            from lib.custom_provider.model_facts import comfyui_duration_override, video_model_facts
-
-            source = "custom"
-            try:
-                db_pid = parse_provider_id(provider_id)
-            except ValueError as exc:
-                raise ValueError(f"invalid custom provider_id: {provider_id}") from exc
-            repo = CustomProviderRepository(session)
-            model = await repo.get_model_by_ids(db_pid, model_id)
-            if model is None:
-                raise ValueError(f"custom model not found after identity resolution: {provider_id}/{model_id}")
-
-            try:
-                from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-                from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps = synthesize_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    overrides=model.capability_overrides,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-            except ValueError as exc:
-                raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
-            max_reference_images = caps.max_reference_images
-            text_to_video = caps.text_to_video
-            first_frame = caps.first_frame
-            last_frame = caps.last_frame
-            reference_audio_mode = caps.reference_audio_mode
-            max_reference_audio_count = caps.max_reference_audio_count
-            reference_audio_per_image = caps.reference_audio_per_image
-            default_tier_generates_audio = True
-            has_audio = caps.audio_track_for_route(generation_type).has_audio_track
-            durations_optional = endpoint_spec.duration_tier_optional
-            if endpoint_spec.endpoint_durations is not None:
-                override = comfyui_duration_override(model.capability_overrides, model_id=model_id)
-                endpoint_durations = list(endpoint_spec.endpoint_durations)
-                supported_durations = override if override and endpoint_durations else endpoint_durations
-            else:
-                supported_durations = list(
-                    video_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).durations
-                )
-        else:
-            source = "registry"
-            durations_optional = False
-            if provider_id not in PROVIDER_REGISTRY:
-                raise ValueError(f"provider not in PROVIDER_REGISTRY: {provider_id}")
-            model_info = catalog.get_model(provider_id, model_id)
-            if model_info is None:
-                raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
-            supported_durations = list(model_info.supported_durations or [])
-            try:
-                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
-            except ValueError as exc:
-                raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
-            max_reference_images = builtin_caps.max_reference_images
-            text_to_video = builtin_caps.text_to_video
-            first_frame = builtin_caps.first_frame
-            last_frame = builtin_caps.last_frame
-            reference_audio_mode = builtin_caps.reference_audio_mode
-            max_reference_audio_count = builtin_caps.max_reference_audio_count
-            reference_audio_per_image = builtin_caps.reference_audio_per_image
-            has_audio = builtin_caps.audio_track_for_route(generation_type) != "always_off"
-            try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
-                    provider_id, model_id, endpoint=builtin_endpoint
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
-                ) from exc
-
-        if not supported_durations and not durations_optional:
-            raise VideoSupportedDurationsError(
-                "missing",
-                provider_id=provider_id,
-                model_id=model_id,
-                message=f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities",
-            )
-
-        max_duration = max(supported_durations, default=0)
-        duration_endpoint_fixed = not supported_durations and durations_optional
-
-        requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
-        generate_audio = (
-            True
-            if _video_audio_always_billed(provider_id)
-            else requested_generate_audio and default_tier_generates_audio
-        )
-
-        default_duration: int | None = None
-        content_mode: str | None = None
-        episode_target_duration = project_episode_target_duration(project)
-        if project is not None:
-            raw_default = project.get("default_duration")
-            if isinstance(raw_default, int):
-                default_duration = raw_default
-            elif isinstance(raw_default, str) and raw_default.strip().isdigit():
-                default_duration = int(raw_default.strip())
-            cm = project.get("content_mode")
-            if isinstance(cm, str) and cm:
-                content_mode = cm
-        generation_mode = caps_generation_mode(project)
-
-        voice_consistency = derive_voice_consistency(
-            reference_audio_mode=reference_audio_mode,
-            generation_mode=generation_mode,
-            has_audio=has_audio,
-            character_voice_binding=character_voice_binding(project),
-        )
-
-        return {
-            "provider_id": provider_id,
-            "model": model_id,
-            "supported_durations": supported_durations,
-            "max_duration": max_duration,
-            "max_reference_images": max_reference_images,
-            "text_to_video": text_to_video,
-            "first_frame": first_frame,
-            "last_frame": last_frame,
-            "generate_audio": generate_audio,
-            "requested_generate_audio": requested_generate_audio,
-            "max_reference_audio_count": max_reference_audio_count,
-            "reference_audio_per_image": reference_audio_per_image,
-            "source": source,
-            "duration_endpoint_fixed": duration_endpoint_fixed,
-            "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(duration_endpoint_fixed),
-            "default_duration": default_duration,
-            "episode_target_duration": episode_target_duration,
-            "content_mode": content_mode,
-            "generation_mode": generation_mode,
-            "voice_consistency": voice_consistency,
-        }
-
-    async def _resolve_default_image_backend(
-        self, svc: ConfigService, session: AsyncSession, generation_type: Literal["t2i", "i2i"] = "t2i"
-    ) -> tuple[str, str]:
-        """仅全局层解析图片默认 backend：全局桶 > 全局默认键 > 自动推断。
-
-        走四级骨架但不带项目（project=None 跳过项目层）。全局桶无值时回退全局默认键。
-        """
-        return await self._resolve_layered_backend(svc, session, None, _IMAGE_LAYERED_KEYS[generation_type])
+            self._require_auto_fallback(settings.get(FROZEN_SETTING_KEY, ""), keys.media_type)
+        return None
 
     async def _resolve_provider_config(
         self,
@@ -1701,9 +842,7 @@ class ConfigResolver:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-        total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
-        single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
-        return total, single
+        return reference_limits_from_config(cfg)
 
     async def _resolve_all_provider_configs(
         self,
@@ -1721,115 +860,12 @@ class ConfigResolver:
         await asyncio.to_thread(overlay_all)
         return configs
 
-    async def default_text_backend(self) -> tuple[str, str]:
-        """返回 (provider_id, model_id)。"""
-        async with self._open_session() as (_session, svc):
-            return await svc.get_default_text_backend()
+    @staticmethod
+    def _require_auto_fallback(marker: str, media_type: str) -> None:
+        from lib.config.recommended_models import auto_fallback_allowed
 
-    async def text_backend_for_task(
-        self,
-        task_type: TextTaskType,
-        project_name: str | None = None,
-    ) -> tuple[str, str]:
-        """按任务档位解析文本 backend。
-
-        优先级（项目优先）：项目档位 > 项目默认模型 > 全局档位 > 全局默认模型 > 自动推断。
-        任务需要 vision 时校验解析结果的能力，不满足直接报错、不静默换模型（docs/adr/0051）。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_text_backend(svc, session, task_type, project_name)
-
-    async def _resolve_text_backend(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        task_type: TextTaskType,
-        project_name: str | None,
-    ) -> tuple[str, str]:
-        project = await _load_project_snapshot(project_name)
-        keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
-        resolved = await self._resolve_layered_backend(svc, session, project, keys)
-        if task_type in VISION_REQUIRED_TASKS:
-            await self._ensure_text_model_vision_capable(session, task_type, *resolved)
-        return resolved
-
-    async def _ensure_text_model_vision_capable(
-        self, session: AsyncSession, task_type: TextTaskType, provider_id: str, model_id: str
-    ) -> None:
-        """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
-
-        内置模型按目录判定；自定义供应商的模型按能力覆盖 > 对应条目判定，对应不上条目且没有覆盖时
-        不加约束，交由供应商 API 把关，不做猜测。
-        """
-        if not is_custom_provider(provider_id):
-            _ensure_text_model_vision_capable(task_type, provider_id, model_id)
-            return
-        from lib.custom_provider.model_facts import text_model_facts
-
-        try:
-            db_pid = parse_provider_id(provider_id)
-        except ValueError:
-            return
-        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
-        if (
-            model is not None
-            and text_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).image_input
-            is False
-        ):
-            raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
-
-    async def _resolve_auto_backends(
-        self, svc: ConfigService, session: AsyncSession
-    ) -> dict[AutoResolvePurpose, tuple[str, str] | None]:
-        """按各用途的键位调用自动推断层，与执行期解析落到这一层时的入参一致。"""
-        resolved: dict[AutoResolvePurpose, tuple[str, str] | None] = {}
-        for purpose, keys in _AUTO_RESOLVE_PURPOSE_KEYS.items():
-            try:
-                resolved[purpose] = await self._auto_resolve_backend(
-                    svc, session, keys.media_type, keys.generation_type
-                )
-            except ValueError:
-                resolved[purpose] = None
-        return resolved
-
-    async def _auto_resolve_backend(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        media_type: str,
-        generation_type: str | None = None,
-    ) -> tuple[str, str]:
-        """各层都没有设置时的最后一层：自定义供应商上用户设为默认的模型。
-
-        不读目录里内置供应商的推荐模型（docs/adr/0099）：推荐只在供应商首次配置、升级固化与用户确认时写进
-        用户设置（``lib.config.recommended_models``），目录推荐变化不会改动生成用的模型。
-
-        升级固化还没完成，或这个媒体类型升级前的选择还原不了时，这一层不用，直接报错：旧版本在这里可能选的是
-        内置模型，落到自定义默认就是换了模型（``recommended_models.auto_fallback_allowed``）。
-
-        自定义兜底与默认回退共用同一份按桶过滤（``lib.custom_provider.default_models``）：带桶时
-        只有具备该桶的默认模型算候选，否则 t2i 与 i2i 会静默拿到同一行。跨供应商的多个候选取第
-        一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
-        """
-
-        from lib.config.recommended_models import FROZEN_SETTING_KEY, auto_fallback_allowed
-        from lib.custom_provider import make_provider_id
-        from lib.custom_provider.default_models import callable_models, filter_by_bucket
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-        if not auto_fallback_allowed(await svc.get_setting(FROZEN_SETTING_KEY, ""), media_type):
+        if not auto_fallback_allowed(marker, media_type):
             raise NoAvailableProviderError(
                 f"没有设置 {media_type} 默认模型。请在「全局设置 → 默认模型」中选择。",
                 media_type=media_type,
             )
-        repo = CustomProviderRepository(session)
-        custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        defaults = callable_models([model for model in custom_models if model.is_default], media_type)
-        candidates = await filter_by_bucket(session, defaults, generation_type)
-        if candidates:
-            return make_provider_id(candidates[0].provider_id), candidates[0].model_id
-
-        raise NoAvailableProviderError(
-            f"没有设置 {media_type} 默认模型。请在「全局设置 → 默认模型」中选择，或先在「全局设置 → 供应商」配置供应商。",
-            media_type=media_type,
-        )

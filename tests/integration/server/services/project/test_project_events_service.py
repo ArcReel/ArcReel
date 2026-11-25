@@ -19,7 +19,6 @@ from lib.project.project_change_hints import (
     project_change_source,
 )
 from lib.project.project_manager import ProjectManager
-from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_path
 from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService, workflow_finished
 from server.agent_toolset.edit_timelines import CREATE_TIMELINE
@@ -868,7 +867,7 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
-    @pytest.mark.parametrize("edited_input", ["project_json", "existing_script", "new_script", "draft"])
+    @pytest.mark.parametrize("edited_input", ["project_json", "existing_script", "new_script"])
     async def test_polling_pushes_change_to_any_input_file(self, tmp_path, edited_input):
         """首轮快照之后，任一输入文件在盘上变化（绕过 hint，只靠轮询比对输入标识发现）：照常推送。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -896,21 +895,16 @@ class TestProjectEventService:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 data["scenes"][0]["utterances"][0]["text"] = "新台词，比旧台词长"
                 path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-            elif edited_input == "new_script":
+            else:
                 other = {**script, "episode": 2, "title": "第二集"}
                 (project_path / "scripts" / "episode_2.json").write_text(
                     json.dumps(other, ensure_ascii=False), encoding="utf-8"
                 )
-            else:
-                path = quarantine_path(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-                path.parent.mkdir(parents=True)
-                path.write_text("{}", encoding="utf-8")
 
         expected_entity_type = {
             "project_json": "character",
             "existing_script": "drama_scene",
             "new_script": "episode",
-            "draft": "draft",
         }[edited_input]
 
         service = ProjectEventService(tmp_path, poll_interval=0.1)
@@ -1168,3 +1162,34 @@ class TestProjectEventService:
             assert "demo" in service._channels
 
         await service.shutdown()
+
+
+async def test_shutdown_ends_first_snapshot_wait_and_late_project_stream(tmp_path):
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    reading = threading.Event()
+    release = threading.Event()
+
+    def read(project):
+        reading.set()
+        release.wait(5)
+        return read_project_state(pm, project)
+
+    service = ProjectEventService(tmp_path, read_state=read)
+
+    async def collect():
+        async with service.stream_events("demo") as stream:
+            return [item async for item in stream]
+
+    async with asyncio.timeout(3):
+        pending = asyncio.create_task(collect())
+        try:
+            assert await asyncio.to_thread(reading.wait, 2)
+            service.stop_streams()
+            assert await pending == []
+            assert await collect() == []
+        finally:
+            release.set()
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+            await service.shutdown()

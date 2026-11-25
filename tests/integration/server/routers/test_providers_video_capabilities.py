@@ -1,7 +1,7 @@
 """providers 路由的无项目 video-capabilities 查询。"""
 
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -14,14 +14,13 @@ from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.i18n.zh import errors as zh_errors
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
+from lib.video_runtime.resolution import read_video_request_facts
 from server.error_handlers import register_error_handlers
 from server.routers import projects, providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
@@ -39,10 +38,9 @@ def _app() -> FastAPI:
     return app
 
 
-def _client(monkeypatch, resolver_instance) -> TestClient:
-    """错误映射用：让 resolver 抛出指定异常，断言路由把它翻成哪个状态码与文案。"""
-    resolver_instance.resolve_video_backend = AsyncMock()
-    monkeypatch.setattr(providers, "ConfigResolver", lambda _factory: resolver_instance)
+def _client(monkeypatch, *, side_effect=None) -> TestClient:
+    """错误映射用：让读侧能力投影抛出指定异常，断言路由把它翻成哪个状态码与文案。"""
+    monkeypatch.setattr(providers, "resolve_project_video_capabilities", AsyncMock(side_effect=side_effect))
     return TestClient(_app())
 
 
@@ -57,22 +55,20 @@ class TestGetModelVideoCapabilities:
     """GET /providers/video-capabilities"""
 
     def test_video_backend_is_required(self, monkeypatch):
-        with _client(monkeypatch, MagicMock()) as client:
+        with _client(monkeypatch) as client:
             resp = client.get("/api/v1/providers/video-capabilities")
         assert resp.status_code == 422
 
     @pytest.mark.parametrize("value", ["no-such-provider", "grok"])
     def test_malformed_video_backend_returns_400(self, monkeypatch, value):
         """拆不出 ``provider/model`` 的值报 400；裸内置供应商也不按目录推荐补模型（docs/adr/0099）。"""
-        with _client(monkeypatch, MagicMock()) as client:
+        with _client(monkeypatch) as client:
             resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": value})
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["video_backend_malformed"].format(value=value)
 
     def test_resolver_value_error_returns_localized_422(self, monkeypatch):
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(side_effect=ValueError("model not found"))
-        with _client(monkeypatch, resolver_instance) as client:
+        with _client(monkeypatch, side_effect=ValueError("model not found")) as client:
             resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "grok/unknown"})
         assert resp.status_code == 422
         detail = resp.json()["detail"]
@@ -81,11 +77,10 @@ class TestGetModelVideoCapabilities:
 
     def test_model_not_in_catalog_returns_reselect_400(self, monkeypatch):
         """模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400，不被通用 422 吞掉。"""
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(
-            side_effect=ModelNotInCatalogError(provider_id="grok", model_id="grok-retired", media_type="video")
-        )
-        with _client(monkeypatch, resolver_instance) as client:
+        with _client(
+            monkeypatch,
+            side_effect=ModelNotInCatalogError(provider_id="grok", model_id="grok-retired", media_type="video"),
+        ) as client:
             resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "grok/grok-retired"})
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["model_not_in_provider_catalog"].format(
@@ -93,17 +88,16 @@ class TestGetModelVideoCapabilities:
         )
 
     def test_capability_bucket_error_returns_localized_400(self, monkeypatch):
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(
+        with _client(
+            monkeypatch,
             side_effect=VideoBucketCapabilityError(
                 code="video_capability_missing_r2v",
                 generation_type="r2v",
                 provider_id="kling",
                 model_id="kling-v3",
                 message="lacks r2v",
-            )
-        )
-        with _client(monkeypatch, resolver_instance) as client:
+            ),
+        ) as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
                 params={"video_backend": "kling/kling-v3", "uses_reference_images": "true"},
@@ -230,11 +224,10 @@ async def test_duration_constraints_equal_facts_of_the_saved_candidate(
     saved: dict = {f"video_provider_{generation_type}": VEO}
     if resolution is not None:
         saved["model_settings"] = {VEO: {"resolution": resolution}}
-    facts = await evaluate_video_request_facts(
+    facts = await read_video_request_facts(
         saved,
         route="reference_video" if uses_reference_images else "storyboard",
         generation_type=generation_type,
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=ConfigResolver(factory),
     )
     assert isinstance(facts, VideoRequestFacts)
@@ -282,7 +275,7 @@ async def test_disabled_candidate_never_returns_default_model(
                     provider_id=provider.id,
                     model_id=model_id,
                     display_name=model_id,
-                    endpoint="newapi-video",
+                    endpoint="v2-video-generations",
                     is_default=default,
                     is_enabled=default or disable_after_gate,
                     capability_overrides={"durations": [5], "first_frame": True, "max_reference_images": 4},
@@ -323,7 +316,12 @@ async def test_disabled_candidate_never_returns_default_model(
         request = projects.get_video_capabilities(name="candidate", **params)
     else:
         request = providers.get_model_video_capabilities(**params)
-    with pytest.raises(BadRequestError) as error:
-        await request
-    assert error.value.key == "video_capability_reference_unavailable"
-    assert error.value.params == {"provider": provider_id, "model": "selected"}
+    if disable_after_gate:
+        body = await request
+        assert body["model"] == "selected"
+        assert body["provider_id"] == provider_id
+    else:
+        with pytest.raises(BadRequestError) as error:
+            await request
+        assert error.value.key == "video_capability_reference_unavailable"
+        assert error.value.params == {"provider": provider_id, "model": "selected"}
