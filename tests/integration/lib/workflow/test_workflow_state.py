@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import unicodedata
 from pathlib import Path
@@ -679,7 +680,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
         lambda _project_path, *, project: _AudioBlockedResolver(),
     )
 
-    status = WorkflowStateService(pm).get_status("demo")
+    status = WorkflowStateService(pm).get_status("demo", 1)
     assert status.next_action.type == "create_edit_timeline"
     assert status.artifacts["audio"]["state"] == "blocked"
     assert not any(b.path == audio_path for b in status.blockers)
@@ -948,7 +949,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    assert source_reads == {"novel.txt": 1, "episode_1.txt": 3}
+    assert source_reads == {"novel.txt": 1, "episode_1.txt": 1}
     assert status.target is not None
     assert status.target.episode == 2
     assert status.next_action.type == "start_blank_script"
@@ -1057,12 +1058,19 @@ def test_episode_next_steps_follow_the_ledger_and_match_the_per_episode_status(t
     _create_edit_timeline(pm)
     service = WorkflowStateService(pm)
 
-    steps = service.get_episode_next_steps("demo")
+    steps = service.get_episode_next_steps("demo").episodes
 
     assert [step.episode for step in steps] == [3, 1, 2]
-    assert [step.next_action.type for step in steps] == ["start_blank_script", "none", "none"]
+    assert [step.next_action.type if step.next_action else None for step in steps] == [
+        "start_blank_script",
+        None,
+        "none",
+    ]
+    assert [step.episode_complete for step in steps] == [False, True, False]
     assert [step.plan_stale for step in steps] == [False, False, True]
     for step in steps:
+        if step.episode_complete:
+            continue
         assert step.next_action == service.get_status("demo", step.episode).next_action
 
 
@@ -1076,7 +1084,7 @@ def test_episode_next_steps_are_empty_while_the_migration_has_failed(tmp_path: P
     )
     record_migration_failure(project_path, ValueError("step failed"), schema_version=1)
 
-    assert WorkflowStateService(pm).get_episode_next_steps("demo") == []
+    assert WorkflowStateService(pm).get_episode_next_steps("demo").episodes == []
 
 
 def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path: Path) -> None:
@@ -2690,3 +2698,213 @@ def test_unreadable_project_data_returns_only_a_project_blocker(tmp_path: Path, 
     assert status.content is None
     assert status.operations == {}
     assert status.next_action.type == "none"
+
+
+@pytest.mark.parametrize("completed", [600, 686])
+def test_large_ledger_plans_only_returned_target_and_visible_unfinished_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, completed: int
+) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from lib.artifacts.artifact_planner import TargetStatePlanner
+    from server.auth import CurrentUserInfo, get_current_user
+    from server.routers import projects
+    from tests.fakes import use_project_manager
+
+    pm, path = _make_project(tmp_path, "narration")
+    _one_complete_episode(pm, path)
+    timeline_id = _create_edit_timeline(pm)
+    timeline_path = path / f"edit_timelines/episode_1/{timeline_id}.json"
+    timeline = json.loads(timeline_path.read_text())
+    script = json.loads((path / "scripts/episode_1.json").read_text())
+    manifest_path = path / ".arcreel_artifacts.json"
+    manifest = json.loads(manifest_path.read_text())
+    entries = manifest["entries"]
+    first_script = entries[ArtifactKey.episode_script(1).encode()]
+    first_video = entries[ArtifactKey.episode_video(1, "E1S01").encode()]
+    ledger = pm.load_project("demo")["episodes"]
+    for number in range(2, 687):
+        binding = f"scripts/episode_{number}.json"
+        ledger.append({"episode": number, "script_file": binding, "ledger_status": "planned"})
+        if number > completed:
+            continue
+        unit = f"E{number}S01"
+        video = resource_relative_path("videos", unit)
+        _write_artifact(path, video)
+        script["episode"] = number
+        script["segments"] = [_valid_narration_segment(segment_id=unit, generated_assets={"video_clip": video})]
+        atomic_write_json(path / binding, script)
+        entries[ArtifactKey.episode_script(number).encode()] = dict(first_script, artifact_path=binding)
+        entries[ArtifactKey.episode_video(number, unit).encode()] = dict(first_video, artifact_path=video)
+        directory = path / f"edit_timelines/episode_{number}"
+        directory.mkdir()
+        atomic_write_json(directory / timeline_path.name, dict(timeline, episode=number))
+    atomic_write_json(manifest_path, manifest)
+    pm.update_project("demo", lambda project: project.update(episodes=ledger))
+
+    scopes = []
+    init = TargetStatePlanner.__init__
+
+    def observe(self, *args, **kwargs):
+        scopes.append(kwargs.get("episode_scope"))
+        init(self, *args, **kwargs)
+
+    monkeypatch.setattr(TargetStatePlanner, "__init__", observe)
+    service = WorkflowStateService(pm)
+    status = service.get_status("demo")
+    selected = 1 if completed == 686 else 601
+    assert status.target is not None
+    assert status.target.episode == selected
+    assert status.content is not None
+    assert status.content.project_complete == (completed == 686)
+    assert scopes == [selected]
+    scopes.clear()
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    use_project_manager(monkeypatch, pm)
+    app.include_router(projects.router)
+    endpoint = "/projects/demo/workflow-status/episodes"
+    with TestClient(app) as client:
+        page = client.get(endpoint).json()
+        assert [row["episode"] for row in page["episodes"]] == list(range(1, 33))
+        assert all(row["episode_complete"] and row["next_action"] is None for row in page["episodes"])
+        second = client.get(endpoint, params={"cursor": page["next_cursor"]}).json()
+        assert [row["episode"] for row in second["episodes"]] == list(range(33, 65))
+        assert scopes == []
+        explicit = client.get(endpoint, params={"episodes": [686, 32]}).json()
+        assert [row["episode"] for row in explicit["episodes"]] == [32, 686]
+        assert explicit["next_cursor"] is None
+        assert scopes == ([] if completed == 686 else [686])
+        pm.update_project("demo", lambda project: project["episodes"].reverse())
+        assert client.get(endpoint, params={"cursor": page["next_cursor"]}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "normal",
+        "complete",
+        "unfinished_tail",
+        "stale",
+        "needs_replan",
+        "script",
+        "timeline",
+        "history",
+        "manifest",
+        "no_binding",
+        "empty",
+        "ad",
+        "unsafe_video",
+        "unreadable_video",
+        "mixed_skeleton",
+    ],
+)
+def test_window_completion_and_auto_target_agree_with_explicit_full_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    ad = case in {"needs_replan", "ad", "mixed_skeleton"}
+    pm, path = _make_project(
+        tmp_path, "ad" if ad else "narration", generation_mode="reference_video" if ad else "storyboard"
+    )
+    service = WorkflowStateService(pm)
+    if case == "empty":
+        assert service.get_episode_next_steps("demo").episodes == []
+        status = service.get_status("demo")
+        assert status.target is None
+        assert status.next_action.type == "collect_project_input"
+        return
+    if ad:
+        unit = "E1U01"
+        video = _commit_media_version(path, "reference_videos", unit)
+        units = [_valid_video_unit(unit_id=unit, generated_assets={"video_clip": video})]
+        if case == "needs_replan":
+            units.append(
+                _valid_video_unit(unit_id="E1U02", needs_replan=True, generated_assets={"video_clip": "../outside"})
+            )
+        _write_registered_script(path, {"episode": 1, "title": "广告", "content_mode": "ad", "video_units": units})
+        _register_produced_artifacts(path)
+    else:
+        _one_complete_episode(pm, path)
+    if case != "normal":
+        _create_edit_timeline(pm)
+
+    if case == "unfinished_tail":
+        pm.update_project(
+            "demo",
+            lambda project: project["episodes"].append(
+                {"episode": 2, "script_file": "scripts/episode_2.json", "ledger_status": "planned"}
+            ),
+        )
+    elif case == "stale":
+        pm.update_project("demo", lambda project: project["episodes"][0].update(ledger_status="stale"))
+    elif case == "no_binding":
+        pm.update_project("demo", lambda project: project["episodes"][0].pop("script_file"))
+    elif case == "script":
+        _edit_claimed_script(path, "{")
+    elif case == "timeline":
+        (path / "edit_timelines/episode_1/tl-deadbeef.json").write_text("{")
+    elif case == "manifest":
+        (path / ".arcreel_artifacts.json").write_text("{")
+    elif case == "history":
+        (path / "versions/history.sqlite3").write_bytes(b"broken history database")
+    elif case == "mixed_skeleton":
+        script = pm.load_script_readonly("demo", "episode_1.json")
+        script["shots"] = [{"shot_id": ""}]
+        _edit_claimed_script(path, script)
+    elif case == "unreadable_video":
+        video_path = path / resource_relative_path("videos", "E1S01")
+        video_path.write_bytes(b"changed media")
+        from lib.artifacts.artifact_manifest import ArtifactBlocker, ArtifactObservation
+
+        inspect = ProjectArtifactManifestAdapter.inspect_artifact_content
+
+        def unreadable(adapter, artifact_path, **kwargs):
+            if artifact_path == video_path.relative_to(path).as_posix():
+                blocker = ArtifactBlocker("artifact_unreadable", artifact_path, "injected media read error")
+                return ArtifactObservation(artifact_path, present=False, blocker=blocker)
+            return inspect(adapter, artifact_path, **kwargs)
+
+        monkeypatch.setattr(ProjectArtifactManifestAdapter, "inspect_artifact_content", unreadable)
+    elif case == "unsafe_video":
+        script = pm.load_script_readonly("demo", "episode_1.json")
+        script["segments"][0]["generated_assets"]["video_clip"] = "../outside"
+        _edit_claimed_script(path, script)
+
+    auto = service.get_status("demo")
+    window = service.get_episode_next_steps("demo").episodes
+    if case == "manifest":
+        assert not window
+        assert auto.blockers
+        assert auto == service.get_status("demo", 1)
+        return
+    for row in window:
+        explicit = service.get_status("demo", row.episode)
+        assert explicit.content is not None
+        assert (row.episode_complete, row.plan_stale) == (
+            explicit.content.episode_complete,
+            explicit.content.episode_plan_stale,
+        )
+        assert row.next_action == (None if row.episode_complete else explicit.next_action)
+    expected = service.get_status("demo", 2 if case == "unfinished_tail" else 1)
+    assert expected.content is not None
+    if case in {"complete", "needs_replan", "ad", "stale"}:
+        assert expected.content.episode_complete
+    if case in {"history", "unsafe_video", "unreadable_video"}:
+        assert expected.artifacts["videos"].get("state") == "blocked"
+    if case == "mixed_skeleton":
+        assert expected.artifacts["script"]["state"] == "blocked"
+    if case == "timeline":
+        assert any(issue.code == "invalid_edit_timelines" for issue in expected.issues)
+    if case in {"complete", "stale"}:
+        expected.content.project_complete = case == "complete"
+        expected.next_action = expected.next_action.model_copy(
+            update={
+                "reason": "every episode has an edit timeline"
+                if case == "complete"
+                else "every episode awaits replanning"
+            }
+        )
+        expected.next_alternatives = []
+    assert auto == expected

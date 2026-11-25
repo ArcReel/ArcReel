@@ -260,7 +260,8 @@ export interface WorkflowStatus {
 export interface EpisodeNextStep {
   episode: number;
   plan_stale: boolean;
-  next_action: WorkflowNextAction;
+  episode_complete: boolean;
+  next_action: WorkflowNextAction | null;
 }
 
 export interface WorkflowPlan {

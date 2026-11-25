@@ -105,13 +105,18 @@ async def test_episode_next_steps_rest_lists_each_episode_and_404s_missing_proje
     register_error_handlers(app)
     with TestClient(app) as client:
         listed = client.get("/api/v1/projects/demo/workflow-status/episodes")
+        endpoint = "/api/v1/projects/demo/workflow-status/episodes"
+        for numbers in ([34], [0], [-1], [1, 1], list(range(1, 34))):
+            assert client.get(endpoint, params={"episodes": numbers}).status_code == 400
+        assert client.get(endpoint, params={"episodes": 1, "cursor": "invalid"}).status_code == 400
+        assert client.get(endpoint, params={"cursor": "invalid"}).status_code == 400
         missing = client.get("/api/v1/projects/ghost/workflow-status/episodes")
 
     assert listed.status_code == 200
     steps = listed.json()["episodes"]
-    assert expected
+    assert expected.episodes
     assert [(step["episode"], step["next_action"]["type"]) for step in steps] == [
-        (step.episode, step.next_action.type.value) for step in expected
+        (step.episode, step.next_action.type.value) for step in expected.episodes if step.next_action
     ]
     assert missing.status_code == 404
 

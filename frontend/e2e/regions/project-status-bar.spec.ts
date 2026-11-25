@@ -58,10 +58,12 @@ const MANY_EPISODES: ApiOverrides = {
   "GET /api/v1/projects/demo/workflow-status/episodes": {
     status: 200,
     body: {
+      next_cursor: null,
       episodes: Array.from({ length: EPISODE_COUNT }, (_, i) => ({
         episode: i + 1,
         plan_stale: i % 7 === 3,
-        next_action: action(i % 4 === 0 ? "none" : "generate_videos", { episode_id: i + 1 }),
+        episode_complete: i % 4 === 0,
+        next_action: i % 4 === 0 ? null : action("generate_videos", { episode_id: i + 1 }),
       })),
     },
   },
