@@ -18,6 +18,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactManifestError,
+    ArtifactObservation,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
@@ -148,6 +149,7 @@ class ArtifactCurrencyResolver:
         if not project_schema_is_current(project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         self._availability_inputs: EpisodeScriptInputs | None = None
+        self._fallback_script: ArtifactObservation | None = None
         self._record_gaps = project_basis_records_gaps(project)
         self._project = project
         self._runtime.index_asset_names(project)
@@ -161,8 +163,30 @@ class ArtifactCurrencyResolver:
         self._history = history if history.path.is_file() else None
         self._manifest = ArtifactManifest(self._adapter)
 
+    def script_snapshot(self, path: str) -> ArtifactObservation:
+        snapshot = self._runtime.script_snapshot
+        if snapshot is None or snapshot.artifact_path != path:
+            snapshot = self._fallback_script
+            if snapshot is None or snapshot.artifact_path != path:
+                snapshot = self._adapter.inspect_artifact_snapshot(path)
+            self._runtime.script_snapshot = snapshot
+        return snapshot
+
+    def retain_fallback_script(self, path: str | None) -> None:
+        """Keep just the auto-selection fallback while the ledger scan advances."""
+        current = self._runtime.script_snapshot
+        self._fallback_script = current if current is not None and current.artifact_path == path else None
+
+    def _registered_script(self, key: ArtifactKey, path: str) -> bool:
+        entry = self.manifest_snapshot.entries.get(key)
+        return key.kind.value == "episode-script" and entry is not None and entry.artifact_path == path
+
     def compare_availability(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
-        observation = self._adapter.inspect_artifact(artifact_path)
+        observation = (
+            self.script_snapshot(artifact_path)
+            if self._registered_script(key, artifact_path)
+            else self._adapter.inspect_artifact(artifact_path)
+        )
         entries = self.manifest_snapshot.entries
         admission = self._manifest.compare_observed_entry(key, observation=observation, expected=None, entries=entries)
         if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
@@ -173,7 +197,7 @@ class ArtifactCurrencyResolver:
             return admission
         inputs = self._availability_inputs
         if inputs is None or inputs.episode != episode:
-            source = self._adapter.inspect_artifact_snapshot(binding.script_file)
+            source = self.script_snapshot(binding.script_file)
             if source.blocker is not None:
                 raise ArtifactManifestError(source.blocker.detail)
             if source.content_bytes is None:
@@ -248,6 +272,8 @@ class ArtifactCurrencyResolver:
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
         planner = self._planner_for(key)
+        if self._registered_script(key, artifact_path):
+            self.script_snapshot(artifact_path)
         entries = self.manifest_snapshot.entries
         admission = self._manifest.compare_observed_entry(
             key, observation=planner.observe(artifact_path), expected=None, entries=entries

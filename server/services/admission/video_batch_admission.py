@@ -369,6 +369,7 @@ def resolve_reference_batch_targets(
     project: dict[str, Any],
     project_path: Path,
     episode: int,
+    resolver: ArtifactCurrencyResolver | None = None,
 ) -> tuple[list[dict[str, Any]], GenerationSelection, dict[str, GenerationTargetState]]:
     """Resolve one request's stable target set before anything is evaluated.
 
@@ -378,7 +379,8 @@ def resolve_reference_batch_targets(
     re-bill. Named ids are taken as given and always regenerate.
     """
 
-    resolver = active_artifact_currency_resolver(project_path, project)
+    if resolver is None:
+        resolver = active_artifact_currency_resolver(project_path, project)
     states = video_target_states(units, "unit_id", episode=episode, resolver=resolver)
     selection = select_generation_targets(
         candidates=[state.candidate for state in states.values()],

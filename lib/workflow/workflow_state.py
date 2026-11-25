@@ -45,6 +45,7 @@ from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
     MigrationFailureRecord,
+    load_migration_failure,
     load_migration_verdict,
 )
 from lib.project.project_migration_report import MigrationReport, visible_migration_report
@@ -385,6 +386,40 @@ class _EpisodeFacts:
 
 
 @dataclass(frozen=True)
+class WorkflowRead[T]:
+    """One computation's facts. Consumers treat nested project data and response models as read-only."""
+
+    value: T
+    project: dict[str, Any]
+    load_error: OSError | ValueError | None = None
+
+    def require_project(self) -> dict[str, Any]:
+        if self.load_error is not None:
+            raise self.load_error
+        return self.project
+
+
+@dataclass(frozen=True)
+class WorkflowStatusRead(WorkflowRead[WorkflowStatus]):
+    script: dict[str, Any] | None = None
+    currency: ArtifactCurrencyResolver | None = None
+
+
+@dataclass
+class _ActiveScript:
+    currency: ArtifactCurrencyResolver | None
+    path: str | None = None
+    payload: dict[str, Any] | None = None
+
+    def read(self, manager: ProjectManager, project_name: str, path: str) -> dict[str, Any]:
+        if path != self.path or self.payload is None:
+            snapshot = self.currency.script_snapshot(path).content_bytes if self.currency is not None else None
+            self.payload = manager.load_script_readonly(project_name, path, snapshot=snapshot)
+            self.path = path
+        return self.payload
+
+
+@dataclass(frozen=True)
 class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
     planning_sources: tuple[SourceDoc, ...]
@@ -394,6 +429,7 @@ class _SharedWorkflowFacts:
     blockers: tuple[WorkflowBlocker, ...]
     issues: tuple[WorkflowBlocker, ...]
     whole_source: bool
+    active_script: _ActiveScript
 
 
 def _project_revision(project: Mapping[str, Any]) -> str:
@@ -639,6 +675,7 @@ class WorkflowStateService:
         target: WorkflowTarget,
         issues: list[WorkflowBlocker],
         resolver: ArtifactComparer | None,
+        active_script: _ActiveScript,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
         path = target.script
         state = ArtifactStatus.CURRENT.value
@@ -647,7 +684,7 @@ class WorkflowStateService:
             if state not in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                 return {"state": state, "path": path}, [], None
         try:
-            script: Any = self.pm.load_script_readonly(project_name, path)
+            script: Any = active_script.read(self.pm, project_name, path)
         except FileNotFoundError:
             return {"state": "missing", "path": path}, [], None
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -810,16 +847,19 @@ class WorkflowStateService:
         )
 
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
+        return self.read_status(project_name, episode).value
+
+    def read_status(self, project_name: str, episode: int | None = None) -> WorkflowStatusRead:
         project_path = self.pm.get_project_path(project_name)
         try:
             project: Any = self.pm.load_project(project_name)
             if not isinstance(project, dict):
                 raise ValueError("project.json must be an object")
         except (OSError, ValueError) as exc:
-            failure = load_migration_verdict(project_path)
+            failure = load_migration_failure(project_path)
             if failure is not None:
-                return self._migration_blocked_status({}, failure)
-            return WorkflowStatus(
+                return WorkflowStatusRead(self._migration_blocked_status({}, failure), {}, load_error=exc)
+            status = WorkflowStatus(
                 project_revision="",
                 source_revision=None,
                 project=WorkflowProject(content_mode="unknown", generation_mode="unknown", grid_storyboard=False),
@@ -830,29 +870,37 @@ class WorkflowStateService:
                 artifacts={},
                 next_action=_action(WorkflowActionType.NONE, "project data cannot be read"),
             )
-        failure = load_migration_verdict(project_path)
+            return WorkflowStatusRead(status, {}, load_error=exc)
+        failure = load_migration_verdict(project_path, project=project)
         if failure is not None:
-            return self._migration_blocked_status(project, failure)
+            return WorkflowStatusRead(self._migration_blocked_status(project, failure), project)
         shared = self._shared_facts(project_path, project)
         status = self._get_status(project_name, project, project_path, episode, shared)
         status.migration_report = visible_migration_report(project_path)
-        return status
+        active = shared.active_script
+        script = active.payload if status.target and status.target.script == active.path else None
+        return WorkflowStatusRead(status, project, script=script, currency=shared.currency)
 
     def get_episode_next_steps(
         self, project_name: str, episodes: list[int] | None = None, cursor: str | None = None
     ) -> EpisodeNextSteps:
+        return self.read_episode_next_steps(project_name, episodes, cursor).value
+
+    def read_episode_next_steps(
+        self, project_name: str, episodes: list[int] | None = None, cursor: str | None = None
+    ) -> WorkflowRead[EpisodeNextSteps]:
         project_path = self.pm.get_project_path(project_name)
         try:
             project: Any = self.pm.load_project(project_name)
         except FileNotFoundError:
             raise
         except (OSError, ValueError):
-            return EpisodeNextSteps(episodes=[])
-        if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
-            return EpisodeNextSteps(episodes=[])
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
+        if not isinstance(project, dict) or load_migration_verdict(project_path, project=project) is not None:
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
         shared = self._shared_facts(project_path, project)
         if shared.blockers:
-            return EpisodeNextSteps(episodes=[])
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
         ledger = shared.episodes
         next_cursor = None
         if episodes is not None:
@@ -894,7 +942,7 @@ class WorkflowStateService:
                     episode=pair[0], plan_stale=facts.stale, episode_complete=facts.complete, next_action=action
                 )
             )
-        return EpisodeNextSteps(episodes=steps, next_cursor=next_cursor)
+        return WorkflowRead(EpisodeNextSteps(episodes=steps, next_cursor=next_cursor), project)
 
     def get_project_summary(
         self,
@@ -915,7 +963,7 @@ class WorkflowStateService:
 
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
-        failure = load_migration_verdict(project_path)
+        failure = load_migration_verdict(project_path, project=project)
         if failure is not None:
             return self._migration_blocked_summary(project, self._episodes(project, []), failure)
         episodes = self._episodes(project, [])
@@ -1190,6 +1238,7 @@ class WorkflowStateService:
         planning_sources = planning_docs(project, source) if mode != "ad" else ()
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
+            active_script=_ActiveScript(currency),
             source=source,
             planning_sources=planning_sources,
             source_remaining=source_remaining(project, list(planning_sources)),
@@ -1258,16 +1307,21 @@ class WorkflowStateService:
             return self._project_status(project, shared)
         first_stale = None
         any_complete = False
-        for pair in shared.episodes:
+        assert shared.currency is not None
+        for index, pair in enumerate(shared.episodes):
             facts = self._scan_episode(project_name, project, project_path, shared, pair)
+            if index == 0 or (facts.stale and first_stale is None and not shared.source_remaining):
+                shared.currency.retain_fallback_script(facts.target.script if facts.target else None)
             if facts.stale:
                 first_stale = first_stale or pair
             elif not facts.complete:
+                shared.currency.retain_fallback_script(None)
                 return self._episode_status(project_name, project, project_path, shared, pair)
             else:
                 any_complete = True
         selected = first_stale if first_stale and not shared.source_remaining else shared.episodes[0]
         first = self._episode_status(project_name, project, project_path, shared, selected)
+        shared.currency.retain_fallback_script(None)
         if shared.source_remaining:
             next_action = self._planning_action(project, shared, "source text remains unplanned")
         elif first_stale is not None:
@@ -1553,7 +1607,9 @@ class WorkflowStateService:
         pair: tuple[int, dict[str, Any]],
     ) -> _EpisodeFacts:
         assert shared.currency is not None
-        return self._episode_facts(project_name, project, project_path, pair, _Availability(shared.currency))
+        return self._episode_facts(
+            project_name, project, project_path, pair, _Availability(shared.currency), shared.active_script
+        )
 
     def _episode_facts(
         self,
@@ -1562,6 +1618,7 @@ class WorkflowStateService:
         project_path: Path,
         selected: tuple[int, dict[str, Any]],
         resolver: ArtifactComparer | None,
+        active_script: _ActiveScript,
         *,
         details: bool = False,
     ) -> _EpisodeFacts:
@@ -1576,7 +1633,7 @@ class WorkflowStateService:
             else self._stale_episode_plan(project_path, project, number, entry)
         )
         script, items, kind = self._load_script_artifacts(
-            project_path, project_name, project, target, script_issues, resolver
+            project_path, project_name, project, target, script_issues, resolver, active_script
         )
         video_issues: list[WorkflowBlocker] = []
         states = self._media_states(items, kind, "video_clip", episode=number, resolver=resolver, issues=video_issues)
@@ -1650,7 +1707,9 @@ class WorkflowStateService:
                 issues=issues,
             )
 
-        facts = self._episode_facts(project_name, project, project_path, selected, shared.currency, details=True)
+        facts = self._episode_facts(
+            project_name, project, project_path, selected, shared.currency, shared.active_script, details=True
+        )
         target = facts.target
         if target is None:
             issues.extend(facts.script_issues)

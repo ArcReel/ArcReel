@@ -49,7 +49,7 @@ async def test_workflow_status_rest_treats_corrupt_project_as_server_failure(
     def _corrupt(*args: object, **kwargs: object) -> None:
         raise json.JSONDecodeError("broken", "{", 0)
 
-    monkeypatch.setattr(WorkflowStateService, "get_status", _corrupt)
+    monkeypatch.setattr(WorkflowStateService, "read_status", _corrupt)
 
     use_project_manager(monkeypatch, pm)
     app = FastAPI()
@@ -79,7 +79,7 @@ async def test_workflow_status_rest_blames_the_request_only_for_request_errors(
     def _raise(*args: object, **kwargs: object) -> None:
         raise error
 
-    monkeypatch.setattr(WorkflowStateService, "get_status", _raise)
+    monkeypatch.setattr(WorkflowStateService, "read_status", _raise)
 
     use_project_manager(monkeypatch, pm)
     app = FastAPI()

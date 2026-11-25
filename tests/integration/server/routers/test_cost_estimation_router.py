@@ -10,9 +10,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.dependencies import project_reads
 from server.error_handlers import register_error_handlers
 from server.routers import cost_estimation
-from server.routers._coalesce import RequestCoalescer
+from server.services.project.coalesce import RequestCoalescer
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -171,7 +172,7 @@ class TestCostEstimationCoalescing:
         ):
             service.return_value.compute = estimates.compute
             app = _make_app()
-            app.dependency_overrides[cost_estimation.get_cost_estimate_coalescer] = lambda: spy
+            app.dependency_overrides[project_reads] = lambda: spy
             client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
             yield inputs, estimates, spy, client
 

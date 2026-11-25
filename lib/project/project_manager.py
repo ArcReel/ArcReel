@@ -1398,9 +1398,12 @@ class ProjectManager:
                 self._persist_script_json(real, script)
         return script
 
-    def load_script_readonly(self, project_name: str, filename: str) -> dict:
+    def load_script_readonly(self, project_name: str, filename: str, *, snapshot: bytes | None = None) -> dict:
         """Load a script with in-memory compatibility migrations but never persist them."""
         norm = self.normalize_script_filename(filename)
+        if snapshot is not None and self._script_reader is None:
+            script, _ = self._migrate_read_script(json.loads(snapshot.decode("utf-8")), norm)
+            return script
         script, _migrated = self._read_script_unlocked(project_name, norm)
         return script
 
@@ -1425,9 +1428,13 @@ class ProjectManager:
         else:
             script = self._script_reader(real)
 
+        return self._migrate_read_script(script, real.name)
+
+    @staticmethod
+    def _migrate_read_script(script: dict, filename: str) -> tuple[dict, bool]:
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:
-            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message.render(default_translate))
+            logger.warning("剧本 %s 时长收编迁移: %s", filename, message.render(default_translate))
         return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:

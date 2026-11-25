@@ -228,6 +228,7 @@ def _episode_bindings(project: Mapping[str, Any]) -> list[_EpisodeBinding]:
 
 @dataclass(slots=True)
 class RuntimePlanningContext:
+    script_snapshot: ArtifactObservation | None = None
     history: LegacyHistoryIndex = field(default_factory=LegacyHistoryIndex)
     bindings: dict[int, _EpisodeBinding] | None = None
     catalog: ReferenceCatalog | None = None
@@ -662,7 +663,9 @@ class TargetStatePlanner:
             raise ArtifactManifestError(observation.blocker.detail)
         if not observation.present:
             return
-        raw_script = self._read_dependency(binding.script_file, "episode script")
+        raw_script = observation.content_bytes
+        if raw_script is None:
+            raw_script = self._read_dependency(binding.script_file, "episode script")
         episode = EpisodeScriptInputs.parse(self.project_dir, binding, raw_script)
         self.script_paths.append(episode.script_path)
         self.episodes.append(episode)
@@ -2258,6 +2261,9 @@ class TargetStatePlanner:
     def observe(self, relative_path: str) -> ArtifactObservation:
         """Inspect a formal path, through the owning resolver's request-scoped inspections when there is one."""
 
+        snapshot = self.runtime.script_snapshot if self.runtime is not None else None
+        if snapshot is not None and snapshot.artifact_path == relative_path:
+            return snapshot
         if self.shared_observations is None:
             observation = self.adapter.inspect_artifact(relative_path)
             if self.runtime is None and observation.blocker is None and not observation.present:
