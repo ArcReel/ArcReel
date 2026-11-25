@@ -1793,6 +1793,10 @@ class SessionManager:
 
     async def close_session(self, session_id: str, *, reason: str = "session closed") -> None:
         """Public close entry — gracefully tears down the actor and removes the session."""
+        eviction = self._disconnecting.get(session_id)
+        if eviction is not None:
+            await eviction.wait()
+            return
         managed = self.sessions.get(session_id)
         if managed is None:
             return
