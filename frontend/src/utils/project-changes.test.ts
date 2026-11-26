@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import i18n from "@/i18n";
+import i18n from "@/test/i18n";
 import type { ProjectChange } from "@/types";
 import {
   COMPLETION_ACTIONS,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import i18n from "@/i18n";
+import i18n from "@/test/i18n";
 import type { EpisodeMeta, EpisodesView, EpisodesViewEpisode, EpisodesViewSegment } from "@/types";
 
 import {

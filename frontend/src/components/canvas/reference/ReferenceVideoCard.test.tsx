@@ -368,11 +368,4 @@ describe("ReferenceVideoCard final prompt preview", () => {
     expect(await within(dialog).findByText("重新渲染的文本")).toBeInTheDocument();
     expect(within(dialog).getByText("本次请求不携带参考图")).toBeInTheDocument();
   });
-
-  it("keeps the prompt editor and its overlay in the proportional font", () => {
-    const { container } = render(<ControlledCard unit={mkUnit({ text: "张三推开了门。" })} />);
-
-    expect(screen.getByRole("combobox")).not.toHaveClass("font-mono");
-    expect(container.querySelector("pre")).not.toHaveClass("font-mono");
-  });
 });

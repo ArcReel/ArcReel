@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
-import { act } from "@testing-library/react";
 import { useReferenceVideoStore } from "./reference-video-store";
 import { API } from "@/api";
 import { makeReferenceUnitCapability } from "@/test/factories";
@@ -50,9 +49,7 @@ describe("reference-video-store", () => {
       unit_capabilities: { E1U1: makeReferenceUnitCapability("E1U1"), E1U2: makeReferenceUnitCapability("E1U2", { hydrated_capability: "r2v" }) },
     });
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().loadUnits("proj", 1);
-    });
+    await useReferenceVideoStore.getState().loadUnits("proj", 1);
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toHaveLength(2);
@@ -64,9 +61,7 @@ describe("reference-video-store", () => {
   it("loadUnits captures error and clears loading", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockRejectedValueOnce(new Error("boom"));
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().loadUnits("proj", 1);
-    });
+    await useReferenceVideoStore.getState().loadUnits("proj", 1);
 
     const state = useReferenceVideoStore.getState();
     expect(state.error).toBe("boom");
@@ -79,15 +74,11 @@ describe("reference-video-store", () => {
       () => new Promise((resolve) => releases.push((units) => resolve({ units, unit_capabilities: {} }))),
     );
 
-    let first: Promise<void>;
-    let second: Promise<void>;
-    await act(async () => {
-      first = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      second = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      releases[1]([mkUnit("E1U1", { generated_assets: { ...mkUnit("E1U1").generated_assets, video_clip: "v.mp4" } })]);
-      releases[0]([mkUnit("E1U1")]);
-      await Promise.all([first, second]);
-    });
+    const first = useReferenceVideoStore.getState().loadUnits("proj", 1);
+    const second = useReferenceVideoStore.getState().loadUnits("proj", 1);
+    releases[1]([mkUnit("E1U1", { generated_assets: { ...mkUnit("E1U1").generated_assets, video_clip: "v.mp4" } })]);
+    releases[0]([mkUnit("E1U1")]);
+    await Promise.all([first, second]);
 
     const units = useReferenceVideoStore.getState().unitsByEpisode["proj::1"];
     expect(units?.[0].generated_assets?.video_clip).toBe("v.mp4");
@@ -103,12 +94,10 @@ describe("reference-video-store", () => {
       unit_capability: makeReferenceUnitCapability("E1U9"),
     });
 
-    await act(async () => {
-      const load = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "p" });
-      releases[0]([mkUnit("E1U1")]);
-      await load;
-    });
+    const load = useReferenceVideoStore.getState().loadUnits("proj", 1);
+    await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "p" });
+    releases[0]([mkUnit("E1U1")]);
+    await load;
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"].map((u) => u.unit_id)).toEqual(["E1U9"]);
@@ -124,13 +113,11 @@ describe("reference-video-store", () => {
         }),
     );
 
-    await act(async () => {
-      const first = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      const second = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      releases[1].resolve([mkUnit("E1U1")]);
-      releases[0].reject(new Error("boom"));
-      await Promise.all([first, second]);
-    });
+    const first = useReferenceVideoStore.getState().loadUnits("proj", 1);
+    const second = useReferenceVideoStore.getState().loadUnits("proj", 1);
+    releases[1].resolve([mkUnit("E1U1")]);
+    releases[0].reject(new Error("boom"));
+    await Promise.all([first, second]);
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toHaveLength(1);
@@ -143,9 +130,7 @@ describe("reference-video-store", () => {
       unit_capability: makeReferenceUnitCapability("E1U3", { allowed_durations: [5, 10] }),
     });
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "new" });
-    });
+    await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "new" });
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toEqual([expect.objectContaining({ unit_id: "E1U3" })]);
@@ -166,9 +151,7 @@ describe("reference-video-store", () => {
       unit_capability: makeReferenceUnitCapability("E1U1", { hydrated_capability: "r2v", allowed_durations: [8] }),
     });
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().patchUnit("proj", 1, "E1U1", { note: "updated" });
-    });
+    await useReferenceVideoStore.getState().patchUnit("proj", 1, "E1U1", { note: "updated" });
 
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("updated");
     expect(useReferenceVideoStore.getState().unitCapabilitiesByEpisode["proj::1"].E1U1).toMatchObject({
@@ -186,9 +169,7 @@ describe("reference-video-store", () => {
     });
     vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValueOnce(undefined);
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().deleteUnit("proj", 1, "E1U1");
-    });
+    await useReferenceVideoStore.getState().deleteUnit("proj", 1, "E1U1");
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"].map((u) => u.unit_id)).toEqual(["E1U2"]);
@@ -199,9 +180,7 @@ describe("reference-video-store", () => {
     const reordered = [mkUnit("E1U2"), mkUnit("E1U1")];
     vi.spyOn(API, "moveReferenceVideoUnit").mockResolvedValueOnce({ units: reordered });
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().moveUnit("proj", 1, "E1U2", null);
-    });
+    await useReferenceVideoStore.getState().moveUnit("proj", 1, "E1U2", null);
 
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"].map((u) => u.unit_id))
       .toEqual(["E1U2", "E1U1"]);
@@ -217,12 +196,8 @@ describe("reference-video-store", () => {
       .mockResolvedValueOnce({ units: [mkUnit("A-E1-U1")], unit_capabilities: {} })
       .mockResolvedValueOnce({ units: [mkUnit("B-E1-U1")], unit_capabilities: {} });
 
-    await act(async () => {
-      await useReferenceVideoStore.getState().loadUnits("projA", 1);
-    });
-    await act(async () => {
-      await useReferenceVideoStore.getState().loadUnits("projB", 1);
-    });
+    await useReferenceVideoStore.getState().loadUnits("projA", 1);
+    await useReferenceVideoStore.getState().loadUnits("projB", 1);
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["projA::1"].map((u) => u.unit_id)).toEqual(["A-E1-U1"]);
