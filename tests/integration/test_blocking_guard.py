@@ -1,6 +1,6 @@
 """事件循环阻塞护栏（`tests/blocking_guard`）的端到端契约。
 
-每条用例在临时目录里另起一个 pytest 会话，加载护栏插件，被测样本放在该目录的 ``lib/`` 与
+本文件的用例共享临时目录中一个加载护栏插件的 pytest 会话。被测样本放在该目录的 ``lib/`` 与
 ``server/`` 下（护栏按 rootdir 下的这两个目录判定业务代码），用例与替身放在 ``tests/`` 下，
 锁取真实的 lib 实现。契约：
 
@@ -13,25 +13,19 @@
 - 报错的栈预览除 lib/server/tests 帧外，按真实调用顺序保留拦截点到第一个仓库帧之间最内层的几条
   非仓库帧（标准库、``site-packages`` 下的第三方代码），路径取相对形式；超出上限的注明省略条数。
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
-- 永久豁免清单里的条目放行，没有别的豁免途径；完整运行时未触发的豁免条目让会话失败，部分运行
-  （含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）不报。
-- 带 ``--blocking-guard-expect-all-exemptions`` 时，按路径或关键字筛选的运行同样报未触发的豁免。
+- 永久豁免清单里的条目放行。不同会话范围的清单完整性由同目录的豁免测试覆盖。
 """
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
-import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_EXEMPTIONS = Path("tests/blocking_guard/exemptions.toml")
-_PROBE_RELPATH = Path("tests/test_probe.py")
+from tests.blocking_guard_probe import run_probe, write_probe
 
 _SAMPLES = """
 import asyncio
@@ -307,41 +301,6 @@ async def test_coverage_data_lock():
 """
 
 
-def _make_session_dir(root: Path, exemptions: dict[str, str]) -> Path:
-    (root / "lib").mkdir(parents=True)
-    (root / "server").mkdir()
-    (root / "lib" / "blocking_samples.py").write_text(textwrap.dedent(_SAMPLES), encoding="utf-8")
-    (root / "server" / "blocking_app.py").write_text(textwrap.dedent(_APP), encoding="utf-8")
-    (root / _VENDOR_RELPATH).parent.mkdir(parents=True)
-    (root / _VENDOR_RELPATH).write_text(textwrap.dedent(_VENDOR), encoding="utf-8")
-    (root / "tests").mkdir()
-    (root / _PROBE_RELPATH).write_text(textwrap.dedent(_PROBE), encoding="utf-8")
-    (root / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\nasyncio_mode = "auto"\npythonpath = ["lib", "server", "vendor/site-packages"]\n',
-        encoding="utf-8",
-    )
-    exemptions_file = root / _EXEMPTIONS
-    exemptions_file.parent.mkdir(parents=True)
-    exemptions_file.write_text(
-        "".join(f'[[exemption]]\nkey = "{key}"\nreason = "{reason}"\n\n' for key, reason in exemptions.items()),
-        encoding="utf-8",
-    )
-    return root
-
-
-def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_REPO_ROOT), env.get("PYTHONPATH")]))
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "tests.blocking_guard", "-p", "no:cacheprovider", "-rA", *args],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-
-
 def _outcomes(output: str) -> dict[str, str]:
     pattern = r"^(PASSED|FAILED|ERROR) tests/test_probe\.py::(\w+)"
     return {name: outcome for outcome, name in re.findall(pattern, output, re.M)}
@@ -355,11 +314,18 @@ def _failure_section(output: str, test_name: str) -> str:
 
 @pytest.fixture(scope="module")
 def probe_run(tmp_path_factory: pytest.TempPathFactory) -> subprocess.CompletedProcess[str]:
-    root = _make_session_dir(
-        tmp_path_factory.mktemp("session"),
-        {"lib/blocking_samples.py::exempted_read": "样本：模拟启动路径上的一次性阻塞"},
+    root = tmp_path_factory.mktemp("session")
+    write_probe(
+        root,
+        samples=textwrap.dedent(_SAMPLES),
+        tests=textwrap.dedent(_PROBE),
+        exemptions={"lib/blocking_samples.py::exempted_read": "样本：模拟启动路径上的一次性阻塞"},
     )
-    return _run(root)
+    (root / "server").mkdir()
+    (root / "server" / "blocking_app.py").write_text(textwrap.dedent(_APP), encoding="utf-8")
+    (root / _VENDOR_RELPATH).parent.mkdir(parents=True)
+    (root / _VENDOR_RELPATH).write_text(textwrap.dedent(_VENDOR), encoding="utf-8")
+    return run_probe(root)
 
 
 def test_blocking_call_fails_the_test_even_when_business_code_swallows_errors(probe_run):
@@ -485,59 +451,3 @@ def test_blocking_lock_acquisition_on_the_loop_is_a_violation(probe_run, test_na
     section = _failure_section(probe_run.stdout, test_name)
     assert key in section
     assert rule in section
-
-
-def test_full_run_fails_on_untriggered_exemptions_but_partial_run_does_not(tmp_path: Path):
-    stale = "lib/blocking_samples.py::never_called"
-    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
-
-    full = _run(root)
-    partial = _run(root, "-k", "offloaded")
-
-    assert full.returncode == pytest.ExitCode.TESTS_FAILED, full.stdout
-    assert f"永久豁免未触发，请从 {_EXEMPTIONS} 删除：{stale}" in full.stdout
-    assert partial.returncode == 0, partial.stdout
-    assert stale not in partial.stdout
-
-
-@pytest.mark.parametrize(
-    "selection",
-    [("tests/test_probe.py::test_offloaded_read",), ("-k", "offloaded"), ("tests",)],
-)
-def test_expect_all_exemptions_option_reports_untriggered_exemptions_on_selected_runs(
-    tmp_path: Path, selection: tuple[str, ...]
-):
-    stale = "lib/blocking_samples.py::never_called"
-    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
-
-    run = _run(root, "--blocking-guard-expect-all-exemptions", *selection)
-
-    assert run.returncode == pytest.ExitCode.TESTS_FAILED, run.stdout
-    assert f"永久豁免未触发，请从 {_EXEMPTIONS} 删除：{stale}" in run.stdout
-
-
-def test_expect_all_exemptions_option_passes_when_every_exemption_is_triggered(tmp_path: Path):
-    root = _make_session_dir(
-        tmp_path / "session",
-        {"lib/blocking_samples.py::exempted_read": "样本：模拟启动路径上的一次性阻塞"},
-    )
-
-    run = _run(root, "--blocking-guard-expect-all-exemptions", "tests/test_probe.py::test_exempted_read")
-
-    assert run.returncode == 0, run.stdout
-    assert "永久豁免未触发" not in run.stdout
-
-
-@pytest.mark.parametrize(
-    "partial_args",
-    [("--ignore=tests/test_probe.py",), ("--ignore-glob=*_probe.py",), ("--collect-only",), ("--setup-only",)],
-)
-def test_runs_that_skip_or_do_not_execute_tests_do_not_report_untriggered_exemptions(
-    tmp_path: Path, partial_args: tuple[str, ...]
-):
-    stale = "lib/blocking_samples.py::never_called"
-    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
-
-    partial = _run(root, *partial_args)
-
-    assert stale not in partial.stdout, partial.stdout

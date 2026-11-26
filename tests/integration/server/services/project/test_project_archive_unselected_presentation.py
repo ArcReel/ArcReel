@@ -35,10 +35,11 @@ _PRESENTATION = ArtifactKey.episode_presentation(1, "E1S01", "use_tts")
 _SUBTITLE_PATH, _PRESENTATION_PATH = presentation_artifact_paths(1, "E1S01", "use_tts")
 
 
-async def _project_with_materialized_presentations(tmp_path: Path) -> tuple[ProjectManager, Path, str]:
+@pytest.fixture(scope="module")
+async def presentation_template(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
     """两个分镜都有 AI 视频，导出过带旁白的剪映草稿，字幕与呈现已物化并登记。"""
 
-    pm, project_path = setup_project(tmp_path)
+    pm, project_path = setup_project(tmp_path_factory.mktemp("presentation-template"))
     migrate_project_dir(project_path)
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:
         script["title"] = "One"
@@ -48,6 +49,15 @@ async def _project_with_materialized_presentations(tmp_path: Path) -> tuple[Proj
     await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="with_narration")
     entries = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
     assert {_SUBTITLE, _PRESENTATION} <= set(entries)
+    return project_path, timeline_id
+
+
+@pytest.fixture
+def materialized_project(tmp_path: Path, presentation_template: tuple[Path, str]) -> tuple[ProjectManager, Path, str]:
+    template, timeline_id = presentation_template
+    pm = ProjectManager(tmp_path)
+    project_path = tmp_path / "projects" / "demo"
+    shutil.copytree(template, project_path)
     return pm, project_path, timeline_id
 
 
@@ -96,9 +106,9 @@ def _status(project_path: Path, key: ArtifactKey, artifact_path: str) -> Artifac
 
 
 async def test_manual_upload_keeps_export_available_and_full_archive_keeps_the_old_claims(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    materialized_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm, project_path, timeline_id = await _project_with_materialized_presentations(tmp_path)
+    pm, project_path, timeline_id = materialized_project
     claims_before = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
 
     await _upload_e1s01_video(pm, project_path, monkeypatch)
@@ -131,8 +141,10 @@ async def test_manual_upload_keeps_export_available_and_full_archive_keeps_the_o
     assert _status(imported, _PRESENTATION, _PRESENTATION_PATH) is ArtifactStatus.CURRENT
 
 
-async def test_current_archive_without_the_old_claims_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
+async def test_current_archive_without_the_old_claims_imports(
+    materialized_project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm, project_path, _timeline_id = materialized_project
     await _upload_e1s01_video(pm, project_path, monkeypatch)
     service = ProjectArchiveService(pm)
     archive_path, _ = service.export_project("demo", scope="current")
@@ -146,9 +158,9 @@ async def test_current_archive_without_the_old_claims_imports(tmp_path: Path, mo
 
 
 async def test_switching_back_to_the_ai_video_after_upload_keeps_the_old_claims_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    materialized_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
+    pm, project_path, _timeline_id = materialized_project
     await _upload_e1s01_video(pm, project_path, monkeypatch)
 
     await _restore_e1s01_video(pm, project_path, 1)
@@ -159,8 +171,8 @@ async def test_switching_back_to_the_ai_video_after_upload_keeps_the_old_claims_
     assert {_SUBTITLE.encode(), _PRESENTATION.encode()} <= _archived_claims(archive_path)
 
 
-async def test_regenerating_or_switching_the_ai_video_keeps_export_available(tmp_path: Path) -> None:
-    pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
+async def test_regenerating_or_switching_the_ai_video_keeps_export_available(materialized_project) -> None:
+    pm, project_path, _timeline_id = materialized_project
     service = ProjectArchiveService(pm)
 
     _install_video(project_path, narration_segment("E1S01", "旁白一句"), 1.0)
@@ -176,9 +188,9 @@ async def test_regenerating_or_switching_the_ai_video_keeps_export_available(tmp
 
 
 async def test_old_claims_that_do_not_hold_for_their_own_video_version_still_fail_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    materialized_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
+    pm, project_path, _timeline_id = materialized_project
     await _upload_e1s01_video(pm, project_path, monkeypatch)
     subtitle_file = project_path / _SUBTITLE_PATH
     subtitle = json.loads(subtitle_file.read_text(encoding="utf-8"))
@@ -190,9 +202,9 @@ async def test_old_claims_that_do_not_hold_for_their_own_video_version_still_fai
 
 
 async def test_old_claims_naming_a_missing_video_version_still_fail_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    materialized_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
+    pm, project_path, _timeline_id = materialized_project
     await _upload_e1s01_video(pm, project_path, monkeypatch)
     store = VersionManager(project_path).sqlite
     versions = store.resources([("videos", "E1S01")])
@@ -204,8 +216,8 @@ async def test_old_claims_naming_a_missing_video_version_still_fail_export(
         ProjectArchiveService(pm).get_export_diagnostics("demo", scope="current")
 
 
-async def test_regenerating_narration_keeps_export_and_draft_download_available(tmp_path: Path) -> None:
-    pm, project_path, timeline_id = await _project_with_materialized_presentations(tmp_path)
+async def test_regenerating_narration_keeps_export_and_draft_download_available(materialized_project) -> None:
+    pm, project_path, timeline_id = materialized_project
     claims_before = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
     _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
     service = ProjectArchiveService(pm)
@@ -245,8 +257,8 @@ async def test_regenerating_narration_keeps_export_and_draft_download_available(
 
 
 @pytest.mark.parametrize("damage", ["subtitle", "snapshot", "record", "basis", "current_video", "current_audio"])
-async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, damage: str) -> None:
-    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+async def test_unprovable_old_audio_claims_still_fail_export(materialized_project, damage: str) -> None:
+    pm, project_path, _ = materialized_project
     _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
     store = VersionManager(project_path).sqlite
     versions = store.resources([("audio", "E1S01")])
@@ -276,8 +288,8 @@ async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, dam
         assert _PRESENTATION.encode() in str(exc.value)
 
 
-async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archive(tmp_path: Path) -> None:
-    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archive(materialized_project) -> None:
+    pm, project_path, _ = materialized_project
     _install_video(project_path, narration_segment("E1S01", "旁白一句"), 1.0)
     _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
 
@@ -289,9 +301,9 @@ async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archiv
 @pytest.mark.parametrize("scope", ["current", "full"])
 @pytest.mark.parametrize("switch_to_generated", [False, True])
 async def test_uploaded_presentation_claims_round_trip_with_their_selected_snapshots(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope: str, switch_to_generated: bool
+    materialized_project, monkeypatch: pytest.MonkeyPatch, scope: str, switch_to_generated: bool
 ) -> None:
-    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+    pm, project_path, _ = materialized_project
     await _upload_e1s01_video(pm, project_path, monkeypatch)
     await PresentationReadModelService(pm).materialize_unit(
         project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"

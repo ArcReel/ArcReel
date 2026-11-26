@@ -427,7 +427,7 @@ def pytest_configure(config: pytest.Config) -> None:
         full_run=executes and _selects_whole_suite(config),
         expect_all=executes and bool(config.getoption(EXPECT_ALL_EXEMPTIONS_OPTION)),
     )
-    if _is_xdist_controller(config):
+    if config.option.collectonly or _is_xdist_controller(config):
         return
     guard = BlockingGuard(root=config.rootpath, exemptions=load_exemptions(config.rootpath))
     guard.activate()
