@@ -51,6 +51,7 @@ def main() -> None:
         os.environ.update(
             ARCREEL_DATA_DIR=data_dir,
             ARCREEL_SKIP_CATALOG_SYNC="1",
+            ARCREEL_SKIP_LEGACY_LOG_MIGRATION="1",
             AUTH_ENABLED="false",
             PYTHON_DOTENV_DISABLED="1",
         )

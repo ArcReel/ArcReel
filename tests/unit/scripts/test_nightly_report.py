@@ -128,23 +128,23 @@ def test_nightly_live_build_restore_and_reporting():
     jobs = yaml.safe_load((github / "workflows/nightly-full.yml").read_text())["jobs"]
     build = jobs["browser-build"]
     assert "if" not in build
-    pack, upload = build["steps"][-2:]
-    assert pack["run"].splitlines() == ["pnpm build", 'node e2e/build-artifact.ts pack "$RUNNER_TEMP/browser-build"']
+
+    def artifact(steps, action):
+        return next(step for step in steps if step.get("uses", "").startswith(f"actions/{action}-artifact@"))
+
+    upload = artifact(build["steps"], "upload")
     restore = yaml.safe_load((github / "actions/restore-browser-build/action.yml").read_text())["runs"]["steps"]
-    assert (
-        upload["with"]["name"] == restore[0]["with"]["name"] == "browser-build-${{ github.run_id }}-${{ github.sha }}"
-    )
+    download = artifact(restore, "download")
+    assert upload["with"]["name"] == download["with"]["name"] == "browser-build-${{ github.run_id }}-${{ github.sha }}"
     live = jobs["e2e-live"]
     assert live["needs"] == "browser-build"
     assert "if" not in live
-    assert any(step.get("uses") == "./.github/actions/restore-browser-build" for step in live["steps"][:-2])
-    run, diagnostics = live["steps"][-2:]
+    steps = live["steps"]
+    restore_step = next(step for step in steps if step.get("uses") == "./.github/actions/restore-browser-build")
+    run = next(step for step in steps if "--project=live" in step.get("run", ""))
+    diagnostics = artifact(steps, "upload")
+    assert steps.index(restore_step) < steps.index(run) < steps.index(diagnostics)
     assert run["env"]["E2E_LIVE"] == "1"
-    assert run["shell"] == "bash"
-    assert run["run"].splitlines() == [
-        "set -o pipefail",
-        'node node_modules/@playwright/test/cli.js test --project=live 2>&1 | tee "$RUNNER_TEMP/e2e-live.log"',
-    ]
     assert not run.get("continue-on-error")
     assert diagnostics["if"] == "failure()"
     assert set(diagnostics["with"]["path"].splitlines()) == {

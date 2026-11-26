@@ -28,7 +28,7 @@
 
 ## 4. 交付
 
-1. 按 `verify-arcreel` 关闭浏览器会话，执行 `scripts/local_instance.py stop` 停止本地实例、确认端口释放并清理临时数据目录。
+1. 按 `verify-arcreel` 关闭浏览器会话。若本次启动了本地隔离实例，执行 `uv run python scripts/local_instance.py stop --data-dir <data_dir>` 停止本地实例、确认端口释放并清理临时数据目录。
 2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
 3. 全量与复验模式按 [handoff.md](handoff.md) 在 stage handoff 中追加「QA」段；对操作路径稳定、无需外部付费调用即可确定判定的成熟验收项，在 follow-up 中登记回补到全栈实机 E2E（`frontend/e2e/live/`）的候选。
 4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。

@@ -13,7 +13,7 @@ description: 在真实运行的 ArcReel 实例上核验交互与跨层改动：�
 
 将改动或验收标准转化为用户路径上的可观察操作：从哪个入口进入、执行什么动作、触发或写入什么状态、预期看到什么结果。按任务准备目标实例：
 
-- **本地隔离实例**（开发自证、QA 全量与复验）：按 [references/local-run.md](references/local-run.md) 使用 `scripts/local_instance.py` 启动与当前 worktree 隔离的实例。
+- **本地隔离实例**（开发自证、QA 全量与复验）：按 [references/local-run.md](references/local-run.md) 启动本地隔离实例，保存启动输出的 `data_dir`。
 - **部署实例**（冒烟）：按 [qa-verifier.md](../afk-team-workflow/references/qa-verifier.md) 的部署实例规则读取凭据、核对 `/health` 的构建 commit 并遵守费用预算。
 
 完成判据：每条待验项都有明确的入口、操作与预期结果，目标实例 `/health` 已返回就绪。
@@ -32,6 +32,6 @@ description: 在真实运行的 ArcReel 实例上核验交互与跨层改动：�
 
 ### 4. 释放自启资源
 
-关闭本次启动的 `agent-browser` 会话；若第 1 步在本地启动了隔离实例，执行 `scripts/local_instance.py stop` 停止后端进程、确认端口释放并清理临时数据目录。
+关闭本次启动的 `agent-browser` 会话；若第 1 步在本地启动了隔离实例，执行 `uv run python scripts/local_instance.py stop --data-dir <data_dir>` 停止后端进程、确认端口释放并清理临时数据目录。
 
 完成判据：自启浏览器会话与后端进程均已退出，端口可重新绑定，临时数据目录已回收（需保留日志排障时显式保留并注明路径）。

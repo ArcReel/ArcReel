@@ -11,7 +11,7 @@
 | 前端源码或组件测试 | 在 `frontend/` 下跑变更的测试文件或 `pnpm exec vitest related --run <源文件>`；改 TypeScript 源码补跑 `pnpm typecheck`。 |
 | 页面布局、响应式与录制契约（L1） | 修改页面套件、断点布局、无障碍、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <spec>...`（像素截图基线已退役，见 [ADR 0130](../adr/0130-retire-browser-pixel-baselines.md)）。后端接口形状或 `tests/fixtures/catalog.json` 变更后跑 `pnpm e2e:record` 更新替身，并通过 `uv run python scripts/gate.py e2e-freshness` 校验单录新鲜度；录制脚本、种子或归一化变更后跑 `uv run python scripts/gate.py e2e-record` 校验双录确定性。 |
 | 跨层读写与任务流全栈实机（L2） | 修改跨前后端的写入持久化、任务入队与收尾、剧本确认、SSE 推送或项目迁移时，运行 `uv run python scripts/gate.py e2e-live`（单点调试可在 `frontend/` 下跑 `pnpm e2e:live <spec>`）。多 worktree 并行时用 `E2E_PORT` 指定空闲端口。失败时在 `frontend/test-results/` 查 `trace.zip`，CI 另归档 `e2e-live-diagnostics`。 |
-| 新增 UI 交互、跨层自证与冒烟（L3） | 新增或修改 UI 交互与跨层链路、执行本地 QA 验收或部署实例冒烟时，调用 [`verify-arcreel`](../../.agents/skills/verify-arcreel/SKILL.md)（本地通过 `uv run python scripts/local_instance.py --help` 拉起隔离实例并用 `agent-browser` 操作回读）。 |
+| 新增 UI 交互、跨层自证与冒烟（L3） | 新增或修改 UI 交互与跨层链路、执行本地 QA 验收或部署实例冒烟时，调用 [`verify-arcreel`](../../.agents/skills/verify-arcreel/SKILL.md)（本地通过 `uv run python scripts/local_instance.py start` 拉起隔离实例并用 `agent-browser` 操作回读）。 |
 
 本地运行 `pnpm e2e` 或 `pnpm e2e:live` 时，Playwright 会在启动服务前构建前端；`gate.py e2e-live` 先构建一次 `frontend/dist` 再以 `E2E_PREBUILT=1` 复用。CI 浏览器作业统一通过 [restore-browser-build](../../.github/actions/restore-browser-build/action.yml) 校验并恢复同次运行的构建产物。PR 中由 `frontend-static` 构建，Nightly 中由 `browser-build` 构建。
 

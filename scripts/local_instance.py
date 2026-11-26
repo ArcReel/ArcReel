@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ipaddress
 import json
 import os
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -27,7 +27,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from lib.config.env_keys import PROVIDER_SECRET_KEYS
+import psutil
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST_INDEX = Path("frontend/dist/index.html")
@@ -37,7 +37,12 @@ LOG_FILENAME = "backend.log"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_WAIT_TIMEOUT = 60.0
 DEFAULT_STOP_TIMEOUT = 10.0
-ISOLATED_ENV_KEYS = ("DATABASE_URL", "AI_ANIME_PROJECTS", "ARCREEL_PROFILE_DIR")
+
+
+def tool_env(base_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    source = os.environ if base_env is None else base_env
+    keys = ("PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL")
+    return {key: source[key] for key in keys if key in source}
 
 
 def prepare_data_dir(data_dir: Path | None = None) -> Path:
@@ -103,11 +108,13 @@ def build_backend_env(
     base_env: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """构造隔离的后端进程环境变量，移除父进程数据库与供应商密钥。"""
-    env = dict(os.environ if base_env is None else base_env)
-    for key in (*ISOLATED_ENV_KEYS, *PROVIDER_SECRET_KEYS):
-        env.pop(key, None)
+    env = tool_env(base_env)
     env.update(
-        ARCREEL_DATA_DIR=str(data_dir),
+        ARCREEL_DATA_DIR=str(data_dir / "data"),
+        HOME=str(data_dir),
+        USERPROFILE=str(data_dir),
+        CLAUDE_CONFIG_DIR=str(data_dir / ".claude"),
+        ARCREEL_SKIP_LEGACY_LOG_MIGRATION="1",
         PYTHON_DOTENV_DISABLED="1",
         ARCREEL_SKIP_CATALOG_SYNC="1",
         AUTH_ENABLED="true" if auth_enabled else "false",
@@ -134,6 +141,7 @@ def ensure_frontend_dist(
         completed = runner(
             (pnpm, "--dir", str(root / "frontend"), "exec", "vite", "build"),
             cwd=root,
+            env=tool_env(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -180,10 +188,10 @@ def wait_until_healthy(
     deadline = clock() + timeout
     while True:
         payload = fetch_health(base_url, opener=opener)
-        if payload is not None:
-            return payload
         if process is not None and process.poll() is not None:
             raise RuntimeError(f"后端进程提前退出，退出码 {process.returncode}")
+        if payload is not None:
+            return payload
         if clock() >= deadline:
             raise TimeoutError(f"等待 {base_url}/health 就绪超时（{timeout}s）")
         sleeper(interval)
@@ -207,17 +215,16 @@ def read_log_tail(log_file: Path, max_lines: int = 40) -> str:
     return "\n".join(lines[-max_lines:])
 
 
-def is_pid_alive(pid: int, *, killer: Callable[[int, int], None] = os.kill) -> bool:
-    """检查指定 PID 是否存在。"""
-    if pid <= 0:
-        return False
+def owned_process(state: dict[str, Any]) -> psutil.Process | None:
+    if "created_at" not in state:
+        raise RuntimeError("实例状态缺少进程身份，拒绝操作")
     try:
-        killer(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+        process = psutil.Process(int(state["pid"]))
+        if process.create_time() == state["created_at"] and process.status() != psutil.STATUS_ZOMBIE:
+            return process
+    except psutil.NoSuchProcess:
+        pass
+    return None
 
 
 def start_instance(
@@ -241,8 +248,13 @@ def start_instance(
     port_picker: Callable[[int | None, str], int] = pick_port,
 ) -> dict[str, Any]:
     """启动本地隔离实例，等待 /health 就绪并写入状态文件。"""
+    if host == "localhost":
+        host = DEFAULT_HOST
+    if not ipaddress.IPv4Address(host).is_loopback:
+        raise ValueError("本地验证实例仅支持 IPv4 回环地址")
     ensure_frontend_dist(root, skip_build=skip_build, runner=runner)
     chosen_port = port_picker(port, host)
+    new_dir = data_dir is None or not data_dir.expanduser().exists()
     target_dir = prepare_data_dir(data_dir)
     target_state = resolve_state_file(target_dir, state_file)
     log_file = target_dir / LOG_FILENAME
@@ -253,56 +265,55 @@ def start_instance(
         password=password,
     )
     base_url = f"http://{host}:{chosen_port}"
-    log_handle = log_file.open("w", encoding="utf-8")
-    try:
-        process = popen(
-            (sys.executable, "-m", "uvicorn", "server.app:app", "--host", host, "--port", str(chosen_port)),
-            cwd=root,
-            env=env,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    finally:
-        log_handle.close()
-    try:
-        wait_until_healthy(
-            base_url,
-            process=process,
-            timeout=wait_timeout,
-            clock=clock,
-            sleeper=sleeper,
-            opener=opener,
-        )
-    except Exception as exc:
-        with contextlib.suppress(OSError):
-            process.terminate()
-        with contextlib.suppress(Exception):
-            process.wait(timeout=5)
-        tail = read_log_tail(log_file)
-        if not keep_on_failure:
-            with contextlib.suppress(Exception):
-                cleanup_data_dir(target_dir)
-        detail = f"\n{tail}" if tail else ""
-        raise RuntimeError(f"启动本地实例失败：{exc}{detail}") from exc
-
-    state = {
-        "pid": int(process.pid),
-        "host": host,
-        "port": chosen_port,
-        "base_url": base_url,
-        "data_dir": str(target_dir),
-        "log_file": str(log_file),
-        "state_file": str(target_state),
-        "auth_enabled": auth_enabled,
-        "username": username if auth_enabled else None,
-    }
-    target_state.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-    target_state.write_text(serialized, encoding="utf-8")
     default_state = target_dir / STATE_FILENAME
-    if target_state != default_state:
-        default_state.write_text(serialized, encoding="utf-8")
+    reserved: list[Path] = []
+    process = None
+    try:
+        for path in dict.fromkeys((default_state, target_state)):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("x", encoding="utf-8"):
+                reserved.append(path)
+        with log_file.open("w", encoding="utf-8") as log_handle:
+            process = popen(
+                (sys.executable, "-m", "uvicorn", "server.app:app", "--host", host, "--port", str(chosen_port)),
+                cwd=root,
+                env=env,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        created_at = psutil.Process(process.pid).create_time()
+        wait_until_healthy(base_url, process=process, timeout=wait_timeout, clock=clock, sleeper=sleeper, opener=opener)
+        state = {
+            "pid": int(process.pid),
+            "created_at": created_at,
+            "host": host,
+            "port": chosen_port,
+            "base_url": base_url,
+            "data_dir": str(target_dir),
+            "log_file": str(log_file),
+            "state_file": str(target_state),
+            "auth_enabled": auth_enabled,
+            "username": username if auth_enabled else None,
+        }
+        for path in reserved:
+            path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except BaseException as exc:
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        tail = read_log_tail(log_file) if process is not None else ""
+        for path in reversed(reserved):
+            path.unlink(missing_ok=True)
+        if not keep_on_failure and (data_dir is None or (new_dir and default_state in reserved)):
+            cleanup_data_dir(target_dir)
+        if isinstance(exc, Exception):
+            raise RuntimeError(f"启动本地实例失败：{exc}\n{tail}") from exc
+        raise
     return state
 
 
@@ -322,16 +333,14 @@ def instance_status(
     data_dir: Path | None = None,
     state_file: Path | None = None,
     opener: Callable[..., Any] = urllib.request.urlopen,
-    killer: Callable[[int, int], None] = os.kill,
     port_checker: Callable[[int, str], bool] = is_port_free,
 ) -> dict[str, Any]:
     """查询实例进程存活、端口监听与 /health 状态。"""
     _, state = load_instance_state(data_dir, state_file)
-    pid = int(state["pid"])
     host = str(state.get("host") or DEFAULT_HOST)
     port = int(state["port"])
     base_url = str(state["base_url"])
-    alive = is_pid_alive(pid, killer=killer)
+    alive = owned_process(state) is not None
     health = fetch_health(base_url, opener=opener) if alive else None
     return {
         **state,
@@ -348,43 +357,49 @@ def stop_instance(
     keep_data_dir: bool = False,
     timeout: float = DEFAULT_STOP_TIMEOUT,
     interval: float = 0.1,
-    killer: Callable[[int, int], None] = os.kill,
     clock: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
     port_checker: Callable[[int, str], bool] = is_port_free,
 ) -> dict[str, Any]:
     """停止实例进程、确认端口释放并按需清理带哨兵的数据目录。"""
-    target_state, state = load_instance_state(data_dir, state_file)
+    _, state = load_instance_state(data_dir, state_file)
     pid = int(state["pid"])
     host = str(state.get("host") or DEFAULT_HOST)
     port = int(state["port"])
     target_dir = Path(str(state["data_dir"])).expanduser().resolve()
 
-    if is_pid_alive(pid, killer=killer):
-        with contextlib.suppress(ProcessLookupError):
-            killer(pid, signal.SIGTERM)
-        deadline = clock() + timeout
-        while is_pid_alive(pid, killer=killer) and clock() < deadline:
-            sleeper(interval)
-        if is_pid_alive(pid, killer=killer) and hasattr(signal, "SIGKILL"):
-            with contextlib.suppress(ProcessLookupError):
-                killer(pid, int(signal.SIGKILL))
-            kill_deadline = clock() + 2.0
-            while is_pid_alive(pid, killer=killer) and clock() < kill_deadline:
-                sleeper(interval)
+    canonical_state = target_dir / STATE_FILENAME
+    if not (target_dir / SENTINEL_NAME).is_file() or load_instance_state(target_dir)[1] != state:
+        raise RuntimeError("实例状态与数据目录不一致")
+    process = owned_process(state)
+    if process is not None:
+        with contextlib.suppress(psutil.NoSuchProcess):
+            process.terminate()
+            try:
+                process.wait(timeout=timeout)
+            except psutil.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=2)
 
     port_deadline = clock() + timeout
     while not port_checker(port, host) and clock() < port_deadline:
         sleeper(interval)
     port_free = port_checker(port, host)
-    alive = is_pid_alive(pid, killer=killer)
+    alive = owned_process(state) is not None
     if alive or not port_free:
         raise RuntimeError(f"实例未干净释放：pid={pid} alive={alive}，port={host}:{port} free={port_free}")
 
     if not keep_data_dir:
         cleanup_data_dir(target_dir)
-        if target_state.is_file():
-            target_state.unlink()
+    else:
+        canonical_state.unlink()
+    external_state = Path(state["state_file"])
+    if (
+        external_state != canonical_state
+        and external_state.is_file()
+        and load_instance_state(state_file=external_state)[1] == state
+    ):
+        external_state.unlink()
 
     return {
         "stopped": True,
@@ -405,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     start = sub.add_parser("start", help="构建或校验 frontend/dist，启动本地隔离实例并等待 /health 就绪")
-    start.add_argument("--host", default=DEFAULT_HOST, help="监听地址（默认 127.0.0.1）")
+    start.add_argument("--host", default=DEFAULT_HOST, help="本地 IPv4 回环地址（默认 127.0.0.1）")
     start.add_argument("--port", type=int, help="监听端口；省略时自动分配空闲端口")
     start.add_argument("--data-dir", type=Path, help="隔离数据目录；省略时自动创建临时目录")
     start.add_argument("--state-file", type=Path, help="实例状态 JSON 输出路径（默认 <data-dir>/instance.json）")
