@@ -69,6 +69,7 @@ dev = [
     "time-machine>=3.6.0",
     "tree-sitter-language-pack==0.13.0",
     "tree-sitter>=0.25,<0.27",
+    "hypothesis>=6.170.17",
 ]
 mutation = [
     "mutmut==3.7.0",
@@ -97,6 +98,7 @@ timeout = 120
 # 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
 timeout_method = "signal"
 markers = [
+    "invariant: 高危域的属性、状态机与反例重放",
     "unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务",
     "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
     "e2e: 端到端、依赖真实外部资源（远程 API、大模型调用、重型 ffmpeg 等）的测试；CI 默认跳过",
@@ -285,6 +287,7 @@ DEP002 = [
 DEP004 = [
     "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
     "pytest",
+    "hypothesis",
     "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
     "respx",

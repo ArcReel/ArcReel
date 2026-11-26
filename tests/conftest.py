@@ -84,6 +84,7 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
 # 每个用例再由 `isolated_data_root` 换成各自的空数据根。
 _OWNED_TEST_HOME_DIR = tempfile.mkdtemp(prefix="arcreel-test-home-")
 os.environ["ARCREEL_DATA_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "data")
+os.environ["HYPOTHESIS_STORAGE_DIRECTORY"] = str(Path(_OWNED_TEST_HOME_DIR) / "hypothesis")
 os.environ["CLAUDE_CONFIG_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "claude-config")
 os.environ.pop("AI_ANIME_PROJECTS", None)
 
@@ -121,7 +122,7 @@ from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFa
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
-pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog"]
+pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog", "tests.invariant_profiles"]
 
 
 @pytest.fixture
