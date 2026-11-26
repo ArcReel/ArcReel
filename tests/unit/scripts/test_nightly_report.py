@@ -1,6 +1,8 @@
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts import nightly_report
 from scripts.nightly_report import signature
@@ -16,7 +18,8 @@ def issue(run: int) -> dict:
 
 
 @pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
-def test_failed_run_rerun_and_next_green(monkeypatch, result):
+@pytest.mark.parametrize("job", ["backend-exploration", "frontend-exploration", "live-e2e"])
+def test_failed_run_rerun_and_next_green(monkeypatch, result, job):
     capacity = issue(10) | {"number": 4093, "title": "Nightly full CI 失败", "body": "运行超时"}
     confirmed = issue(11) | {"number": 41, "labels": [{"name": "ci"}, {"name": "bug"}]}
     alerts = [
@@ -61,24 +64,24 @@ def test_failed_run_rerun_and_next_green(monkeypatch, result):
         "GITHUB_RUN_ID": "12",
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_SERVER_URL": "https://github.com",
-        "DEEP_JOBS": json.dumps({"live-e2e": {"result": result}}),
+        "DEEP_JOBS": json.dumps({job: {"result": result}}),
     }.items():
         monkeypatch.setenv(key, value)
-    nightly_report.main()
+    assert nightly_report.main() == 1
     (created,) = writes
     assert created[0] == "create"
     body = created[created.index("--body") + 1]
-    assert f"live-e2e: {result}" in body
+    assert f"{job}: {result}" in body
     assert "容量" in body
     assert "integration" in body
     alerts.append(issue(12) | {"number": 42, "body": body, "title": created[created.index("--title") + 1]})
 
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
-    nightly_report.main()
+    assert nightly_report.main() == 1
     assert writes[1][:2] == ["comment", "42"]
     monkeypatch.setenv("GITHUB_RUN_ID", "14")
-    monkeypatch.setenv("DEEP_JOBS", json.dumps({"live-e2e": {"result": "success"}}))
-    nightly_report.main()
+    monkeypatch.setenv("DEEP_JOBS", json.dumps({job: {"result": "success"}}))
+    assert nightly_report.main() == 0
     assert [args[:2] for args in writes[2:]] == [["close", "42"]]
 
 
@@ -89,6 +92,7 @@ def test_failed_run_rerun_and_next_green(monkeypatch, result):
         ("failure", "FATAL ERROR: Reached heap limit", "容量"),
         ("failure", "Failed: Test timed out in 5000ms", "测试竞态"),
         ("failure", "E   AssertionError: expected 4", "产品断言"),
+        ("failure", "Error: Property failed after 1 tests", "产品断言"),
         ("failure", "connection reset by peer", "基础设施"),
     ],
 )
@@ -98,3 +102,22 @@ def test_failed_job_signature(conclusion, log, kind):
 
 def test_step_timeout_routes_to_capacity():
     assert signature("failure", "##[error]The action 'Run tests' has timed out after 20 minutes.") == "容量"
+
+
+def test_nightly_explorations_report_and_keep_failure_logs():
+    path = Path(__file__).resolve().parents[3] / ".github/workflows/nightly-full.yml"
+    jobs = yaml.safe_load(path.read_text())["jobs"]
+    assert set(jobs["report"]["needs"]) == jobs.keys() - {"report"}
+    assert jobs["report"]["if"] == "always()"
+    assert jobs["report"]["steps"][-1]["env"]["DEEP_JOBS"] == "${{ toJSON(needs) }}"
+    strategy = jobs["backend-exploration"]["strategy"]
+    assert set(strategy["matrix"]["suite"]) == {"backend", "archives"}
+    assert strategy["fail-fast"] is False
+    for name in ("backend-exploration", "frontend-exploration"):
+        steps = jobs[name]["steps"]
+        run = next(step for step in steps if "nightly_invariants.py" in step.get("run", ""))
+        assert run["shell"] == "bash"
+        assert not run.get("continue-on-error")
+        upload = next(step for step in steps if "upload-artifact" in step.get("uses", ""))
+        assert upload["if"] == "failure() || cancelled()"
+        assert upload["with"]["path"] in run["run"]
