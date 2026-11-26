@@ -93,6 +93,7 @@ export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 export const WORKSPACE_ROUTE_FILES = "files";
+export const WORKSPACE_ROUTE_DRAFTS = "drafts";
 
 export const EPISODE_VIEW_PARAM = "view";
 export const EPISODE_VIEW_EDIT = "edit";
@@ -112,6 +113,7 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_PRODUCTS,
   WORKSPACE_ROUTE_FILES,
+  WORKSPACE_ROUTE_DRAFTS,
 ] as const;
 
 /**

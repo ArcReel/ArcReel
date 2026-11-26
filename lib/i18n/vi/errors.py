@@ -1,4 +1,5 @@
 MESSAGES = {
+    "image_draft_not_found": "Không tìm thấy bản nháp ảnh",
     "asset_resource_busy": "Tài sản này có tác vụ đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
     "apply_failed_resource_busy": "Không thể ghi đè tài nguyên trong dự án khi tác vụ của tài nguyên đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
     "episode_position_name": "Tập {position}",

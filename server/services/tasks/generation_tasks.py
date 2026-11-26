@@ -135,6 +135,7 @@ from server.services.currency.video_artifact_currency import (
     complete_video_artifact_commit,
     freeze_video_speech_facts,
 )
+from server.services.free_image_drafts import commit_draft
 from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
 from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
@@ -1471,6 +1472,60 @@ def _originals_have_no_claims(
     return ()
 
 
+async def execute_free_image_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+    claimed_provider_id: str | None = None,
+) -> dict[str, Any]:
+    """Generate a prompt-only image into the project's draft library."""
+    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    context = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        project_path=project_path,
+        user_id=user_id,
+        image=ImageLaneRequest(generation_type="t2i"),
+    )
+    ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
+    prompt = payload["prompt"]
+    aspect_ratio = payload.get("aspect_ratio", "1:1")
+    draft: dict[str, Any] = {}
+
+    def commit(staged: Path, output: Path, _metadata: Mapping[str, Any]) -> int:
+        draft.update(
+            commit_draft(
+                project_name,
+                staged,
+                output,
+                resource_id=resource_id,
+                prompt=prompt,
+                model=context.image.backend_model,
+                provider=context.image.provider_model.provider_id,
+                aspect_ratio=aspect_ratio,
+                resolution=context.image.resolution,
+            )
+        )
+        return 1  # A draft is immutable; formal asset versions start when it is bound.
+
+    await context.generator.generate_image_async(
+        prompt=prompt,
+        resource_type="drafts",
+        resource_id=resource_id,
+        aspect_ratio=aspect_ratio,
+        image_size=context.image.resolution,
+        formal_output=True,
+        task_id=task_id,
+        commit_formal_output=commit,
+    )
+    return draft
+
+
 async def execute_character_task(
     project_name: str,
     resource_id: str,
@@ -1803,6 +1858,7 @@ async def execute_grid_task(
 
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
+    "free_image": execute_free_image_task,
     "video": execute_video_task,
     "tts": execute_tts_task,
     "voice_sample": execute_character_voice_sample_task,

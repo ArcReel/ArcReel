@@ -8,6 +8,7 @@ import {
   WORKSPACE_ROUTE_PRODUCTS,
   WORKSPACE_ROUTE_EPISODES,
   WORKSPACE_ROUTE_FILES,
+  WORKSPACE_ROUTE_DRAFTS,
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -22,6 +23,7 @@ import { OverviewCanvas } from "./overview/OverviewCanvas";
 import { WorkspaceNotFound } from "./WorkspaceNotFound";
 import { EpisodesView } from "./episodes/EpisodesView";
 import { FileView } from "./files/FileView";
+import { DraftsPage } from "./DraftsPage";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
@@ -440,6 +442,10 @@ export function StudioCanvasRouter() {
           onRefreshProject={refreshAfterAction}
           generatingProductNames={generatingProductNames}
         />
+      </Route>
+
+      <Route path={`/${WORKSPACE_ROUTE_DRAFTS}`}>
+        {demoMode ? <Redirect to="/" /> : <DraftsPage key={currentProjectName} projectName={currentProjectName} />}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_FILES}`}>

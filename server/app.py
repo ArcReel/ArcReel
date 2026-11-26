@@ -92,6 +92,7 @@ from server.routers import (
     episodes_view,
     file_view,
     files,
+    free_image_drafts,
     generate,
     grids,
     market,
@@ -818,6 +819,12 @@ app.include_router(
     tags=["参考生视频"],
 )
 app.include_router(assets.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["全局资产库"])
+app.include_router(
+    free_image_drafts.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["图片草稿"],
+)
 app.include_router(
     agent_memory.user_router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["Agent 记忆"]
 )

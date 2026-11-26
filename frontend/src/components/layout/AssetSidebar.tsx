@@ -15,6 +15,7 @@ import {
   Search,
   ShoppingBag,
   Upload,
+  Images,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -30,8 +31,10 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProjectsStore } from "@/stores/projects-store";
+import { API } from "@/api";
+import { useDraftCountStore } from "@/stores/draft-count-store";
 import { useCostStore } from "@/stores/cost-store";
-import { WORKSPACE_ROUTE_EPISODES, WORKSPACE_ROUTE_FILES } from "@/app-routes";
+import { WORKSPACE_ROUTE_DRAFTS, WORKSPACE_ROUTE_EPISODES, WORKSPACE_ROUTE_FILES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { normalizeRoute } from "@/utils/generation-mode";
 import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
@@ -65,6 +68,16 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
   const episodes = currentProjectData?.episodes ?? [];
   const isAd = currentProjectData?.content_mode === "ad";
   const demoMode = useDemoWorkbench();
+  const draftCount = useDraftCountStore((s) => currentProjectName ? s.counts[currentProjectName] : undefined);
+  const draftRevision = useDraftCountStore((s) => currentProjectName ? s.revisions[currentProjectName] : undefined);
+  useEffect(() => {
+    if (!currentProjectName || demoMode) return;
+    const controller = new AbortController();
+    void API.listFreeImageDrafts(currentProjectName, controller.signal).then(({ items }) => {
+      if (!controller.signal.aborted) useDraftCountStore.getState().setCount(currentProjectName, items.length);
+    }, () => { /* Keep the last confirmed count if the library is temporarily unavailable. */ });
+    return () => controller.abort();
+  }, [currentProjectName, demoMode, draftRevision]);
   const route = normalizeRoute(currentProjectData?.generation_mode);
 
   useEffect(() => {
@@ -94,6 +107,13 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
             count: episodes.length,
           },
         ]),
+    ...(demoMode ? [] : [{
+      key: "drafts",
+      path: `/${WORKSPACE_ROUTE_DRAFTS}`,
+      label: t("dashboard:image_draft_library"),
+      icon: Images,
+      count: draftCount,
+    }]),
     {
       key: "characters",
       path: "/characters",

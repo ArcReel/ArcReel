@@ -2428,6 +2428,32 @@ class API {
   }
 
 
+  static async generateFreeImage(projectName: string, payload: { prompt: string; generation_options?: import("@/stores/run-settings-store").GenerationOptions; aspect_ratio?: string }): Promise<{ draft_id: string; task_id: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/image-drafts/generate`, { method: "POST", body: JSON.stringify(payload) });
+  }
+
+  static async listFreeImageDrafts(projectName: string, signal?: AbortSignal): Promise<{ items: import("@/types/free-image-draft").FreeImageDraft[] }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/image-drafts`, { signal });
+  }
+
+  static async bindFreeImageDraft(projectName: string, draftId: string, assetType: "character" | "scene" | "prop", assetName: string): Promise<{ success: boolean; file_path: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/image-drafts/${encodeURIComponent(draftId)}/bind`, { method: "POST", body: JSON.stringify({ asset_type: assetType, asset_name: assetName }) });
+  }
+
+  static async getFreeImageDraftImage(projectName: string, draftId: string, signal: AbortSignal): Promise<Blob> {
+    const endpoint = `/projects/${encodeURIComponent(projectName)}/image-drafts/${encodeURIComponent(draftId)}/image`;
+    const response = await fetch(`${API_BASE}${endpoint}`, withAuth(endpoint, { signal }));
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(response.statusText);
+    }
+    return response.blob();
+  }
+
+  static async deleteFreeImageDraft(projectName: string, draftId: string): Promise<void> {
+    await this.request(`/projects/${encodeURIComponent(projectName)}/image-drafts/${encodeURIComponent(draftId)}`, { method: "DELETE" });
+  }
+
   static async getTask(taskId: string, options: { signal?: AbortSignal } = {}): Promise<TaskItem> {
     const { task } = await this.request<{ task: TaskItem }>(
       `/tasks/${encodeURIComponent(taskId)}`,
