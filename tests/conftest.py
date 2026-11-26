@@ -59,12 +59,7 @@ _OWNED_TEST_DB_OWNER_PID = os.getpid()
 
 
 def _remove_owned_test_db_dir() -> None:
-    """只在铸造临时库的进程里回收它。
-
-    atexit 登记表随 fork 复制到子进程。mutmut 按 mutant fork 出的 pytest 会话若走了
-    正常退出路径而非 ``os._exit``，会带着父进程的登记表跑一遍；不设 pid 守卫时它会
-    删掉所有并行子进程共用的库，之后每个子进程的会话级 DB fixture 都报错。
-    """
+    """fork 子进程继承 atexit 回调，只有创建者可回收临时库。"""
     if _OWNED_TEST_DB_DIR is None or os.getpid() != _OWNED_TEST_DB_OWNER_PID:
         return
     shutil.rmtree(_OWNED_TEST_DB_DIR, ignore_errors=True)
@@ -230,9 +225,7 @@ def _discard_pooled_connections_in_forked_child() -> None:
 
     aiosqlite 每个连接由一条专属工作线程驱动，fork 只复制调用线程，子进程里池中
     连接的工作线程不存在，经它发出的任何查询都永远等不到结果。``close=False``
-    只丢引用不关连接，父进程那份连接不受影响。mutmut 按 mutant fork 跑测试，
-    子进程首个走 ``lib.db.engine`` 的用例会就此挂到超时。父进程从未 import 过
-    该模块时池中无连接可丢，也不在子进程里触发 engine 创建。
+    只丢引用不关连接，父进程可继续使用原连接。
     """
     engine_module = sys.modules.get("lib.db.engine")
     if engine_module is None:
@@ -245,11 +238,7 @@ _fork_hook_registered = False
 
 @pytest.fixture(scope="session", autouse=True)
 def discard_pooled_connections_after_fork() -> None:
-    """把 ``_discard_pooled_connections_in_forked_child`` 挂到本进程的 fork 钩子上。
-
-    钩子是进程级、不可注销的；mutmut 会在同一父进程里连开几个 pytest 会话再按 mutant
-    fork，故只注册一次。
-    """
+    """fork 钩子不可注销，同一进程内的多个 pytest 会话共用一次注册。"""
     global _fork_hook_registered
     if _fork_hook_registered or not hasattr(os, "register_at_fork"):
         return
