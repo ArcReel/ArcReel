@@ -58,7 +58,7 @@ GitHub compare API 的 `total_commits` 包含合入分支的提交，与 `--firs
 第 3–5 步没有产生任何改动时，PR 只推进 reviewed-through 标记，下一次巡检就不必重扫同一窗口。依次执行：
 
 1. 将 `reviewed-through` 标记更新为窗口终点的 SHA 与日期，提交本次全部改动。
-2. 运行 `uv run python scripts/gate.py --changed` 直到通过。
+2. 运行 `uv run python scripts/gate.py --changed --full` 直到通过。
 3. 创建 PR，标题为 `chore(lessons): <YYYY-MM-DD> 教训巡检`。正文列出：新增教训、计数变化、清理掉的教训、晋升及去向、退出的规则、agent 自行裁决的事项（各附一行理由）、窗口内 agent 新开的 issue 数（带 `ready-for-agent` 或 `needs-triage` 标签，两类分开计数）。
 4. PR 只推进标记时，直接用 `gh pr merge --auto --squash` 开启 auto-merge。其余情况使用 Skill 工具调用 `pr-ai-review-loop`，由你担任委派方：需要用户的事项开 `needs-triage` issue，从本 PR 撤下相关改动（条目留在教训库，注明 issue 号），其余改动照常收敛；follow-up 按 escalation.md 分流。收敛后用 `gh pr merge --auto --squash` 开启 auto-merge。
 

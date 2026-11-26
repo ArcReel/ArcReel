@@ -1,6 +1,10 @@
 # 运行测试
 
-改动时先跑相关测试。push 前按 [AGENTS.md](../../AGENTS.md)运行受影响域的完整闸门。选中 0 条用例时，把范围扩大到对应目录或完整套件。
+开发时运行 `uv run python scripts/gate.py --changed [BASE]`。门禁相对公共祖先选域，包含未提交、未跟踪和重命名前后的路径。各域保留完整静态检查，后端用 testmon 和改动的测试文件选例，前端用 Vitest 运行关联测试与改动的测试文件。
+
+共享配置、锁文件、测试设施、迁移、跨语言契约、子进程入口、删除或无法识别的域内路径会升级至对应域完整测试。无法归属的代码路径触发前后端完整测试。定向测试零命中时重跑该域完整测试。后端首次建 testmon 库也按全量步骤排队。
+
+push 前运行 `uv run python scripts/gate.py --changed --full`。显式点名的域始终完整运行。仅全量后端和前端测试共用机器锁，定向测试使用单个 worker。
 
 ## 选择相关测试
 
@@ -13,7 +17,7 @@
 | 前端共享面 | 改包清单、锁文件、Vitest 配置、测试 setup、i18n 或 branding，在 `frontend/` 跑 `pnpm check`。 |
 | 市场或目录子包 | 在各自 `packages/` 的包目录跑 `uv run python -m pytest`，再按主仓调用方补跑相关测试。消息键变化另跑主仓 `tests/unit/lib/i18n/`。 |
 
-testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；改动这类入口时需按路径手动补跑对应测试。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
+testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；手动运行 testmon 时需另测这类入口。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
 
 修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
 
