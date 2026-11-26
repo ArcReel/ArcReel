@@ -7,6 +7,16 @@ import re
 import shutil
 import subprocess
 
+_ALERT_MARKER_PREFIX = "nightly-full"
+
+
+def _alert_title(run_id: int) -> str:
+    return f"Nightly CI 运行告警 #{run_id}"
+
+
+def _alert_marker(ref: str, run_id: int) -> str:
+    return f"<!-- {_ALERT_MARKER_PREFIX}:{ref}:{run_id} -->"
+
 
 def gh(*args: str) -> str:
     executable = shutil.which("gh")
@@ -18,8 +28,11 @@ def gh(*args: str) -> str:
 def alert_run(issue: dict, ref: str) -> int | None:
     if issue["user"]["login"] != "github-actions[bot]" or {label["name"] for label in issue["labels"]} != {"ci"}:
         return None
-    marker = re.match(rf"<!-- nightly-full:{re.escape(ref)}:(\d+) -->(?:\r?\n|$)", issue["body"] or "")
-    if marker and issue["title"] == f"Nightly CI 运行告警 #{marker[1]}":
+    marker = re.match(
+        rf"<!-- {re.escape(_ALERT_MARKER_PREFIX)}:{re.escape(ref)}:(\d+) -->(?:\r?\n|$)",
+        issue["body"] or "",
+    )
+    if marker and issue["title"] == _alert_title(int(marker[1])):
         return int(marker[1])
     return None
 
@@ -98,9 +111,9 @@ def main() -> None:
         "--label",
         "ci",
         "--title",
-        f"Nightly CI 运行告警 #{run_id}",
+        _alert_title(run_id),
         "--body",
-        f"<!-- nightly-full:{ref}:{run_id} -->\n{report}",
+        f"{_alert_marker(ref, run_id)}\n{report}",
     )
 
 
