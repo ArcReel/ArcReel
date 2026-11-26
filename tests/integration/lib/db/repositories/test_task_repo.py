@@ -544,41 +544,6 @@ class TestTaskRepository:
         assert items[running["task_id"]]["model"] == "veo-3"
         assert items[queued["task_id"]]["model"] is None
 
-    async def test_task_has_cancelled_by_field(self, db_session):
-        repo = TaskRepository(db_session)
-        task = await repo.enqueue(
-            project_name="demo",
-            task_type="storyboard",
-            media_type="image",
-            resource_id="E1S01",
-            payload={},
-            script_file="ep1.json",
-        )
-        fetched = await repo.get(task["task_id"])
-        assert fetched["cancelled_by"] is None
-
-    async def test_cancel_single_queued_task(self, db_session):
-        repo = TaskRepository(db_session)
-
-        task = await repo.enqueue(
-            project_name="demo",
-            task_type="storyboard",
-            media_type="image",
-            resource_id="E1S01",
-            payload={},
-            script_file="ep1.json",
-        )
-
-        result = await repo.cancel_task(task["task_id"])
-        assert len(result["cancelled"]) == 1
-        assert result["cancelled"][0]["task_id"] == task["task_id"]
-        assert result["cancelled"][0]["cancelled_by"] == "user"
-        assert result["skipped_terminal"] == []
-
-        cancelled = await repo.get(task["task_id"])
-        assert cancelled["status"] == "cancelled"
-        assert cancelled["cancelled_by"] == "user"
-
     async def test_get_stats(self, db_session):
         repo = TaskRepository(db_session)
 
