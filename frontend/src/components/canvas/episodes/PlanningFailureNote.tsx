@@ -8,8 +8,9 @@ import { TaskFailureDetails } from "@/components/shared/TaskFailureDetails";
 import type { PlanningFailure } from "./episode-planning-model";
 
 export function PlanningFailureNote({ failure }: { failure: PlanningFailure }) {
-  const { t } = useTranslation("dashboard");
-  const reason = failure.message.trim();
+  const { t } = useTranslation(["dashboard", "errors"]);
+  const reason =
+    failure.code === "text_wait_timeout" ? t("errors:text_wait_timeout") : failure.message.trim();
   const settings = failure.code === "text_default_model_not_set";
   if (!reason && !settings && !failure.truncated) return null;
   return (

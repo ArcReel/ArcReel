@@ -120,6 +120,7 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
     migration: MigrationPolicy
     domain_key: str
     handler: ScopedHandler[RequestT, ResultT]
+    output_model: type[BaseModel] | None = None
     long_task: bool = False
     summary: Callable[[ResultT], str | None] | None = None
     projection: Callable[[ResultT], dict[str, Any]] | None = None

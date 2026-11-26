@@ -14,6 +14,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, Project
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.infra.app_data_dir import reset_for_tests
 from lib.project.project_manager import ProjectManager, reset_project_manager_for_tests
+from lib.project.project_migrations.runner import migrate_project_dir
 from lib.speech.speech_presentation import presentation_artifact_paths
 from server.services.currency import upload_finalize
 from server.services.currency.typed_media_restore import restore_typed_media_resource
@@ -38,6 +39,7 @@ async def _project_with_materialized_presentations(tmp_path: Path) -> tuple[Proj
     """两个分镜都有 AI 视频，导出过带旁白的剪映草稿，字幕与呈现已物化并登记。"""
 
     pm, project_path = setup_project(tmp_path)
+    migrate_project_dir(project_path)
     with pm.locked_script("demo", "episode_1.json", validate=False) as script:
         script["title"] = "One"
         for segment in script["segments"]:
@@ -192,11 +194,11 @@ async def test_old_claims_naming_a_missing_video_version_still_fail_export(
 ) -> None:
     pm, project_path, _timeline_id = await _project_with_materialized_presentations(tmp_path)
     await _upload_e1s01_video(pm, project_path, monkeypatch)
-    versions_path = project_path / "versions" / "versions.json"
-    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    store = VersionManager(project_path).sqlite
+    versions = store.resources([("videos", "E1S01")])
     bucket = versions["videos"]["E1S01"]
     bucket["versions"] = [record for record in bucket["versions"] if record["version"] != 1]
-    versions_path.write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
+    store.save(versions)
 
     with pytest.raises(ValueError, match="unprovable formal claims"):
         ProjectArchiveService(pm).get_export_diagnostics("demo", scope="current")
@@ -246,8 +248,8 @@ async def test_regenerating_narration_keeps_export_and_draft_download_available(
 async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, damage: str) -> None:
     pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
     _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
-    versions_path = project_path / "versions" / "versions.json"
-    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    store = VersionManager(project_path).sqlite
+    versions = store.resources([("audio", "E1S01")])
     old_audio = versions["audio"]["E1S01"]["versions"][0]
     if damage == "subtitle":
         path = project_path / _SUBTITLE_PATH
@@ -258,10 +260,10 @@ async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, dam
         (project_path / old_audio["file"]).write_bytes(b"corrupted audio")
     elif damage == "record":
         versions["audio"]["E1S01"]["versions"].remove(old_audio)
-        versions_path.write_text(json.dumps(versions), encoding="utf-8")
+        store.save(versions)
     elif damage == "basis":
         old_audio["artifact_audio_basis"]["digest"] = "sha256-v1:" + "0" * 64
-        versions_path.write_text(json.dumps(versions), encoding="utf-8")
+        store.save(versions)
     elif damage == "current_video":
         (project_path / "videos/scene_E1S01.mp4").write_bytes(b"corrupted current video")
     else:

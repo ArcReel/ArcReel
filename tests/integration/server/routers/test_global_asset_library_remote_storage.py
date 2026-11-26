@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import threading
 from collections.abc import Generator
 from contextlib import asynccontextmanager, nullcontext
@@ -178,8 +177,7 @@ def _upload(library_api: TestClient, content: bytes):
 
 
 def _history(library_projects: ProjectManager, project_name: str) -> dict[str, Any]:
-    path = library_projects.get_project_path(project_name) / "versions" / "versions.json"
-    return json.loads(path.read_text(encoding="utf-8"))["characters"]["Alice"]
+    return VersionManager(library_projects.get_project_path(project_name)).get_versions("characters", "Alice")
 
 
 async def _objects(library_sessions) -> list[FormalObject]:
@@ -418,7 +416,7 @@ async def test_local_library_image_applied_under_remote_storage_fails_without_pa
     failed = _apply(library_api, entry.id)
     assert failed.status_code == 502
     assert (other_dir / "project.json").read_bytes() == before
-    assert not (other_dir / "versions" / "versions.json").exists()
+    assert VersionManager(other_dir).sqlite.snapshot() == {}
     assert not (other_dir / "characters" / "Alice.png").exists()
 
     library_bucket.fail.clear()

@@ -1,0 +1,81 @@
+{
+  "workload": "synthetic",
+  "base_commit": "af20f66c1",
+  "argv": [
+    "uv",
+    "run",
+    "python",
+    "-m",
+    "scripts.perf.bench",
+    "idle",
+    "--rebuild",
+    "--episodes",
+    "300",
+    "--units",
+    "19",
+    "--assets",
+    "400",
+    "--video-kb",
+    "1",
+    "--sheet-kb",
+    "1",
+    "--distribution",
+    "complete",
+    "--reps",
+    "1",
+    "--only",
+    "wf_status"
+  ],
+  "host": {
+    "arch": "aarch64",
+    "cpu": "4 x Neoverse-N1",
+    "memory_kib": 24548116,
+    "python": "3.12.3"
+  },
+  "migration": {
+    "target_schema": 21,
+    "startup_migration_s": 17.066766954027116,
+    "videos": 5700,
+    "with_facts": 5700
+  },
+  "idle": {
+    "wf_status": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 219740,
+          "sampled_peak_kib": 9222532,
+          "high_water_kib": 9222440
+        }
+      },
+      "response_bytes": 7058,
+      "reads": {
+        "project": 4,
+        "script": 600,
+        "history": 301
+      },
+      "first_open_s": 21.131164369988255,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 20.00651556509547,
+      "warm_s": [
+        19.62590566498693
+      ],
+      "p50": 19.62590566498693,
+      "p95": 19.62590566498693,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 2,
+      "lock_acq": 0,
+      "status": 200
+    }
+  },
+  "observed_at_end": {
+    "history_bytes": 29546098,
+    "manifest_bytes": 2469900,
+    "asset_images": 400
+  }
+}

@@ -483,17 +483,11 @@ def _project_dir_or_none(project_name: str) -> Path | None:
 
 def _selected_content(project_dir: Path, resource_type: str, resource_id: str) -> tuple[str, str] | None:
     """资源此刻选中版本的 (内容版本身份, 摘要)；没有版本历史或早期记录没有身份时返回 ``None``。"""
-    with VersionManager(project_dir).locked_history() as data:
-        bucket = data.get(resource_type)
-        history = bucket.get(resource_id) if isinstance(bucket, dict) else None
-    if not isinstance(history, dict):
-        return None
-    current = history.get("current_version")
-    for record in history.get("versions") or ():
-        if isinstance(record, dict) and record.get("version") == current:
-            content_version_id, digest = record.get(CONTENT_VERSION_ID), record.get(CONTENT_DIGEST)
-            if isinstance(content_version_id, str) and isinstance(digest, str):
-                return content_version_id, digest
+    record = VersionManager(project_dir).get_current_record(resource_type, resource_id)
+    if record:
+        content_version_id, digest = record.get(CONTENT_VERSION_ID), record.get(CONTENT_DIGEST)
+        if isinstance(content_version_id, str) and isinstance(digest, str):
+            return content_version_id, digest
     return None
 
 

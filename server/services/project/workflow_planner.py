@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation.generation_queue_client import get_active_tasks_for_resources
@@ -17,7 +19,7 @@ from lib.generation.generation_result import (
     migration_problem,
     provider_checkpoint_from_task,
 )
-from lib.project.asset_types import ASSET_SPECS
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, is_derivative_artifact_id, split_derivative_artifact_id
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -37,7 +39,14 @@ from lib.workflow.workflow_plan import (
     WorkflowTaskObservation,
     build_workflow_plan,
 )
-from lib.workflow.workflow_state import WorkflowBlocker, WorkflowStateService, WorkflowStatus
+from lib.workflow.workflow_state import (
+    WorkflowActionType,
+    WorkflowBlocker,
+    WorkflowRead,
+    WorkflowStateService,
+    WorkflowStatus,
+    WorkflowStatusRead,
+)
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_request,
@@ -49,6 +58,9 @@ from server.services.admission.video_batch_admission import (
     screen_script_entries,
     speech_admission_problems,
 )
+from server.services.project.coalesce import RequestCoalescer, application_reads
+
+DEFAULT_WORKFLOW_CONFIG = ConfigResolver(async_session_factory)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +73,14 @@ class _ScriptFacts:
     id_field: str
     items: tuple[dict[str, Any], ...]
     revision: str
+    currency: ArtifactCurrencyResolver | None
 
 
 class WorkflowPlanner:
     """Compose durable workflow status with transient request and queue facts."""
 
-    def __init__(self, project_manager: ProjectManager):
+    def __init__(self, project_manager: ProjectManager, reads: RequestCoalescer | None = None):
+        self._reads = reads or application_reads.get() or RequestCoalescer()
         self._pm = project_manager
 
     async def get_plan(
@@ -78,22 +92,56 @@ class WorkflowPlanner:
         queue: GenerationQueue | None = None,
         config_resolver: ConfigResolver | None = None,
     ) -> WorkflowPlan:
+        return (
+            await self.read_plan(project_name, request, user_id=user_id, queue=queue, config_resolver=config_resolver)
+        ).value
+
+    async def read_plan(
+        self,
+        project_name: str,
+        request: WorkflowPlanRequest,
+        *,
+        user_id: str = DEFAULT_USER_ID,
+        visibility: str = "admin",
+        queue: GenerationQueue | None = None,
+        config_resolver: ConfigResolver | None = None,
+    ) -> WorkflowRead[WorkflowPlan]:
         queue = queue or get_generation_queue()
-        status = await asyncio.to_thread(
-            WorkflowStateService(self._pm).get_status,
+        config_resolver = config_resolver or DEFAULT_WORKFLOW_CONFIG
+        key = (
+            "workflow-plan-v3",
+            id(self._pm),
             project_name,
+            user_id,
+            visibility,
             request.episode_id,
+            tuple(sorted(request.confirmed_request_durations.items())),
+            id(queue),
+            id(config_resolver),
         )
+        return await self._reads.run(key, lambda: self._compute(project_name, request, user_id, queue, config_resolver))
+
+    async def _compute(
+        self,
+        project_name: str,
+        request: WorkflowPlanRequest,
+        user_id: str,
+        queue: GenerationQueue,
+        config_resolver: ConfigResolver,
+    ) -> WorkflowRead[WorkflowPlan]:
+        read = await asyncio.to_thread(WorkflowStateService(self._pm).read_status, project_name, request.episode_id)
+        status = read.value
         blocked = next((b for b in status.blockers if b.code == MIGRATION_FAILURE_CODE), None)
         if blocked is not None:
-            return build_workflow_plan(
+            plan = build_workflow_plan(
                 status,
                 project_problems=[await self._migration_problem(project_name, blocked)],
                 script_revision=None,
                 task_observations=[],
                 admission=None,
             )
-        facts = await self._script_facts(project_name, status)
+            return WorkflowRead(plan, read.project, load_error=read.load_error)
+        facts = await asyncio.to_thread(self._script_facts, project_name, read)
         structure_problems = self._structure_problems(facts)
         tasks = await self._active_tasks(project_name, status, facts, user_id=user_id, queue=queue)
         admission = None
@@ -108,13 +156,15 @@ class WorkflowPlanner:
                 queue=queue,
                 config_resolver=config_resolver,
             )
-        return build_workflow_plan(
+        plan = build_workflow_plan(
             status,
             structure_problems=structure_problems,
             script_revision=facts.revision if facts is not None else None,
             task_observations=tasks,
             admission=admission,
         )
+
+        return WorkflowRead(plan, read.project, load_error=read.load_error)
 
     async def _migration_problem(self, project_name: str, blocker: WorkflowBlocker) -> GenerationProblem:
         """Re-read the verdict for the structured locations the blocker cannot carry.
@@ -130,35 +180,35 @@ class WorkflowPlanner:
             failure = MigrationFailureRecord(schema_version=-1, failed_at="", reason=blocker.reason)
         return migration_problem(failure)
 
-    async def _script_facts(self, project_name: str, status: WorkflowStatus) -> _ScriptFacts | None:
+    def _script_facts(self, project_name: str, read: WorkflowStatusRead) -> _ScriptFacts | None:
+        status = read.value
         target = status.target
         script_state = status.artifacts.get("script", {}).get("state")
         if target is None or script_state not in {"current", "stale"}:
             return None
 
-        def _read() -> _ScriptFacts:
-            project = self._pm.load_project(project_name)
-            script = self._pm.load_script_readonly(project_name, target.script)
-            kind = ensure_route_skeleton(
-                script,
-                status.project.content_mode,
-                status.project.generation_mode,
-            )
-            raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
-            if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
-                raise ValueError(f"{kind} must be an array of objects")
-            return _ScriptFacts(
-                project=project,
-                project_path=self._pm.get_project_path(project_name),
-                script=script,
-                script_file=target.script_filename,
-                kind=kind,
-                id_field=id_field,
-                items=tuple(raw_items),
-                revision=script_revision(script),
-            )
-
-        return await asyncio.to_thread(_read)
+        project = read.project
+        script = read.script
+        assert script is not None
+        kind = ensure_route_skeleton(
+            script,
+            status.project.content_mode,
+            status.project.generation_mode,
+        )
+        raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
+        if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
+            raise ValueError(f"{kind} must be an array of objects")
+        return _ScriptFacts(
+            project=project,
+            project_path=self._pm.get_project_path(project_name),
+            script=script,
+            script_file=target.script_filename,
+            kind=kind,
+            id_field=id_field,
+            items=tuple(raw_items),
+            revision=script_revision(script),
+            currency=read.currency,
+        )
 
     @staticmethod
     def _structure_problems(facts: _ScriptFacts | None) -> list[GenerationProblem]:
@@ -205,19 +255,31 @@ class WorkflowPlanner:
             )
 
         if facts is not None:
-            for asset_type in ASSET_SPECS:
-                bucket = facts.project.get(ASSET_SPECS[asset_type].bucket_key)
-                resource_ids = list(bucket) if isinstance(bucket, dict) else []
-                if resource_ids:
-                    rows.extend(
-                        await get_active_tasks_for_resources(
-                            project_name=project_name,
-                            task_type=asset_type,
-                            resource_ids=resource_ids,
-                            user_id=user_id,
-                            queue=queue,
-                        )
+            asset_tasks: dict[str, list[str]] = {}
+            planned_asset_ids = (
+                set(status.next_action.requested_ids)
+                if status.next_action.type is WorkflowActionType.GENERATE_ASSET_SHEETS
+                else set()
+            )
+            for asset_type, collection in status.artifacts["asset_sheets"].items():
+                for field in ("current_ids", "missing_ids", "stale_ids"):
+                    for name in collection.get(field, []):
+                        task_type = DERIVATIVE_TASK_TYPE if is_derivative_artifact_id(name) else asset_type
+                        asset_tasks.setdefault(task_type, []).append(name)
+                        if is_derivative_artifact_id(name):
+                            owner, _ = split_derivative_artifact_id(name)
+                            if owner in planned_asset_ids and owner not in asset_tasks.get(asset_type, []):
+                                asset_tasks.setdefault(asset_type, []).append(owner)
+            for task_type, resource_ids in asset_tasks.items():
+                rows.extend(
+                    await get_active_tasks_for_resources(
+                        project_name=project_name,
+                        task_type=task_type,
+                        resource_ids=resource_ids,
+                        user_id=user_id,
+                        queue=queue,
                     )
+                )
             id_field = facts.id_field
             unit_ids = [
                 str(item[id_field])
@@ -309,6 +371,7 @@ class WorkflowPlanner:
                 project=facts.project,
                 project_path=facts.project_path,
                 episode=status.target.episode if status.target is not None else 1,
+                resolver=facts.currency,
             )
             extra = [*malformed, *artifact_state_tickets(selection.unavailable)]
             admission = await admit_reference_video_batch(
@@ -350,6 +413,7 @@ class WorkflowPlanner:
             project=facts.project,
             episode=status.target.episode if status.target is not None else 1,
             voice_characters=voice_characters,
+            resolver=facts.currency,
         )
         admission = await admit_storyboard_video_request(
             project_name=project_name,
@@ -376,8 +440,10 @@ def _in_flight_video_units(tasks: list[WorkflowTaskObservation]) -> frozenset[st
     )
 
 
-def get_workflow_planner(project_manager: ProjectManager | None = None) -> WorkflowPlanner:
-    return WorkflowPlanner(project_manager or get_project_manager())
+def get_workflow_planner(
+    project_manager: ProjectManager | None = None, reads: RequestCoalescer | None = None
+) -> WorkflowPlanner:
+    return WorkflowPlanner(project_manager or get_project_manager(), reads)
 
 
 __all__ = ["WorkflowPlanner", "get_workflow_planner"]

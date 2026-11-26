@@ -342,6 +342,8 @@ After confirming that the Vertex credentials work in Settings, delete `deploy/lo
 
 ### 5.5 Project Schema Migrations {#project-schema-migrations}
 
+Version 21 moves version history from `versions/versions.json` into the project’s `versions/history.sqlite3` and keeps a versioned backup beside the original file. If migration stops on corrupt history, repair the history and retry. ZIP archives continue to exchange version records as JSON.
+
 ArcReel upgrades project data automatically at startup. [Back up the data root and database](#backup-and-restore) before upgrading, and leave space for the migration. A large project may need a full directory copy, and the first startup can take longer.
 
 When a parent directory of the project or temporary archive extraction directory is accessed through a symbolic link, migration still assigns legacy scripts to the correct episodes and preserves their existing media content. Migration reassigns duplicate reference-video unit IDs in legacy ad projects. In-place migration preserves the readability of existing media references, so paths that were unreadable before migration remain unreadable afterward.

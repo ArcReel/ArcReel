@@ -74,8 +74,15 @@ const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> 
   image: new Set(["storyboards", "videos", "grids"]),
   video: new Set(["storyboards", "videos", "reference_videos"]),
   audio: null,
+  text: new Set(),
   render: new Set(),
 };
+
+function taskPurpose(task: TaskItem): string {
+  if (task.task_type === "text_episode_plan") return "episode_planning";
+  if (task.media_type === "text" || task.task_type.startsWith("text_")) return "script_generation";
+  return "generation_task";
+}
 
 export function taskSegmentId(task: TaskItem): string | null {
   if (!task.resource_id) return null;
@@ -99,7 +106,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
     provider: task.provider_id,
     model: task.model ?? null,
     status: "pending",
-    purpose: "generation_task",
+    purpose: taskPurpose(task),
     segmentId: taskSegmentId(task),
     segmentRef: taskSegmentId(task) === null ? null : (task.resource_ref ?? null),
     errorCode: null,

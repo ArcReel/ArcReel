@@ -15,11 +15,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import time_machine
 
@@ -74,6 +76,46 @@ def pin_inputs(data: CatalogData) -> None:
     app_version.load_app_version = recorded_app_version
 
 
+def install_progress_recording() -> None:
+    from lib.backends.text_backends.base import TextProgress
+    from lib.backends.text_backends.streaming import current_text_task
+    from lib.generation.generation_worker import GenerationWorker
+    from server import app as backend
+
+    ready = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None) -> dict[str, Any]:
+        context = current_text_task()
+        if context is None or context.on_progress is None or task["project_name"] != "progress-demo":
+            raise RuntimeError("Unexpected task in fixture recorder")
+        context.on_progress(TextProgress("waiting", "claude-sonnet-4"))
+        ready.set()
+        await asyncio.wait_for(release.wait(), timeout=15)
+        return {}
+
+    backend.create_generation_worker = lambda: GenerationWorker(
+        executor=execute, resume_executor=backend.execute_resume_video_task
+    )
+
+    @backend.app.post("/__record/start-progress", include_in_schema=False)
+    async def start_progress() -> None:
+        worker = backend.app.state.generation_worker
+        await worker.queue.enqueue_task(
+            project_name="progress-demo",
+            task_type="text_episode_script",
+            media_type="text",
+            resource_id="episode-1",
+            payload={"episode": 1},
+        )
+        worker.wake()
+        await asyncio.wait_for(ready.wait(), timeout=15)
+
+    @backend.app.post("/__record/finish-progress", include_in_schema=False)
+    async def finish_progress() -> None:
+        release.set()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -103,6 +145,7 @@ def main() -> None:
 
         from server.app import app
 
+        install_progress_recording()
         uvicorn.run(app, host=args.host, port=args.port)
 
 

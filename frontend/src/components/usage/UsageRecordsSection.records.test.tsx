@@ -508,4 +508,66 @@ describe("UsageRecordsSection records", () => {
     await waitFor(() => expect(pendingCalls).toBe(2));
     second.resolve(EMPTY_PAGE);
   });
+
+  it("renders cross-project active text task progress and 15s hint from global active snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T12:00:12Z"));
+      const projectATask = makeTask({
+        task_id: "t-proj-a",
+        project_name: "project-a",
+        task_type: "text_episode_plan",
+        media_type: "text",
+        provider_id: "anthropic",
+        model: "claude-sonnet-4",
+        resource_id: "episode-planning",
+        status: "running",
+        started_at: "2026-11-01T12:00:00Z",
+        progress: { task_id: "t-proj-a", seq: 2, phase: "receiving", thinking: false, characters: 540 },
+      });
+      const projectBTask = makeTask({
+        task_id: "t-proj-b",
+        project_name: "project-b",
+        task_type: "text_drama_script_plan",
+        media_type: "text",
+        provider_id: "openai",
+        model: "gpt-5",
+        resource_id: "episode-1",
+        status: "running",
+        started_at: "2026-11-01T12:00:00Z",
+        progress: { task_id: "t-proj-b", seq: 1, phase: "waiting", model: "gpt-5" },
+      });
+      vi.spyOn(API, "getActiveTasks").mockResolvedValue({
+        items: [projectATask, projectBTask],
+        truncated: false,
+      });
+      vi.spyOn(API, "listTasks").mockResolvedValue({
+        items: [projectATask, projectBTask],
+        total: 2,
+        page: 1,
+        page_size: 200,
+      });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+
+      renderUsageRecordsSection();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(screen.getByText("project-a")).toBeInTheDocument();
+      expect(screen.getByText("project-b")).toBeInTheDocument();
+      expect(screen.getByText("正在接收生成内容 · 已接收约 540 字…")).toBeInTheDocument();
+      expect(screen.getByText("正在等待 gpt-5 响应…")).toBeInTheDocument();
+      expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(screen.getAllByText(/长文本通常需要数十秒至数分钟/)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

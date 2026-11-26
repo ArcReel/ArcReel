@@ -59,6 +59,7 @@ from lib.generation.task_failure import encode_failure, parse_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.generation.task_ownership import TaskLease, TaskOwnership
 from lib.generation.task_writes import TaskWrites
+from lib.generation.text_progress import TaskProgressTable
 from lib.generation.text_task_lifecycle import TextTaskLifecycle
 from lib.generation.video_resume import ResumeExecutor, VideoResumeRunner, fail_task_of_deleted_project
 from lib.infra.async_thread import run_noninterruptible_async
@@ -462,6 +463,7 @@ class GenerationWorker:
         settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
+        self.text_progress = TaskProgressTable()
         self._provider_projection = provider_projection
         self._executor = executor
         self._lanes = lanes
@@ -850,7 +852,10 @@ class GenerationWorker:
             if task.get("media_type") == "text":
                 lifecycle = TextTaskLifecycle(task, self.queue, self._writes)
                 lifecycle.log("running")
-                with observe_text_provider(lifecycle.record_provider):
+                with (
+                    observe_text_provider(lifecycle.record_provider),
+                    self.text_progress.track(task["project_name"], task_id, task["task_type"]),
+                ):
                     await self._run_claimed_task(task, claim, claimed_provider_id=None, lifecycle=lifecycle)
             else:
                 await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)

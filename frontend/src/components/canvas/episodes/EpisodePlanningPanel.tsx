@@ -6,6 +6,7 @@ import { Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
+import { TextTaskLongWaitHint, TextTaskProgress } from "@/components/shared/TextTaskProgress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +14,7 @@ import { PopoverDescription, PopoverTitle } from "@/components/ui/popover";
 import { withInstruction } from "@/components/layout/project-guide";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useActiveEpisodePlan, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodesView } from "@/types";
 import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
@@ -37,6 +38,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const [finishingWindow, setFinishingWindow] = useState(false);
   const instructionId = useId();
   const tasks = useTasksStore(useShallow(selectRecentTasks));
+  const activeTask = useActiveEpisodePlan(projectName);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
   if (!active && (stopRequested || finishingWindow)) {
@@ -91,6 +93,12 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
           <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-primary" />
           <PopoverTitle>{t("dashboard:episode_planning_running", { percent })}</PopoverTitle>
         </div>
+        {activeTask ? (
+          <div className="flex flex-col gap-1">
+            <TextTaskProgress task={activeTask} showIcon={false} showLongWaitHint={false} />
+            <TextTaskLongWaitHint task={activeTask} />
+          </div>
+        ) : null}
         <PopoverDescription>
           {finishingWindow ? t("dashboard:episode_planning_finishing") : t("dashboard:episode_planning_running_hint")}
         </PopoverDescription>

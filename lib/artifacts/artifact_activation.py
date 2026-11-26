@@ -60,6 +60,7 @@ from lib.artifacts.artifact_planner import (
     ArtifactTargetStatePlan,
     SharedVersionMetadata,
     TargetStatePlanner,
+    control_file_names,
     episode_scope_for_key,
     gap_backfill_entries,
     plan_artifact_target_state,
@@ -455,7 +456,8 @@ def _plan_artifact_claim_reconciliation(
 
     shared_versions = SharedVersionMetadata()
     root_planner = TargetStatePlanner(project_dir, shared_versions=shared_versions)
-    planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
+    groups: dict[int | None, list[ArtifactKey]] = {}
+    absent_paths: set[Path] = set()
     dependency_bytes: dict[Path, bytes] = {}
     dependency_digests: dict[Path, str] = {}
     replacements: dict[ArtifactKey, None] = {}
@@ -466,22 +468,25 @@ def _plan_artifact_claim_reconciliation(
             if previous != value:
                 raise RuntimeError(f"artifact target dependency changed during reconciliation: {path}")
 
-    for key, frozen_entry in claimed.items():
-        scope = episode_scope_for_key(key)
-        planner = planners.get(scope)
-        if planner is None:
-            planner = TargetStatePlanner(
+    for key in claimed:
+        groups.setdefault(episode_scope_for_key(key), []).append(key)
+    for scope, keys in groups.items():
+        planner = (
+            root_planner
+            if scope is None
+            else TargetStatePlanner(
                 project_dir,
                 episode_scope=scope,
                 project_bytes=root_planner.project_bytes,
+                parsed_project=root_planner.project,
                 shared_versions=shared_versions,
             )
-            planners[scope] = planner
-        target = planner.resolve_key(key)
-        if target is None or target.artifact_path != frozen_entry.artifact_path:
-            replacements[key] = None
-
-    for planner in planners.values():
+        )
+        for key in keys:
+            target = planner.resolve_key(key)
+            if target is None or target.artifact_path != claimed[key].artifact_path:
+                replacements[key] = None
+        absent_paths.update(planner.absent_paths)
         _merge_dependency_snapshot(dependency_bytes, planner.dependencies)
         _merge_dependency_snapshot(dependency_digests, planner.dependency_digests)
     return (
@@ -491,6 +496,7 @@ def _plan_artifact_claim_reconciliation(
             formal_paths={},
             project=root_planner.project,
             project_bytes=root_planner.project_bytes,
+            absent_paths=frozenset(absent_paths),
             dependency_bytes=dependency_bytes,
             dependency_digests=dependency_digests,
             script_paths=(),
@@ -581,9 +587,23 @@ def assert_artifact_target_state_plan_unchanged(
         project_dir,
         plan.project_bytes if expected_project_bytes is None else expected_project_bytes,
     )
+    from lib.artifacts.sqlite_history import SQLiteHistory
+
+    history = SQLiteHistory(project_dir.resolve(strict=True))
+    for path in plan.absent_paths:
+        if path.exists() or path.is_symlink():
+            raise RuntimeError(f"artifact activation dependency appeared after preflight: {path}")
+    if plan.script_records is not None and control_file_names(project_dir / "scripts") != plan.script_records:
+        raise RuntimeError("script files changed after artifact activation preflight")
+    if plan.grid_records is not None and control_file_names(project_dir / "grids") != plan.grid_records:
+        raise RuntimeError("grid records changed after artifact activation preflight")
     for path, expected in plan.dependency_bytes.items():
         try:
-            current = path.read_bytes()
+            current = (
+                history.revision()
+                if path.resolve(strict=False) == history.path.resolve(strict=False)
+                else path.read_bytes()
+            )
         except OSError as exc:
             raise RuntimeError(f"artifact activation dependency changed after preflight: {path}") from exc
         if current != expected:

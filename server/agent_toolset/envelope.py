@@ -2,7 +2,7 @@
 
 结构化结果只有一份：成功为 ``{domain_key: 值}``（声明带 ``projection`` 时由它给出），失败为
 ``{"problem": {code, detail, action?, params?}}``。
-文本块为「摘要（如有）+ 这份结构化结果的 JSON」；内嵌宿主把文本块写进 content，远程宿主另把
+文本块为「摘要（如有）+ 这份结构化结果的 JSON」；内嵌宿主把文本块写进 content，远程宿主和声明了输出模型的内嵌工具另把
 结构化结果写进 ``structuredContent``。声明带 ``images`` 时，图片作为 MCP 图片内容块排在文本块之后，
 两宿主相同。
 """

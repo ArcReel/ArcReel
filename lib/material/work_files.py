@@ -27,18 +27,20 @@ import time
 from collections import Counter
 from collections.abc import AsyncGenerator, Generator, Iterable, Mapping
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
+from itertools import chain
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.legacy_history_index import LegacyHistoryIndex
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError
 from lib.infra.content_digest import sha256_file
 from lib.infra.data_root_layout import list_project_dirs
-from lib.material.formal_objects import iter_version_records, stored_object_keys
+from lib.material.formal_objects import stored_object_keys
 from lib.material.storage import (
     CONTENT_DIGEST,
     CONTENT_VERSION_ID,
@@ -116,6 +118,7 @@ class _WorkFile:
     digest: str
     stored: ObjectLocator
     formal: bool
+    created_at: object = field(default=None, compare=False)
 
 
 def _load_project_json(project_path: Path) -> dict[str, Any]:
@@ -145,14 +148,14 @@ def _formal_path(project: dict[str, Any], resource_type: str, resource_id: str) 
 
 def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
     """版本历史中所有远端内容版本的工作文件。``data`` 须在版本锁内读取。"""
+    from lib.artifacts.version_manager import VersionManager
+
+    return _work_files_from_rows(VersionManager._history_rows(data) if isinstance(data, dict) else (), project)
+
+
+def _work_files_from_rows(rows, project):
     result: list[_WorkFile] = []
-    current_versions: dict[tuple[str, str], object] = {}
-    if isinstance(data, dict):
-        for resource_type, bucket in data.items():
-            for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
-                if isinstance(history, dict):
-                    current_versions[(resource_type, resource_id)] = history.get("current_version")
-    for resource_type, resource_id, record in iter_version_records(data):
+    for resource_type, resource_id, current, record in rows:
         stored = ObjectLocator.from_record(record.get(STORAGE))
         content_version_id, digest, file = (
             record.get(CONTENT_VERSION_ID),
@@ -162,11 +165,33 @@ def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
         if stored is None or not isinstance(content_version_id, str) or not isinstance(digest, str):
             continue
         if isinstance(file, str):
-            result.append(_WorkFile(file, resource_type, resource_id, content_version_id, digest, stored, False))
-        if current_versions.get((resource_type, resource_id)) == record.get("version"):
+            result.append(
+                _WorkFile(
+                    file,
+                    resource_type,
+                    resource_id,
+                    content_version_id,
+                    digest,
+                    stored,
+                    False,
+                    record.get("created_at"),
+                )
+            )
+        if current == record.get("version"):
             formal = _formal_path(project, resource_type, resource_id)
             if formal is not None:
-                result.append(_WorkFile(formal, resource_type, resource_id, content_version_id, digest, stored, True))
+                result.append(
+                    _WorkFile(
+                        formal,
+                        resource_type,
+                        resource_id,
+                        content_version_id,
+                        digest,
+                        stored,
+                        True,
+                        record.get("created_at"),
+                    )
+                )
     return result
 
 
@@ -182,16 +207,21 @@ def _file_version(path: Path) -> tuple[object, ...] | None:
     return (stat_result.st_dev, stat_result.st_ino, stat_result.st_size, stat_result.st_mtime_ns)
 
 
-def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
+def remote_work_file_digests(project_path: Path, *, history: LegacyHistoryIndex | None = None) -> Mapping[str, str]:
     """项目中远端内容版本的全部工作文件（项目内相对路径 → 记录的内容摘要），不论本地是否在场。
 
-    不取版本锁：版本历史与 project.json 都经原子替换写入，各自读到的是完整的一版；两者任一被替换
-    （stat 标识变化）就重新解析。读取方以此把缓存缺失与正式素材缺失分开，结论在提交前仍由各自的
-    稳定性复核把关。
+    缓存随 SQLite 历史修订号或版本 JSON 文件标识更新。替换 project.json 也会使缓存失效。
     """
     project_path = Path(project_path)
+    from lib.artifacts.sqlite_history import SQLiteHistory
+
+    store = SQLiteHistory(project_path)
+    sqlite = store.path.is_file()
     versions_file = project_path / "versions" / "versions.json"
-    version = (_file_version(versions_file), _file_version(project_path / "project.json"))
+    version = (
+        store.revision() if sqlite else _file_version(versions_file),
+        _file_version(project_path / "project.json"),
+    )
     if version[0] is None:
         return {}
     key = os.path.abspath(project_path)
@@ -199,29 +229,35 @@ def remote_work_file_digests(project_path: Path) -> Mapping[str, str]:
         cached = _INDEX_CACHE.get(key)
     if cached is not None and cached[0] == version:
         return cached[1]
-    try:
-        raw = versions_file.read_bytes()
-    except OSError:
-        return {}
-    index: dict[str, str] = {}
-    if b'"storage"' in raw:
+    if sqlite:
+        files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
+        index = {item.path: item.digest for item in files}
+    else:
         try:
-            data = json.loads(raw)
-        except ValueError:
-            data = None
-        for item in _work_files(data, _load_project_json(project_path)):
-            index[item.path] = item.digest
+            rows = (history or LegacyHistoryIndex()).remote_rows(versions_file)
+            with contextlib.closing(rows) as stream:
+                first = next(stream, None)
+                files = (
+                    _work_files_from_rows(chain((first,), stream), _load_project_json(project_path))
+                    if first is not None
+                    else ()
+                )
+                index = {item.path: item.digest for item in files}
+        except (OSError, ValueError):
+            return {}
     with _INDEX_GUARD:
         _INDEX_CACHE[key] = (version, index)
     return index
 
 
-def absent_work_file_digest(project_path: Path, relative_path: str) -> str | None:
+def absent_work_file_digest(
+    project_path: Path, relative_path: str, *, history: LegacyHistoryIndex | None = None
+) -> str | None:
     """``relative_path`` 是远端内容版本的工作文件、而本地缓存不在时，返回记录的内容摘要。
 
     文件在本地（应照常读取并校验内容）或它不是远端内容版本的工作文件时返回 ``None``。
     """
-    digest = remote_work_file_digests(project_path).get(PurePosixPath(relative_path).as_posix())
+    digest = remote_work_file_digests(project_path, history=history).get(PurePosixPath(relative_path).as_posix())
     if digest is None or (Path(project_path) / relative_path).exists():
         return None
     return digest
@@ -270,8 +306,11 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
     from lib.artifacts.version_manager import VersionManager
 
     project = _load_project_json(project_path)
-    with VersionManager(project_path).locked_history() as data:
-        return _work_files(data, project)
+    manager = VersionManager(project_path)
+    if manager.sqlite.is_enabled():
+        return _work_files_from_rows(manager.sqlite.rows(remote_only=True), project)
+    with manager.locked_rows(remote_only=True) as data:
+        return _work_files_from_rows(data, project)
 
 
 RemoteWorkFile = _WorkFile
@@ -292,7 +331,7 @@ def locked_remote_work_files(project_path: Path) -> list[RemoteWorkFile]:
 
 def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> bool:
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
-    return work_file in _work_files(data, _load_project_json(project_path))
+    return work_file in _work_files_from_rows(data, _load_project_json(project_path))
 
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
@@ -365,7 +404,7 @@ def _install(project_path: Path, work_file: _WorkFile, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        with VersionManager(project_path).locked_history() as history:
+        with VersionManager(project_path).locked_rows(remote_only=True) as history:
             if not target.exists() and _same_work_file(project_path, work_file, history):
                 os.replace(tmp, target)
     finally:
@@ -510,7 +549,12 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
     from lib.artifacts.version_manager import VersionManager
 
     target = project_path / work_file.path
-    with VersionManager(project_path).locked_history() as data:
+    try:
+        if in_use_or_recent(target, target.stat(), idle_before):
+            return 0, 0, 1
+    except FileNotFoundError:
+        return 0, 0, 0
+    with VersionManager(project_path).locked_rows(remote_only=True) as data:
         try:
             stat_result = target.stat()
         except OSError:

@@ -345,7 +345,7 @@ defineRegionScenarios("脚本规划起步态", [
     ready: cutSourceReady,
     act: async (page) => {
       await clearAgentOverlay(page);
-      await expect(planPanel(page).getByRole("status").filter({ hasText: "AI 正在规划脚本。" })).toBeVisible();
+      await expect(planPanel(page).getByText("AI 正在规划脚本。", { exact: true })).toBeVisible();
       await expect(instructions(page)).toHaveCount(0);
       await expect(page.getByRole("button", { name: "AI 规划", exact: true })).toHaveCount(0);
     },
@@ -359,7 +359,7 @@ defineRegionScenarios("重新规划与内容确认", [
   {
     name: "已有正式脚本的集：「AI 规划脚本」打开对话框，说明确认后才替换正式脚本",
     path: `${EPISODE_PATH}?view=plan`,
-    api: SCRIPTED_NO_PLAN,
+    api: { ...SCRIPTED_NO_PLAN, [SOURCE_PATH]: { status: 200, body: "本集原文" } },
     ready: async (page) => {
       await planPanel(page).getByText("暂无脚本规划结果").waitFor();
     },

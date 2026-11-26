@@ -68,8 +68,8 @@ def test_sheet_uploaded_without_description_is_claimed_and_usable_as_a_reference
     assert entry is not None
     assert entry.artifact_path == sheet_path
     assert _status(project_dir, sheet_path) is ArtifactStatus.CURRENT
-    status = WorkflowStateService(pm).get_status("demo")
-    assert status.artifacts["asset_sheets"]["character"]["current_ids"] == ["Alice"]
+    summary = WorkflowStateService(pm).get_project_summary("demo")
+    assert summary.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
 
     script = {
         "episode": 1,

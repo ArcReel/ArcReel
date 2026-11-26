@@ -27,6 +27,7 @@ from lib.workflow.workflow_state import WorkflowStateService
 from tests.fakes import failing_manifest_replace
 from tests.legacy_project_shapes import (
     advance_project_schema,
+    read_version_history,
     without_version_content_digests,
     write_legacy_reference_video_project,
     write_legacy_style_project,
@@ -198,7 +199,7 @@ def _set_style_description(project_dir: Path, description: str) -> None:
 
 
 def _read_versions(project_dir: Path) -> dict:
-    return json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    return read_version_history(project_dir)
 
 
 def _add_grid_version_record(project_dir: Path, *, style_description: str = "") -> None:
@@ -399,7 +400,7 @@ def test_killed_after_version_records_are_written_resumes_on_rerun(tmp_path: Pat
 
     migrate_project_dir(project_dir)
 
-    after = json.loads((project_dir / "versions" / "versions.json").read_bytes())
+    after = read_version_history(project_dir)
     assert without_version_content_digests(after) == json.loads(rewritten)
     for key in _REFERENCE_VIDEOS:
         assert _status(project_dir, key) == "current"

@@ -19,6 +19,7 @@ from lib.backends.text_backends.base import (
     TextOutputTruncatedError,
     TextTaskType,
 )
+from lib.backends.text_backends.streaming import current_text_task
 from lib.billing.ledger import Ledger
 from lib.db.base import DEFAULT_USER_ID
 from lib.video_runtime.text import resolve_and_assemble_text
@@ -119,7 +120,9 @@ class TextGenerator:
         if request.max_output_tokens:
             ceiling = min(request.max_output_tokens, ceiling or DEFAULT_MAX_OUTPUT_TOKENS)
         request = replace(request, max_output_tokens=ceiling)
+        task = current_text_task()
         async with self.ledger.record(
+            task_id=task.task_id if task else None,
             project_name=project_name or "",
             call_type="text",
             model=self.backend.model,

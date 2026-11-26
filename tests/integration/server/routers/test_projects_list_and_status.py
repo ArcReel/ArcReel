@@ -6,8 +6,8 @@ import threading
 import httpx
 
 from lib.i18n import _
-from server.routers import projects
-from server.routers._coalesce import RequestCoalescer
+from server.dependencies import project_reads
+from server.services.project.coalesce import RequestCoalescer
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     _FakeSummaries,
@@ -185,7 +185,7 @@ class TestProjectsRouter:
         summaries = _GatedSummaries()
         spy = _ArrivalSpy()
         sync_client = build_projects_client(monkeypatch, _FakePM(tmp_path), summaries)
-        override(sync_client, projects.get_project_detail_coalescer, lambda: spy)
+        override(sync_client, project_reads, lambda: spy)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=sync_client.app), base_url="http://test"
         ) as client:

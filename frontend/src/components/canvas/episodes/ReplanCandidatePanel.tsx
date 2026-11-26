@@ -6,12 +6,13 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplanContinue } from "@/actions/generation";
+import { TextTaskLongWaitHint, TextTaskProgress } from "@/components/shared/TextTaskProgress";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAppStore } from "@/stores/app-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useActiveEpisodePlan, selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, ReplanAdoptionImpact, ReplanSummary, SourcePoint } from "@/types";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { errMsg } from "@/utils/async";
@@ -44,6 +45,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   const [discarding, setDiscarding] = useState(false);
   const [adoption, setAdoption] = useState<PendingAdoption | null>(null);
   const tasks = useTasksStore(useShallow(selectRecentTasks));
+  const activeTask = useActiveEpisodePlan(projectName);
   const deleteRetiredId = useId();
   if (!generating && stopRequested) setStopRequested(false);
 
@@ -136,6 +138,12 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />
           {t("dashboard:replan_generating", { count: replan.new_count })}
         </h2>
+        {activeTask ? (
+          <div className="flex flex-col gap-1">
+            <TextTaskProgress task={activeTask} showIcon={false} showLongWaitHint={false} />
+            <TextTaskLongWaitHint task={activeTask} />
+          </div>
+        ) : null}
         <p className="text-muted-foreground">{t("dashboard:replan_generating_hint")}</p>
         <CompareLegend pending />
         {!stopRequested ? (

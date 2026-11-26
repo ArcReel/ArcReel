@@ -31,6 +31,7 @@ from lib.workflow.workflow_state import WorkflowStateService
 from tests.fakes import failing_manifest_replace
 from tests.legacy_project_shapes import (
     advance_project_schema,
+    read_version_history,
     without_version_content_digests,
     write_legacy_drama_storyboard_project,
     write_legacy_presentation_project,
@@ -403,7 +404,7 @@ def _media_currency(project_dir: Path) -> tuple[Any, ...]:
 
 
 def _selected_record(project_dir: Path, resource_type: str, resource_id: str) -> dict[str, Any]:
-    resource = _read_json(project_dir / "versions" / "versions.json")[resource_type][resource_id]
+    resource = read_version_history(project_dir)[resource_type][resource_id]
     (record,) = [record for record in resource["versions"] if record["version"] == resource["current_version"]]
     return record
 
@@ -446,7 +447,8 @@ def _strip_content_digests(project_dir: Path) -> None:
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     versions_path = project_dir / "versions" / "versions.json"
     versions_path.write_text(
-        json.dumps(without_version_content_digests(_read_json(versions_path)), ensure_ascii=False), encoding="utf-8"
+        json.dumps(without_version_content_digests(read_version_history(project_dir)), ensure_ascii=False),
+        encoding="utf-8",
     )
 
 

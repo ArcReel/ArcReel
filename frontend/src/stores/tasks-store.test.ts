@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/app-store";
 import { createDeferred } from "@/test/deferred";
 import {
   defaultTaskStats,
+  mergeTaskSnapshot,
   isActiveStatus,
   isOccupyingStatus,
   isResourceBusy,
@@ -150,6 +151,20 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     });
     return listSpy;
   }
+
+  it("keeps progress observed after an older snapshot request began", async () => {
+    const row = task({ task_id: "late", status: "running" });
+    mockFetch([row]);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    seedTaskState({ tasks: [row] });
+    const pending = createDeferred<{ items: TaskItem[]; truncated: boolean }>();
+    vi.mocked(API.getActiveTasks).mockReturnValueOnce(pending.promise);
+    const refresh = useTasksStore.getState().refreshTasks();
+    useTasksStore.getState().receiveProgress({ task_id: "late", seq: 2, phase: "waiting", model: "m" });
+    pending.resolve({ items: [], truncated: false });
+    await refresh;
+    expect(useTasksStore.getState().progressById.get("late")?.seq).toBe(2);
+  });
 
   it("作用域未启用时不发请求", async () => {
     const listSpy = mockFetch();
@@ -345,6 +360,17 @@ describe("active snapshot reconciliation", () => {
     vi.spyOn(API, "getActiveTasks").mockResolvedValue(active([]));
     vi.spyOn(API, "listTasks").mockResolvedValue(page([]));
     vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+  });
+
+  it("applies progress that overtakes the first active snapshot only after running is confirmed", async () => {
+    const progress = { task_id: row.task_id, seq: 1, phase: "waiting" as const, model: "m" };
+    vi.mocked(API.getActiveTasks).mockResolvedValueOnce(active([{ ...row, progress }]));
+    const refreshed = state().refreshTasks();
+    state().receiveProgress({ ...progress, seq: 3 });
+    state().receiveProgress({ ...progress, seq: 2 });
+    expect(state().progressById.size).toBe(0);
+    await refreshed;
+    expect(state().progressById.get(row.task_id)?.seq).toBe(3);
   });
 
   it("releases a stalled snapshot refresh and lets the next refresh reconnect", async () => {
@@ -585,5 +611,31 @@ describe("useTaskRowsByIds", () => {
       });
     });
     expect(result.current).toBe(first);
+  });
+});
+
+describe("text task progress", () => {
+  it("retains the maximum sequence across snapshots and events until a terminal row wins", () => {
+    const row = task({ task_id: "text", status: "running" });
+    const progress = (seq: number) => ({ task_id: "text", seq, phase: "waiting" as const, model: "model" });
+    const store = useTasksStore;
+    for (const first of [1, 2, 3]) {
+      for (const second of [1, 2, 3]) {
+        for (const third of [1, 2, 3]) {
+          store.getState().setRefreshScope(null);
+          seedTaskState({ tasks: [row] });
+          store.getState().receiveProgress(progress(first));
+          store.setState(mergeTaskSnapshot(store.getState(), {
+            items: [{ ...row, progress: progress(second) }], truncated: false,
+          }, [row]));
+          store.getState().receiveProgress(progress(third));
+          expect(store.getState().progressById.get("text")?.seq).toBe(Math.max(first, second, third));
+          seedTaskState({ tasks: [{ ...row, status: "failed" }] });
+          seedTaskState({ tasks: [{ ...row, progress: progress(6) }] });
+          store.getState().receiveProgress(progress(7));
+          expect(store.getState().progressById.size).toBe(0);
+        }
+      }
+    }
   });
 });

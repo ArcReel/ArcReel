@@ -1,0 +1,149 @@
+{
+  "workload": "synthetic",
+  "base_commit": "90a15892587769b9c8f88455b4b21c451fbe9df1",
+  "argv": [
+    "uv",
+    "run",
+    "python",
+    "-m",
+    "scripts.perf.bench",
+    "all",
+    "--rebuild",
+    "--episodes",
+    "686",
+    "--distribution",
+    "tail",
+    "--duration",
+    "8",
+    "--reps",
+    "1",
+    "--only",
+    "units",
+    "--ep",
+    "686",
+    "--video-kb",
+    "1",
+    "--sheet-kb",
+    "1",
+    "--no-racy-wait",
+    "--data-root",
+    "/tmp/arcreel-fix-s1.aYmy79/686-tail"
+  ],
+  "host": {
+    "arch": "aarch64",
+    "cpu": "4 x Neoverse-N1",
+    "memory_kib": 24548116,
+    "python": "3.12.3"
+  },
+  "migration": {
+    "target_schema": 21,
+    "startup_migration_s": 33.83910519606434,
+    "videos": 13033,
+    "with_facts": 13033
+  },
+  "idle": {
+    "units": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 221692,
+          "sampled_peak_kib": 389152,
+          "high_water_kib": 388716
+        }
+      },
+      "response_bytes": 18669,
+      "reads": {
+        "project": 2,
+        "script": 1,
+        "history": 1
+      },
+      "first_open_s": 1.3296045560855418,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 1.3317461620317772,
+      "warm_s": [
+        0.26957927306648344
+      ],
+      "p50": 0.26957927306648344,
+      "p95": 0.26957927306648344,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 3,
+      "lock_acq": 0,
+      "status": 200
+    }
+  },
+  "peak": {
+    "duration_s": 8.0,
+    "writes": 2,
+    "write_p95_s": 2.000566911068745,
+    "drain_s": 3.1601711919065565,
+    "drain_capped": false,
+    "leftover": {},
+    "manifest_lock_wait_s": 0.00040436198469251394,
+    "version_write_lock_wait_s": 4.720059223473072e-06,
+    "manifest_lock_nb_failures": 0,
+    "video_facts_after": {
+      "videos": 13033,
+      "with_facts": 13033
+    },
+    "thread_queue_max": 1,
+    "loop_lag_max_s": 0.10677109600510448,
+    "cpu_cores_mean": 0.7728399510082234,
+    "cpu_cores_max": 1.134050022978946,
+    "stack_samples": null,
+    "endpoints": {
+      "units": {
+        "n": 4,
+        "response_bytes": 75034,
+        "reads": {
+          "project": 8,
+          "script": 4,
+          "history": 4
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 2,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 2.5948417719919235,
+        "p95": 2.596656857058406,
+        "max": 2.596656857058406,
+        "delivered_p95": 2.596656857058406,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 3,
+        "mean_thread_qwait_s": 0.00026270019588992,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 2.4850512650154997,
+        "mean_thread_cpu_s": 1.27401526
+      }
+    },
+    "probes": {
+      "auth_verify": {
+        "n": 37,
+        "p95": 0.00126084394287318,
+        "max": 0.009548506001010537,
+        "errors": 0
+      },
+      "media_range": {
+        "n": 28,
+        "p95": 0.4444122820859775,
+        "max": 0.5454018439631909,
+        "errors": 0
+      }
+    }
+  },
+  "units_trace": {
+    "episode": 686,
+    "python_peak_bytes": 168805952,
+    "status": 200
+  },
+  "observed_at_end": {
+    "history_bytes": 30249434,
+    "manifest_bytes": 5540520,
+    "asset_images": 400
+  }
+}

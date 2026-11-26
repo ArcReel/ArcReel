@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import stat
+import tempfile
 import zipfile
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -31,6 +32,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import commit_rendered_artifact
+from lib.artifacts.sqlite_history import SQLiteHistory
 from lib.artifacts.version_manager import VersionManager
 from lib.bgm.library import bgm_key
 from lib.bgm.service import BgmLibraryService
@@ -57,7 +59,7 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from tests.factories import wav_bytes
-from tests.legacy_project_shapes import write_legacy_named_reference_bases_project
+from tests.legacy_project_shapes import use_legacy_history, write_legacy_named_reference_bases_project
 
 
 class _RetireRecorder:
@@ -81,6 +83,7 @@ def _activate_artifact_manifest(project_dir: Path) -> None:
     manifest 由 v7→v8 生成，而按 manifest 判定产物新旧的入口要求项目已在当前 schema 上，
     故两步必须成对——只跑前者会让项目停在中途版本、解析器直接拒绝服务。
     """
+    use_legacy_history(project_dir)
     migrate_v7_to_v8(project_dir)
     migrate_project_dir(project_dir)
 
@@ -223,7 +226,15 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
 
 def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        manager = VersionManager(project_dir)
+        if manager.sqlite.is_enabled() and not manager.versions_file.exists():
+            with tempfile.TemporaryDirectory() as temp:
+                exchange = Path(temp) / "versions.json"
+                manager.sqlite.export_json(exchange)
+                archive.write(exchange, arcname="versions/versions.json")
         for item in sorted(project_dir.rglob("*")):
+            if item == manager.sqlite.path:
+                continue
             relative = item.relative_to(project_dir)
             if item.is_dir():
                 info = zipfile.ZipInfo(relative.as_posix().rstrip("/") + "/")
@@ -298,11 +309,18 @@ def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archi
 
 
 class TestProjectArchiveService:
-    def test_export_includes_full_snapshot_and_empty_dirs(self, tmp_path):
+    def test_export_includes_full_snapshot_and_empty_dirs(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
 
+        def reject_bulk_read(*args):
+            pytest.fail("export must stream history by resource")
+
+        _write_text(pm.get_project_path("demo") / "versions/versions.json.bak.v20-1", "old")
+        _write_text(pm.get_project_path("demo") / "versions/versions.json", "invalid stale history")
+        _write_text(pm.get_project_path("demo") / "source/history.sqlite3-notes.txt", "notes")
+        monkeypatch.setattr(SQLiteHistory, "snapshot", reject_bulk_read)
         archive_path, download_name = service.export_project("demo")
         assert download_name.startswith("demo-")
         assert download_name.endswith(".zip")
@@ -310,6 +328,11 @@ class TestProjectArchiveService:
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
             assert f"demo/{ARCHIVE_MANIFEST_NAME}" in names
+            assert "demo/versions/versions.json" in names
+            assert archive.read("demo/source/history.sqlite3-notes.txt") == b"notes"
+            assert not any(
+                "demo/versions/history.sqlite3" in name or ".bak.v" in name or ".history-undo" in name for name in names
+            )
             assert "demo/project.json" in names
             assert "demo/source/chapter.txt" in names
             assert "demo/scripts/episode_1.json" in names
@@ -860,7 +883,7 @@ class TestProjectArchiveService:
 
         key = ArtifactKey.asset_sheet("character", "Hero")
         artifact_path = project_dir / "characters" / "Hero.png"
-        versions_path = project_dir / "versions" / "versions.json"
+        history = VersionManager(project_dir).sqlite
         adapter = ProjectArtifactManifestAdapter(project_dir)
         service = ProjectArchiveService(pm)
         formal_midpoint = Event()
@@ -880,7 +903,9 @@ class TestProjectArchiveService:
             try:
                 with project_metadata_lock(project_dir):
                     artifact_path.write_bytes(b"new-formal-bytes")
-                    _write_json(versions_path, {"characters": {"Hero": {"current_version": 2, "versions": []}}})
+                    batch = history.resources([("characters", "Hero")])
+                    batch["characters"] = {"Hero": {"current_version": 2, "versions": []}}
+                    history.save(batch)
                     formal_midpoint.set()
                     if not release_formal_commit.wait(timeout=5):
                         raise TimeoutError("archive did not finish observing the held formal commit")
@@ -1606,9 +1631,8 @@ class TestProjectArchiveService:
         with caplog.at_level("INFO", logger=project_archive_module.logger.name):
             result = service.import_project_archive(archive_path, uploaded_filename="legacy-bucket.zip")
 
-        installed = json.loads(
-            (pm.get_project_path(result.project_name) / "versions" / "versions.json").read_text(encoding="utf-8")
-        )
+        history = VersionManager(pm.get_project_path(result.project_name)).sqlite
+        installed = history.resources(history.resource_keys())
         assert "clues" not in installed
         assert installed["storyboards"] == storyboards
         dropped = [record for record in caplog.records if "clues" in record.getMessage()]
@@ -2100,23 +2124,9 @@ class TestProjectArchiveService:
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
-        _write_json(
-            project_dir / "versions" / "versions.json",
-            {
-                "audio": {
-                    "E1S01": {
-                        "current_version": 1,
-                        "versions": [
-                            {
-                                "version": 1,
-                                "file": "versions/audio/E1S01_v1.wav",
-                                "prompt": "旁白",
-                                "created_at": "2024-01-01",
-                            }
-                        ],
-                    }
-                }
-            },
+        SQLiteHistory(project_dir).append_selected(
+            ("audio", "E1S01"),
+            {"version": 1, "file": "versions/audio/E1S01_v1.wav", "prompt": "旁白", "created_at": "2024-01-01"},
         )
         _write_bytes(project_dir / "versions" / "audio" / "E1S01_v1.wav", b"wav-v1")
         _write_json(
@@ -2493,7 +2503,10 @@ class TestExportScope:
                 }
             },
         }
-        _write_json(project_dir / "versions" / "versions.json", versions_data)
+        history = VersionManager(project_dir).sqlite
+        batch = history.resources((kind, name) for kind, bucket in versions_data.items() for name in bucket)
+        batch.update(versions_data)
+        history.save(batch)
         return project_dir
 
     def test_export_scope_full_includes_version_history(self, tmp_path):
@@ -2683,3 +2696,35 @@ def test_claims_the_migration_chain_rekeys_keep_their_archived_content_digests(t
 
 
 _BOB_SHEET = ArtifactKey.asset_sheet("character", "Bob")
+
+
+def test_export_snapshot_rejects_concurrent_sqlite_history_mutation(tmp_path: Path, monkeypatch) -> None:
+    from lib.artifacts.artifact_manifest import ArtifactManifestError
+    from lib.artifacts.sqlite_history import SQLiteHistory
+    from lib.artifacts.version_manager import VersionManager
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    project_dir = pm.get_project_path("demo")
+    sheet = project_dir / "characters" / "hero.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"v1")
+    vm = VersionManager(project_dir)
+    vm.add_version("characters", "hero", "", source_file=sheet)
+
+    original_backup = SQLiteHistory.backup_to
+    counter = {"n": 0}
+
+    def mutate_during_backup(self: SQLiteHistory, target: SQLiteHistory) -> None:
+        original_backup(self, target)
+        counter["n"] += 1
+        batch = self.resources([("characters", "hero")])
+        batch["characters"]["hero"]["versions"][0]["prompt"] = f"mutated-{counter['n']}"
+        self.save(batch)
+
+    monkeypatch.setattr(SQLiteHistory, "backup_to", mutate_during_backup)
+    service = ProjectArchiveService(pm)
+    with pytest.raises(ArtifactManifestError, match="project changed repeatedly"):
+        service.export_project("demo", scope="full")
+    assert counter["n"] == 3

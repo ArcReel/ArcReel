@@ -1261,12 +1261,12 @@ class TestApplyToProject:
         real_copyfile = project_manager_module.shutil.copyfile
         calls = 0
 
-        def fail_second_copy(source, destination):
+        def fail_second_copy(source, destination, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise OSError("injected second copy failure")
-            return real_copyfile(source, destination)
+            return real_copyfile(source, destination, **kwargs)
 
         monkeypatch.setattr(project_manager_module.shutil, "copyfile", fail_second_copy)
 

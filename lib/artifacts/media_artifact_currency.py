@@ -328,6 +328,7 @@ def build_current_video_artifact_basis(
     resource_type: str,
     resource_id: str,
     version_metadata: Mapping[str, Any],
+    item_index: int | None = None,
     duration_override: VideoDurationOverride | None = None,
     legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
 ) -> ArtifactBasisDescriptor | None:
@@ -351,13 +352,17 @@ def build_current_video_artifact_basis(
         return None
 
     items, id_field, kind = resolve_items(script)
-    item = next(
-        (
-            candidate
-            for candidate in items
-            if isinstance(candidate, dict) and str(candidate.get(id_field)) == resource_id
-        ),
-        None,
+    item = (
+        items[item_index]
+        if item_index is not None
+        else next(
+            (
+                candidate
+                for candidate in items
+                if isinstance(candidate, dict) and str(candidate.get(id_field)) == resource_id
+            ),
+            None,
+        )
     )
     if item is None:
         return None

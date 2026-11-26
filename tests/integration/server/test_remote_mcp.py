@@ -486,7 +486,12 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     }
     assert all(branch["additionalProperties"] is False for branch in operation_branches)
     assert result.structuredContent is not None
-    assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
+    schema = next(tool.outputSchema for tool in tools.tools if tool.name == "get_workflow_plan")
+    assert schema is not None
+    assert schema["$defs"]["WorkflowPlan"]["properties"]["schema_version"]["const"] == 3
+    plan = result.structuredContent["workflow_plan"]
+    assert plan["schema_version"] == plan["status"]["schema_version"] == 3
+    assert plan["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
         "video_capabilities": {
             "provider_id": "fake",

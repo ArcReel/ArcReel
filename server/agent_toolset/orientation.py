@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from lib.workflow.workflow_plan import WorkflowPlanRequest
+from pydantic import BaseModel
+
+from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from server.agent_toolset.declaration import READ_CHECK, Exempt, ToolDeclaration
 from server.tool_runtime import (
     NoArguments,
@@ -13,6 +15,11 @@ from server.tool_runtime import (
     get_workflow_plan,
 )
 
+
+class WorkflowPlanOutput(BaseModel):
+    workflow_plan: WorkflowPlan
+
+
 GET_WORKFLOW_PLAN = ToolDeclaration(
     name="get_workflow_plan",
     description=(
@@ -21,9 +28,11 @@ GET_WORKFLOW_PLAN = ToolDeclaration(
         "operations 里为 admitted 就执行，refused 时转述 reason；用户说继续时按 next_action 行动，"
         "next_alternatives 非空时由用户在并列选项中选。confirmed_request_durations "
         "只作用于本次计划，不写入项目。只读，无副作用。"
+        "工作流 v3 的资产图与资产任务仅覆盖目标集引用的资产。"
         "项目数据升级失败时计划只含这一条 project_migration_failed 问题，下一动作指向修复。"
     ),
     request_model=WorkflowPlanRequest,
+    output_model=WorkflowPlanOutput,
     migration=READ_CHECK,
     domain_key="workflow_plan",
     handler=get_workflow_plan,

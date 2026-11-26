@@ -24,6 +24,7 @@ from lib.workflow.workflow_state import (
     WorkflowNextAction,
     WorkflowProject,
     WorkflowStatus,
+    WorkflowStatusRead,
     WorkflowTarget,
 )
 from server.services.project import workflow_planner
@@ -84,6 +85,9 @@ class _ProjectManager:
         assert project_name == "demo"
         assert script_file == "scripts/episode_1.json"
         return self.script
+
+    def read(self, status):
+        return WorkflowStatusRead(status, self.load_project("demo"), script=self.script)
 
     def get_project_path(self, project_name: str) -> Path:
         assert project_name == "demo"
@@ -237,7 +241,7 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
@@ -320,7 +324,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
         if kwargs["task_type"] != "video":
@@ -375,7 +379,7 @@ async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, m
             )
         }
     )
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: status)
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(status))
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
@@ -411,8 +415,26 @@ async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, m
     assert plan.next_action.args["task_ids"] == ["grid-task"]
 
 
-async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("task_type", "sheet_name", "task_resource_id", "requested_ids"),
+    [
+        ("character", "张三", "张三", []),
+        ("character_derivative", "张三/战损", "张三/战损", ["张三/战损"]),
+        ("character", "张三/战损", "张三", ["张三", "张三/战损"]),
+    ],
+)
+async def test_asset_sheet_plan_waits_for_active_asset_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    task_type: str,
+    sheet_name: str,
+    task_resource_id: str,
+    requested_ids: list[str],
+) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
+    status = _status(action="generate_asset_sheets")
+    status.next_action.requested_ids = requested_ids
+    status.artifacts["asset_sheets"] = {"character": {"missing_ids": [sheet_name]}}
     monkeypatch.setattr(
         pm,
         "load_project",
@@ -425,20 +447,20 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
     )
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
-        "get_status",
-        lambda *_args: _status(action="generate_asset_sheets"),
+        "read_status",
+        lambda *_args: pm.read(status),
     )
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
-        if kwargs["task_type"] != "character":
+        if kwargs["task_type"] != task_type:
             return []
-        assert kwargs["resource_ids"] == ["张三"]
+        assert kwargs["resource_ids"] == [task_resource_id]
         return [
             {
                 "task_id": "character-task",
                 "batch_id": "asset-batch",
-                "resource_id": "张三",
-                "task_type": "character",
+                "resource_id": task_resource_id,
+                "task_type": task_type,
                 "status": "running",
             }
         ]
@@ -477,8 +499,10 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
         def __init__(self, project_manager: object):
             assert project_manager is planner_pm
 
-        def get_status(self, *_args: object) -> WorkflowStatus:
-            return _status(action="generate_storyboards")
+        def read_status(self, *_args: object) -> WorkflowStatusRead:
+            status = _status(action="generate_storyboards")
+            status.artifacts["asset_sheets"] = {"product": {"missing_ids": ["杯子", "水壶"]}}
+            return planner_pm.read(status)
 
     monkeypatch.setattr(workflow_planner, "WorkflowStateService", ProductWorkflowStateService)
     queue = GenerationQueue(session_factory=db_factory, project_manager=queue_pm)
@@ -540,7 +564,7 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
         if kwargs["task_type"] != "video":
@@ -580,8 +604,8 @@ async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit
     pm = _ProjectManager(_project_dir(tmp_path), _script(mixed=True))
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
-        "get_status",
-        lambda *_args: _status(action="generate_storyboards"),
+        "read_status",
+        lambda *_args: pm.read(_status(action="generate_storyboards")),
     )
 
     async def _active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
@@ -639,7 +663,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     """计划走的是提交侧同一条 spec 构造缝：分镜图不可用的条目在计划里就被逐 ID 拒绝。"""
 
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
@@ -665,7 +689,7 @@ async def test_planner_folds_a_video_request_facts_failure_into_each_target(
     """制作计划与提交入口同一道准入：事实解析不出时每个目标都带问题码、参数与修复指引。"""
 
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
@@ -707,7 +731,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     """音频闸门与入队入口同一道：计划预告的准入结论包含它，用户不必提交后才撞见。"""
 
     pm = _ProjectManager(_project_dir(tmp_path), _script())
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(_status()))
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
@@ -747,7 +771,7 @@ async def test_running_task_is_progress_not_a_problem_and_exposes_no_provider_ha
     status = _status()
     status.artifacts["videos"]["missing_ids"] = ["E1S01", "E1S02"]
     status.next_action = status.next_action.model_copy(update={"requested_ids": ["E1S01", "E1S02"]})
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: status)
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "read_status", lambda *_args: pm.read(status))
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
         if kwargs["task_type"] != "video":

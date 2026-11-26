@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from fastapi import Request
+from pydantic import BaseModel
 
 from lib.episode.episode_ids import episode_display_name
 from lib.project.project_manager import get_project_manager
@@ -39,23 +40,36 @@ def present_episode_diagnostics(value: Any, project: Mapping[str, Any], translat
     if isinstance(value, str):
         return render_episode_text(value, project, translate)
     if isinstance(value, list):
-        return [
-            present_episode_diagnostics(item, project, translate) if isinstance(item, (dict, list)) else item
-            for item in value
-        ]
-    if isinstance(value, dict):
-        presented = dict(value)
-        for key, item in value.items():
+        changes = {}
+        for index, item in enumerate(value):
+            if isinstance(item, (BaseModel, dict, list)):
+                result = present_episode_diagnostics(item, project, translate)
+                if result is not item:
+                    changes[index] = result
+        if changes:
+            return [changes.get(index, item) for index, item in enumerate(value)]
+    if isinstance(value, (dict, BaseModel)):
+        fields = (
+            value.items()
+            if isinstance(value, dict)
+            else ((name, getattr(value, name)) for name in type(value).model_fields)
+        )
+        updates = {}
+        for key, item in fields:
             if key in _TEXT_FIELDS and isinstance(item, str):
-                presented[key] = render_episode_text(item, project, translate)
+                result = render_episode_text(item, project, translate)
+                if result != item:
+                    updates[key] = result
             elif key == "warnings" and isinstance(item, list):
-                presented[key] = [
-                    render_episode_text(warning, project, translate) if isinstance(warning, str) else warning
-                    for warning in item
-                ]
-            elif key not in _DATA_FIELDS and isinstance(item, (dict, list)):
-                presented[key] = present_episode_diagnostics(item, project, translate)
-        return presented
+                warnings = [render_episode_text(w, project, translate) if isinstance(w, str) else w for w in item]
+                if warnings != item:
+                    updates[key] = warnings
+            elif key not in _DATA_FIELDS and isinstance(item, (BaseModel, dict, list)):
+                result = present_episode_diagnostics(item, project, translate)
+                if result is not item:
+                    updates[key] = result
+        if updates:
+            return value.model_copy(update=updates) if isinstance(value, BaseModel) else {**value, **updates}
     return value
 
 

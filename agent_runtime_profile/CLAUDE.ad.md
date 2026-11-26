@@ -7,6 +7,7 @@
 
 - 用户要求新建或继续制作、推进下一步、查看进度时，使用 `video-workflow`。只有用户点名单个操作时，直接用对应能力。
 - 用 `mcp__arcreel__get_workflow_plan` 读取步骤、准入条件与下一动作，并在执行后刷新计划。创作分岔、破坏性改动与付费重做需由用户决定。多步骤任务用 TodoWrite 跟踪。
+- 工作流 v3 仅报告目标集引用的资产。查看全项目资产图状态使用 `GET /projects/{project_name}/asset-sheets/status`。
 - 主 Agent 负责衔接和用户确认，子智能体执行一个聚焦动作并汇报。
 - 项目创建时选定创作类型与生成模式。广告/短片项目不开放宫格装配。
 - 需要核对剧本结构和提示词约定时，读取 `.claude/references/generation-modes.md`。档位与比例取项目配置和工具返回的生效能力。

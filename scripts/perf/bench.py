@@ -20,7 +20,9 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import tracemalloc
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,8 @@ def _ensure(a: argparse.Namespace) -> None:
         sheet_kb=a.sheet_kb,
         video_ratio=a.video_ratio,
         rebuild=a.rebuild,
+        distribution=a.distribution,
+        wait_racy_window=not a.no_racy_wait,
     )
 
 
@@ -66,6 +70,7 @@ async def _timed(client, probe: h.Probe | None, name: str, episode: int) -> dict
     finally:
         REQ.reset(token)
     rec["t"] = time.perf_counter() - rec["t_start"]
+    rec["response_bytes"] = len(r.content)
     rec["status"] = r.status_code
     if r.status_code >= 400:
         rec["err"] = r.text[:300]
@@ -74,13 +79,51 @@ async def _timed(client, probe: h.Probe | None, name: str, episode: int) -> dict
     return rec
 
 
-async def _first_open(name: str, episode: int) -> dict[str, Any]:
+def _memory_kib() -> tuple[int, int]:
+    status = Path("/proc/self/status").read_text(encoding="utf-8").splitlines()
+    fields = {line.split(":")[0]: int(line.split()[1]) for line in status if line.startswith(("VmRSS:", "VmHWM:"))}
+    return fields["VmRSS"], fields["VmHWM"]
+
+
+async def _memory_request(client, name: str, episode: int, trace: bool) -> dict[str, Any]:
+    if trace:
+        tracemalloc.start()
+        try:
+            rec = await _timed(client, None, name, episode)
+            rec["python_peak_bytes"] = tracemalloc.get_traced_memory()[1]
+            return rec
+        finally:
+            tracemalloc.stop()
+
+    baseline, _ = _memory_kib()
+    samples = [baseline]
+    done = threading.Event()
+
+    def sample():
+        while not done.wait(0.01):
+            samples.append(_memory_kib()[0])
+
+    worker = threading.Thread(target=sample)
+    worker.start()
+    try:
+        rec = await _timed(client, None, name, episode)
+        rss, high_water = _memory_kib()
+        rec.update(baseline_kib=baseline, sampled_peak_kib=max(rss, max(samples)), high_water_kib=high_water)
+        return rec
+    finally:
+        done.set()
+        worker.join()
+
+
+async def _first_open(name: str, episode: int, memory: str | None) -> dict[str, Any]:
     """新进程里的第一次请求：服务重启后第一次打开。模块导入与建表不计入。"""
 
     await h.ensure_db()
     probe = h.Probe()
     probe.install()
     async with _client(h.build_app()) as c:
+        if memory:
+            return await _memory_request(c, name, episode, memory == "trace")
         return await _timed(c, probe, name, episode)
 
 
@@ -118,8 +161,25 @@ def cmd_idle(a: argparse.Namespace) -> dict[str, Any]:
         line = next((x for x in p.stdout.splitlines() if x.startswith("JSON")), None)
         if line is None:
             print(f"  {name:10s} FAILED\n{p.stderr[-3000:]}", flush=True)
-            continue
+            raise RuntimeError(f"first open failed: {name}")
         first[name] = json.loads(line[4:])
+        modes = ["rss"] if Path("/proc/self/status").is_file() else []
+        if a.tracemalloc:
+            modes.append("trace")
+        for mode in modes:
+            child = subprocess.run(
+                [*cmd, "--data-root", str(h.data_root()), "--memory", mode],
+                capture_output=True,
+                text=True,
+                cwd=h.REPO_ROOT,
+                check=True,
+            )
+            record = json.loads(next(x[4:] for x in child.stdout.splitlines() if x.startswith("JSON")))
+            first[name][mode] = {
+                key: record[key]
+                for key in ("baseline_kib", "sampled_peak_kib", "high_water_kib", "python_peak_bytes")
+                if key in record
+            }
         r = first[name]
         print(
             f"  {name:10s} {r['t']:7.2f}s status={r['status']} media_read={r['media']} {r.get('err', '')}", flush=True
@@ -132,6 +192,9 @@ def cmd_idle(a: argparse.Namespace) -> dict[str, Any]:
         warm_t = [x["t"] for x in r["warm"]]
         last = r["warm"][-1]
         result[name] = {
+            "memory": {key: first[name][key] for key in ("rss", "trace") if key in first[name]},
+            "response_bytes": last["response_bytes"],
+            "reads": last["reads"],
             "first_open_s": first.get(name, {}).get("t"),
             "first_open_media": first.get(name, {}).get("media"),
             "cache_cleared_s": r["cache_cleared"]["t"],
@@ -197,7 +260,11 @@ def _complete_video(unit_id: str, episode: int, video_kb: int) -> None:
     from server.services.tasks.reference_video_tasks import apply_unit_video_assets
 
     script_file = f"scripts/episode_{episode}.json"
-    h.commit_video(unit_id, video_kb, script_file)
+    token = h.VERSION_WRITE.set(True)
+    try:
+        h.commit_video(unit_id, video_kb, script_file)
+    finally:
+        h.VERSION_WRITE.reset(token)
     with get_project_manager().locked_script(h.PROJECT, f"episode_{episode}.json", validate=False) as script:
         apply_unit_video_assets(script, unit_id, video_uri=None, thumb_rel=None)
 
@@ -233,6 +300,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         workers = executor._max_workers if executor else None
         print(f"os.cpu_count()={os.cpu_count()} default executor max_workers={workers}", flush=True)
         probe.reset_compute_max()
+        probe.manifest_lock_wait_s = 0.0
         t0 = time.perf_counter()
 
         async def server_req(rec: dict[str, Any], episode: int) -> None:
@@ -243,6 +311,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             inflight_max[name] = max(inflight_max[name], inflight[name])
             try:
                 r = await c.request(method, url, json=body)
+                rec["response_bytes"] = len(r.content)
                 rec["status"] = r.status_code
             except Exception as exc:
                 rec["status"] = repr(exc)[:120]
@@ -342,7 +411,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         if stacks is not None:
             stacks.start()
         while time.perf_counter() - t0 < a.duration:
-            await asyncio.sleep(10)
+            await asyncio.sleep(min(10, max(0, t0 + a.duration - time.perf_counter())))
             s = samples[-1] if samples else {}
             print(
                 f"t={time.perf_counter() - t0:5.0f}s writes={len(writes)} thread_queue={s.get('qsize')} "
@@ -353,7 +422,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         t_stop = time.perf_counter()
         if stacks is not None:
             stacks.stop()
-        await asyncio.gather(*bg, return_exceptions=True)
+        await asyncio.gather(*bg)
         await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
         # 防抖期间在途请求可能一度清零、提前置位 drained，而防抖随后发出的请求还没完成。
         drained.clear()
@@ -377,11 +446,14 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
     for name in names:
         rs = by.get(name, [])
         all_s = [r["server_s"] for r in rs]
-        delivered = [r["server_s"] for r in rs if not r["abandoned"]]
+        delivered = [r["server_s"] for r in rs if not r["abandoned"] and not r.get("unfinished")]
         computing_max = probe.computing_max.get(name) if name in h.COMPUTE_MARKERS else inflight_max.get(name, 0)
         endpoints[name] = {
             "n": len(rs),
-            "abandoned": len(rs) - len(delivered),
+            "response_bytes": sum(r.get("response_bytes", 0) for r in rs),
+            "reads": {k: sum(r["reads"][k] for r in rs) for k in ("project", "script", "history")},
+            "abandon_rate": sum(r["abandoned"] for r in rs) / len(rs) if rs else 0,
+            "abandoned": sum(r["abandoned"] for r in rs),
             "unfinished": sum(1 for r in rs if r.get("unfinished")),
             "errors": sum(1 for r in rs if not r.get("unfinished") and r.get("status") != 200),
             "p50": pct(all_s, 50),
@@ -403,6 +475,8 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         "drain_s": drain_s,
         "drain_capped": bool(leftover),
         "leftover": leftover,
+        "manifest_lock_wait_s": probe.manifest_lock_wait_s,
+        "version_write_lock_wait_s": probe.version_write_lock_s,
         "manifest_lock_nb_failures": probe.lock_fail,
         "video_facts_after": h.video_fact_coverage(),
         "thread_queue_max": max((s["qsize"] for s in samples), default=0),
@@ -488,7 +562,7 @@ def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
     if migration.exists():
         m = json.loads(migration.read_text())
         lines.append(
-            f"- 启动迁移（v17→v18，构建时测）：{m['startup_migration_s']:.1f}s；"
+            f"- 启动迁移（v17→v{m['target_schema']}，构建时测）：{m['startup_migration_s']:.1f}s；"
             f"迁移后带内容指纹的视频条目 {m['with_facts']}/{m['videos']}"
         )
     lines.append(
@@ -502,7 +576,7 @@ def cmd_all(a: argparse.Namespace) -> None:
     _ensure(a)
     passthrough = [
         "--data-root", str(h.data_root()), "--episodes", str(a.episodes), "--units", str(a.units),
-        "--assets", str(a.assets), "--video-kb", str(a.video_kb), "--sheet-kb", str(a.sheet_kb),
+        "--distribution", a.distribution, "--assets", str(a.assets), "--video-kb", str(a.video_kb), "--sheet-kb", str(a.sheet_kb),
         "--video-ratio", str(a.video_ratio), "--ep", str(a.ep), "--tag", a.tag,
     ]  # fmt: skip
     if a.only:
@@ -512,7 +586,7 @@ def cmd_all(a: argparse.Namespace) -> None:
         "--clients", str(a.clients), "--sample-hz", str(a.sample_hz),
     ]  # fmt: skip
     for sub, extra in (
-        ("idle", ["--reps", str(a.reps)]),
+        ("idle", ["--reps", str(a.reps)] + (["--tracemalloc"] if a.tracemalloc else [])),
         ("peak", peak_args),
     ):
         subprocess.run(
@@ -520,6 +594,8 @@ def cmd_all(a: argparse.Namespace) -> None:
         )
     idle = json.loads((_out_dir() / f"idle-{a.tag}.json").read_text())
     peak = json.loads((_out_dir() / f"peak-{a.tag}.json").read_text())
+    parameters = {key: value for key, value in vars(a).items() if key != "data_root"}
+    (_out_dir() / f"parameters-{a.tag}.json").write_text(json.dumps(parameters, indent=2), encoding="utf-8")
     table = summarize(idle, peak)
     (_out_dir() / f"summary-{a.tag}.md").write_text(table + "\n")
     print(f"\n=== summary ({a.episodes} episodes x {a.units} units, total {time.perf_counter() - t:.0f}s) ===\n{table}")
@@ -538,16 +614,19 @@ def main() -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     common.add_argument("--episodes", type=int, default=90)
-    common.add_argument("--units", type=int, default=28)
-    common.add_argument("--assets", type=int, default=30)
+    common.add_argument("--distribution", choices=("mixed", "complete", "tail", "stale"), default="mixed")
+    common.add_argument("--units", type=int)
+    common.add_argument("--assets", type=int)
     common.add_argument("--video-kb", type=int, default=128)
     common.add_argument("--sheet-kb", type=int, default=512)
     common.add_argument("--video-ratio", type=float, default=0.9)
     common.add_argument("--rebuild", action="store_true")
+    common.add_argument("--no-racy-wait", action="store_true", help="构建完成后跳过内容指纹 racy 窗口等待（仅测试用）")
     common.add_argument("--ep", type=int, default=45, help="单元列表等按集请求使用的集号")
     common.add_argument("--only", nargs="+", choices=ENDPOINTS)
     common.add_argument("--tag", default="default", help="输出文件名后缀")
     idle_opts = argparse.ArgumentParser(add_help=False)
+    idle_opts.add_argument("--tracemalloc", action="store_true")
     idle_opts.add_argument("--reps", type=int, default=5)
     peak_opts = argparse.ArgumentParser(add_help=False)
     peak_opts.add_argument("--duration", type=float, default=240)
@@ -567,13 +646,17 @@ def main() -> None:
     sub.add_parser("peak", parents=[common, peak_opts])
     sub.add_parser("all", parents=[common, idle_opts, peak_opts])
     first = sub.add_parser("_first-open")
+    first.add_argument("--memory", choices=("rss", "trace"))
     first.add_argument("name", choices=ENDPOINTS)
     first.add_argument("--ep", type=int, required=True)
     first.add_argument("--data-root", type=Path, required=True)
     a = ap.parse_args()
+    if a.cmd != "_first-open":
+        a.units = a.units or (19 if a.episodes >= 300 else 28)
+        a.assets = a.assets or (400 if a.episodes >= 300 else 30)
     h.configure(a.data_root.resolve())
     if a.cmd == "_first-open":
-        print("JSON" + json.dumps(asyncio.run(_first_open(a.name, a.ep)), default=str), flush=True)
+        print("JSON" + json.dumps(asyncio.run(_first_open(a.name, a.ep, a.memory)), default=str), flush=True)
         os._exit(0)
     {"build": _ensure, "idle": cmd_idle, "profile": cmd_profile, "peak": cmd_peak, "all": cmd_all}[a.cmd](a)
 
