@@ -112,7 +112,7 @@ jobs:
       - name: Classification marker gate (collect-only)
         # 必须不带 -n：xdist 的收集发生在各 worker 内，conftest 的 UsageError 会撞上
         # dsession 断言并丢失违规清单。-qq 保留收集错误且避免输出上万条 nodeid。
-        run: uv run python -m pytest --collect-only -qq
+        run: uv run python -m pytest --collect-only --assert=plain -qq
 
       - name: Lint & format check
         run: uv run ruff check . && uv run ruff format --check .

@@ -34,6 +34,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
@@ -110,12 +111,13 @@ def _remove_owned_test_home_dir() -> None:
 
 atexit.register(_remove_owned_test_home_dir)
 
-import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
 from lib.db.engine import register_sqlite_functions
-from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
-from server.agent_runtime.session_manager import SessionManager
-from server.agent_runtime.session_store import SessionMetaStore
+
+if TYPE_CHECKING:
+    from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
+    from server.agent_runtime.session_manager import SessionManager
+    from server.agent_runtime.session_store import SessionMetaStore
 
 pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog", "tests.invariant_profiles"]
 
@@ -138,7 +140,7 @@ def set_admission_video_request_facts(
     return configure
 
 
-VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
+type VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
 
 @pytest.fixture
@@ -773,12 +775,16 @@ async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmak
 @pytest.fixture
 async def meta_store(db_factory: async_sessionmaker[AsyncSession]) -> SessionMetaStore:
     """Create an async SessionMetaStore backed by in-memory SQLite."""
+    from server.agent_runtime.session_store import SessionMetaStore
+
     return SessionMetaStore(session_factory=db_factory)
 
 
 @pytest.fixture
 async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> SessionManager:
     """Create a SessionManager wired to *tmp_path* and *meta_store*."""
+    from server.agent_runtime.session_manager import SessionManager
+
     return SessionManager(
         project_root=tmp_path,
         meta_store=meta_store,
@@ -789,12 +795,13 @@ TESTS_ROOT = Path(__file__).parent
 CLASSIFICATION_MARKS = ("unit", "integration", "e2e")
 
 
-def _tier_from_path(item: pytest.Item) -> str | None:
+@functools.cache
+def _tier_from_path(path: Path) -> str | None:
     """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）；子包测试归入 `unit`。"""
-    if item.path.is_relative_to(TESTS_ROOT.parent / "packages/arcreel-catalog-core/tests"):
+    if path.is_relative_to(TESTS_ROOT.parent / "packages/arcreel-catalog-core/tests"):
         return "unit"
-    if item.path.is_relative_to(TESTS_ROOT):
-        tier = item.path.relative_to(TESTS_ROOT).parts[0]
+    if path.is_relative_to(TESTS_ROOT):
+        tier = path.relative_to(TESTS_ROOT).parts[0]
         return tier if tier in CLASSIFICATION_MARKS else None
     return None
 
@@ -839,7 +846,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     而不是把只跑 SQLite 的代码算进 `postgres` 覆盖率标记。
     """
     for item in items:
-        tier = _tier_from_path(item)
+        tier = _tier_from_path(item.path)
         if tier is not None:
             item.add_marker(getattr(pytest.mark, tier))
 
@@ -979,6 +986,8 @@ async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
 
     Automatically resets the module singleton on teardown.
     """
+    import lib.generation.generation_queue as generation_queue_module
+
     queue = generation_queue_module.GenerationQueue(session_factory=db_factory)
     generation_queue_module._QUEUE_INSTANCE = queue
     yield queue

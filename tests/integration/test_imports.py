@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.import_support import assert_first_import
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # 核心子模块白名单。新增包时请在此追加（而不是用 pkgutil.walk_packages，
@@ -94,12 +96,6 @@ FIRST_IMPORT_MODULES = [
     "arcreel_market_core.endpoint_definition",
     "lib.custom_provider.endpoint_test",
     "lib.custom_provider.endpoints",
-    "server.services.currency.upload_finalize",
-    "server.services.tasks.derivative_sheet_tasks",
-    "server.services.tasks.formal_image_commit",
-    "server.services.tasks.generation_tasks",
-    "server.services.tasks.image_edit_tasks",
-    "server.services.tasks.reference_video_tasks",
 ]
 
 
@@ -116,23 +112,10 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
     ``lib.config`` 与 ``lib.custom_provider`` 互相引用（后者装配 backend、backend 又读前者的
     URL 工具）；端点定义的分派方与各 ``kind`` 的实现方也隔着包边界互指（``endpoint_definition``
     的分派表 import 各 kind 的校验实现，``comfyui.import_shapes`` 又回头取 ``kinds`` 的常量）。
-    任务执行入口 ``generation_tasks`` 在模块级登记各执行器，执行器与上传收尾又共用正式图像提交，
-    它们只能单向依赖 ``formal_image_commit``，不得回头导入任务执行入口。
     这类边一旦有一条退回模块级导入就会成环——而环只在特定模块打头时才炸，同进程的冒烟遍历因
     ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能锁定"任意顺序均可独立导入"的手段。
     """
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", f"import {module_name}"],
-            cwd=str(_REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired:
-        pytest.fail(f"{module_name} 首位导入超时，疑似存在阻塞式顶层副作用")
-    assert result.returncode == 0, f"{module_name} 无法作为首个导入：\n{result.stderr}"
+    assert_first_import(module_name)
 
 
 def test_video_backend_contract_first_import_stays_light() -> None:
