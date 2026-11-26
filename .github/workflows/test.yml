@@ -451,8 +451,6 @@ jobs:
           fail_ci_if_error: false
 
   frontend-e2e:
-    # 页面级验收套件（溢出探针 + axe + 区域截图比对）。镜像版本必须与 frontend/package.json 的
-    # @playwright/test 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
     name: frontend-e2e (${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }})
     needs: [changes, frontend-static]
     if: needs.changes.outputs.frontend == 'true'
@@ -479,7 +477,6 @@ jobs:
       - name: Run page-level suite
         working-directory: frontend
         env:
-          E2E_SCREENSHOTS: "1"
           E2E_VIEWPORTS: ${{ needs.changes.outputs.e2e_viewports }}
           SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }}
         run: node node_modules/@playwright/test/cli.js test --shard="$SHARD"

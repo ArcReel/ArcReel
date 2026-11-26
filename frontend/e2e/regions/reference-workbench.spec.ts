@@ -92,7 +92,6 @@ const API: ApiOverrides = {
 
 const EDITOR_MIN_HEIGHT = 192;
 
-const workbench = (page: Page) => page.getByRole("tabpanel", { name: "视频单元" });
 const editor = (page: Page) => page.getByRole("combobox", { name: "视频单元提示词" });
 const previewFrame = (page: Page) => page.getByTestId("reference-preview-frame");
 
@@ -147,7 +146,6 @@ defineRegionScenarios("参考视频工作台", [
       await expectHeightFloors(page);
       await expect(previewFrame(page)).toHaveAttribute("data-aspect", "9:16");
     },
-    screenshot: { name: "reference-workbench", target: workbench },
   },
   {
     name: "1440×700 与 1280×720 下编辑器与预览不低于高度下限",
@@ -219,6 +217,5 @@ defineRegionScenarios("参考视频工作台", [
       await expect(dialog.getByText("移除视频单元 1？")).toBeVisible();
       await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
     },
-    screenshot: { name: "reference-workbench-remove", target: (page) => page.getByRole("alertdialog") },
   },
 ]);

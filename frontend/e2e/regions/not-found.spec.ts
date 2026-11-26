@@ -10,6 +10,5 @@ defineRegionScenarios("404 页", [
     name: "打开不存在的地址",
     path: "/app/unknown",
     ready: notFoundReady,
-    screenshot: { name: "not-found", target: (page) => page.getByRole("main") },
   },
 ]);

@@ -274,7 +274,6 @@ defineRegionScenarios("资产画廊", [
         expect(await columnCount(page)).toBe(2);
       }
     },
-    screenshot: { name: "asset-gallery", target: (page) => page.getByRole("region", { name: "角色" }) },
   },
   {
     name: "条目多且名字与描述很长：卡片不撑破网格，工具栏留在顶部",
@@ -313,7 +312,6 @@ defineRegionScenarios("资产画廊", [
       const menu = await openMenu(page, "林夕");
       await expect(menu.getByRole("menuitem", { name: "并入…" })).toBeVisible();
     },
-    screenshot: { name: "asset-gallery-menu", target: (page) => page.getByRole("menu") },
   },
   {
     name: "从菜单打开版本历史",
@@ -328,7 +326,6 @@ defineRegionScenarios("资产画廊", [
       await waitForEntrance(popover);
       await expect(popover.getByRole("button", { name: "v3" })).toBeVisible();
     },
-    screenshot: { name: "asset-gallery-versions", target: (page) => page.getByRole("dialog", { name: "历史版本" }) },
   },
   {
     name: "从菜单打开局部修改",
@@ -385,7 +382,6 @@ defineRegionScenarios("资产画廊", [
       await expect(dialog.getByRole("button", { name: "改为并入…" })).toBeVisible();
       await expect(dialog.getByRole("button", { name: "删除" })).toBeEnabled();
     },
-    screenshot: { name: "asset-gallery-delete", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "删除被很多集引用的资产：只有影响清单滚动，按钮留在视野里",
@@ -423,7 +419,6 @@ defineRegionScenarios("资产画廊", [
       await expect(viewer.getByRole("img", { name: "「林夕」的资产图，第 3 版" })).toBeVisible();
       await expect(viewer.getByRole("button", { name: "编辑" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-viewer", target: (page) => page.getByRole("dialog", { name: "林夕", exact: true }) },
   },
   {
     name: "查看大图：点旧版本只查看，还原要单独确认",
@@ -440,7 +435,6 @@ defineRegionScenarios("资产画廊", [
       await waitForEntrance(confirm);
       await expect(confirm.getByRole("button", { name: "还原" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-viewer-restore", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "查看大图：名字很长、版本很多时版本条横向滚动，操作留在视野里",

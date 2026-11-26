@@ -150,7 +150,6 @@ defineRegionScenarios("项目概览", [
       expect(column.width).toBeLessThanOrEqual(760);
       if ((page.viewportSize()?.width ?? 0) >= 2560) expect(column.width).toBe(760);
     },
-    screenshot: { name: "overview-column", target: (page) => storySetting(page).locator("xpath=..") },
   },
   {
     name: "长文本故事设定与多条资产过期：字段随内容撑高，由画布滚动到底",
@@ -177,7 +176,6 @@ defineRegionScenarios("项目概览", [
       await popover.waitFor();
       await expect(popover.getByRole("link", { name: "查看使用记录" })).toBeInViewport();
     },
-    screenshot: { name: "overview-cost-details", target: (page) => page.getByRole("dialog", { name: "费用明细" }) },
   },
   {
     name: "费用拿不到完整数字：说明原因，列出没有价格的模型并链接到设置价格",
@@ -195,10 +193,6 @@ defineRegionScenarios("项目概览", [
       );
       await lastModel.scrollIntoViewIfNeeded();
       await expect(lastModel).toBeInViewport();
-    },
-    screenshot: {
-      name: "overview-cost-unpriced",
-      target: (page) => page.getByText("设置价格：").locator("xpath=../../.."),
     },
   },
   {
@@ -240,7 +234,6 @@ defineRegionScenarios("项目概览", [
       await storySetting(page).getByRole("button", { name: "从原文生成" }).click();
       await expect(storySetting(page).getByRole("status")).toHaveText("正在读取原文…");
     },
-    screenshot: { name: "overview-reading-source", target: storySetting },
   },
   {
     name: "空项目欢迎页：标题、一句说明、拖放区与从空白开始的指引",
@@ -250,9 +243,5 @@ defineRegionScenarios("项目概览", [
       await page.getByRole("heading", { name: "开始制作《演示项目》" }).waitFor();
     },
     act: collapseAgentPanel,
-    screenshot: {
-      name: "overview-welcome",
-      target: (page) => page.getByRole("heading", { name: "开始制作《演示项目》" }).locator("xpath=../.."),
-    },
   },
 ]);

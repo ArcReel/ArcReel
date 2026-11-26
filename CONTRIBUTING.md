@@ -64,22 +64,20 @@ pnpm build                 # 构建中英文版本并检查链接和锚点
 
 ### 前端页面级测试
 
-`frontend/e2e/` 是 Playwright 页面级测试套件。它会在 1024×600 到 2560×1440 的五个视口下打开各页面区域，检查文档本身不滚动、没有被裁切且无法滚动到达的内容、纵向滚动区（含弹层正文）不会被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 标准检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行，PR 上只跑有截图基线的三个视口（`E2E_VIEWPORTS=screenshot`），每日全量 CI 跑全部五个。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
+`frontend/e2e/` 是 Playwright 页面级测试套件。它会在 1024×600 到 2560×1440 的五个视口下打开各页面区域，检查文档本身不滚动、没有被裁切且无法滚动到达的内容、纵向滚动区（含弹层正文）不会被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 标准检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行，升级 `@playwright/test` 时需同步镜像版本。PR 覆盖 1024×600、1440×900 和 2560×1440，每日 CI 覆盖全部五个视口。本地运行页面套件：
 
 ```bash
 cd frontend
-pnpm e2e:server   # 终端一：在 Docker 里启动 Playwright run-server，镜像版本取自 @playwright/test
-pnpm e2e:remote   # 终端二：构建前端，连接容器里的浏览器运行套件
+pnpm exec playwright install chromium
+pnpm e2e
 ```
 
-如果没有 Docker 环境，可以先运行 `pnpm exec playwright install chromium`，再运行 `pnpm e2e`。这种方式会在本机直接渲染，字体与布局可能与 CI 存在差异，最终结果以容器内为准。
-
-在同一台机器上并行运行多份测试套件时，可以通过环境变量错开端口与产物目录（未设置时采用括号内的默认值）：`E2E_PORT` 为预览服务端口（4173），`E2E_OUTPUT_DIR` 为失败截图与 trace 的输出目录（`frontend/test-results`），`E2E_SERVER_PORT` 为 run-server 映射到本机的端口（3000），`pnpm e2e:server` 与 `pnpm e2e:remote` 会读取同一个变量。`CI=1` 时生成的 HTML 报告可通过 Playwright 自带的 `PLAYWRIGHT_HTML_OUTPUT_DIR` 指定目录。截图基线按默认端口生成，更换端口后，页面中显示本机地址的截图将不参与比对。
+并行运行多份套件时，用 `E2E_PORT` 区分预览端口（默认 4173），用 `E2E_OUTPUT_DIR` 区分测试产物目录（默认 `frontend/test-results`）。失败时保留 trace。`CI=1` 时可用 `PLAYWRIGHT_HTML_OUTPUT_DIR` 设置 HTML 报告目录。
 
 - **新增场景**：在 `frontend/e2e/regions/` 下用 `defineRegionScenarios` 登记，写明打开的路由、就绪条件和要探测的状态。场景以会改变可用高度的状态为主，例如展开面板、打开弹层。
 - **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto`，探针按这个类名识别，不需要另加豁免。
 - **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。录制后端（`scripts/e2e_record_backend.py`）只读仓库内的输入：目录数据取后端测试共用的 `tests/fixtures/catalog.json`，生命周期判定的「今天」固定为它的数据集日期，应用版本固定，不做线上目录同步，也不读 `.env`。改动后端接口结构或这份测试目录数据的 PR 需同步重录，变更会体现在替身文件的 diff 中。`pnpm e2e:record:check` 再起一个前移系统时钟、换掉出厂快照与版本号的后端，两边各录一次，替身不同即失败；CI 的 `e2e-record-drift` 与本地闸门的 `e2e-record` 域运行它。长文本、多条目等压力变体写在场景的 `api` 字段里。
-- **页面截图**：场景登记 `screenshot` 后，设置 `E2E_SCREENSHOTS=1` 运行才会比对，只在 1024×600、1440×900、2560×1440 三个视口下截图。CI 的 `frontend-e2e` 设置了这个变量，截图出现差异或缺少基线时 job 失败。基线只能在容器里生成和比对：用 `pnpm e2e:server` 与 `pnpm e2e:remote` 运行，新增或有意改动的截图加 `--update-snapshots=changed` 重新生成，逐张核对后提交。本机渲染的字体与容器不同，不要用它生成基线。
+- **人工视觉验收**：检查界面外观时可按需调用 `page.screenshot()`，并在 PR 中附上截图或录屏。
 
 ## 代码质量
 

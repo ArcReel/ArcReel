@@ -264,7 +264,6 @@ defineRegionScenarios("脚本规划起步态", [
         expect((await box(guideToggle(page))).y).toBeLessThan((await box(source)).y);
       }
     },
-    screenshot: { name: "script-plan-start", target: planPanel },
   },
   {
     name: "起步态滚到底：右栏导览固定在视野里，窄视图的导览可以收起",
@@ -319,7 +318,6 @@ defineRegionScenarios("脚本规划起步态", [
       await expect(source.getByRole("button", { name: "保存" })).toBeVisible();
       await expect(source.getByRole("button", { name: "放弃修改" })).toBeVisible();
     },
-    screenshot: { name: "script-plan-start-editing", target: sourceRegion },
   },
   {
     name: "制作进度的下一步跳到起步区并聚焦附加指令",
@@ -349,7 +347,6 @@ defineRegionScenarios("脚本规划起步态", [
       await expect(instructions(page)).toHaveCount(0);
       await expect(page.getByRole("button", { name: "AI 规划", exact: true })).toHaveCount(0);
     },
-    screenshot: { name: "script-plan-start-running", target: planPanel },
   },
 ]);
 
@@ -373,7 +370,6 @@ defineRegionScenarios("重新规划与内容确认", [
       await expect(dialog.getByRole("button", { name: "交给 Agent" })).toBeVisible();
       await expect(dialog.getByRole("button", { name: "AI 规划" })).toBeVisible();
     },
-    screenshot: { name: "script-plan-replan-dialog", target: replanDialog },
   },
   {
     name: "内容确认页：二十四条长原文分镜只在视图内滚动",
@@ -386,7 +382,6 @@ defineRegionScenarios("重新规划与内容确认", [
       await clearAgentOverlay(page);
       await expect(planPanel(page).getByRole("combobox", { name: "分镜 1 时长" })).toBeVisible();
     },
-    screenshot: { name: "script-plan-review", target: planPanel },
   },
   {
     name: "内容确认页展开分镜时长下拉",

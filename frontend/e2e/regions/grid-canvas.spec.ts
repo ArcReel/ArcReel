@@ -160,7 +160,6 @@ defineRegionScenarios("多宫格分镜图", [
       await expect(groupCard(page, 4).getByText("这一组还没有联合图")).toBeVisible();
       await expect(groupCard(page, 4).getByRole("button", { name: "生成这一组" })).toBeEnabled();
     },
-    screenshot: { name: "grid-canvas-group", target: (page) => groupCard(page, 1) },
   },
   {
     name: "切到一组里的第二张联合图，长错误说明完整显示",
@@ -179,6 +178,5 @@ defineRegionScenarios("多宫格分镜图", [
       await expect(second.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
       await expect(second.getByRole("button", { name: "上传联合图" })).toBeEnabled();
     },
-    screenshot: { name: "grid-canvas-failed", target: (page) => groupCard(page, 2) },
   },
 ]);

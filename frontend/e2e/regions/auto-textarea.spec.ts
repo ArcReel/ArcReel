@@ -51,7 +51,6 @@ defineRegionScenarios("自动撑高输入框", [
       await narrationField(page).fill(NINE_LINES);
       await expectAllLinesReachable(narrationField(page));
     },
-    screenshot: { name: "auto-textarea-nine-lines", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "容器变窄后重新计算高度",

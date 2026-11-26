@@ -159,7 +159,6 @@ defineRegionScenarios("Agent 会话投影", [
       await expect(card).not.toContainText("已停止");
       await expect(card).not.toContainText("运行中");
     },
-    screenshot: { name: "agent-projection-continued", target: agentPanel },
   },
   {
     name: "续接摘要是「上下文已压缩」分隔线，展开后看到很长的摘要",
@@ -186,7 +185,6 @@ defineRegionScenarios("Agent 会话投影", [
       await expect(agentPanel(page).locator('[data-slot="message-scroller-button"]')).toHaveAttribute("data-active", String(overflow));
       await expect(page.getByRole("heading", { name: "主要请求" })).toBeVisible();
     },
-    screenshot: { name: "agent-projection-summary", target: agentPanel },
   },
   {
     name: "失败卡片只给一句话结论与操作，不露出原始错误码",
@@ -200,7 +198,6 @@ defineRegionScenarios("Agent 会话投影", [
       await expect(failureCard(page).getByRole("link", { name: "Agent 设置" })).toBeVisible();
       await expect(page.getByRole("alert")).toHaveCount(0);
     },
-    screenshot: { name: "agent-projection-failure", target: agentPanel },
   },
   {
     name: "面板最窄 320px 时展开失败详情，长堆栈折行不撑破面板",

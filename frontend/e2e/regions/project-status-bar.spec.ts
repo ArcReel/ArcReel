@@ -114,7 +114,6 @@ defineRegionScenarios("顶栏状态条", [
       await expect(last).toBeInViewport({ ratio: 1 });
       await waitForEntrance(popover(page));
     },
-    screenshot: { name: "project-status-bar-episodes", target: popover },
   },
   {
     name: "打开 AI 分集规划的下一步，附加要求输入框与备选都在弹层里",
@@ -130,7 +129,6 @@ defineRegionScenarios("顶栏状态条", [
       await expect(popover(page).getByRole("button", { name: "新建一集" })).toBeInViewport({ ratio: 1 });
       await waitForEntrance(popover(page));
     },
-    screenshot: { name: "project-status-bar-next", target: popover },
   },
   {
     name: "数据升级重试失败后，弹层展开很长的失败原因",
@@ -145,6 +143,5 @@ defineRegionScenarios("顶栏状态条", [
       await expect(popover(page).getByRole("button", { name: "交给 Agent 排查" })).toBeInViewport({ ratio: 1 });
       await waitForEntrance(popover(page));
     },
-    screenshot: { name: "project-status-bar-migration", target: popover },
   },
 ]);

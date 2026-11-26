@@ -149,7 +149,6 @@ defineRegionScenarios("调用端点", [
       await expect(save).toBeInViewport({ ratio: 1 });
       await expect(save).toBeEnabled();
     },
-    screenshot: { name: "endpoints-detail", target: (page) => page.getByRole("main") },
   },
   {
     name: "内置端点详情：页头并排「复制为我的端点」与主按钮「新建供应商并使用」，都在视口内",
@@ -162,7 +161,6 @@ defineRegionScenarios("调用端点", [
       await expect(page.getByRole("button", { name: "复制为我的端点" })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "新建供应商并使用" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "endpoints-builtin-detail", target: (page) => page.getByRole("main") },
   },
   {
     name: "自定义端点多且名称长：二级栏滚动到「新建端点」，它在视口内",
@@ -174,7 +172,6 @@ defineRegionScenarios("调用端点", [
       await create.scrollIntoViewIfNeeded();
       await expect(create).toBeInViewport();
     },
-    screenshot: { name: "endpoints-rail", target: rail },
   },
   {
     name: "打开页头「更多操作」菜单，菜单项留在视口内",
@@ -200,7 +197,6 @@ defineRegionScenarios("调用端点", [
       await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
       await expect(dialog.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "endpoints-delete-dialog", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "新建端点页打开导入对话框，标题与操作按钮留在视口内",
@@ -215,7 +211,6 @@ defineRegionScenarios("调用端点", [
       await expect(dialog).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "endpoints-import-dialog", target: (page) => page.getByRole("dialog") },
   },
 ]);
 

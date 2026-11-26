@@ -257,7 +257,6 @@ defineRegionScenarios("共享组件：确认阻断项与新增资产", [
       await expect(page.getByText("本集缺少结尾钩子。")).toBeVisible();
       await expect(page.getByText("降级提示")).toBeVisible();
     },
-    screenshot: { name: "shared-review-blocking-bar", target: reviewBar },
   },
   {
     name: "确认阻断项：空规划无条目时仍置顶展示整集阻断并支持交给 Agent 增量修复",
@@ -309,7 +308,6 @@ defineRegionScenarios("共享组件：确认阻断项与新增资产", [
       await expect(section.getByRole("combobox", { name: "本体角色" })).toBeVisible();
       await section.getByRole("heading", { name: "本集新增资产" }).scrollIntoViewIfNeeded();
     },
-    screenshot: { name: "shared-new-assets", target: (page) => newAssets(page).getByRole("region", { name: "角色", exact: true }) },
   },
 ]);
 
@@ -331,7 +329,6 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
       await expect(list.getByRole("checkbox")).toHaveCount(SHOT_COUNT);
       await expect(dialog.getByRole("button", { name: "交给 Agent" })).toBeInViewport();
     },
-    screenshot: { name: "shared-prompt-authoring", target: authoringDialog },
   },
   {
     name: "分镜图查看大图：占满视口的查看器，按 Esc 关闭",
@@ -349,7 +346,6 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
       await waitForEntrance(dialog);
       await expect(dialog.getByRole("img")).toBeVisible();
     },
-    screenshot: { name: "shared-image-viewer", target: viewer },
   },
   {
     name: "文本任务失败：集页顶部给出原因与去登记最大输出长度的链接",
@@ -364,7 +360,6 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
       await expect(note.getByRole("link", { name: "去登记最大输出长度" })).toBeVisible();
       await expect(note.getByRole("button", { name: "关闭" })).toBeVisible();
     },
-    screenshot: { name: "shared-text-task-failure", target: failureNote },
   },
   {
     name: "广告项目「重新生成脚本」对话框：附加指令只随本次提交",
@@ -381,7 +376,6 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
       await dialog.getByRole("textbox").fill(LONG_TEXT.repeat(3));
       await expect(dialog.getByRole("button", { name: "交给 Agent" })).toBeInViewport();
     },
-    screenshot: { name: "shared-ad-script-dialog", target: adScriptDialog },
   },
   {
     name: "交给 Agent 预填多行附加指令后输入框自动撑高",

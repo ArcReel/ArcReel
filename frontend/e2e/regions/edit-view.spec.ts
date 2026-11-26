@@ -282,7 +282,6 @@ defineRegionScenarios("剪辑视图", [
       expect(scrollable).toBe(true);
       expect((await box(player(page))).height).toBeGreaterThan(0);
     },
-    screenshot: { name: "edit-view", target: editView },
   },
   {
     name: "出片对话框：成片过时，以重新渲染为主动作",
@@ -294,7 +293,6 @@ defineRegionScenarios("剪辑视图", [
       await expect(renderDialog(page)).toContainText("已落后于剪辑时间线");
       await expectInViewport(page, renderDialog(page).getByRole("button", { name: "重新渲染" }));
     },
-    screenshot: { name: "edit-render-dialog", target: renderDialog },
   },
   {
     name: "出片对话框：TTS 配音项目的剪映草稿选项最多，主操作仍在视口内",

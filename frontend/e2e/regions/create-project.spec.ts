@@ -99,7 +99,6 @@ defineRegionScenarios("新建项目向导", [
       await expectBodyScrollsToEnd(page, dialog.getByRole("radio", { name: /参考生视频/ }).locator(".."));
       await scrollBodyToTop(page);
     },
-    screenshot: { name: "create-project-basics", target: wizard },
   },
   {
     name: "第一步填满并展开宫格分镜后，正文仍可滚到底",
@@ -155,7 +154,6 @@ defineRegionScenarios("新建项目向导", [
       await expect(dialog.getByRole("radio", { name: "跟随全局" })).toBeChecked();
       await expectBodyScrollsToEnd(page, dialog.getByText("1.1", { exact: true }));
     },
-    screenshot: { name: "create-project-generation", target: wizard },
   },
   {
     name: "第二步打开模型下拉，弹层留在视口内",
@@ -185,7 +183,6 @@ defineRegionScenarios("新建项目向导", [
       await expect(dialog.getByText("请修正：目标总时长")).toBeVisible();
       await expect(nextButton(page)).toBeDisabled();
     },
-    screenshot: { name: "create-project-ad-duration", target: wizard },
   },
   {
     name: "风格步骤只有一个滚动容器，模版网格可滚到底",
@@ -212,7 +209,6 @@ defineRegionScenarios("新建项目向导", [
       await expectBodyScrollsToEnd(page, cards.last());
       await scrollBodyToTop(page);
     },
-    screenshot: { name: "create-project-style", target: wizard },
   },
   {
     name: "自定义风格上传后往返步骤，参考图预览仍有效",

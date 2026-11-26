@@ -59,7 +59,6 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await page.getByText("ArcReel Agent 尚未配置").waitFor();
       await page.getByText(/还没有 Agent 供应商/).waitFor();
     },
-    screenshot: { name: "settings-arcreel-agent", target: (page) => page.getByRole("region", { name: "ArcReel Agent" }) },
   },
   {
     name: "Agent 供应商多且名称长时展开高级运行参数，修改后外壳底行的保存按钮可见可用",
@@ -80,7 +79,6 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     },
-    screenshot: { name: "settings-arcreel-agent-providers", target: (page) => page.getByRole("listitem", { name: /网关 1 ·/ }) },
   },
   {
     name: "添加 Agent 供应商对话框展开模型路由后，内容可滚动到底，底部按钮始终可见",
@@ -96,7 +94,6 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "测试连接" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "settings-arcreel-agent-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "删除 Agent 供应商前弹出确认，说明删除的对象",

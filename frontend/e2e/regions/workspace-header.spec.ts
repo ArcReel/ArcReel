@@ -174,7 +174,6 @@ async function deliverNoticeEventsOnce(page: Page) {
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });
 const switcher = (page: Page) => page.getByRole("button", { name: /^切换项目/ });
-const popover = (page: Page) => page.locator('[data-slot="popover-content"]');
 const bell = (page: Page) => page.getByRole("button", { name: /^工作区通知/ });
 
 async function shellReady(page: Page) {
@@ -217,7 +216,6 @@ defineRegionScenarios("工作区顶栏", [
       await expect(page.getByRole("option", { name: /第 7 号项目/ })).toBeVisible();
       await search.fill("");
     },
-    screenshot: { name: "workspace-header-switcher", target: popover },
   },
   {
     name: "没有通知时打开通知面板",
@@ -247,7 +245,6 @@ defineRegionScenarios("工作区顶栏", [
       await expect(last).toBeInViewport();
       await expect(panel.getByRole("heading", { name: "工作区通知" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "workspace-header-notifications", target: popover },
   },
   {
     name: "点通知的「查看」跳到对应的分镜与资产",
@@ -290,7 +287,6 @@ defineRegionScenarios("工作区顶栏", [
     act: async (page) => {
       await expect(page.getByRole("link", { name: "回到概览" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "workspace-not-found", target: (page) => page.getByRole("main") },
   },
   { name: "旧入口 lorebook 在画布里显示空状态", path: "/app/projects/demo/lorebook", api: EVENT_STREAM, ready: notFoundReady },
   { name: "旧入口 clues 在画布里显示空状态", path: "/app/projects/demo/clues", api: EVENT_STREAM, ready: notFoundReady },

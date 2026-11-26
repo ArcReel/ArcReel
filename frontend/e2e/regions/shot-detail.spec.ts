@@ -153,7 +153,6 @@ const API_WITH_DURATIONS: ApiOverrides = {
 
 
 const shotList = (page: Page) => page.getByRole("navigation", { name: "分镜列表" });
-const detail = (page: Page) => page.getByRole("tabpanel");
 const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 const storyboard = (page: Page) => page.getByRole("img", { name: "分镜 1 分镜图" });
 
@@ -185,7 +184,6 @@ defineRegionScenarios("分镜详情", [
       await expect(page.getByRole("button", { name: "对应原文与参考" })).toHaveAttribute("aria-expanded", "false");
       await clearAgentOverlay(page);
     },
-    screenshot: { name: "shot-detail-board", target: detail },
   },
   {
     name: "收起分镜列表后只剩序号列，详情跟着变宽",
@@ -228,7 +226,6 @@ defineRegionScenarios("分镜详情", [
       await expect(popover.getByRole("textbox")).toBeFocused();
       await waitForEntrance(popover);
     },
-    screenshot: { name: "shot-detail-notes", target: (page) => page.getByRole("dialog", { name: "备注" }) },
   },
   {
     name: "打开分镜图的版本历史并预览旧版本",
@@ -250,7 +247,6 @@ defineRegionScenarios("分镜详情", [
       expect(rect.y + rect.height).toBeLessThanOrEqual(height);
       expect(rect.x + rect.width).toBeLessThanOrEqual(width);
     },
-    screenshot: { name: "shot-detail-versions", target: (page) => page.getByRole("dialog", { name: "历史版本" }) },
   },
   {
     name: "改了提示词后出现未保存提示条，生成按钮改为保存并生成",
@@ -265,7 +261,6 @@ defineRegionScenarios("分镜详情", [
       await expect(page.getByRole("button", { name: "放弃修改" })).toBeVisible();
       await expect(page.getByRole("button", { name: /^保存并生成/ }).first()).toBeAttached();
     },
-    screenshot: { name: "shot-detail-unsaved", target: detail },
   },
   {
     name: "有未保存修改时按 J 切换分镜先询问",
@@ -280,7 +275,6 @@ defineRegionScenarios("分镜详情", [
       await expect(dialog.getByRole("button", { name: "保存并切换" })).toBeVisible();
       await waitForEntrance(dialog);
     },
-    screenshot: { name: "shot-detail-leave-confirm", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "打开时长弹层",
@@ -297,7 +291,6 @@ defineRegionScenarios("分镜详情", [
       expect(rect.y + rect.height).toBeLessThanOrEqual(height);
       expect(rect.x + rect.width).toBeLessThanOrEqual(width);
     },
-    screenshot: { name: "shot-detail-duration", target: (page) => page.getByRole("dialog", { name: "时长选择" }) },
   },
   {
     name: "打开引用编辑对话框并改动引用",
@@ -312,7 +305,6 @@ defineRegionScenarios("分镜详情", [
       await expect(dialog.getByText("引用有改动，确定后生效")).toBeVisible();
       await waitForEntrance(dialog);
     },
-    screenshot: { name: "shot-detail-refs-dialog", target: (page) => page.getByRole("dialog", { name: /引用/ }) },
   },
   {
     name: "把文本提示词切回结构化前确认",

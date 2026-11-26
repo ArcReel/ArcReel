@@ -355,7 +355,6 @@ defineRegionScenarios("分集视图", [
     act: async (page) => {
       await expect(outline(page).getByRole("link", { name: /第 1 集/ })).toBeVisible();
     },
-    screenshot: { name: "episodes-empty", target: canvas },
   },
   {
     name: "整本源文按集分段，集目录与原文各自滚动，正文行长受控",
@@ -371,7 +370,6 @@ defineRegionScenarios("分集视图", [
       expect(rail.width).toBeGreaterThanOrEqual(240);
       expect(rail.width).toBeLessThanOrEqual(300);
     },
-    screenshot: { name: "episodes-manuscript", target: canvas },
   },
   {
     name: "滚动原文时集目录高亮当前集，点击集目录让原文滚到这一集",
@@ -400,7 +398,6 @@ defineRegionScenarios("分集视图", [
       const menu = page.getByRole("menu");
       await expect(menu.getByRole("menuitem", { name: "从这一集开始重新规划" })).toBeVisible();
     },
-    screenshot: { name: "episodes-episode-menu", target: (page) => page.getByRole("menu") },
   },
   {
     name: "页头的「AI 规划分集」弹层",
@@ -413,7 +410,6 @@ defineRegionScenarios("分集视图", [
       const popover = page.getByRole("dialog");
       await expect(popover.getByRole("button", { name: "交给 Agent" })).toBeVisible();
     },
-    screenshot: { name: "episodes-plan-popover", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "上传原文的分体按钮展开上传方式",
@@ -451,7 +447,6 @@ defineRegionScenarios("分集视图", [
       const dialog = page.getByRole("dialog", { name: "处理还没用上的文件" });
       await expect(dialog.getByRole("listitem")).toHaveCount(4);
     },
-    screenshot: { name: "episodes-unregistered", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "有新的分集方案时集目录让位，原文右侧是方案栏",
@@ -468,6 +463,5 @@ defineRegionScenarios("分集视图", [
       expect(column.width).toBeGreaterThanOrEqual(320);
       expect(column.width).toBeLessThanOrEqual(400);
     },
-    screenshot: { name: "episodes-replan", target: canvas },
   },
 ]);

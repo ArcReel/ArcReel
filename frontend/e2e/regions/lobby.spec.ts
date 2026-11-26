@@ -76,7 +76,6 @@ const DELETED: ApiOverrides = {
   },
 };
 
-const main = (page: Page) => page.getByRole("main");
 const projectList = (page: Page) => page.getByRole("list", { name: "项目" });
 const firstCardActions = (page: Page) => page.getByRole("button", { name: `「${LONG_TITLE} 第 1 部」的更多操作` });
 
@@ -96,7 +95,6 @@ defineRegionScenarios("项目大厅", [
       await lobbyReady(page);
       await page.getByRole("heading", { level: 1 }).waitFor();
     },
-    screenshot: { name: "lobby-default" },
   },
   {
     name: "项目多、标题与待修复原因长：首行海报、标题与进度行在首屏内",
@@ -115,7 +113,6 @@ defineRegionScenarios("项目大厅", [
         expect(lefts).toBe(8);
       }
     },
-    screenshot: { name: "lobby-many", target: main },
   },
   {
     name: "滚到网格底部时，筛选工具栏吸顶留在视口内",
@@ -134,7 +131,6 @@ defineRegionScenarios("项目大厅", [
     ready: async (page) => {
       await page.getByText("还没有项目").waitFor();
     },
-    screenshot: { name: "lobby-empty", target: main },
   },
   {
     name: "搜索没有匹配的项目",
@@ -165,7 +161,6 @@ defineRegionScenarios("项目大厅", [
       await firstCardActions(page).click();
       await expect(page.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "lobby-card-menu", target: (page) => projectList(page).getByRole("listitem").first() },
   },
   {
     name: "重命名项目的对话框说明项目 ID 不变",
@@ -179,7 +174,6 @@ defineRegionScenarios("项目大厅", [
       await expect(dialog.getByRole("textbox", { name: "项目标题" })).toHaveValue(`${LONG_TITLE} 第 1 部`);
       await expect(dialog.getByRole("button", { name: "保存" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "lobby-rename-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "删除项目的确认，按钮留在视口内",
@@ -204,7 +198,6 @@ defineRegionScenarios("项目大厅", [
       await expect(dialog.getByRole("button", { name: `恢复「${LONG_TITLE} 1」` })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: `彻底删除「${LONG_TITLE} 1」` })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "lobby-deleted-projects", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "从项目卡导出：导出范围对话框的操作按钮留在视口内",

@@ -143,7 +143,6 @@ defineRegionScenarios("文件视图", [
       await expect(page.getByRole("link", { name: "打开这一集" })).toBeVisible();
       await expect(page.getByLabel(`${String(scriptFile.name)} 的内容`)).toContainText('"segments": []');
     },
-    screenshot: { name: "file-view-script", target: (page) => page.getByRole("main") },
   },
   {
     name: "大目录与长正文（压力）：目录树与预览各自滚动",
@@ -210,7 +209,6 @@ defineRegionScenarios("文件视图", [
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
     },
-    screenshot: { name: "file-view-trash", target: (page) => page.getByRole("main") },
   },
   {
     name: "项目回收站分区：长集名不遮住删除时的位置和正文",
