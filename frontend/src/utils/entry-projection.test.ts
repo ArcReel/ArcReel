@@ -924,19 +924,6 @@ describe("createTimelineProjector", () => {
     }
   });
 
-  it("matches fresh replay at every prefix of seeded random entry streams", () => {
-    for (const seed of [7, 42, 1058]) {
-      const stream = generateEntryStream(seed, 80);
-      const projector = createTimelineProjector();
-      for (let i = 1; i <= stream.length; i++) {
-        const prefix = stream.slice(0, i);
-        expect(projector.project(prefix), `seed=${seed} 前缀长度 ${i} 应与全量重放一致`).toEqual(
-          projectEntriesToTurns(prefix),
-        );
-      }
-    }
-  });
-
   it("degrades to a synthetic card instead of dropping the whole timeline when parent_tool_use_id self-references", () => {
     const entries: TimelineEntry[] = [
       e({
@@ -978,106 +965,6 @@ describe("createTimelineProjector", () => {
   });
 });
 
-
-function generateEntryStream(seed: number, length: number): TimelineEntry[] {
-  let state = seed >>> 0;
-  const rng = (): number => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 4294967296;
-  };
-  const pick = <T,>(items: T[]): T => items[Math.floor(rng() * items.length)];
-  const chance = (p: number): boolean => rng() < p;
-
-  const entries: TimelineEntry[] = [];
-  const toolIds: string[] = [];
-  const taskIds: string[] = [];
-  let toolCounter = 0;
-  let taskCounter = 0;
-
-  for (let seq = 0; seq < length; seq++) {
-    let entry: TimelineEntry;
-    const roll = rng();
-    if (roll < 0.35) {
-      if (chance(0.5)) {
-        entry = {
-          seq,
-          type: "assistant",
-          uuid: `a-${seq}`,
-          message_id: chance(0.5) ? `msg-${seq}` : undefined,
-          content: [{ type: "text", text: `文本${seq}` }],
-        };
-      } else {
-        const id = `tu-${toolCounter++}`;
-        toolIds.push(id);
-        entry = {
-          seq,
-          type: "assistant",
-          uuid: `a-${seq}`,
-          content: [{ type: "tool_use", id, name: pick(["Read", "Agent", "Skill", "AskUserQuestion"]), input: { n: seq } }],
-        };
-      }
-    } else if (roll < 0.5) {
-      entry = {
-        seq,
-        type: "tool_result",
-        uuid: `tr-${seq}`,
-        tool_use_id: toolIds.length > 0 && chance(0.8) ? pick(toolIds) : `tu-ghost-${seq}`,
-        content: `结果${seq}`,
-        is_error: chance(0.2),
-      };
-    } else if (roll < 0.72) {
-      const sub = rng();
-      if (sub < 0.15) {
-        entry = { seq, type: "system", subtype: "interrupt", uuid: `i-${seq}` };
-      } else if (sub < 0.3) {
-        entry = {
-          seq,
-          type: "system",
-          subtype: "skill_invocation",
-          skill_name: "demo",
-          skill_args: `s${seq}`,
-          tool_use_id: toolIds.length > 0 && chance(0.5) ? pick(toolIds) : null,
-          uuid: `sk-${seq}`,
-        };
-      } else if (sub < 0.4) {
-        entry = { seq, type: "system", subtype: "noise", uuid: `n-${seq}` };
-      } else {
-        const started = taskIds.length === 0 || chance(0.4);
-        const taskId = started ? `t-${taskCounter++}` : pick(taskIds);
-        if (started) taskIds.push(taskId);
-        entry = {
-          seq,
-          type: "system",
-          subtype: started ? "task_started" : pick(["task_progress", "task_notification"]),
-          task_id: taskId,
-          tool_use_id: toolIds.length > 0 && chance(0.6) ? pick(toolIds) : undefined,
-          description: `任务${taskId}`,
-          summary: chance(0.5) ? `进展${seq}` : undefined,
-          task_status: chance(0.3) ? "completed" : undefined,
-          usage: chance(0.5) ? { total_tokens: seq } : undefined,
-          uuid: `t-${seq}`,
-        };
-      }
-    } else if (roll < 0.85) {
-      entry = {
-        seq,
-        type: "user",
-        subtype: "question_answer",
-        tool_use_id: toolIds.length > 0 && chance(0.7) ? pick(toolIds) : `tu-ghost-${seq}`,
-        content: `答复${seq}`,
-        is_error: chance(0.3),
-        answers: chance(0.5) ? { [`q${seq}`]: "选项" } : undefined,
-        uuid: `qa-${seq}`,
-      };
-    } else {
-      entry = { seq, type: "user", uuid: `u-${seq}`, content: [{ type: "text", text: `用户${seq}` }] };
-    }
-    if (toolIds.length > 0 && chance(0.3)) entry.parent_tool_use_id = pick(toolIds);
-    else if (chance(0.05)) entry.parent_tool_use_id = `ghost-${Math.floor(rng() * 3)}`;
-    entries.push(entry);
-  }
-  return entries;
-}
 
 describe("mergeEntriesBySeq", () => {
   function e(seq: number, uuid: string): TimelineEntry {

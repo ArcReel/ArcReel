@@ -205,6 +205,7 @@ updates:
           - "patch"
       testing:
         patterns:
+          - "fast-check"
           - "vitest"
           - "@vitest/*"
           - "@testing-library/*"
