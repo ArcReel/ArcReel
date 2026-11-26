@@ -62,39 +62,43 @@ class MaterialLifecycle(RuleBasedStateMachine):
     def __init__(self, example_database, tmp_path):
         super().__init__()
         self.resources = ExitStack()
-        self.runner = self.resources.enter_context(asyncio.Runner())
-        directory = Path(self.resources.enter_context(TemporaryDirectory(dir=tmp_path)))
-        database = example_database(directory / "formal.sqlite3")
-        self.sessions = self.runner.run(database.__aenter__())
-        self.resources.callback(lambda: self.runner.run(database.__aexit__(None, None, None)))
-        patch = self.resources.enter_context(pytest.MonkeyPatch.context())
-        self.bucket = MemoryBucket()
-        use_object_storage_sdk(patch, lambda config: self.bucket)
-        bind_session_factory(patch, self.sessions)
-        use_assets_router_sessions(
-            patch, async_sessionmaker(self.sessions.kw["bind"], class_=FailAssetRefresh, expire_on_commit=False)
-        )
-        pm = ProjectManager(directory / "projects")
-        patch.setattr(assets, "get_project_manager", lambda: pm)
-        pm.create_project("demo")
-        self.root = pm.get_project_path("demo")
-        self.data_root = pm.data_root
-        self.manager = VersionManager(self.root)
-        self.manager.enable_sqlite_history()
-        self.current_file = self.root / "characters/Alice.png"
-        self.runner.run(_remote(self.sessions))
-        app = FastAPI()
-        app.include_router(assets.router)
-        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
-        self.resources.callback(lambda: self.runner.run(self.client.aclose()))
-        self.pending = []
-        self.library = {}
-        self.history = {}
-        self.trash = {}
-        self.identities = {}
-        self.collectible: set[bytes] = set()
-        self.current = 0
-        self.serial = 0
+        try:
+            self.runner = self.resources.enter_context(asyncio.Runner())
+            directory = Path(self.resources.enter_context(TemporaryDirectory(dir=tmp_path)))
+            database = example_database(directory / "formal.sqlite3")
+            self.sessions = self.runner.run(database.__aenter__())
+            self.resources.callback(lambda: self.runner.run(database.__aexit__(None, None, None)))
+            patch = self.resources.enter_context(pytest.MonkeyPatch.context())
+            self.bucket = MemoryBucket()
+            use_object_storage_sdk(patch, lambda config: self.bucket)
+            bind_session_factory(patch, self.sessions)
+            use_assets_router_sessions(
+                patch, async_sessionmaker(self.sessions.kw["bind"], class_=FailAssetRefresh, expire_on_commit=False)
+            )
+            pm = ProjectManager(directory / "projects")
+            patch.setattr(assets, "get_project_manager", lambda: pm)
+            pm.create_project("demo")
+            self.root = pm.get_project_path("demo")
+            self.data_root = pm.data_root
+            self.manager = VersionManager(self.root)
+            self.manager.enable_sqlite_history()
+            self.current_file = self.root / "characters/Alice.png"
+            self.runner.run(_remote(self.sessions))
+            app = FastAPI()
+            app.include_router(assets.router)
+            self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+            self.resources.callback(lambda: self.runner.run(self.client.aclose()))
+            self.pending = []
+            self.library = {}
+            self.history = {}
+            self.trash = {}
+            self.identities = {}
+            self.collectible: set[bytes] = set()
+            self.current = 0
+            self.serial = 0
+        except BaseException:
+            self.resources.close()
+            raise
 
     def teardown(self):
         try:

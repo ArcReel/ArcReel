@@ -41,9 +41,9 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 ## Nightly 不变量与旧包升级
 
-从仓库根目录运行 `uv run python scripts/nightly_invariants.py backend`、`frontend` 或 `archives`（后两项替换命令末尾的参数）。后端按 `invariant` 标记收集根仓用例。uv workspace 子包在自身 `pyproject.toml` 的 `tool.pytest.ini_options.markers` 中登记同名标记，并加载 `tests.invariant_profiles`，即可使用相同的 Nightly 预算。前端按 `frontend/src/**/*.property.test.*` 收集。
+在仓库根目录运行 `uv run python scripts/nightly_invariants.py backend`（或将末尾参数换为 `frontend`、`archives`）。`backend` 按 `invariant and not released_archive` 收集根仓不变量用例，并自动发现已在自身 `pyproject.toml` 的 `tool.pytest.ini_options.markers` 中登记 `invariant` 标记的 uv workspace 子包（子包加载 `tests.invariant_profiles` 即可共用相同的 Nightly 预算）；`frontend` 收集并逐个运行 `frontend/src/**/*.property.test.*`；`archives` 按 `released_archive` 标记运行旧发行版导出包升级用例。真实发行版导出包存放在 `tests/fixtures/released_archives/`，每个 ZIP 都会经过归档导入、升级及二次迁移稳定性检查，针对特定版本的回归断言同样标记 `released_archive`。
 
-将真实发行版导出包放入 `tests/fixtures/released_archives/`。每个 ZIP 都经过导入、升级及二次迁移稳定性检查。针对特定版本的回归断言使用 `released_archive` 标记。任一登记套件选中零项或有用例跳过，作业都会失败。运行告警链接到失败作业，其诊断产物保留完整测试日志。在相同提交下，从仓库根目录执行日志中的重放命令；Hypothesis 使用该次探索的种子，fast-check 使用收缩后的路径。
+任一已登记套件收集到零条用例或存在跳过用例时，命令均会失败。Nightly 运行告警会链接到失败作业，对应的诊断产物保留完整测试日志。复现时需在同一提交下，从仓库根目录执行日志中的 `Replay:` 重放命令：Hypothesis 使用该次探索生成的 `--hypothesis-seed` 固定随机种子，fast-check 则按失败报告中收缩后的种子与路径重放。
 
 ## Worktree 与测试数据
 
