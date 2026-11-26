@@ -239,9 +239,15 @@ test("batch settlement and workflow leave the running state after task results f
   const project = "batch-workflow";
   const projectApi = await createProject(request, project, "批次与制作进度");
   await post(request, `${projectApi}/episodes`, { title: "第一集" });
-  await post(request, `${projectApi}/episodes/1/blank-script`, {});
   await addCharacter(request, projectApi, "角色甲");
   await addCharacter(request, projectApi, "角色乙");
+  const { script_file } = await post<{ script_file: string }>(request, `${projectApi}/episodes/1/blank-script`, {});
+  const { item } = await post<{ item: { segment_id: string } }>(request, `${projectApi}/script-items`, {
+    script_file, novel_text: "角色甲遇见角色乙。",
+  });
+  await expect(await request.patch(`${projectApi}/segments/${item.segment_id}`, {
+    data: { script_file, characters_in_segment: ["角色甲", "角色乙"] },
+  })).toBeOK();
 
   await page.goto(`/app/projects/${project}/characters`);
   await page.getByRole("button", { name: "生成待生成的角色（2）" }).click();
@@ -259,7 +265,7 @@ test("batch settlement and workflow leave the running state after task results f
   for (const id of ids) expect(before).not.toContain(id);
   await page.getByRole("button", { name: /^1 第一集/ }).click();
   await page.getByTestId("workflow-panel").click();
-  const workflow = page.getByRole("dialog", { name: "制作进度" });
+  const workflow = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "制作进度", exact: true }) });
   await expect(workflow.getByText(/角色 · (生成中|排队中)/)).toHaveCount(2);
 
   await release(request, ids, "failure");
@@ -270,7 +276,7 @@ test("batch settlement and workflow leave the running state after task results f
 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /^工作区通知/ }).click();
-  const notifications = page.getByRole("dialog", { name: "工作区通知" });
+  const notifications = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "工作区通知" }) });
   await expect(notifications.getByText("资产图批量生成结束：0 张已生成，2 张失败")).toHaveCount(1);
   await expect(notifications.getByRole("listitem")).toHaveCount(1);
 });

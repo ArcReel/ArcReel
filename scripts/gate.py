@@ -85,6 +85,10 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
     ),
     "frontend": (Step(("pnpm", "check:static"), FRONT), FRONTEND_SUITE),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
+    "e2e-live": (
+        Step(("pnpm", "exec", "vite", "build"), FRONT),
+        Step(("env", "E2E_PREBUILT=1", "pnpm", "e2e:live"), FRONT),
+    ),
     "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
 }
 
@@ -116,6 +120,13 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
     "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md"),
+    "e2e-live": (
+        "frontend/e2e/live/*",
+        "frontend/playwright.config.ts",
+        "frontend/e2e/support/viewports.ts",
+        "frontend/package.json",
+        "frontend/pnpm-lock.yaml",
+    ),
     "e2e-record": (
         "scripts/e2e_record_backend.py",
         "tests/fixtures/catalog.json",

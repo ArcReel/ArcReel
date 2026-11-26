@@ -353,7 +353,10 @@ test("v20 project migrated to v21 moves retired invalid drafts to trash and proc
   });
 
   await page.goto(`/app/projects/${project}/episodes/1?view=plan`);
-  await expect(page.getByRole("button", { name: "本次升级调整了 1 项内容" })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: /^本次升级调整了 \d+ 项内容$/ }).click();
+  const report = page.getByRole("dialog");
+  await expect(report.getByText(/script_plan_segments\.invalid\.json/)).toBeVisible();
+  await report.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByText("待确认", { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "小说原文" })).toHaveValue(sourceText);
 
