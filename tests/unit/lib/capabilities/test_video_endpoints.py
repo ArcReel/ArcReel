@@ -1,4 +1,9 @@
+from pathlib import Path
+
+import httpx
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.generation_type_buckets import builtin_model_bucket_fit, custom_model_bucket_fit
@@ -61,23 +66,31 @@ def test_kling_multi_image_protocol_cannot_be_overridden_to_have_sound():
     assert caps.audio_track_for_route("r2v") == "always_off"
 
 
-@pytest.mark.parametrize(
-    ("frames", "fps", "reason"), [(None, 16, "no_frames"), (65, None, "missing_fps"), (66, 16, "no_whole_seconds")]
+@pytest.mark.invariant
+@given(
+    reason=st.sampled_from(("no_frames", "missing_fps", "no_whole_seconds")),
+    planned=st.integers(1, 30),
+    periods=st.integers(1, 10),
 )
-def test_fixed_workflow_keeps_its_duration_reason_across_model_and_settings(frames, fps, reason):
+async def test_fixed_workflow_keeps_its_duration_reason_across_model_and_settings(reason, planned, periods):
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
     from lib.capabilities.kernel import FixedDuration
     from lib.custom_provider.capabilities import custom_video_snapshot
-    from lib.custom_provider.comfyui.request_builder import build_workflow
+    from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
+    from lib.custom_provider.comfyui.failures import ComfyuiError
     from lib.generation.video_request_facts import planning_durations, project_video_capabilities_with_facts
+    from lib.script.reference_video.duration_slots import project_request_duration
     from tests.factories import comfyui_endpoint_definition
+    from tests.http_capture import capture_http, only_request, request_json
 
     definition = comfyui_endpoint_definition()
+    frames = None if reason == "no_frames" else 16 * periods + 2
     if frames is not None:
         definition["bindings"]["frames"] = [
             {"node": "5", "input": "frames", "class_type": "EmptyLatentImage", "step": 1}
         ]
         definition["workflow"]["5"]["inputs"]["frames"] = frames
-    if fps is None:
+    if reason == "missing_fps":
         del definition["bindings"]["fps"]
     spec = comfyui_endpoint_spec("ce-1", definition)
     model = custom_video_snapshot(
@@ -100,9 +113,32 @@ def test_fixed_workflow_keeps_its_duration_reason_across_model_and_settings(fram
     assert payload["duration_endpoint_fixed"] is True
     assert payload["duration_endpoint_fixed_reason"] == "endpoint"
     assert planning_durations(facts) == [4, 8]
-    built = build_workflow(definition, prompt="p", aspect_ratio="16:9", duration_seconds=8)
-    assert built.frames is None
-    assert built.workflow["5"]["inputs"].get("frames") == frames
+    duration = project_request_duration(
+        planned_duration_seconds=planned,
+        supported_durations=facts.allowed_durations,
+        duration_endpoint_fixed=facts.duration_endpoint_fixed,
+    )
+    assert duration.slot is not None
+    assert duration.problem is None
+    assert duration.slot.seconds == planned
+    backend = ComfyuiVideoBackend(
+        provider_id="custom-1", model="video", api_key="", base_url="https://comfy.test", definition=definition
+    )
+    with capture_http() as router:
+        submit = router.post("https://comfy.test/prompt").mock(
+            return_value=httpx.Response(400, json={"error": {"message": "stop"}})
+        )
+        with pytest.raises(ComfyuiError, match="comfyui_node_errors"):
+            await backend.generate(
+                VideoGenerationRequest(
+                    prompt="scene",
+                    output_path=Path("unused.mp4"),
+                    duration_seconds=duration.slot.seconds,
+                    seed=1,
+                    task_id="fixed",
+                )
+            )
+        assert request_json(only_request(submit))["prompt"]["5"]["inputs"].get("frames") == frames
 
 
 def test_kling_keeps_tail_override_for_pro_and_applies_request_protocol():
