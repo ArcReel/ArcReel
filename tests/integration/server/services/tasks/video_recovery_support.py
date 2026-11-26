@@ -9,6 +9,7 @@ from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.custom_provider import make_endpoint_key, make_provider_id
+from lib.custom_provider.endpoint_resolution import derive_mirror_columns
 from lib.db.models.task import Task
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -101,13 +102,15 @@ async def seed_custom_video_rows(
     async with session_factory() as session:
         endpoint_repo = CustomEndpointRepository(session)
         endpoint_keys: list[str] = []
-        for index in range(endpoint_count):
+        endpoint_definition = definition if definition is not None else custom_endpoint_definition()
+        mirror = derive_mirror_columns(endpoint_definition)
+        for _ in range(endpoint_count):
             endpoint = await endpoint_repo.create(
-                definition=definition or custom_endpoint_definition(),
-                kind="declarative",
-                schema_version="1.0.0",
-                media_type="video",
-                display_name=f"示例端点 {index}",
+                definition=endpoint_definition,
+                kind=mirror.kind,
+                schema_version=mirror.schema_version,
+                media_type=mirror.media_type,
+                display_name=mirror.display_name,
             )
             endpoint_keys.append(make_endpoint_key(endpoint.id))
         provider = await CustomProviderRepository(session).create_provider(

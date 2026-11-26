@@ -106,7 +106,7 @@ def test_step_timeout_routes_to_capacity():
 
 def test_nightly_explorations_report_and_keep_failure_logs():
     path = Path(__file__).resolve().parents[3] / ".github/workflows/nightly-full.yml"
-    jobs = yaml.safe_load(path.read_text())["jobs"]
+    jobs = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]
     assert set(jobs["report"]["needs"]) == jobs.keys() - {"report"}
     assert jobs["report"]["if"] == "always()"
     assert jobs["report"]["steps"][-1]["env"]["DEEP_JOBS"] == "${{ toJSON(needs) }}"
