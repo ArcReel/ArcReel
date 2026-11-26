@@ -84,22 +84,51 @@ def test_known_edit_preserves_episode_character_ownership(edit):
     old = "".join(chr(0x4E00 + i) for i in range(len(owners)))
     end = start + removed
     new = old[:start] + inserted + old[end:]
-    if removed:
-        replacement = [owners[start + ((j + 1) * removed - 1) // len(inserted)] for j in range(len(inserted))]
-    else:
-        owner = owners[start - 1] if 0 < start < len(owners) and owners[start] is not None else None
-        replacement = [owner] * len(inserted)
-    expected = owners[:start] + replacement + owners[end:]
-
     result = _by_episode(remap_for_edit([SourceDoc(A, old)], spans, rel=A, new_text=new))
-
     assert result.keys() == spans.keys()
+
+    removed_owners = set(owners[start:end])
+    if removed == 0 or not inserted or len(removed_owners) == 1:
+        if removed == 0:
+            owner = owners[start - 1] if 0 < start < len(owners) and owners[start] is not None else None
+        else:
+            owner = owners[start]
+        expected = owners[:start] + [owner] * len(inserted) + owners[end:]
+        for episode, before in spans.items():
+            positions = [i for i, item_owner in enumerate(expected) if item_owner == episode]
+            after = _span(positions[0], positions[-1] + 1) if positions else None
+            content = "".join(new[i] for i in positions)
+            assert result[episode].after == after
+            assert result[episode].text_changed == (content != old[before.start : before.end])
+        return
+
+    delta = len(inserted) - removed
+    previous_end = 0
     for episode, before in spans.items():
-        positions = [i for i, owner in enumerate(expected) if owner == episode]
-        after = _span(positions[0], positions[-1] + 1) if positions else None
-        content = "".join(new[i] for i in positions)
-        assert result[episode].after == after
-        assert result[episode].text_changed == (content != old[before.start : before.end])
+        remap = result[episode]
+        if before.end <= start:
+            assert remap.after == before
+            assert remap.text_changed is False
+        elif before.start >= end:
+            shifted = _span(before.start + delta, before.end + delta)
+            assert remap.after == shifted
+            assert remap.text_changed is False
+            assert new[shifted.start : shifted.end] == old[before.start : before.end]
+        else:
+            assert remap.text_changed is True
+            if before.start < start:
+                assert remap.after is not None
+                assert remap.after.start == before.start
+                assert remap.after.end >= start
+                assert new[before.start : start] == old[before.start : start]
+            if before.end > end:
+                assert remap.after is not None
+                assert remap.after.end == before.end + delta
+                assert remap.after.start <= start + len(inserted)
+                assert new[end + delta : remap.after.end] == old[end : before.end]
+        if remap.after is not None:
+            assert previous_end <= remap.after.start < remap.after.end <= len(new)
+            previous_end = remap.after.end
 
 
 class TestRemapForEdit:

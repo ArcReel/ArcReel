@@ -21,13 +21,13 @@ testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执�
 
 ## 前端属性测试与反例重放
 
-在仓库根目录运行 `pnpm --dir frontend exec vitest run .property.test`。默认 `ci` 档使用固定种子 4161，每项属性运行 25 个样例，每条序列最多 16 步。深度探索使用随机种子，每项属性运行 200 个样例，每条序列最多 80 步：
+在仓库根目录运行 `pnpm --dir frontend exec vitest run .property.test`。默认 `ci` 档使用固定种子 4161，每项属性运行 25 个样例、每条序列最多 16 步；`nightly` 深度探索使用随机种子，每项属性运行 200 个样例、每条序列最多 80 步：
 
 ```bash
 FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 ```
 
-失败报告包含收缩后的输入和重放命令。在同一提交、同一锁文件下，从仓库根目录执行报告中的整条命令。保留 `FC_PROFILE`、`FC_SEED` 和 `FC_PATH`；命令模型还需保留 `FC_REPLAY_PATH`，普通事件数组的该值为空。确认回归后，将最小事件或动作序列及业务断言固化为确定性用例，命令模型同时记录对应的重放参数。每次生成或收缩都要重新创建投影器或重置任务 store 和刷新队列。
+失败报告会输出收缩后的输入与完整重放命令。重放时需在同一提交和锁文件下，从仓库根目录原样执行该命令：保留 `FC_PROFILE`、`FC_SEED` 和 `FC_PATH`；命令模型还需保留 `FC_REPLAY_PATH`（普通事件数组下该值为空）。确认回归后，将最小事件或动作序列连同业务断言固化为确定性用例，命令模型一并记录对应的重放参数。每次生成或收缩都必须重建投影器，或重置任务 store 与刷新队列，避免跨样例残留状态。
 
 ## Worktree 与测试数据
 

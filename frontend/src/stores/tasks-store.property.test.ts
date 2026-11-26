@@ -1,5 +1,5 @@
 import * as fc from "fast-check";
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { makeTask } from "@/test/factories";
 import { commandLimits, propertyParameters, propertyTimeout } from "@/test/property";
@@ -7,10 +7,20 @@ import { defaultTaskStats, isResourceBusy, useTasksStore } from "./tasks-store";
 
 const state = useTasksStore.getState;
 const running = makeTask({ task_type: "voice_sample", media_type: "audio", status: "running" });
-const terminal = { ...running, status: "succeeded" as const, updated_at: "2026-04-20T00:01:00Z" };
+const terminalFor = (sameTimestamp: boolean) => ({
+  ...running,
+  status: "succeeded" as const,
+  updated_at: sameTimestamp ? running.updated_at : "2026-04-20T00:01:00Z",
+});
 const busy = () => isResourceBusy("voice_sample", running.project_name, running.resource_id);
+const TEST_FILE = "src/stores/tasks-store.property.test.ts";
 
-it("keeps a settled task released across stale active, recent and tracked snapshots", { timeout: propertyTimeout }, async () => {
+afterEach(() => {
+  state().setRefreshScope(null);
+  vi.restoreAllMocks();
+});
+
+it("keeps a settled task released across stale active, recent and tracked snapshots", { timeout: propertyTimeout }, async ({ task }) => {
   vi.spyOn(API, "getActiveTasks");
   vi.spyOn(API, "listTasks");
   vi.spyOn(API, "lookupTasks");
@@ -21,9 +31,11 @@ it("keeps a settled task released across stale active, recent and tracked snapsh
     truncated: fc.boolean(),
     recent: fc.constantFrom("off-page", "running", "terminal"),
     lookup: fc.constantFrom("running", "terminal"),
+    sameTimestamp: fc.boolean(),
   }).map((step): fc.AsyncCommand<{ settled: boolean }, typeof state> => ({
     check: () => true,
     async run(model, getStore) {
+      const terminal = terminalFor(step.sameTimestamp);
       vi.mocked(API.getActiveTasks).mockResolvedValue({ items: step.active ? [running] : [], truncated: step.truncated });
       const items = step.recent === "off-page" ? [] : [step.recent === "running" ? running : terminal];
       vi.mocked(API.listTasks).mockResolvedValue({ items, page: 1, page_size: 200, total: items.length });
@@ -56,5 +68,54 @@ it("keeps a settled task released across stale active, recent and tracked snapsh
     } finally {
       state().setRefreshScope(null);
     }
-  }), propertyParameters("src/stores/tasks-store.property.test.ts"));
+  }), propertyParameters(TEST_FILE, task.name));
+});
+
+it("preserves active occupancy across truncated snapshots and keeps terminal rows settled", { timeout: propertyTimeout }, async ({ task }) => {
+  vi.spyOn(API, "getActiveTasks");
+  vi.spyOn(API, "listTasks");
+  vi.spyOn(API, "lookupTasks").mockResolvedValue({ items: [], missing_ids: [] });
+  vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+
+  const snapshot = fc.record({
+    active: fc.boolean(),
+    truncated: fc.boolean(),
+    recent: fc.constantFrom("off-page", "running", "terminal"),
+    sameTimestamp: fc.boolean(),
+  }).map((step): fc.AsyncCommand<{ active: boolean; recentTerminal: boolean }, typeof state> => ({
+    check: () => true,
+    async run(model, getStore) {
+      const terminal = terminalFor(step.sameTimestamp);
+      vi.mocked(API.getActiveTasks).mockResolvedValue({ items: step.active ? [running] : [], truncated: step.truncated });
+      const items = step.recent === "off-page" ? [] : [step.recent === "running" ? running : terminal];
+      vi.mocked(API.listTasks).mockResolvedValue({ items, page: 1, page_size: 200, total: items.length });
+
+      await getStore().refreshTasks();
+      let nextActive = step.truncated ? model.active : false;
+      if (step.active && !model.recentTerminal) nextActive = true;
+      let nextRecentTerminal = false;
+      if (step.recent === "terminal") {
+        nextActive = false;
+        nextRecentTerminal = true;
+      } else if (step.recent === "running") {
+        nextRecentTerminal = model.recentTerminal;
+      }
+      model.active = nextActive;
+      model.recentTerminal = nextRecentTerminal;
+      expect(getStore().connected).toBe(true);
+      expect(busy()).toBe(model.active);
+    },
+    toString: () => JSON.stringify(step),
+  }));
+
+  await fc.assert(fc.asyncProperty(fc.commands([snapshot], commandLimits), async (commands) => {
+    vi.clearAllMocks();
+    state().setRefreshScope(null);
+    state().setRefreshScope({ projectName: running.project_name });
+    try {
+      await fc.asyncModelRun(() => ({ model: { active: false, recentTerminal: false }, real: state }), commands);
+    } finally {
+      state().setRefreshScope(null);
+    }
+  }), propertyParameters(TEST_FILE, task.name));
 });

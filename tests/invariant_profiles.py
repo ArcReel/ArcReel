@@ -24,8 +24,12 @@ settings.register_profile(
     max_examples=500,
     stateful_step_count=32,
 )
-settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "ci"))
+settings.load_profile((os.environ.get("HYPOTHESIS_PROFILE") or "ci").strip())
+
+
+def is_nightly_profile() -> bool:
+    return settings.get_current_profile_name() == "nightly"
 
 
 def state_machine_settings() -> settings:
-    return settings(max_examples=8 if settings.default.derandomize else 40)
+    return settings(max_examples=40 if is_nightly_profile() else 8)
