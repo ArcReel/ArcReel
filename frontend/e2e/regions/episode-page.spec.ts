@@ -303,6 +303,7 @@ defineRegionScenarios("集页页头", [
   },
   {
     name: "打开制作进度不改变视图区高度，弹层留在视口内",
+    viewports: "both",
     path: EPISODE_PATH,
     api: STRESS,
     ready: pageReady,

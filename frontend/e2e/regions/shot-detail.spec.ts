@@ -275,6 +275,7 @@ defineRegionScenarios("分镜详情", [
   },
   {
     name: "打开时长弹层",
+    viewports: "both",
     path: BOARD_PATH,
     api: API_WITH_DURATIONS,
     ready: boardReady,
@@ -388,8 +389,6 @@ defineViewportContracts("分镜详情", [
         }
         return intervals;
       });
-      // 帧耗时只在单 worker 运行时断言（CI 的 frontend-e2e 每片单 worker）：30 帧滚动不应出现半秒主线程停顿
-      // 或累计超过 2 秒。多 worker 并行时 CPU 争用会拉长帧间隔，量到的不是页面自身的耗时，只跑后面的排序部分。
       if (test.info().config.workers === 1) {
         expect(Math.max(...frames), `500 镜滚动帧间隔：${JSON.stringify(frames)}`).toBeLessThan(500);
         expect(frames.reduce((sum, value) => sum + value, 0)).toBeLessThan(2000);
