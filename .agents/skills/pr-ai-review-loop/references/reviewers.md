@@ -38,7 +38,7 @@
 
 **定向触发。** 普通 PR 默认只等 CodeRabbit。以下任一条件成立时，将 Codex 纳入本轮必要审查：
 
-- CodeRabbit 对当前变更明确回执跳过或限流。核对 walkthrough 的 `is_review_skipped`、`is_rate_limited` 或 CodeRabbit 的 `quota_alerts`，确认回执属于当前变更，其后仍缺少成功审查。按回执中的未审范围提问；文件数、静默时长和 Codex 自身报错均不能证明主审遗漏。
+- CodeRabbit 对当前变更返回跳过或限流回执。核对 walkthrough 的 `is_review_skipped`、`is_rate_limited` 或 CodeRabbit 的 `quota_alerts`，确认回执属于当前变更，其后仍缺少成功审查。按回执中的未审范围提问；文件数、静默时长和 Codex 自身报错均不构成 CodeRabbit 覆盖缺口。
 - diff 改变下表任一行为。把实际入口、跨边界的操作和预期结果写成端到端问题，合并到一次请求中。
 
 | 行为 | 定向问题示例 |

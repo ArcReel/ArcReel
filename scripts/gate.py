@@ -12,8 +12,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fnmatch
+import hashlib
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -22,12 +25,13 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal
 
 import portalocker
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK_PATH = Path(os.environ.get("ARCREEL_GATE_LOCK") or Path.home() / ".cache" / "arcreel" / "gate.lock")
+_PYTEST_NO_TESTS_COLLECTED = 5
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,8 @@ class Step:
     argv: tuple[str, ...]
     cwd: Path = ROOT
     heavy: bool = False
+    junit_runner: Literal["pytest", "vitest"] | None = None
+    testmon_sources: tuple[str, ...] = ()
 
     def describe(self) -> str:
         command = " ".join(self.argv)
@@ -46,6 +52,10 @@ PYTEST = (*UV, "python", "-m", "pytest")
 BACKEND_SUITE = Step((*PYTEST, "-n", "4", "--dist", "loadfile", "--max-worker-restart=0"), heavy=True)
 FRONT = ROOT / "frontend"
 FRONTEND_SUITE = Step(("pnpm", "test"), FRONT, heavy=True)
+FULL_SUITES: dict[str, Step] = {
+    "backend": BACKEND_SUITE,
+    "frontend": FRONTEND_SUITE,
+}
 
 DOMAINS: dict[str, tuple[Step, ...]] = {
     "backend": (
@@ -258,7 +268,7 @@ FRONTEND_SHARED = (
 
 def select_tests(name: str, paths: list[str], root: Path = ROOT) -> list[Step]:
     """为已命中的前端或后端域选择定向测试，遇到共享边界返回完整套件。"""
-    suite = DOMAINS[name][-1]
+    suite = FULL_SUITES[name]
     sources = []
     tests = []
     for path in paths:
@@ -291,57 +301,104 @@ def select_tests(name: str, paths: list[str], root: Path = ROOT) -> list[Step]:
                 )
             ]
         if sources:
-            steps.append(Step((*PYTEST, "--testmon")))
+            steps.append(Step((*PYTEST, "--testmon"), junit_runner="pytest", testmon_sources=tuple(sources)))
         if tests:
-            steps.append(Step((*PYTEST, *tests)))
+            steps.append(Step((*PYTEST, *tests), junit_runner="pytest"))
     else:
         vitest = ("pnpm", "exec", "vitest")
         if sources:
-            steps.append(Step((*vitest, "related", "--run", "--maxWorkers=1", *sources), FRONT))
+            steps.append(Step((*vitest, "related", "--run", "--maxWorkers=1", *sources), FRONT, junit_runner="vitest"))
         if tests:
-            steps.append(Step((*vitest, "run", "--maxWorkers=1", *tests), FRONT))
+            steps.append(Step((*vitest, "run", "--maxWorkers=1", *tests), FRONT, junit_runner="vitest"))
     return steps or [suite]
 
 
-def _run_selected(step: Step) -> int:
-    """统一 pytest 与 Vitest 的零命中语义；测试断言失败保留原退出码。"""
+def _source_fshas(path: Path) -> set[str]:
+    """计算与 testmon 兼容的文件指纹（覆盖 git blob 与 read_source_sha 两种格式）。"""
+    raw = path.read_bytes()
+    git_blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw, usedforsecurity=False).hexdigest()
+    normalized = raw.replace(b"\f", b" ").replace(b"\r\n", b"\n")
+    text = normalized.decode("utf-8", "replace")
+    testmon_blob = hashlib.sha1(b"blob %d\0" % len(text) + normalized, usedforsecurity=False).hexdigest()
+    return {git_blob, testmon_blob}
+
+
+def _testmon_covers_current_sources(sources: Iterable[str], root: Path = ROOT) -> bool:
+    """确认改动源码均已在 .testmondata 中以当前内容通过覆盖且库中无失败用例。"""
+    source_list = list(sources)
+    db_path = root / ".testmondata"
+    if not source_list or not db_path.is_file():
+        return False
+    try:
+        with contextlib.closing(sqlite3.connect(db_path)) as con:
+            if con.execute("SELECT 1 FROM test_execution WHERE failed != 0 LIMIT 1").fetchone():
+                return False
+            rows = con.execute(
+                """
+                SELECT DISTINCT f.filename, f.fsha
+                FROM file_fp f
+                JOIN test_execution_file_fp tef ON tef.fingerprint_id = f.id
+                JOIN test_execution te ON te.id = tef.test_execution_id
+                WHERE te.failed = 0 AND f.fsha IS NOT NULL
+                """
+            ).fetchall()
+    except sqlite3.Error:
+        return False
+    recorded: dict[str, set[str]] = {}
+    for filename, fsha in rows:
+        recorded.setdefault(Path(filename).as_posix(), set()).add(fsha)
+    for source in source_list:
+        try:
+            expected = _source_fshas(root / source)
+        except OSError:
+            return False
+        if not (recorded.get(source, set()) & expected):
+            return False
+    return True
+
+
+def _run_selected(step: Step) -> tuple[int, bool]:
+    """运行定向测试并返回 (退出码, 是否实际执行了至少一条用例)。"""
     with tempfile.TemporaryDirectory() as directory:
         report = Path(directory) / "selected.xml"
         options = (
             ("--passWithNoTests", "--reporter=default", "--reporter=junit", f"--outputFile.junit={report}")
-            if step.cwd == FRONT
+            if step.junit_runner == "vitest"
             else (f"--junitxml={report}",)
         )
         code = _execute(replace(step, argv=(*step.argv, *options)))
         if code:
-            return code
-        if report.is_file() and ET.parse(report).find(".//testcase") is not None:
-            return 0
-        return 5
+            return code, False
+        ran_tests = report.is_file() and ET.parse(report).find(".//testcase") is not None
+        return 0, ran_tests
 
 
-def _run_quick_tests(name: str, paths: list[str]) -> int:
-    for step in select_tests(name, paths):
+def _run_quick_tests(name: str, paths: list[str], root: Path = ROOT) -> int:
+    for step in select_tests(name, paths, root):
         if step.heavy:
             return _execute(step)
-        code = _run_selected(step)
-        if code == 5:
+        code, ran_tests = _run_selected(step)
+        if code == 0 and ran_tests:
+            continue
+        if code == 0 and step.testmon_sources and _testmon_covers_current_sources(step.testmon_sources, root):
+            print(f"[gate] {name} 增量缓存已覆盖当前改动，无需重跑", flush=True)
+            continue
+        if code in {0, _PYTEST_NO_TESTS_COLLECTED}:
             print(f"[gate] {name} 零命中，运行完整测试", flush=True)
-            return _execute(DOMAINS[name][-1])
-        if code:
-            return code
+            return _execute(FULL_SUITES[name])
+        return code
     return 0
 
 
-def run_domains(domains: list[str], paths: list[str], complete: set[str]) -> int:
+def run_domains(domains: list[str], paths: list[str], complete: set[str], root: Path = ROOT) -> int:
     started = time.monotonic()
     for name in domains:
         steps = DOMAINS[name]
-        quick = name in {"backend", "frontend"} and name not in complete
-        for step in steps[:-1] if quick else steps:
+        quick = name in FULL_SUITES and name not in complete
+        for step in (step for step in steps if not (quick and step.heavy)):
             if code := _execute(step):
                 return code
-        if quick and (code := _run_quick_tests(name, paths)):
+        if quick and (code := _run_quick_tests(name, paths, root)):
             return code
     print(f"[gate] {' '.join(domains)} 全部通过，用时 {time.monotonic() - started:.0f}s", flush=True)
     return 0

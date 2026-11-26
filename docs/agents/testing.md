@@ -1,8 +1,8 @@
 # 运行测试
 
-开发时运行 `uv run python scripts/gate.py --changed [BASE]`。门禁相对公共祖先选域，包含未提交、未跟踪和重命名前后的路径。各域保留完整静态检查，后端用 testmon 和改动的测试文件选例，前端用 Vitest 运行关联测试与改动的测试文件。
+开发时运行 `uv run python scripts/gate.py --changed [BASE]`。闸门相对共同祖先选域，包含未提交、未跟踪和重命名前后的路径。各域保留完整静态检查，后端按 testmon 与改动的测试文件筛选用例，前端用 Vitest 运行关联测试与改动的测试文件。
 
-共享配置、锁文件、测试设施、迁移、跨语言契约、子进程入口、删除或无法识别的域内路径会升级至对应域完整测试。无法归属的代码路径触发前后端完整测试。定向测试零命中时重跑该域完整测试。后端首次建 testmon 库也按全量步骤排队。
+共享配置、锁文件、测试设施、迁移、跨语言契约、子进程入口、删除或无法识别的域内路径会升级至对应域完整测试。无法归属的代码路径触发前后端完整测试。定向测试零命中时重跑该域完整测试。如果后端 testmon 库中没有失败用例，且通过的用例已覆盖所有改动源码的当前指纹，则跳过全量重跑。后端首次建 testmon 库也按全量步骤排队。
 
 push 前运行 `uv run python scripts/gate.py --changed --full`。显式点名的域始终完整运行。仅全量后端和前端测试共用机器锁，定向测试使用单个 worker。
 
@@ -17,7 +17,7 @@ push 前运行 `uv run python scripts/gate.py --changed --full`。显式点名�
 | 前端共享面 | 改包清单、锁文件、Vitest 配置、测试 setup、i18n 或 branding，在 `frontend/` 跑 `pnpm check`。 |
 | 市场或目录子包 | 在各自 `packages/` 的包目录跑 `uv run python -m pytest`，再按主仓调用方补跑相关测试。消息键变化另跑主仓 `tests/unit/lib/i18n/`。 |
 
-testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；手动运行 testmon 时需另测这类入口。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
+testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；手动运行 testmon 时，改动这类入口需单独补跑对应测试。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
 
 修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
 
@@ -53,9 +53,9 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 ## CI 覆盖率与 Nightly 告警
 
-普通 `main` 推送按改动选择测试域，后端、PostgreSQL 兼容与前端测试均跳过覆盖率采集。Nightly 和发布 PR 采集覆盖率。复用 Tests 工作流时，分别用 `full` 控制检查范围、`coverage` 控制采集。PR 的 `changes` 作业摘要列出改动涉及的静态门禁文件，供审阅者核查。
+普通 `main` 推送按改动选择测试域，后端、PostgreSQL 兼容与前端测试均跳过覆盖率采集。Nightly 和发布 PR 采集覆盖率。复用 Tests 工作流时，`full` 控制检查范围，`coverage` 控制覆盖率采集。PR 的 `changes` 作业摘要列出改动涉及的静态门禁文件，供审阅者核查。
 
-Nightly 按运行编号建告警，重跑失败时在同一告警追加记录。记录按失败作业给出产品断言、测试竞态、容量或基础设施的初步分类。确认问题后可另开跟踪票，也可在运行告警上加 `bug` 等标签将其保留。绿灯只关闭同一 Git 引用下、本次及更早运行中仍使用原始告警标记、标题且仅带 `ci` 标签的自动告警。
+Nightly 按运行编号创建告警，重跑失败时在同一告警追加记录。记录按失败作业给出产品断言、测试竞态、容量或基础设施的初步分类。确认问题后可另开 issue，也可为运行告警添加 `bug` 等标签将其保留。Nightly 恢复通过后，只关闭同一 Git 引用下本次及更早运行的自动告警（须保留原始告警标记与标题，且仅带 `ci` 标签）。
 
 ## CI 挂起诊断
 

@@ -5,6 +5,7 @@ import sys
 from fnmatch import fnmatchcase
 
 GATE_PATHS = (
+    "pyproject.toml",
     "scripts/audit_*.py",
     "scripts/lint_*.py",
     "scripts/source_comments.py",
@@ -24,15 +25,21 @@ GATE_PATHS = (
 )
 
 
-def main() -> None:
-    paths = sys.stdin.buffer.read().decode("utf-8", errors="backslashreplace").split("\0")
+def render_summary(raw_input: bytes) -> str:
+    paths = raw_input.decode("utf-8", errors="backslashreplace").split("\0")
     matches = [p for p in paths if any(fnmatchcase(p, pattern) for pattern in GATE_PATHS)]
-    print("### 静态门禁变更（observe）\n")
+    lines = ["### 静态门禁变更（observe）\n\n"]
     if matches:
-        print("请核查以下文件是否放宽检查或新增豁免。\n")
-        print("<pre>" + "\n".join(html.escape(p.replace("\n", r"\n").replace("\r", r"\r")) for p in matches) + "</pre>")
+        lines.append("请核查以下文件是否放宽检查或新增豁免。\n\n")
+        escaped = "\n".join(html.escape(p.replace("\n", r"\n").replace("\r", r"\r")) for p in matches)
+        lines.append(f"<pre>{escaped}</pre>\n")
     else:
-        print("本次改动未涉及静态门禁文件。")
+        lines.append("本次改动未涉及静态门禁文件。\n")
+    return "".join(lines)
+
+
+def main() -> None:
+    sys.stdout.write(render_summary(sys.stdin.buffer.read()))
 
 
 if __name__ == "__main__":

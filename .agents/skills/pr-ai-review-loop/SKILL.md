@@ -36,7 +36,7 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 
 1. **拉取状态。** 运行 `poll.sh`。索引用于定位，正文经 `query.sh` 按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。
 2. **处理已经成立的事项。** 按 reviewers.md 核对各家的触发条件，命中时发送对应请求，故障按 [faults.md](references/faults.md) 处理。有新发现、失败的检查或新安全告警时，按下文处置这一批。
-3. **没有可执行的动作时等待。** 先核对下文完成条件，满足即退出。仍缺必要结果时前台运行 `wait.sh`，定向等待 Codex 时加 `--wait-codex`。它在出现入口时还没有的可行动事项时返回 `WAIT_READY: <原因>`，届时回到第 1 步；`codex_fallback` 表示收到主审缺口候选回执，按 reviewers.md 核实；`WAIT_TIMEOUT` 同样回到第 1 步，仍缺结果按 faults.md 处理。入口时已经成立的事项不会让它返回，所以第 2 步要先做完。
+3. **没有可执行的动作时等待。** 先核对下文完成条件，满足即退出。仍缺必要结果时前台运行 `wait.sh`，定向等待 Codex 时加 `--wait-codex`。它在出现入口时还没有的可行动事项时返回 `WAIT_READY: <原因>`，届时回到第 1 步；`codex_fallback` 表示收到 CodeRabbit 跳过或限流回执，按 reviewers.md 核实；`WAIT_TIMEOUT` 同样回到第 1 步，仍缺结果按 faults.md 处理。入口时已经成立的事项不会让它返回，所以第 2 步要先做完。
 
 **处置一批。** 索引带 `triage_hint` 时回到「工程判断」。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复，运行相关测试与闸门。每次 push 都会重启 CI，同一 HEAD 上的事项攒成一批：先到的先定性、先修，等该 HEAD 的 required checks 结束、本轮必要审查到齐后一次 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
 

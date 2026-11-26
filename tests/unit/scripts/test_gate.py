@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import sqlite3
 import subprocess
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -71,7 +74,7 @@ def test_every_ci_trigger_path_selects_the_matching_gate_domain(ci_domain: str, 
     for pattern in _ci_filters()[ci_domain]:
         if pattern in skipped:
             continue
-        assert gate_domain in select_domains([_sample_path(pattern)]), pattern
+        assert any(fnmatchcase(_sample_path(pattern), trigger) for trigger in TRIGGERS[gate_domain]), pattern
 
 
 @pytest.fixture
@@ -203,3 +206,90 @@ def test_cold_warm_and_deleted_python_source(tmp_path):
     assert "--testmon" in warm.argv
     source.unlink()
     assert gate.select_tests("backend", paths, tmp_path) == [gate.BACKEND_SUITE]
+
+
+def _write_testmondata(db_path: Path, entries: list[tuple[str, str, int]]) -> None:
+    with contextlib.closing(sqlite3.connect(db_path)) as con:
+        con.executescript(
+            """
+            CREATE TABLE test_execution (id INTEGER PRIMARY KEY, failed INTEGER);
+            CREATE TABLE file_fp (id INTEGER PRIMARY KEY, filename TEXT, fsha TEXT);
+            CREATE TABLE test_execution_file_fp (test_execution_id INTEGER, fingerprint_id INTEGER);
+            """
+        )
+        for idx, (filename, fsha, failed) in enumerate(entries, start=1):
+            con.execute("INSERT INTO test_execution VALUES (?, ?)", (idx, failed))
+            con.execute("INSERT INTO file_fp VALUES (?, ?, ?)", (idx, filename, fsha))
+            con.execute("INSERT INTO test_execution_file_fp VALUES (?, ?)", (idx, idx))
+        con.commit()
+
+
+def test_repeat_testmon_zero_hits_with_verified_source_stays_quick_and_unlocked(tmp_path, monkeypatch):
+    source = tmp_path / "server" / "ordinary.py"
+    source.parent.mkdir()
+    content = 'MSG = "中文状态"\n'
+    source.write_text(content, encoding="utf-8")
+    raw = source.read_bytes()
+    git_blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw, usedforsecurity=False).hexdigest()
+    _write_testmondata(tmp_path / ".testmondata", [("server/ordinary.py", git_blob, 0)])
+
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        for arg in argv:
+            if arg.startswith("--junitxml="):
+                Path(arg.split("=", 1)[1]).write_text('<testsuite tests="0"/>', encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0)
+
+    lock_file = tmp_path / "machine.lock"
+    monkeypatch.setattr(gate, "LOCK_PATH", lock_file)
+    monkeypatch.setattr(subprocess, "run", run)
+
+    assert gate.run_domains(["backend"], ["server/ordinary.py"], set(), root=tmp_path) == 0
+    assert gate.BACKEND_SUITE.argv not in calls
+    assert not lock_file.exists()
+
+
+@pytest.mark.parametrize(
+    "recorded_entries",
+    [
+        [],
+        [("server/ordinary.py", "stale-sha", 0)],
+        [("server/ordinary.py", "current", 1)],
+    ],
+)
+def test_testmon_zero_hits_with_unverified_source_upgrades_and_locks(tmp_path, monkeypatch, recorded_entries):
+    source = tmp_path / "server" / "ordinary.py"
+    source.parent.mkdir()
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    raw = source.read_bytes()
+    current_sha = hashlib.sha1(b"blob %d\0" % len(raw) + raw, usedforsecurity=False).hexdigest()
+    entries = [(name, current_sha if sha == "current" else sha, failed) for name, sha, failed in recorded_entries]
+    _write_testmondata(tmp_path / ".testmondata", entries)
+
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        for arg in argv:
+            if arg.startswith("--junitxml="):
+                Path(arg.split("=", 1)[1]).write_text('<testsuite tests="0"/>', encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0)
+
+    lock_file = tmp_path / "machine.lock"
+    monkeypatch.setattr(gate, "LOCK_PATH", lock_file)
+    monkeypatch.setattr(subprocess, "run", run)
+
+    assert gate.run_domains(["backend"], ["server/ordinary.py"], set(), root=tmp_path) == 0
+    assert gate.BACKEND_SUITE.argv in calls
+    assert lock_file.exists()
+
+
+def test_quick_checks_skip_machine_lock_while_full_suites_acquire_it(tmp_path, monkeypatch, commands):
+    lock_file = tmp_path / "machine.lock"
+    monkeypatch.setattr(gate, "LOCK_PATH", lock_file)
+    assert gate.run_domains(["frontend"], ["frontend/src/theme.ts"], set()) == 0
+    assert not lock_file.exists()
+    assert gate.run_domains(["frontend"], ["frontend/src/theme.ts"], {"frontend"}) == 0
+    assert lock_file.exists()
