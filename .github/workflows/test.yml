@@ -10,6 +10,10 @@ on:
         description: 忽略路径裁剪，全量运行所有 job
         type: boolean
         default: false
+      coverage:
+        description: 采集并上传后端、PostgreSQL 与前端覆盖率
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         description: Codecov 上传令牌；缺失时覆盖率上传步骤不阻断
@@ -43,6 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - name: Decide run scope
         # 分片数按每片约 115 条用例定：单 worker 下 2560×1440 一档约 3 秒一条，最慢一片约 7 分钟，
         # 与 Backend tests (integration) 相当。三档 921 条分 8 片，五档 1521 条分 13 片。
@@ -50,7 +55,7 @@ jobs:
         id: scope
         env:
           FULL: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
-          EVENT_NAME: ${{ github.event_name }}
+          COVERAGE: ${{ inputs.coverage == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
         run: |
           if [[ "$FULL" == "true" ]]; then
             viewports=all
@@ -59,14 +64,9 @@ jobs:
             viewports=screenshot
             shard_total=8
           fi
-          if [[ "$FULL" == "true" || "$EVENT_NAME" != "pull_request" ]]; then
-            coverage=true
-          else
-            coverage=false
-          fi
           {
             echo "full=$FULL"
-            echo "coverage=$coverage"
+            echo "coverage=$COVERAGE"
             echo "e2e_viewports=$viewports"
             echo "e2e_shards=$(jq -cn --argjson total "$shard_total" '[range(1; $total + 1)]')"
             echo "e2e_shard_total=$shard_total"
@@ -75,6 +75,11 @@ jobs:
         id: domains
         with:
           full: ${{ steps.scope.outputs.full }}
+      - name: Observe static gate changes
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git diff --name-only --no-renames -z HEAD^1 HEAD | python3 scripts/observe_gates.py >> "$GITHUB_STEP_SUMMARY"
 
   workflow-static:
     needs: changes

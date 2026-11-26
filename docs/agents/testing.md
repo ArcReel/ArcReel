@@ -47,6 +47,12 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 [豁免清单](../../tests/blocking_guard/exemptions.toml)只收应用启动或关停时的一次性阻塞，每项附理由并由一条 `tests/unit` 用例触发。完整测试或 CI unit job 会检查未触发的豁免。对应路径删改时同步移除失效条目。
 
+## CI 覆盖率与 Nightly 告警
+
+普通 `main` 推送按改动选择测试域，后端、PostgreSQL 兼容与前端测试均跳过覆盖率采集。Nightly 和发布 PR 采集覆盖率。复用 Tests 工作流时，分别用 `full` 控制检查范围、`coverage` 控制采集。PR 的 `changes` 作业摘要列出改动涉及的静态门禁文件，供审阅者核查。
+
+Nightly 按运行编号建告警，重跑失败时在同一告警追加记录。记录按失败作业给出产品断言、测试竞态、容量或基础设施的初步分类。确认问题后可另开跟踪票，也可在运行告警上加 `bug` 等标签将其保留。绿灯只关闭同一 Git 引用下、本次及更早运行中仍使用原始告警标记、标题且仅带 `ci` 标签的自动告警。
+
 ## CI 挂起诊断
 
 先读后端 CI 的「Hang and crash diagnostics」。从 controller 的 `.progress` 定位退出码或信号，再用 worker 的最后一条进展定位用例、收尾或关停阶段。`.stacks` 有挂起和 `os._exit` 的转储，单独的信号文件记录部分终止场景，段错误还需查测试 stderr。worker 无栈退出时核对内核 OOM 记录。需要在本地复现时设置 `ARCREEL_TEST_HANG_DUMP_DIR`，输出格式见 [hang_watchdog](../../tests/hang_watchdog.py)。
