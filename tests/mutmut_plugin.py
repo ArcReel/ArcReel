@@ -10,26 +10,19 @@ mutmut 按 mutant fork 出多个 pytest 会话并行跑。两处 fork 相关的�
   不登记任何清理，收尾时无事可做；目录由本会话在 unconfigure 时自己回收。
 - macOS 上 ``urllib.request.getproxies()`` 在环境里没有 ``*_proxy`` 变量时会经 ``_scproxy``
   调 SystemConfiguration 读系统代理，而该框架在 fork 出的多线程子进程里直接段错误。任何构造
-  ``openai.OpenAI`` / ``httpx.Client`` 的用例都会走到这里，整批 mutant 记成 −11。这里把两个
-  macOS 专属入口换成「无系统代理」的常量实现：测试从不依赖真实系统代理，环境变量给的代理
-  仍按原路生效。
+  ``openai.OpenAI`` / ``httpx.Client`` 的用例都会走到这里，整批 mutant 记成 −11。这里调用
+  ``tests.system_proxy`` 屏蔽系统代理发现：测试从不依赖真实系统代理，环境变量给的代理
+  仍按原路生效。普通 pytest 会话由根 conftest 做同一件事。
 """
 
 from __future__ import annotations
 
 import shutil
 import tempfile
-import urllib.request
 
 import pytest
 
-
-def _no_system_proxies() -> dict[str, str]:
-    return {}
-
-
-def _never_bypass_by_system_settings(host: str) -> bool:
-    return False
+from tests.system_proxy import disable_macos_system_proxy
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -38,9 +31,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
     该选项经命令行解析后是 str，xdist 派给 worker 的也是 str，这里保持同一类型。
     """
-    if hasattr(urllib.request, "getproxies_macosx_sysconf"):
-        urllib.request.getproxies_macosx_sysconf = _no_system_proxies
-        urllib.request.proxy_bypass_macosx_sysconf = _never_bypass_by_system_settings
+    disable_macos_system_proxy()
     if config.option.basetemp is not None:
         return
     private_basetemp = tempfile.mkdtemp(prefix="arcreel-mutmut-basetemp-")
