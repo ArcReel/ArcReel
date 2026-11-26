@@ -14,13 +14,13 @@
 
 ## 2. 准备环境
 
-**本地实例**（全量、复验）：QA worktree 归你独用，与 stage worktree 分开，审查循环同时在后者上修改。fetch 远程后把 QA worktree 检出到目标 commit（detached HEAD）。在该 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。用临时 `ARCREEL_DATA_DIR`、`PYTHON_DOTENV_DISABLED=1`、空闲端口和临时登录账号启动后端，避免读入父目录 `.env` 的真实凭据。需要真实生成的验收项记为「待部署验证」，交给冒烟。
+**本地实例**（全量、复验）：QA worktree 归你独用，与 stage worktree 分开，审查循环同时在后者上修改。fetch 远程后把 QA worktree 检出到目标 commit（detached HEAD），按 [verify-arcreel](../../verify-arcreel/SKILL.md) 及其[本地运行参考](../../verify-arcreel/references/local-run.md)调用 `scripts/local_instance.py` 启动隔离实例（含登录鉴权的验收项加 `--auth`）。需要真实生成的验收项记为「待部署验证」，交给冒烟。
 
 **部署实例**（冒烟）：地址与登录凭据在 `~/.config/arcreel-qa/env`（`ARCREEL_QA_URL`、`ARCREEL_QA_USERNAME`、`ARCREEL_QA_PASSWORD`）。轮询 `/health`，返回的构建 commit 等于目标 commit 后开始；文件缺失或 60 分钟内未就绪时，全部冒烟项记为无法验证（环境故障）。新建项目以 `batch-id` 开头命名，全局设置保持原样，需要改全局设置的项记为无法验证。真实生成每项只做一次，选最便宜的模型与最小规格，失败不重试；累计费用以预算为上限。
 
 ## 3. 验收
 
-先使用 Skill 工具调用 `agent-browser`，像用户一样在网页端完成每条验收项；只有接口层的验收项用登录会话执行 `curl -i`。每项给出一个结论，证据存进证据目录：
+按 [verify-arcreel](../../verify-arcreel/SKILL.md) 调用 `agent-browser`，像用户一样在网页端完成每条验收项并刷新回读；只有接口层的验收项用登录会话执行 `curl -i`。每项给出一个结论，证据存进证据目录：
 
 - **通过**：指向一份本次运行在目标 commit 上产生的证据，如截图、录屏、`curl -i` 输出或命令日志。测试结果与代码阅读只用来定位，结论来自用户路径上的实际运行。
 - **失败**：附上证据，并写明可复现步骤、期望结果与实际表现。
@@ -28,7 +28,7 @@
 
 ## 4. 交付
 
-1. 停止本次启动的全部进程并释放端口。
+1. 按 `verify-arcreel` 关闭浏览器会话，执行 `scripts/local_instance.py stop` 停止本地实例、确认端口释放并清理临时数据目录。
 2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
-3. 全量与复验模式按 [handoff.md](handoff.md) 在 stage handoff 中追加「QA」段。
+3. 全量与复验模式按 [handoff.md](handoff.md) 在 stage handoff 中追加「QA」段；对操作路径稳定、无需外部付费调用即可确定判定的成熟验收项，在 follow-up 中登记回补到全栈实机 E2E（`frontend/e2e/live/`）的候选。
 4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。

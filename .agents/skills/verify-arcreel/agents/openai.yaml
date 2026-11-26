@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify ArcReel"
+  short_description: "在真实运行的 ArcReel 实例上核验 UI 与跨层改动并留证"
+  default_prompt: "使用 $verify-arcreel 在真实运行的 ArcReel 实例上验证本次改动，记录预期/实得与证据并释放自启资源。"

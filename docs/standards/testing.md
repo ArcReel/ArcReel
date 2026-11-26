@@ -6,6 +6,9 @@ paths:
   - "frontend/src/test/**"
   - "frontend/src/__mocks__/**"
   - "frontend/e2e/**"
+  - "frontend/playwright.config.ts"
+  - "frontend/vitest.config.ts"
+  - "scripts/e2e_record_backend.py"
 ---
 
 # 测试
@@ -13,6 +16,10 @@ paths:
 结构类规则由 `scripts/audit_tests.py --check` 强制校验（完整规则清单见该脚本的模块 docstring），命中时会给出修复指引；本文件只收录静态检查无法判定的规范。
 
 ## 分档与位置
+
+### 选能稳定使缺陷变红、且执行成本最低的公开边界
+
+按被测风险所在的边界选择验证层：纯计算、状态转换与单模块契约用单元或属性测试；数据库、文件系统与进程内路由协作放 `integration` 或组件测试；静态布局、响应式断点、无障碍与录制契约用页面级浏览器套件（`frontend/e2e/regions/`、`probe/`）；跨前后端的写入持久化、任务队列、SSE 推送与项目迁移用全栈实机 E2E（`frontend/e2e/live/`）。同一缺陷能在下层公开边界稳定变红时，不升到更高成本的层级；跨层契约断裂在下层替身中无法变红时，直接在实机 E2E 断言。
 
 ### 按用例实际触达的依赖确定档位
 
@@ -48,7 +55,7 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 
 ### 前端页面级套件的接口替身从真实后端录制
 
-`frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里。
+`frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里；写入是否真正持久化生效由全栈实机 E2E（`frontend/e2e/live/`）验证。
 
 放行条件：没有改动接口形状的 PR 不必重录。录制文件只要有改动，仍须来自 `pnpm e2e:record`。
 
