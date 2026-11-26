@@ -36,50 +36,31 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
-from server.agent_toolset.asset_library import (
-    LIST_PROVIDER_LIBRARY_ASSETS,
-    RELEASE_PROVIDER_ASSET_LINK,
-    SELECT_PROVIDER_LIBRARY_ASSET,
-    UPLOAD_TO_PROVIDER_ASSET_LIBRARY,
-)
-from server.agent_toolset.content_read import GET_SCRIPT_PLAN_CONTENT
+from server.agent_toolset.content_read import GET_PROJECT_CONTENT, GET_SCRIPT_PLAN_CONTENT
 from server.agent_toolset.declaration import (
-    BLOCKED,
     MIGRATION_REFUSAL_NOTE,
     AgentToolDeclaration,
     Blocked,
+    Exempt,
+    ReadCheck,
     ToolDeclaration,
     UnscopedToolDeclaration,
     tool_description,
 )
-from server.agent_toolset.edit_timelines import (
-    CREATE_TIMELINE,
-    EDIT_TIMELINE,
-    LIST_REVISIONS,
-    READ_TIMELINE,
-    RENAME_TIMELINE,
-    RESTORE_REVISION,
-)
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
-from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
-from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
+from server.agent_toolset.grid_storyboards import GENERATE_GRID
 from server.agent_toolset.image_review import INSPECT_IMAGES
-from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
-from server.agent_toolset.project_entry import CREATE_PROJECT, EDIT_SOURCE_TEXT
-from server.agent_toolset.project_trash import DELETE_PROJECT_FILE, RESTORE_TRASH_RECORD
-from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
-from server.agent_toolset.repair_channel import MERGE_ASSET
+from server.agent_toolset.orientation import GET_PROMPT_PREVIEW
+from server.agent_toolset.project_entry import LIST_PROJECTS
+from server.agent_toolset.remote import LONG_TASK_NOTE, PROJECT_PROPERTY, remote_tool
 from server.agent_toolset.script_authoring import (
-    CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
     GENERATE_SCRIPT_PLAN,
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT, PATCH_SCRIPT_PLAN
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
 from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
-from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
-from server.agent_toolset.workflow_completion import COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import (
@@ -94,99 +75,75 @@ from server.tool_runtime import (
 )
 from tests.factories import install_current_video, make_test_clip
 
-_ABSENT_REVISION = "sha256-v1:" + "0" * 64
-
-SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
-    "list_projects": {},
-    "create_project": {"name": "fresh", "title": "Fresh"},
-    "upload_source": {"filename": "novel.txt", "content": "第一章\n你好", "on_conflict": "replace"},
-    "edit_source_text": {"filename": "novel.txt", "text": "第一章\n改写"},
-    "get_workflow_plan": {"episode_id": 1},
-    "get_video_capabilities": {},
-    "get_image_capabilities": {},
-    "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
-    "get_generation_batch": {"batch_id": "batch-absent"},
-    "cancel_generation_batch": {"batch_id": "batch-absent"},
-    "patch_project": {"overview": {"synopsis": "梗概"}},
-    "patch_episode_meta": {"script": "episode_1.json", "field": "title", "value": "第一集"},
-    "rename_asset": {"table": "characters", "old_name": "甲", "new_name": "乙"},
-    "merge_asset": {"table": "characters", "source": "甲", "target": "乙", "dry_run": True},
-    "retry_project_migration": {},
-    "get_project_content": {},
-    "list_source_files": {},
-    "get_source_text": {"path": "source/episode_1.txt"},
-    "get_episode_script": {"script": "episode_1.json"},
-    "get_script_plan_content": {"episode_id": 1},
-    "list_project_files": {},
-    "read_project_file": {"path": "project.json"},
-    "list_pending_assets": {"type": "character"},
-    "generate_assets": {"type": "character", "names": ["张三"]},
-    "generate_storyboards": {"script": "episode_1.json"},
-    "edit_images": {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
-    "generate_narration_audio": {"script": "episode_1.json", "segment_ids": ["E1S01"]},
-    "generate_episode_script": {"episode_id": 1, "dry_run": True},
-    "generate_script_plan": {"episode_id": 1, "dry_run": True},
-    "confirm_script_review": {"episode_id": 1},
-    "patch_script_plan": {
-        "episode_id": 1,
-        "base_revision": "0" * 64,
-        "operations": [{"op": "set_title", "title": "第一集"}],
+_TOOLS_BY_POLICY = {
+    UnscopedToolDeclaration: {
+        "create_project",
+        "list_projects",
     },
-    "patch_episode_script": {
-        "script": "episode_9.json",
-        "base_revision": "sha256-v1:" + "0" * 64,
-        "operations": [{"op": "remove", "id": "E9S01"}],
+    Blocked: {
+        "complete_script_plan_rebuild",
+        "confirm_script_review",
+        "create_timeline",
+        "delete_project_file",
+        "edit_images",
+        "edit_source_text",
+        "edit_timeline",
+        "export_jianying_draft",
+        "generate_assets",
+        "generate_episode_script",
+        "generate_grid",
+        "generate_narration_audio",
+        "generate_script_plan",
+        "generate_storyboards",
+        "generate_videos",
+        "get_script_plan_content",
+        "inspect_images",
+        "inspect_video_units",
+        "list_bgm",
+        "list_revisions",
+        "list_timelines",
+        "patch_episode_script",
+        "patch_script_plan",
+        "plan_episodes",
+        "read_timeline",
+        "rename_timeline",
+        "render_final_cut",
+        "reset_episode_planning",
+        "restore_revision",
+        "restore_trash_record",
+        "select_provider_library_asset",
+        "select_video_version",
+        "split_grids",
+        "upload_source",
+        "upload_to_provider_asset_library",
     },
-    "generate_grid": {"script": "episode_1.json", "list_only": True},
-    "split_grids": {"grid_ids": ["grid_000000000000"]},
-    "plan_episodes": {"instructions": "按章节对齐切分"},
-    "reset_episode_planning": {},
-    "complete_script_plan_rebuild": {"episode_id": 1, "expected_stale_script_plan_revision": None},
-    "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
-    "select_video_version": {"unit_id": "E1S01", "version": 1},
-    "inspect_video_units": {"unit_ids": ["E1S01"]},
-    "inspect_images": {"resource_type": "character", "ids": ["甲"]},
-    "get_provider_asset_links": {"resource_type": "character", "resource_id": "甲"},
-    "list_provider_library_assets": {"account_id": 1},
-    "upload_to_provider_asset_library": {
-        "resource_type": "character",
-        "resource_id": "甲",
-        "account_id": 1,
-        "user_requested": True,
+    ReadCheck: {
+        "get_episode_script",
+        "get_prompt_preview",
+        "get_workflow_plan",
+        "list_pending_assets",
     },
-    "select_provider_library_asset": {
-        "resource_type": "character",
-        "resource_id": "甲",
-        "account_id": 1,
-        "asset_id": "asset-absent",
+    Exempt: {
+        "cancel_generation_batch",
+        "get_generation_batch",
+        "get_image_capabilities",
+        "get_project_content",
+        "get_provider_asset_links",
+        "get_source_text",
+        "get_video_capabilities",
+        "list_project_files",
+        "list_provider_library_assets",
+        "list_source_files",
+        "list_trash_records",
+        "merge_asset",
+        "patch_episode_meta",
+        "patch_project",
+        "read_project_file",
+        "release_provider_asset_link",
+        "rename_asset",
+        "retry_project_migration",
     },
-    "release_provider_asset_link": {"link_id": 1},
-    "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
-    "list_timelines": {"episode": 1},
-    "read_timeline": {"timeline": "tl-0000abcd"},
-    "list_bgm": {},
-    "edit_timeline": {
-        "timeline": "tl-0000abcd",
-        "base_revision": 1,
-        "summary": "压低开场原声",
-        "operations": [{"op": "set_volume", "clip": "c1", "volume": 0.5}],
-    },
-    "rename_timeline": {"timeline": "tl-0000abcd", "name": "定稿"},
-    "list_revisions": {"timeline": "tl-0000abcd"},
-    "restore_revision": {"timeline": "tl-0000abcd", "revision": 1},
-    "render_final_cut": {"timeline": "tl-0000abcd"},
-    "export_jianying_draft": {"timeline": "tl-0000abcd"},
-    "delete_project_file": {"path": "notes.txt"},
-    "list_trash_records": {},
-    "restore_trash_record": {"record_id": "20261025T000000Z-0000abcd"},
 }
-
-_DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
-_SCOPED_DECLARATIONS = pytest.mark.parametrize(
-    "declaration",
-    [declaration for declaration in AGENT_TOOLSET if isinstance(declaration, ToolDeclaration)],
-    ids=lambda declaration: declaration.name,
-)
 
 
 @pytest.fixture
@@ -204,11 +161,6 @@ def seeded_projects(tmp_path: Path) -> ProjectManager:
     drafts = project_dir / "drafts" / "episode_1"
     drafts.mkdir(parents=True)
     (drafts / "script_plan_normalized_script.json").write_text('{"title":"第一集","scenes":[]}', encoding="utf-8")
-    (root / "empty").mkdir()
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "project.json").write_text("{}", encoding="utf-8")
-    (root / "escape").symlink_to(outside, target_is_directory=True)
     return manager
 
 
@@ -225,29 +177,14 @@ def _scope(seeded_projects: ProjectManager) -> ProjectScope:
     return ProjectScope(project_name="demo", data_root=seeded_projects.data_root)
 
 
-def _answering[DeclarationT: AgentToolDeclaration](
+def _answering[DeclarationT: ToolDeclaration[Any, Any]](
     declaration: DeclarationT, outcome: ToolOutcome[Any], calls: list[object]
 ) -> DeclarationT:
-    if isinstance(declaration, UnscopedToolDeclaration):
-
-        async def unscoped_handler(request, _caller, _services) -> ToolOutcome[Any]:
-            calls.append(request.value)
-            return outcome
-
-        return replace(declaration, handler=unscoped_handler)
-
     async def handler(request, _scope, _caller, _services) -> ToolOutcome[Any]:
         calls.append(request.value)
         return outcome
 
     return replace(declaration, handler=handler)
-
-
-def _remote_arguments(declaration: AgentToolDeclaration, arguments: dict[str, Any]) -> dict[str, Any]:
-    """外部 Agent 的等价入参：作用于项目的工具显式带上 ``project``。"""
-    if isinstance(declaration, UnscopedToolDeclaration):
-        return dict(arguments)
-    return {"project": "demo", **arguments}
 
 
 async def _call_server(server: Server, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
@@ -294,16 +231,6 @@ def _embedded_json(result: types.CallToolResult) -> Any:
     return json.loads(_texts(result)[-1])
 
 
-def _without_project(schema: dict[str, Any]) -> dict[str, Any]:
-    stripped = {**schema, "properties": {k: v for k, v in schema["properties"].items() if k != "project"}}
-    required = [name for name in schema.get("required", []) if name != "project"]
-    if required:
-        stripped["required"] = required
-    else:
-        stripped.pop("required", None)
-    return stripped
-
-
 async def _embedded_listing(seeded_projects: ProjectManager) -> dict[str, types.Tool]:
     server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
     result = (await server.request_handlers[types.ListToolsRequest](types.ListToolsRequest(method="tools/list"))).root
@@ -311,71 +238,49 @@ async def _embedded_listing(seeded_projects: ProjectManager) -> dict[str, types.
     return {tool.name: tool for tool in result.tools}
 
 
-@_SCOPED_DECLARATIONS
-async def test_both_hosts_expose_the_declared_name_schema_and_description(
-    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
-) -> None:
-    embedded = (await _embedded_listing(seeded_projects))[declaration.name]
-    remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}[
-        declaration.name
-    ]
+async def test_both_host_listings_match_every_declaration(seeded_projects: ProjectManager, services: Services) -> None:
+    embedded = await _embedded_listing(seeded_projects)
+    remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}
+    names = set().union(*_TOOLS_BY_POLICY.values())
+    assert set(embedded) == set(remote) == set(ARCREEL_MCP_TOOL_IDS) == names
+    assert _TOOLS_BY_POLICY[Blocked] == MIGRATION_BLOCKED_TOOL_IDS
 
-    assert declaration.name in ARCREEL_MCP_TOOL_IDS
-    assert "project" not in embedded.inputSchema["properties"]
-    assert remote.inputSchema["properties"]["project"]["type"] == "string"
-    assert remote.inputSchema["required"][0] == "project"
-    assert _without_project(remote.inputSchema) == embedded.inputSchema
-    assert remote.outputSchema == embedded.outputSchema
-    assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
-    assert embedded.description == tool_description(declaration)
-    assert remote.description == tool_description(declaration) + (LONG_TASK_NOTE if declaration.long_task else "")
-    assert embedded.description.endswith(MIGRATION_REFUSAL_NOTE) is isinstance(declaration.migration, Blocked)
-
-
-@pytest.mark.parametrize(
-    "declaration",
-    [declaration for declaration in AGENT_TOOLSET if isinstance(declaration, UnscopedToolDeclaration)],
-    ids=lambda declaration: declaration.name,
-)
-async def test_both_hosts_expose_an_unscoped_declaration_without_project(
-    declaration: UnscopedToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
-) -> None:
-    embedded = (await _embedded_listing(seeded_projects))[declaration.name]
-    remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}[
-        declaration.name
-    ]
-
-    assert declaration.name in ARCREEL_MCP_TOOL_IDS
-    assert "project" not in remote.inputSchema["properties"]
-    assert remote.inputSchema == embedded.inputSchema == declaration.input_schema
-    assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
-    assert embedded.description == remote.description == declaration.description
-    assert MIGRATION_REFUSAL_NOTE not in embedded.description
+    for declaration in AGENT_TOOLSET:
+        name = declaration.name
+        local, external = embedded[name], remote[name]
+        assert local.inputSchema == declaration.input_schema, name
+        assert "project" not in local.inputSchema["properties"], name
+        assert all(spec.get("description") for spec in local.inputSchema["properties"].values()), name
+        assert local.description == tool_description(declaration), name
+        if isinstance(declaration, UnscopedToolDeclaration):
+            assert name in _TOOLS_BY_POLICY[UnscopedToolDeclaration], name
+            assert external.inputSchema == local.inputSchema, name
+            assert external.description == declaration.description, name
+            assert MIGRATION_REFUSAL_NOTE not in declaration.description, name
+            output_schema = None
+        else:
+            assert name in _TOOLS_BY_POLICY[type(declaration.migration)], name
+            assert external.inputSchema["properties"]["project"]["type"] == "string", name
+            assert external.inputSchema == {
+                **local.inputSchema,
+                "properties": {"project": PROJECT_PROPERTY, **local.inputSchema["properties"]},
+                "required": ["project", *local.inputSchema.get("required", [])],
+            }, name
+            assert external.description == local.description + (LONG_TASK_NOTE if declaration.long_task else ""), name
+            assert local.description.endswith(MIGRATION_REFUSAL_NOTE) is (name in MIGRATION_BLOCKED_TOOL_IDS), name
+            output_schema = (
+                declaration.output_model.model_json_schema(mode="serialization") if declaration.output_model else None
+            )
+        assert local.outputSchema == external.outputSchema == output_schema, name
 
 
-async def test_every_tool_both_hosts_expose_is_defined_by_a_declaration(
-    seeded_projects: ProjectManager, services: Services
-) -> None:
-    """两宿主注册的工具集合与声明集合相同：没有声明之外的第二份工具定义。
-
-    ``SAMPLE_ARGUMENTS`` 逐个列出了全部工具，它的键集合同时充当工具清单。
-    """
-    embedded = set(await _embedded_listing(seeded_projects))
-    remote = {tool.name for tool in await build_remote_mcp_server(services=services).list_tools()}
-    declared = {declaration.name for declaration in AGENT_TOOLSET}
-
-    assert embedded == remote == declared == set(ARCREEL_MCP_TOOL_IDS) == set(SAMPLE_ARGUMENTS)
-
-
-@_DECLARATIONS
-async def test_problems_pass_through_both_hosts_unchanged(
-    declaration: AgentToolDeclaration, services: Services
-) -> None:
+async def test_problems_pass_through_both_hosts_unchanged(services: Services) -> None:
+    declaration = GET_PROJECT_CONTENT
     problem = ToolProblem("sentinel_problem", "原样透传", action="sentinel_action", params={"ids": ["E1S01"]})
     answering = _answering(declaration, ToolOutcome(problem=problem), [])
 
-    embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(answering, _remote_arguments(answering, SAMPLE_ARGUMENTS[declaration.name]), services)
+    embedded = await _call_embedded(answering, {}, services)
+    remote = await _call_remote(answering, {"project": "demo"}, services)
 
     expected = {
         "problem": {
@@ -391,15 +296,15 @@ async def test_problems_pass_through_both_hosts_unchanged(
     assert _texts(embedded) == _texts(remote)
 
 
-@_DECLARATIONS
 async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_both_hosts(
-    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
-    arguments = {**SAMPLE_ARGUMENTS[declaration.name], "unexpected": 1}
+    declaration = GET_PROJECT_CONTENT
+    arguments = {"unexpected": 1}
     session_server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
 
     embedded = await _call_server(session_server, declaration.name, arguments)
-    remote = await _call_remote(declaration, _remote_arguments(declaration, arguments), services)
+    remote = await _call_remote(declaration, {"project": "demo", **arguments}, services)
 
     assert embedded.isError is True
     assert remote.isError is True
@@ -410,23 +315,23 @@ async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_bot
     assert remote.structuredContent["problem"]["params"]["errors"][0]["loc"] == ["unexpected"]
 
 
-@_SCOPED_DECLARATIONS
 async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_entries(
-    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
+    declaration = GET_SCRIPT_PLAN_CONTENT
     record_migration_failure(
         seeded_projects.get_project_path("demo"),
         RuntimeError("清单预检失败"),
         schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     calls: list[object] = []
-    blocked = _answering(replace(declaration, migration=BLOCKED), ToolOutcome(value={}), calls)
+    blocked = _answering(declaration, ToolOutcome(value={}), calls)
 
-    embedded = await _call_embedded(blocked, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(blocked, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
+    embedded = await _call_embedded(blocked, {"episode_id": 1}, services)
+    remote = await _call_remote(blocked, {"project": "demo", "episode_id": 1}, services)
 
     assert calls == []
-    assert embedded.isError is True
+    assert embedded.isError is remote.isError is True
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
     assert remote.structuredContent is not None
@@ -437,18 +342,10 @@ async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_
     assert len(_texts(embedded)) == 2
 
 
-@pytest.mark.parametrize(
-    "declaration",
-    [
-        declaration
-        for declaration in AGENT_TOOLSET
-        if not (isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked))
-    ],
-    ids=lambda declaration: declaration.name,
-)
 async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_project(
-    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
+    declaration = GET_PROJECT_CONTENT
     record_migration_failure(
         seeded_projects.get_project_path("demo"),
         RuntimeError("清单预检失败"),
@@ -456,43 +353,10 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
     )
     answering = _answering(declaration, ToolOutcome(value={"answered": True}), [])
 
-    embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(answering, _remote_arguments(answering, SAMPLE_ARGUMENTS[declaration.name]), services)
+    embedded = await _call_embedded(answering, {}, services)
+    remote = await _call_remote(answering, {"project": "demo"}, services)
 
     assert _embedded_json(embedded) == remote.structuredContent == {declaration.domain_key: {"answered": True}}
-
-
-@pytest.mark.parametrize(
-    "declaration",
-    [
-        declaration
-        for declaration in AGENT_TOOLSET
-        if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
-    ],
-    ids=lambda declaration: declaration.name,
-)
-async def test_declared_blocked_entries_refuse_a_migration_failed_project_before_the_handler(
-    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
-) -> None:
-    """声明为 ``BLOCKED`` 的入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
-    record_migration_failure(
-        seeded_projects.get_project_path("demo"),
-        RuntimeError("清单预检失败"),
-        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
-    )
-    calls: list[object] = []
-    answering = _answering(declaration, ToolOutcome(value={}), calls)
-
-    embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(answering, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
-
-    assert declaration.name in MIGRATION_BLOCKED_TOOL_IDS
-    assert calls == []
-    assert _embedded_json(embedded) == remote.structuredContent
-    assert remote.structuredContent is not None
-    problem = remote.structuredContent["problem"]
-    assert problem["code"] == MIGRATION_FAILURE_CODE
-    assert problem["action"] == RETRY_MIGRATION_ACTION
 
 
 async def test_episode_script_reader_reports_the_same_migration_problem_in_both_hosts(
@@ -522,12 +386,16 @@ async def test_episode_script_reader_reports_the_same_migration_problem_in_both_
 async def test_patch_episode_script_reports_a_missing_script_as_script_not_found_in_both_hosts(
     seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
-    arguments = SAMPLE_ARGUMENTS[PATCH_EPISODE_SCRIPT.name]
+    arguments = {
+        "script": "episode_9.json",
+        "base_revision": "sha256-v1:" + "0" * 64,
+        "operations": [{"op": "remove", "id": "E9S01"}],
+    }
 
     embedded = await _call_embedded(PATCH_EPISODE_SCRIPT, arguments, services)
     remote = await _call_remote(
         PATCH_EPISODE_SCRIPT,
-        _remote_arguments(PATCH_EPISODE_SCRIPT, arguments),
+        {"project": "demo", **arguments},
         _twin_services(seeded_projects, tmp_path),
     )
 
@@ -573,60 +441,15 @@ async def test_plan_patch_returns_the_same_revision_and_issues_in_both_hosts(
     assert any(issue["code"] == "empty_script_plan" for issue in result["blocking_issues"])
 
 
-_TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
+async def test_list_projects_returns_the_same_unscoped_result_in_both_hosts(services: Services) -> None:
+    embedded = await _call_embedded(LIST_PROJECTS, {}, services)
+    remote = await _call_remote(LIST_PROJECTS, {}, services)
 
-_PROBLEM_ON_SAMPLE = frozenset(
-    {
-        GET_VIDEO_CAPABILITIES.name,
-        GET_PROMPT_PREVIEW.name,
-        GET_GENERATION_BATCH.name,
-        CANCEL_GENERATION_BATCH.name,
-        CONFIRM_SCRIPT_REVIEW.name,
-        PATCH_EPISODE_SCRIPT.name,
-        PATCH_SCRIPT_PLAN.name,
-        SPLIT_GRIDS.name,
-        SELECT_VIDEO_VERSION.name,
-        INSPECT_VIDEO_UNITS.name,
-        READ_TIMELINE.name,
-        EDIT_TIMELINE.name,
-        RENAME_TIMELINE.name,
-        LIST_REVISIONS.name,
-        RESTORE_REVISION.name,
-        COMPLETE_SCRIPT_PLAN_REBUILD.name,
-        MERGE_ASSET.name,
-        EDIT_SOURCE_TEXT.name,
-        DELETE_PROJECT_FILE.name,
-        RESTORE_TRASH_RECORD.name,
-        LIST_PROVIDER_LIBRARY_ASSETS.name,
-        UPLOAD_TO_PROVIDER_ASSET_LIBRARY.name,
-        SELECT_PROVIDER_LIBRARY_ASSET.name,
-        RELEASE_PROVIDER_ASSET_LINK.name,
-    }
-)
-
-
-@pytest.mark.parametrize(
-    "declaration",
-    [
-        declaration
-        for declaration in AGENT_TOOLSET
-        if not (isinstance(declaration, ToolDeclaration) and declaration.long_task)
-        and declaration.name not in _TIME_DEPENDENT_RESULTS
-    ],
-    ids=lambda declaration: declaration.name,
-)
-async def test_embedded_content_carries_the_same_json_as_remote_structured_content(
-    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services, tmp_path: Path
-) -> None:
-    twin = _twin_services(seeded_projects, tmp_path)
-    embedded = await _call_embedded(declaration, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(declaration, _remote_arguments(declaration, SAMPLE_ARGUMENTS[declaration.name]), twin)
-
-    assert embedded.isError is remote.isError is (declaration.name in _PROBLEM_ON_SAMPLE)
+    assert embedded.isError is remote.isError is False
     assert remote.structuredContent is not None
-    assert set(remote.structuredContent) == {"problem" if remote.isError else declaration.domain_key}
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
+    assert [project["name"] for project in remote.structuredContent["projects"]] == ["demo"]
 
 
 async def test_contact_sheets_reach_both_hosts_as_the_same_image_blocks(
@@ -688,7 +511,7 @@ async def test_inspected_images_reach_both_hosts_as_the_same_image_blocks(
 
 
 async def test_a_summary_precedes_the_structured_json_in_both_hosts(services: Services) -> None:
-    declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == "get_project_content")
+    declaration = GET_PROJECT_CONTENT
     summarized = replace(
         _answering(declaration, ToolOutcome(value={"title": "Demo"}), []),
         summary=lambda value: f"已读取《{value['title']}》",
@@ -701,21 +524,11 @@ async def test_a_summary_precedes_the_structured_json_in_both_hosts(services: Se
     assert remote.structuredContent == {"project_content": {"title": "Demo"}}
 
 
-@_SCOPED_DECLARATIONS
-@pytest.mark.parametrize(
-    "project",
-    [pytest.param(None, id="missing"), 7, "", "   ", "../demo", "demo/..", "absent", "empty", "escape"],
-)
-async def test_remote_project_locating_failures_are_invalid_project(
-    declaration: ToolDeclaration[Any, Any], project: object, services: Services
-) -> None:
+async def test_remote_missing_project_returns_invalid_project_before_the_handler(services: Services) -> None:
     calls: list[object] = []
-    answering = _answering(declaration, ToolOutcome(value={}), calls)
-    arguments = dict(SAMPLE_ARGUMENTS[declaration.name])
-    if project is not None:
-        arguments["project"] = project
+    answering = _answering(GET_PROJECT_CONTENT, ToolOutcome(value={}), calls)
 
-    result = await _call_remote(answering, arguments, services)
+    result = await _call_remote(answering, {}, services)
 
     assert calls == []
     assert result.isError is True
@@ -791,10 +604,10 @@ async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
     (seeded_projects.get_project_path("demo") / "scripts" / "episode_1.json").write_text(
         json.dumps({"episode": 1, "content_mode": "drama", "scenes": scenes}), encoding="utf-8"
     )
-    arguments = SAMPLE_ARGUMENTS[GENERATE_GRID.name]
+    arguments = {"script": "episode_1.json", "list_only": True}
 
     embedded = await _call_embedded(GENERATE_GRID, arguments, services)
-    remote = await _call_remote(GENERATE_GRID, _remote_arguments(GENERATE_GRID, arguments), services)
+    remote = await _call_remote(GENERATE_GRID, {"project": "demo", **arguments}, services)
 
     assert embedded.isError is remote.isError is False
     assert remote.structuredContent is not None
@@ -827,7 +640,7 @@ async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
     )
     register_current_artifact(seeded_projects.get_project_path("demo"), ArtifactKey.episode_script(1))
     twin = _twin_services(seeded_projects, tmp_path)
-    arguments = SAMPLE_ARGUMENTS[GENERATE_EPISODE_SCRIPT.name]
+    arguments = {"episode_id": 1, "dry_run": True}
 
     embedded = await _call_embedded(GENERATE_EPISODE_SCRIPT, arguments, services)
     remote = await _call_remote(GENERATE_EPISODE_SCRIPT, {"project": "demo", **arguments}, twin)

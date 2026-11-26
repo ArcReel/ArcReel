@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from server.agent_toolset.remote import _project_relative_outcome
+import pytest
+
+from lib.project.project_manager import ProjectManager
+from server.agent_toolset.remote import _project_relative_outcome, resolve_project_scope
 from server.tool_runtime import ToolOutcome, ToolProblem
 
 
@@ -46,3 +49,34 @@ def test_project_relative_outcome_rewrites_nested_params(tmp_path: Path) -> None
         "episode": 1,
         "paths": (".migration_failure.json",),
     }
+
+
+@pytest.fixture(scope="module")
+def project_locations(tmp_path_factory: pytest.TempPathFactory) -> ProjectManager:
+    root = tmp_path_factory.mktemp("locations")
+    projects = ProjectManager(root / "data")
+    (projects.projects_dir / "empty").mkdir(parents=True)
+    outside = root / "outside"
+    outside.mkdir()
+    (outside / "project.json").write_text("{}", encoding="utf-8")
+    (projects.projects_dir / "escape").symlink_to(outside, target_is_directory=True)
+    return projects
+
+
+@pytest.mark.parametrize(
+    ("project", "error"),
+    [
+        pytest.param(None, ValueError, id="missing"),
+        pytest.param(7, ValueError, id="non-string"),
+        pytest.param("", ValueError, id="empty-name"),
+        pytest.param("   ", ValueError, id="whitespace"),
+        ("../demo", ValueError),
+        ("demo/..", ValueError),
+        ("absent", FileNotFoundError),
+        ("empty", FileNotFoundError),
+        ("escape", ValueError),
+    ],
+)
+def test_invalid_project_locations(project_locations: ProjectManager, project: object, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        resolve_project_scope(project, project_locations)
