@@ -77,5 +77,3 @@ deploy/production/claude_data/
 deploy/production/pgdata/
 
 docs/verification-reports/
-
-mutants/

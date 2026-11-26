@@ -1,8 +1,10 @@
 """fork 出的子进程能继续使用模块级 engine。"""
 
 import asyncio
+import atexit
 import os
 import signal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -41,3 +43,23 @@ def test_forked_child_can_query_module_level_engine_after_parent_used_pool():
             os.kill(pid, signal.SIGKILL)
             os.waitpid(pid, 0)
     assert os.waitstatus_to_exitcode(status) == 0
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="平台无 fork")
+def test_forked_child_running_atexit_handlers_keeps_shared_test_db_dir():
+    if os.environ.get("ARCREEL_TEST_OWNED_DB") != "1":
+        pytest.skip("测试进程使用外部数据库")
+    db_dir = Path(os.environ["DATABASE_URL"].removeprefix("sqlite+aiosqlite:///")).parent
+    assert db_dir.is_dir()
+
+    pid = os.fork()
+    if pid == 0:  # pragma: no cover - 子进程
+        try:
+            atexit._run_exitfuncs()
+        except BaseException:
+            os._exit(3)
+        os._exit(0)
+
+    _, status = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert db_dir.is_dir()

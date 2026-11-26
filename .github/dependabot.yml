@@ -112,7 +112,6 @@ updates:
           - "python-docx"
           - "import-linter"
           - "respx"
-          - "mutmut"
           - "blockbuster"
           - "time-machine"
           - "tree-sitter*"
