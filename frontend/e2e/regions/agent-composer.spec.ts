@@ -228,6 +228,7 @@ async function openHistory(page: Page) {
 defineRegionScenarios("Agent 输入区", [
   {
     name: "Agent 提问时问卷占用输入框的位置，待办进度显示在它上方",
+    a11y: true,
     path: EPISODE_PATH,
     api: ASK_API,
     ready: questionReady,
@@ -279,6 +280,7 @@ defineRegionScenarios("Agent 输入区", [
   },
   {
     name: "Agent 提问期间排队 20 条消息：托盘与问卷都在面板内，托盘里没有立即发送",
+    viewports: "both",
     path: EPISODE_PATH,
     api: QUEUE_ASK_API,
     ready: async (page) => {
@@ -320,6 +322,7 @@ defineRegionScenarios("Agent 输入区", [
   },
   {
     name: "删除会话前确认",
+    a11y: true,
     path: EPISODE_PATH,
     api: HISTORY_API,
     ready: historyReady,

@@ -241,6 +241,8 @@ async function railLayout(page: Page) {
 defineRegionScenarios("脚本规划起步态", [
   {
     name: "切自整本源文的集：起步区在上、原文只读，导览按视图宽放右栏或原文上方",
+    viewports: "both",
+    a11y: true,
     path: EPISODE_PATH,
     api: CUT_EPISODE,
     ready: cutSourceReady,
@@ -373,6 +375,8 @@ defineRegionScenarios("重新规划与内容确认", [
   },
   {
     name: "内容确认页：二十四条长原文分镜只在视图内滚动",
+    viewports: "both",
+    a11y: true,
     path: `${EPISODE_PATH}?view=plan`,
     api: REVIEW_STRESS,
     ready: async (page) => {

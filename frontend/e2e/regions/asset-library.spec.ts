@@ -101,6 +101,8 @@ async function galleryReady(page: Page) {
 defineRegionScenarios("资产库", [
   {
     name: "类型标签显示当前搜索下各类型的数量，网格铺满内容区",
+    viewports: "both",
+    a11y: true,
     path: LIBRARY_PATH,
     ready: libraryReady,
     act: async (page) => {
@@ -159,6 +161,7 @@ defineRegionScenarios("资产库", [
   },
   {
     name: "从卡片菜单打开「应用到项目」对话框",
+    a11y: true,
     path: LIBRARY_PATH,
     ready: libraryReady,
     act: async (page) => {
@@ -171,6 +174,7 @@ defineRegionScenarios("资产库", [
   },
   {
     name: "画廊「从资产库导入」：条目多时只有正文滚动，显示匹配总数",
+    viewports: "both",
     path: GALLERY_PATH,
     api: { ...EVENT_STREAM, ...MANY_ASSETS },
     ready: galleryReady,

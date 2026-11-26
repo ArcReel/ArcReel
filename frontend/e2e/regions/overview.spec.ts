@@ -138,6 +138,8 @@ defineRegionScenarios("项目概览", [
     name: "录制的演示项目：页头元信息、资产与费用两行、空的故事设定",
     path: OVERVIEW_PATH,
     api: EVENT_STREAM,
+    viewports: "both",
+    a11y: true,
     ready: overviewReady,
     act: async (page) => {
       await expect(page.getByRole("heading", { level: 1, name: "演示项目" })).toBeVisible();
@@ -148,13 +150,14 @@ defineRegionScenarios("项目概览", [
       const padding = canvas.width >= 768 ? 32 : 24;
       expect(column.x - canvas.x).toBe(padding);
       expect(column.width).toBeLessThanOrEqual(760);
-      if ((page.viewportSize()?.width ?? 0) >= 2560) expect(column.width).toBe(760);
+      if ((page.viewportSize()?.width ?? 0) >= 1440) expect(column.width).toBe(760);
     },
   },
   {
     name: "长文本故事设定与多条资产过期：字段随内容撑高，由画布滚动到底",
     path: OVERVIEW_PATH,
     api: LONG_PROJECT,
+    viewports: "both",
     ready: overviewReady,
     act: async (page) => {
       await collapseAgentPanel(page);
@@ -168,6 +171,7 @@ defineRegionScenarios("项目概览", [
     name: "费用明细：多币种与历史支出在弹层里分两列，底部链接到使用记录",
     path: OVERVIEW_PATH,
     api: LONG_PROJECT,
+    a11y: true,
     ready: overviewReady,
     act: async (page) => {
       await collapseAgentPanel(page);

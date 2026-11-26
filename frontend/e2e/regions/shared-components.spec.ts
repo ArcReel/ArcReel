@@ -244,6 +244,8 @@ async function reviewBlockingReady(page: Page) {
 defineRegionScenarios("共享组件：确认阻断项与新增资产", [
   {
     name: "确认阻断项：状态条列出逐条跳转并禁用确认，整集阻断置顶，长规划只在视图内滚动",
+    viewports: "both",
+    a11y: true,
     path: PLAN_PATH,
     api: BLOCKING_ISSUES,
     ready: reviewBlockingReady,
@@ -314,6 +316,7 @@ defineRegionScenarios("共享组件：确认阻断项与新增资产", [
 defineRegionScenarios("共享组件：集页对话框与提示", [
   {
     name: "「编写提示词」：自选多条列出四十条分镜，只在列表内滚动",
+    viewports: "both",
     path: EPISODE_PATH,
     api: SCRIPTED,
     ready: async (page) => {
@@ -363,6 +366,7 @@ defineRegionScenarios("共享组件：集页对话框与提示", [
   },
   {
     name: "广告项目「重新生成脚本」对话框：附加指令只随本次提交",
+    a11y: true,
     path: EPISODE_PATH,
     api: AD_PROJECT,
     ready: async (page) => {

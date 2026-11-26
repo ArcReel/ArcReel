@@ -8,6 +8,8 @@ async function notFoundReady(page: Page) {
 defineRegionScenarios("404 页", [
   {
     name: "打开不存在的地址",
+    viewports: "both",
+    a11y: true,
     path: "/app/unknown",
     ready: notFoundReady,
   },

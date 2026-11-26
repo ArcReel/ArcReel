@@ -192,6 +192,7 @@ async function expectNoInnerScroll(page: Page, rowName: RegExp) {
 defineRegionScenarios("Agent 工序行", [
   {
     name: "工序行默认收起：工具显示本地化名称与摘要，失败与运行中在收起状态即可辨认",
+    a11y: true,
     path: EPISODE_PATH,
     api: API,
     ready: rowsReady,

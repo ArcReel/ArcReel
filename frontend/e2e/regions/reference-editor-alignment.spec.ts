@@ -147,6 +147,7 @@ defineRegionScenarios("参考视频文稿编辑器", [
     name: "含多个本体与衍生引用、数字的长文稿，滚动前后着色层与输入框逐字对齐",
     path: UNITS_PATH,
     api: API,
+    viewports: "both",
     ready: async (page) => {
       await page.getByRole("tab", { name: "视频单元" }).waitFor();
       await editor(page).waitFor();

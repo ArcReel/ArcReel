@@ -197,6 +197,8 @@ async function failExport(page: Page) {
 defineRegionScenarios("工作区顶栏", [
   {
     name: "项目名很长时「← 项目」不换行，打开项目切换器后列表在弹层里滚动",
+    viewports: "both",
+    a11y: true,
     path: CHARACTERS_PATH,
     api: MANY_PROJECTS,
     ready: shellReady,
@@ -229,6 +231,7 @@ defineRegionScenarios("工作区顶栏", [
   },
   {
     name: "多条长通知时打开通知面板：角标立即清零，未读高亮保留，列表在面板里滚动",
+    a11y: true,
     path: CHARACTERS_PATH,
     api: EXPORT_FAILS,
     ready: shellReady,

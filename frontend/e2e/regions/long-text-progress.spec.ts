@@ -366,6 +366,8 @@ const GLOBAL_ACTIVE_TEXT_TASKS: ApiOverrides = {
 defineRegionScenarios("长文本等待反馈与超长原文引导", [
   {
     name: "提示词编写、顶栏用量浮窗与制作进度任务条接收动态 task_progress 流并显示超 15 秒提示",
+    viewports: "both",
+    a11y: true,
     path: EPISODE_PATH,
     api: PROMPT_AUTHORING_RUNNING,
     ready: async (page) => {

@@ -151,6 +151,7 @@ const failureReady = (page: Page) => settleTranscript(page, "这一轮没有完�
 defineRegionScenarios("Agent 会话投影", [
   {
     name: "压缩续接的会话：缺锚点的审片子代理显示推断出的描述与完成状态",
+    a11y: true,
     path: EPISODE_PATH,
     api: CONTINUED_API,
     ready: continuedReady,

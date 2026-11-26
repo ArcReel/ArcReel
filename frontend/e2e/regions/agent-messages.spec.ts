@@ -160,6 +160,8 @@ defineRegionScenarios("Agent 消息区", [
     name: "打开长会话时停在最新一条，不显示「跳到最新」",
     path: EPISODE_PATH,
     api: API,
+    viewports: "both",
+    a11y: true,
     ready: messagesReady,
     act: async (page) => {
       await expectAtEnd(page);
@@ -229,6 +231,7 @@ defineRegionScenarios("Agent 消息区", [
     name: "放大用户消息里的图片附件",
     path: EPISODE_PATH,
     api: API,
+    a11y: true,
     ready: messagesReady,
     act: async (page) => {
       const thumbnail = page.getByRole("button", { name: "放大图片附件 1" });

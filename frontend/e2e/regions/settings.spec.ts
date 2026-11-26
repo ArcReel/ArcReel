@@ -139,6 +139,8 @@ async function settingsReady(page: Page) {
 defineRegionScenarios("全局设置", [
   {
     name: "默认落在全出血档的供应商，侧栏与供应商列表各自滚动",
+    viewports: "both",
+    a11y: true,
     path: "/app/settings",
     ready: async (page) => {
       await settingsReady(page);
@@ -148,6 +150,7 @@ defineRegionScenarios("全局设置", [
   },
   {
     name: "限宽档的保存栏固定在外壳底行，表单滚动时保存按钮始终可见",
+    viewports: "both",
     path: settings("default-models"),
     ready: async (page) => {
       await settingsReady(page);
@@ -164,6 +167,7 @@ defineRegionScenarios("全局设置", [
   },
   {
     name: "通用分区没有保存栏，外壳不显示底行",
+    a11y: true,
     path: settings("general"),
     ready: async (page) => {
       await settingsReady(page);
@@ -307,6 +311,7 @@ defineRegionScenarios("全局设置", [
   },
   {
     name: "素材库与存储：新增图片保存到对象存储，长桶名截断不撑宽内容列",
+    a11y: true,
     path: ASSET_LIBRARY,
     api: REMOTE_STORAGE,
     ready: assetLibraryReady,
@@ -317,6 +322,7 @@ defineRegionScenarios("全局设置", [
   },
   {
     name: "素材库与存储：改桶时确认清理并提示进行中的入库任务",
+    viewports: "both",
     path: ASSET_LIBRARY,
     api: REMOTE_STORAGE,
     ready: assetLibraryReady,

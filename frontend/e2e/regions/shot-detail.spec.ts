@@ -1,6 +1,6 @@
 import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
-import { defineRegionScenarios } from "../support/scenarios.ts";
+import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
@@ -166,20 +166,15 @@ defineRegionScenarios("分镜详情", [
     name: "中栏先引用后提示词与台词，媒体栏放分镜图与视频",
     path: BOARD_PATH,
     api: API,
+    viewports: "both",
+    a11y: true,
     ready: boardReady,
     act: async (page) => {
       await expect(shotList(page).getByRole("button", { name: /^分镜 1(?!\d)/ })).toHaveAttribute("aria-current", "true");
-      const { width } = viewport(page);
-      if (width === 1440) {
+      if (viewport(page).width === 1440) {
         await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("heading", { name: "引用" })).toBeInViewport();
         await expect(page.getByRole("heading", { name: "发声序列" })).toBeInViewport();
-      }
-      if (width === 1920) {
-        const image = await box(storyboard(page));
-        const video = await box(page.getByRole("heading", { name: "视频", exact: true }));
-        expect(video.x).toBeGreaterThan(image.x + image.width - 1);
-        expect(Math.abs(video.y - image.y)).toBeLessThan(80);
       }
       await expect(page.getByRole("button", { name: "对应原文与参考" })).toHaveAttribute("aria-expanded", "false");
       await clearAgentOverlay(page);
@@ -189,6 +184,7 @@ defineRegionScenarios("分镜详情", [
     name: "收起分镜列表后只剩序号列，详情跟着变宽",
     path: BOARD_PATH,
     api: API,
+    viewports: "both",
     ready: boardReady,
     act: async (page) => {
       const before = await box(shotList(page));
@@ -231,6 +227,7 @@ defineRegionScenarios("分镜详情", [
     name: "打开分镜图的版本历史并预览旧版本",
     path: BOARD_PATH,
     api: API,
+    viewports: "both",
     ready: boardReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -296,6 +293,7 @@ defineRegionScenarios("分镜详情", [
     name: "打开引用编辑对话框并改动引用",
     path: BOARD_PATH,
     api: API,
+    a11y: true,
     ready: boardReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -337,8 +335,25 @@ defineRegionScenarios("分镜详情", [
       expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: null });
     },
   },
+]);
+
+defineViewportContracts("分镜详情", [
+  {
+    name: "宽屏下分镜图与视频并排展示",
+    viewport: { width: 1920, height: 1080 },
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      const image = await box(storyboard(page));
+      const video = await box(page.getByRole("heading", { name: "视频", exact: true }));
+      expect(video.x).toBeGreaterThan(image.x + image.width - 1);
+      expect(Math.abs(video.y - image.y)).toBeLessThan(80);
+    },
+  },
   {
     name: "500 镜仍可流畅滚动并用单次方向键排序",
+    viewport: { width: 1440, height: 900 },
     path: BOARD_PATH,
     api: {
       ...API,
@@ -355,6 +370,7 @@ defineRegionScenarios("分镜详情", [
       "POST /api/v1/projects/demo/script-items/E1S500/move": { status: 200, body: { success: true } },
     },
     ready: boardReady,
+    layout: false,
     slow: true,
     act: async (page) => {
       const list = shotList(page);
@@ -393,5 +409,5 @@ defineRegionScenarios("分镜详情", [
       await page.keyboard.press("Space");
       expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: "E1S498" });
     },
-  }
+  },
 ]);

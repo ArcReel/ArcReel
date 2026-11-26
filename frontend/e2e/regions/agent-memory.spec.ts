@@ -59,6 +59,7 @@ async function editIndex(page: Page) {
 defineRegionScenarios("Agent 记忆", [
   {
     name: "没有记忆文件：详情栏是新建表单",
+    a11y: true,
     path: "/app/settings?section=agent-memory",
     ready: (page) => page.getByRole("heading", { level: 2, name: "新建记忆文件" }).waitFor(),
     act: async (page) => {
@@ -67,6 +68,7 @@ defineRegionScenarios("Agent 记忆", [
   },
   {
     name: "文件很多、索引很长（压力）：文件列表与编辑框各自滚动",
+    viewports: "both",
     path: "/app/settings?section=agent-memory",
     api: USER_FILES,
     ready: async (page) => {
@@ -115,6 +117,7 @@ defineRegionScenarios("Agent 记忆", [
   },
   {
     name: "删除确认：标题与按钮完整可见",
+    a11y: true,
     path: "/app/settings?section=agent-memory",
     api: USER_FILES,
     ready: async (page) => {

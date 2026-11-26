@@ -137,6 +137,8 @@ async function detailReady(page: Page) {
 defineRegionScenarios("调用端点", [
   {
     name: "我的端点详情：模型多、定义长时正文在详情栏里滚动，底部保存栏始终可见",
+    viewports: "both",
+    a11y: true,
     path: `${ENDPOINTS_PATH}&endpoint=ce-1`,
     api: MANY_ENDPOINTS,
     ready: detailReady,
@@ -200,6 +202,7 @@ defineRegionScenarios("调用端点", [
   },
   {
     name: "新建端点页打开导入对话框，标题与操作按钮留在视口内",
+    a11y: true,
     path: `${ENDPOINTS_PATH}&endpoint=new`,
     api: MANY_ENDPOINTS,
     ready: async (page) => {

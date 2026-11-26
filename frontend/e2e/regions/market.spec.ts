@@ -210,6 +210,8 @@ defineRegionScenarios("市场", [
   },
   {
     name: "条目多、名称与说明长：失败的源列在筛选行之上，网格靠左排开",
+    viewports: "both",
+    a11y: true,
     path: MARKET_PATH,
     api: MANY,
     ready: async (page) => {
@@ -259,6 +261,7 @@ defineRegionScenarios("市场", [
   },
   {
     name: "设置：市场源多、地址与错误长",
+    a11y: true,
     path: SETTINGS_PATH,
     api: MANY,
     ready: settingsReady,
@@ -344,6 +347,8 @@ defineRegionScenarios("市场", [
   },
   {
     name: "安装弹窗：定义长、地址多，正文在弹窗里滚动，操作按钮留在视口内",
+    viewports: "both",
+    a11y: true,
     path: MARKET_PATH,
     api: INSTALL,
     ready: browseReady,

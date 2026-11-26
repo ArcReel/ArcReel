@@ -86,6 +86,8 @@ defineRegionScenarios("新手引导", [
     name: "首次进入大厅：欢迎气泡居中，遮罩盖住页面",
     path: LOBBY_PATH,
     api: UNSEEN,
+    viewports: "both",
+    a11y: true,
     ready: tourReady,
     act: async (page) => {
       await expect(tourTitle(page)).toHaveText("欢迎使用 ArcReel");
@@ -96,6 +98,7 @@ defineRegionScenarios("新手引导", [
     name: "第 6 步：空大厅上方出现「示例项目」区块，空状态保持不变",
     path: LOBBY_PATH,
     api: EMPTY_LOBBY,
+    viewports: "both",
     ready: tourReady,
     act: async (page) => {
       await advance(page, 5);
@@ -157,6 +160,7 @@ defineRegionScenarios("新手引导", [
   {
     name: "演示工作台：顶栏「演示 · 只读」徽标聚焦后显示说明",
     path: DEMO_PATH,
+    a11y: true,
     ready: async (page) => {
       await page.getByText("演示 · 只读").waitFor();
     },
