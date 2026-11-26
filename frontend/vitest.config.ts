@@ -4,8 +4,6 @@ import path from "path";
 
 const mockIconsPath = path.resolve(__dirname, "src/__mocks__/@lobehub/icons.tsx");
 
-// ESLint 和 audit_tests.py 只检查 .test.*。组件测试使用 jsdom；普通 .test.ts 默认走 Node，
-// 只有依赖浏览器 API 或通过 renderHook 挂载组件的文件才加入此清单。
 const DOM_TESTS = [
   "src/**/*.test.tsx",
   "src/components/canvas/episodes/useMoveEpisode.test.ts",
@@ -30,6 +28,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: [
+      { find: /^@\/i18n$/, replacement: path.resolve(__dirname, "src/test/i18n.ts") },
       { find: "@", replacement: path.resolve(__dirname, "src") },
       // Mock @lobehub/icons and all its subpath imports to avoid
       // @lobehub/fluent-emoji ESM directory import errors in tests.

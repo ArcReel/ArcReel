@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import i18n from "@/test/i18n";
+import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { submitRender } from "@/actions/render";
 
