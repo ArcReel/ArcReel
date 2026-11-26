@@ -205,6 +205,7 @@ export interface WorkflowMigrationSkippedArtifact {
 }
 
 export type WorkflowMigrationAdjustmentCode =
+  | "history_conflict_preserved"
   | "retired_draft_trashed"
   | "draft_name_conflict_resolved"
   | "duplicate_episode_entry_removed"
@@ -240,7 +241,7 @@ export interface WorkflowMigrationReport {
 }
 
 export interface WorkflowStatus {
-  schema_version: 2;
+  schema_version: 3;
   project_revision: string;
   source_revision: string | null;
   project: WorkflowProject;
@@ -259,11 +260,12 @@ export interface WorkflowStatus {
 export interface EpisodeNextStep {
   episode: number;
   plan_stale: boolean;
-  next_action: WorkflowNextAction;
+  episode_complete: boolean;
+  next_action: WorkflowNextAction | null;
 }
 
 export interface WorkflowPlan {
-  schema_version: 2;
+  schema_version: 3;
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];

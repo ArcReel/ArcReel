@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -332,13 +331,13 @@ def test_video_restore_rejects_currency_duration_outside_frozen_tiers_without_mu
         raised_video_duration_seconds=8,
     )
     migrate_project_dir(project_path)
-    metadata_path = project_path / "versions" / "versions.json"
-    metadata = json.loads(metadata_path.read_bytes())
+    store = VersionManager(project_path).sqlite
+    metadata = store.resources([("videos", "E1S1")])
     selected = metadata["videos"]["E1S1"]["versions"][0]
     facts = VideoArtifactCurrencyFacts.from_dict(selected["artifact_video_currency"])
     selected["artifact_video_currency"] = replace(facts, duration_tiers=(4, 8, 12)).to_dict()
     metadata["videos"]["E1S1"]["versions"][0][VIDEO_CURRENCY_DURATION_FIELD] = invalid_duration
-    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    store.save(metadata)
     current = project_path / "videos" / "scene_E1S1.mp4"
     video_bytes = current.read_bytes()
     entries = ProjectArtifactManifestAdapter(project_path).snapshot_entries()

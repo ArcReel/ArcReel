@@ -1326,8 +1326,10 @@ describe("API", () => {
       const onSnapshot = vi.fn();
       const onChanges = vi.fn();
       const onProjectDeleted = vi.fn();
+      const onTaskProgress = vi.fn();
+      const progress = { task_id: "id", phase: "waiting", seq: 1, model: "m" };
 
-      const handle = API.openProjectEventStream({ projectName: "my project", onSnapshot, onChanges, onProjectDeleted });
+      const handle = API.openProjectEventStream({ projectName: "my project", onSnapshot, onChanges, onTaskProgress, onProjectDeleted });
       await flushStream();
 
       expect(fake.latest.url).toBe("/api/v1/projects/my%20project/events/stream");
@@ -1337,6 +1339,7 @@ describe("API", () => {
 
       fake.latest.emit("snapshot", { fingerprint: "f1" });
       fake.latest.emit("changes", { fingerprint: "f2", changes: [] });
+      fake.latest.emit("task_progress", progress);
       fake.latest.emit("project_deleted", { project_name: "my project" });
       fake.latest.write("event: changes\ndata: not json\n\n");
       await flushStream();
@@ -1344,6 +1347,7 @@ describe("API", () => {
       expect(onSnapshot).toHaveBeenCalledWith({ fingerprint: "f1" });
       expect(onChanges).toHaveBeenCalledTimes(1);
       expect(onChanges).toHaveBeenCalledWith({ fingerprint: "f2", changes: [] });
+      expect(onTaskProgress).toHaveBeenCalledWith(progress);
       expect(onProjectDeleted).toHaveBeenCalledWith({ project_name: "my project" });
       handle.close();
     });

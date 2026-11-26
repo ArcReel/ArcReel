@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 from collections.abc import Callable, Collection, Generator, Iterable, Mapping, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -21,12 +21,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, assert_never
 
 import portalocker
 
-from lib.artifacts.formal_write import formal_write_transaction
+from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
+from lib.artifacts.sqlite_history import ResourceBatch, SQLiteHistory
 from lib.generation.generation_admission import generation_admission_lock_sync
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.content_digest import sha256_file
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.project_write_journal import active_journal, scratch_directory, track_write
 from lib.infra.schema_guards import is_bool
 from lib.material.storage import (
     CONTENT_DIGEST,
@@ -214,6 +216,7 @@ def _install_snapshot(snapshot: Path, current_file: Path) -> None:
         shutil.copy2(snapshot, replacement)
         with replacement.open("r+b") as handle:
             os.fsync(handle.fileno())
+        track_write(current_file)
         os.replace(replacement, current_file)
     except BaseException as failure:
         _report_cleanup_failures(_unlink_paths(replacement), active_failure=failure)
@@ -226,7 +229,7 @@ def _create_rollback_backup(current_file: Path) -> Path:
     fd, backup_name = tempfile.mkstemp(
         prefix=f".{current_file.stem}.",
         suffix=f"{current_file.suffix}.rollback",
-        dir=current_file.parent,
+        dir=scratch_directory(current_file),
     )
     os.close(fd)
     candidate = Path(backup_name)
@@ -259,18 +262,32 @@ class VersionManager:
         self.project_path = Path(project_path)
         self.versions_dir = self.project_path / "versions"
         self.versions_file = self.versions_dir / "versions.json"
+        self.sqlite = SQLiteHistory(self.project_path)
         self._versions_lock: threading.RLock | None = None
 
     @property
-    def _lock(self) -> threading.RLock:
+    def _lock(self):
         """按 versions.json 的规范路径共享的线程锁。
 
         解析规范路径要 stat，推迟到首次加锁时进行：加锁本就发生在工作线程里，构造因此不阻塞。
         """
+        if self.sqlite.is_enabled():
+            return project_metadata_lock(self.project_path)
         lock = self._versions_lock
         if lock is None:
             lock = self._versions_lock = _get_versions_file_lock(self.versions_file)
         return lock
+
+    def _read_lock(self):
+        """只读访问锁：SQLite WAL 下走并发无锁快照，旧 JSON 仍持版本锁。"""
+        if self.sqlite.is_enabled():
+            return nullcontext()
+        return self._lock
+
+    def _sqlite_rollback_scope(self):
+        if self.sqlite.is_enabled():
+            return self.sqlite.rollback_scope()
+        return nullcontext()
 
     def _ensure_dirs(self) -> None:
         """确保版本目录结构存在。
@@ -294,6 +311,7 @@ class VersionManager:
         快照路径先登记进 ``created_snapshots``，保存中途失败时调用方的回滚同样删除半截快照。
         """
 
+        track_write(self.project_path / rel_path)
         created_snapshots.append(self.project_path / rel_path)
         self._ensure_dirs()
         storage = active_new_content_storage()
@@ -310,6 +328,7 @@ class VersionManager:
         对象的内容，按本地版本保存。
         """
 
+        track_write(self.project_path / rel_path)
         created_snapshots.append(self.project_path / rel_path)
         self._ensure_dirs()
         actual = LocalMaterialStorage(self.project_path).persist(source, LocalLocator(rel_path))
@@ -360,6 +379,67 @@ class VersionManager:
     def _resolve_snapshot(self, resource_type: str, record: Mapping[str, Any]) -> Path:
         return self.resolve_snapshot_path(self.project_path, resource_type, record.get("file"))
 
+    def enable_sqlite_history(self, records: dict | None = None) -> None:
+        """Initialize a fresh SQLite history, optionally seeded with logical records."""
+        with project_metadata_lock(self.project_path):
+            if self.versions_file.exists():
+                raise FileExistsError(self.versions_file)
+            self.sqlite.create(records or {})
+
+    def _resources(self, keys: Iterable[tuple[str, str]]) -> dict:
+        if self.sqlite.path.is_file():
+            return self.sqlite.resources(keys)
+        return self._load_versions()
+
+    @contextmanager
+    def locked_rows(self, *, remote_only: bool = False):
+        with self._lock:
+            if self.sqlite.path.is_file():
+                yield self.sqlite.rows(remote_only=remote_only)
+            else:
+                yield self._history_rows(self._load_versions())
+
+    @staticmethod
+    def _history_rows(data: dict):
+        for kind, bucket in data.items():
+            if isinstance(bucket, dict):
+                for name, history in bucket.items():
+                    if isinstance(history, dict):
+                        records = history.get("versions")
+                        for record in records if isinstance(records, list) else ():
+                            if isinstance(record, dict):
+                                yield kind, name, history.get("current_version"), record
+
+    def get_current_record(self, kind: str, name: str) -> dict | None:
+        with self._read_lock():
+            if self.sqlite.is_enabled():
+                return self.sqlite.current_record((kind, name))
+            bucket = self._load_versions().get(kind)
+            history = bucket.get(name) if isinstance(bucket, dict) else None
+            if not isinstance(history, dict):
+                return None
+            return next(
+                (
+                    r
+                    for r in history.get("versions", [])
+                    if isinstance(r, dict) and r.get("version") == history.get("current_version")
+                ),
+                None,
+            )
+
+    def _legacy_snapshot(self) -> bytes | None:
+        if self.sqlite.path.is_file() or not self.versions_file.is_file():
+            return None
+        return self.versions_file.read_bytes()
+
+    def _restore_legacy_snapshot(self, snapshot: bytes | None) -> None:
+        if self.sqlite.path.is_file():
+            return
+        if snapshot is None:
+            self.versions_file.unlink(missing_ok=True)  # hard-delete: rollback -- remove uncommitted history
+        else:
+            atomic_write_bytes(self.versions_file, snapshot)
+
     def _load_versions(self) -> dict:
         """加载版本元数据"""
         if not self.versions_file.exists():
@@ -370,6 +450,9 @@ class VersionManager:
 
     def _save_versions(self, data: dict) -> None:
         """保存版本元数据"""
+        if isinstance(data, ResourceBatch):
+            self.sqlite.save(data)
+            return
         self._ensure_dirs()
         atomic_write_json(self.versions_file, data)
 
@@ -395,8 +478,8 @@ class VersionManager:
         if resource_type not in self.RESOURCE_TYPES:
             raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
 
-        with self._lock:
-            data = self._load_versions()
+        with self._read_lock():
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.get(resource_type, {}).get(resource_id)
 
             if not resource_data:
@@ -427,10 +510,12 @@ class VersionManager:
 
     @contextmanager
     def locked_history(self) -> Generator[dict[str, Any]]:
-        """持版本锁读取整份版本历史（只读）：读者在锁内核对记录后再动工作文件，不与正式提交交错。"""
-
+        """Explicit complete logical snapshot for legacy callers."""
         with self._lock:
-            yield self._load_versions()
+            if self.sqlite.path.is_file():
+                yield self.sqlite.snapshot()
+            else:
+                yield self._load_versions()
 
     @contextmanager
     def locked_version_snapshot(self, resource_type: str, resource_id: str) -> Generator[dict[str, Any]]:
@@ -459,24 +544,28 @@ class VersionManager:
             raise ValueError(f"不支持的资源类型: {resource_type}")
 
         with self._lock:
-            data = self._load_versions()
+            if self.sqlite.path.is_file():
+                data = None
+                previous_current_version, new_version = self.sqlite.allocation((resource_type, resource_id))
+            else:
+                data = self._resources([(resource_type, resource_id)])
 
-            if resource_type not in data:
-                data[resource_type] = {}
+                if resource_type not in data:
+                    data[resource_type] = {}
 
-            if resource_id not in data[resource_type]:
-                data[resource_type][resource_id] = {"current_version": 0, "versions": []}
+                if resource_id not in data[resource_type]:
+                    data[resource_type][resource_id] = {"current_version": 0, "versions": []}
 
-            resource_data = data[resource_type][resource_id]
-            existing_versions = resource_data.get("versions", [])
-            previous_current_version = resource_data.get("current_version", 0)
-            if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
-                previous_current_version = 0
-            max_version = max(
-                (item.get("version", 0) for item in existing_versions),
-                default=0,
-            )
-            new_version = max_version + 1
+                resource_data = data[resource_type][resource_id]
+                existing_versions = resource_data.get("versions", [])
+                previous_current_version = resource_data.get("current_version", 0)
+                if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
+                    previous_current_version = 0
+                max_version = max(
+                    (item.get("version", 0) for item in existing_versions),
+                    default=0,
+                )
+                new_version = max_version + 1
 
             timestamp = self._generate_timestamp()
             version_rel_path = version_snapshot_relative_path(
@@ -498,10 +587,14 @@ class VersionManager:
                 previous_current_version=previous_current_version,
             )
 
-            resource_data["versions"].append(version_record)
-            resource_data["current_version"] = new_version
+            if data is None:
+                self.sqlite.append_selected((resource_type, resource_id), version_record)
+            else:
+                resource_data = data[resource_type][resource_id]
+                resource_data["versions"].append(version_record)
+                resource_data["current_version"] = new_version
 
-            self._save_versions(data)
+                self._save_versions(data)
             record_project_activity(self.project_path)
             return new_version
 
@@ -532,10 +625,9 @@ class VersionManager:
         if not staged_file.is_file():
             raise FileNotFoundError(f"staged version file does not exist: {staged_file}")
 
-        with self._lock:
-            versions_existed = self.versions_file.is_file()
-            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            versions_snapshot = self._legacy_snapshot()
+            data = self._resources([(resource_type, resource_id)])
             bucket = data.setdefault(resource_type, {})
             resource_data = bucket.setdefault(resource_id, {"current_version": 0, "versions": []})
             created_snapshots: list[Path] = []
@@ -555,6 +647,7 @@ class VersionManager:
                 new_version = self._append_selected_snapshot(
                     resource_type, resource_id, resource_data, staged_file, prompt, metadata, created_snapshots
                 )
+                track_write(current_file)
                 os.replace(staged_file, current_file)
                 self._save_versions(data)
                 if on_commit is not None:
@@ -574,11 +667,7 @@ class VersionManager:
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
-                    if versions_snapshot is None:
-                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
-                        self.versions_file.unlink(missing_ok=True)
-                    else:
-                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     rollback_errors.append(exc)
                 for path in created_snapshots:
@@ -698,9 +787,9 @@ class VersionManager:
             if not Path(commit.current_file).is_file():
                 raise FileNotFoundError(f"installed version file does not exist: {commit.current_file}")
 
-        with self._lock:
-            versions_snapshot = self.versions_file.read_bytes() if self.versions_file.is_file() else None
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            versions_snapshot = self._legacy_snapshot()
+            data = self._resources(identities)
             created_snapshots: list[Path] = []
             result: dict[tuple[str, str], int] = {}
             try:
@@ -725,11 +814,7 @@ class VersionManager:
             except BaseException as failure:
                 rollback_errors: list[OSError] = []
                 try:
-                    if versions_snapshot is None:
-                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
-                        self.versions_file.unlink(missing_ok=True)
-                    else:
-                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     rollback_errors.append(exc)
                 rollback_errors.extend(cleanup_failure for _path, cleanup_failure in _unlink_paths(*created_snapshots))
@@ -774,10 +859,9 @@ class VersionManager:
                 raise ValueError(f"duplicate staged version target: {current_file}")
             current_paths.add(normalized_current)
 
-        with self._lock:
-            versions_existed = self.versions_file.is_file()
-            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            versions_snapshot = self._legacy_snapshot()
+            data = self._resources(identities)
             created_snapshots: list[Path] = []
             current_states: list[tuple[Path, bool, Path | None]] = []
             result: dict[tuple[str, str], int] = {}
@@ -844,6 +928,7 @@ class VersionManager:
                         prompt=commit.prompt,
                         metadata=commit.metadata,
                     )
+                    track_write(current_file)
                     os.replace(staged_file, current_file)
                     result[(commit.resource_type, commit.resource_id)] = version
 
@@ -866,11 +951,7 @@ class VersionManager:
                     except OSError as exc:
                         rollback_errors.append(exc)
                 try:
-                    if versions_snapshot is None:
-                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
-                        self.versions_file.unlink(missing_ok=True)
-                    else:
-                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     rollback_errors.append(exc)
                 for path in created_snapshots:
@@ -929,9 +1010,8 @@ class VersionManager:
             raise FileNotFoundError(f"staged version file does not exist: {staged_file}")
 
         with self._lock:
-            versions_existed = self.versions_file.is_file()
-            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
-            data = self._load_versions()
+            versions_snapshot = self._legacy_snapshot()
+            data = self._resources([(resource_type, resource_id)])
             bucket = data.setdefault(resource_type, {})
             resource_data = bucket.setdefault(resource_id, {"current_version": 0, "versions": []})
             records = resource_data.setdefault("versions", [])
@@ -977,15 +1057,17 @@ class VersionManager:
                     prior_current = 0
                     resource_data["current_version"] = 0
                 version = _append_snapshot(staged_file, prompt, metadata)
-                self._save_versions(data)
+                if isinstance(data, ResourceBatch):
+                    journal = active_journal(self.project_path)
+                    if journal is not None and staged_file != current_file:
+                        journal.discard_staged(staged_file)
+                    self.sqlite.save(data, durable_snapshots=created_snapshots)
+                else:
+                    self._save_versions(data)
             except BaseException as failure:
                 history_rollback_errors: list[OSError] = []
                 try:
-                    if versions_snapshot is None:
-                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
-                        self.versions_file.unlink(missing_ok=True)
-                    else:
-                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     history_rollback_errors.append(exc)
                 history_rollback_errors.extend(
@@ -1024,6 +1106,7 @@ class VersionManager:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_existed:
                     current_backup = _create_rollback_backup(current_file)
+                track_write(current_file)
                 os.replace(staged_file, current_file)
                 resource_data["current_version"] = version
                 self._save_versions(data)
@@ -1088,8 +1171,8 @@ class VersionManager:
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
         current_file = Path(current_file)
-        with self._lock:
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.get(resource_type, {}).get(resource_id)
             if not isinstance(resource_data, dict) or resource_data.get("current_version") != rejected_version:
                 return False
@@ -1136,7 +1219,7 @@ class VersionManager:
             if restore_version > 0 and previous is None:
                 raise ValueError(f"restore version does not exist: {restore_version}")
             previous_file = self._resolve_snapshot(resource_type, previous) if previous is not None else None
-            versions_snapshot = self.versions_file.read_bytes()
+            versions_snapshot = self._legacy_snapshot()
             current_backup: Path | None = None
             current_existed = current_file.is_file()
             rejection_succeeded = False
@@ -1145,6 +1228,7 @@ class VersionManager:
                 if current_existed:
                     current_backup = _create_rollback_backup(current_file)
                 if previous is None or previous_file is None:
+                    track_write(current_file)
                     # hard-delete: derived -- 拒绝唯一版本：被拒版本的快照仍留在版本历史，当前文件只是它的副本
                     current_file.unlink(missing_ok=True)
                     resource_data["current_version"] = 0
@@ -1173,7 +1257,7 @@ class VersionManager:
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
-                    atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     rollback_errors.append(exc)
                 if rollback_errors:
@@ -1195,7 +1279,7 @@ class VersionManager:
         """Atomically reject the requested selections that are still current."""
 
         with self._lock:
-            data = self._load_versions()
+            data = self._resources(rejections)
             current = frozenset(
                 identity
                 for identity, (version, _path) in rejections.items()
@@ -1245,7 +1329,8 @@ class VersionManager:
         from lib.project.asset_types import normalize_asset_name, rekey_equivalent_entries
 
         with self._lock:
-            data = self._load_versions()
+            keys = self.sqlite.equivalent_keys(resource_type, old_id, new_id) if self.sqlite.is_enabled() else ()
+            data = self._resources(keys)
             bucket = data.get(resource_type)
             if not isinstance(bucket, dict):
                 return 0
@@ -1275,6 +1360,7 @@ class VersionManager:
                 dst = new_dir / new_basename
                 if src.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
+                    track_write(src, dst)
                     src.replace(dst)
                 version["file"] = dst.relative_to(self.project_path).as_posix()
             rekey_equivalent_entries(bucket, old_id, new_id)
@@ -1349,6 +1435,28 @@ class VersionManager:
     def history_transaction(self) -> Generator[None]:
         """批量恢复失败时撤销新增历史快照与版本登记；调用方持项目锁，不改当前文件。"""
 
+        if self.sqlite.is_enabled():
+            with self._lock:
+                before = {
+                    self._resolve_snapshot(kind, record)
+                    for kind, _name, _current, record in self.sqlite.rows()
+                    if kind in self.RESOURCE_TYPES
+                }
+                with self.sqlite.rollback_scope():
+                    try:
+                        yield
+                    except BaseException as failure:
+                        after = {
+                            self._resolve_snapshot(kind, record)
+                            for kind, _name, _current, record in self.sqlite.rows()
+                            if kind in self.RESOURCE_TYPES
+                        }
+                        cleanup = _unlink_paths(*(after - before))
+                        if cleanup:
+                            raise RuntimeError("history restore rollback was incomplete") from failure
+                        raise
+            return
+
         def snapshots() -> set[Path]:
             data = self._load_versions()
             return {
@@ -1393,7 +1501,7 @@ class VersionManager:
 
         with self._lock:
             self.ensure_current_tracked(resource_type, resource_id, current_file, prompt)
-            data = self._load_versions()
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.setdefault(resource_type, {}).setdefault(
                 resource_id, {"current_version": 0, "versions": []}
             )
@@ -1432,8 +1540,8 @@ class VersionManager:
         """
         from lib.project import project_trash
 
-        with self._lock:
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            data = self._resources(self.sqlite.lookup(file=snapshot_path) if self.sqlite.is_enabled() else ())
             for resource_type, resources in data.items():
                 for resource_id, resource_data in resources.items() if isinstance(resources, dict) else ():
                     versions = resource_data.get("versions", []) if isinstance(resource_data, dict) else []
@@ -1455,7 +1563,7 @@ class VersionManager:
                             except portalocker.AlreadyLocked as exc:
                                 raise ConflictError("version_delete_in_use", path=snapshot_path) from exc
                             self._resolve_snapshot(resource_type, record)
-                            original = self.versions_file.read_bytes()
+                            original = self._legacy_snapshot()
                             del versions[index]
                             self._save_versions(data)
                             obj = {
@@ -1474,7 +1582,7 @@ class VersionManager:
                             try:
                                 trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
                             except BaseException:
-                                atomic_write_bytes(self.versions_file, original)
+                                self._restore_legacy_snapshot(original)
                                 raise
                             record_project_activity(self.project_path)
                             return trashed
@@ -1482,7 +1590,8 @@ class VersionManager:
 
     def resource_records(self, resources: Iterable[tuple[str, str]]) -> dict[str, dict[str, Any]]:
         """这些资源的版本记录（按资源类型分桶）；没有记录的资源不出现。"""
-        data = self._load_versions()
+        resources = tuple(resources)
+        data = self._resources(resources)
         found: dict[str, dict[str, Any]] = {}
         for resource_type, resource_id in resources:
             record = data.get(resource_type, {}).get(resource_id)
@@ -1503,7 +1612,8 @@ class VersionManager:
     def detach_resources(self, resources: Iterable[tuple[str, str]]) -> None:
         """从版本历史里摘掉这些资源的记录，不动快照文件：它们已随删除记录移进项目回收站。调用方持项目锁。"""
         with self._lock:
-            data = self._load_versions()
+            resources = tuple(resources)
+            data = self._resources(resources)
             removed = [data[rt].pop(rid) for rt, rid in resources if rid in data.get(rt, {})]
             if removed:
                 self._save_versions(data)
@@ -1512,7 +1622,7 @@ class VersionManager:
     def attach_resources(self, records: Mapping[str, Mapping[str, Any]]) -> None:
         """恢复删除记录时把整段版本记录加回，快照文件已放回原处；已有记录的资源保持现状。调用方持项目锁。"""
         with self._lock:
-            data = self._load_versions()
+            data = self._resources(((kind, name) for kind, bucket in records.items() for name in bucket))
             added = False
             for resource_type, bucket in records.items():
                 target = data.setdefault(resource_type, {})
@@ -1552,8 +1662,8 @@ class VersionManager:
 
         current_file = Path(current_file)
 
-        with self._lock:
-            data = self._load_versions()
+        with self._lock, self._sqlite_rollback_scope():
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.get(resource_type, {}).get(resource_id)
 
             if not resource_data:
@@ -1573,8 +1683,7 @@ class VersionManager:
                 _content_version_of(resource_type, resource_id, target_version)
             )
 
-            versions_existed = self.versions_file.is_file()
-            versions_snapshot = self.versions_file.read_bytes() if versions_existed else None
+            versions_snapshot = self._legacy_snapshot()
             current_backup: Path | None = None
             current_existed = current_file.is_file()
             restore_succeeded = False
@@ -1601,11 +1710,7 @@ class VersionManager:
                 except OSError as exc:
                     rollback_errors.append(exc)
                 try:
-                    if versions_snapshot is None:
-                        # hard-delete: rollback -- 还原失败时移除本次新建的 versions.json
-                        self.versions_file.unlink(missing_ok=True)
-                    else:
-                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                    self._restore_legacy_snapshot(versions_snapshot)
                 except OSError as exc:
                     rollback_errors.append(exc)
                 if rollback_errors:
@@ -1632,8 +1737,13 @@ class VersionManager:
         :class:`VersionSnapshotCorruptedError` for the first mismatch; paths no record names are left alone.
         """
 
-        with self._lock:
-            bucket = self._load_versions().get(resource_type)
+        with self._read_lock():
+            keys = (
+                (key for file in snapshot_paths for key in self.sqlite.lookup(file=file))
+                if self.sqlite.is_enabled()
+                else ()
+            )
+            bucket = self._resources(keys).get(resource_type)
         for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
             records = history.get("versions") if isinstance(history, dict) else None
             for record in records if isinstance(records, list) else ():
@@ -1656,7 +1766,7 @@ class VersionManager:
             raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
 
         with self._lock:
-            data = self._load_versions()
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.get(resource_type, {}).get(resource_id)
             if not isinstance(resource_data, dict):
                 raise NotFoundError("version_resource_not_found", resource_type=resource_type, resource_id=resource_id)
@@ -1694,8 +1804,10 @@ class VersionManager:
         if resource_type not in self.RESOURCE_TYPES:
             raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
 
-        with self._lock:
-            bucket = self._load_versions().get(resource_type)
+        with self._read_lock():
+            bucket = self._resources(
+                self.sqlite.lookup(content_id=content_version_id) if self.sqlite.is_enabled() else ()
+            ).get(resource_type)
         for resource_id, history in bucket.items() if isinstance(bucket, dict) else ():
             records = history.get("versions") if isinstance(history, dict) else None
             for record in records if isinstance(records, list) else ():
@@ -1727,7 +1839,7 @@ class VersionManager:
             raise ValueError(f"version metadata cannot overwrite {sorted(protected)}")
 
         with self._lock:
-            data = self._load_versions()
+            data = self._resources([(resource_type, resource_id)])
             resource_data = data.get(resource_type, {}).get(resource_id)
             if not resource_data:
                 return False

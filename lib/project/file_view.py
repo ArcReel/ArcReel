@@ -28,8 +28,8 @@ from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ConflictError
 from lib.infra.path_safety import PathTraversalError, safe_join
-from lib.material.formal_objects import formal_object_sizes, iter_version_records
-from lib.material.storage import CONTENT_VERSION_ID, ObjectLocator
+from lib.material.formal_objects import formal_object_sizes
+from lib.material.storage import ObjectLocator
 from lib.material.work_files import local_work_files, remote_work_file_digests, remote_work_files
 from lib.project import project_trash
 from lib.project.reference_index import FileReference, FileRole, ReferenceIndex, is_infrastructure_path
@@ -175,19 +175,24 @@ def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
     if not wanted:
         return []
     versions_file = project_dir / "versions" / "versions.json"
-    versions = _read_object(versions_file)
-    project = _read_object(project_dir / "project.json")
+    manager = VersionManager(project_dir)
+    if manager.sqlite.path.is_file():
+        from lib.material.work_files import locked_remote_work_files
+
+        versions_file = manager.sqlite.path
+        items = locked_remote_work_files(project_dir)
+    else:
+        versions = _read_object(versions_file)
+        project = _read_object(project_dir / "project.json")
+        items = remote_work_files(versions, project if isinstance(project, dict) else {})
     try:
         fallback = versions_file.stat().st_mtime
     except OSError:
         fallback = 0.0
-    created = {
-        record.get(CONTENT_VERSION_ID): record.get("created_at") for _rt, _rid, record in iter_version_records(versions)
-    }
     found: dict[str, RemoteFile] = {}
-    for item in remote_work_files(versions, project if isinstance(project, dict) else {}):
+    for item in items:
         if item.path in wanted and item.path not in found:
-            modified_at = _record_time(created.get(item.content_version_id), fallback)
+            modified_at = _record_time(item.created_at, fallback)
             found[item.path] = RemoteFile(item.path, item.stored, modified_at)
     return sorted(found.values(), key=lambda item: item.path)
 

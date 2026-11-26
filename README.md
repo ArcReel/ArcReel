@@ -61,16 +61,6 @@
   </tr>
   <tr>
     <td width="200" align="center" valign="top">
-      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>OfoxAI：脚本、图像与视频创作的模型 API</strong><br>
-      通过 OfoxAI 接入文本、图像和视频模型，为脚本打磨、角色与场景参考图、视频镜头素材选择合适的能力。具体模型的输入要求、支持参数及调用方式请查看 API 文档。<br>
-      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">探索 OfoxAI 模型与 API →</a>
-    </td>
-  </tr>
-  <tr>
-    <td width="200" align="center" valign="top">
       <a href="https://go.apimart.ai/tw-arcreel"><img src="docs/assets/sponsors/apimart.webp" alt="APIMart" width="180"></a>
     </td>
     <td valign="top">

@@ -16,11 +16,27 @@ from pathlib import Path
 from lib.infra.json_io import atomic_write_bytes
 
 _BACKUP_RE = re.compile(r"\.bak\.v\d+-\d+$")
+_KEPT_COPY_RE = re.compile(r"\.kept\.v\d+-\d+$")
 
 
 def is_versioned_backup_name(name: str) -> bool:
     """Recognize the version and timestamp suffix used for migration backups."""
     return _BACKUP_RE.search(name) is not None
+
+
+def is_kept_copy_name(name: str) -> bool:
+    return _KEPT_COPY_RE.search(name) is not None
+
+
+def is_migration_copy_name(name: str) -> bool:
+    """Recognize either a versioned migration backup or a kept conflict copy."""
+    return is_versioned_backup_name(name) or is_kept_copy_name(name)
+
+
+def is_kept_copy_for(name: str, base_name: str, from_version: int) -> bool:
+    """Return whether ``name`` is a kept copy generated for ``base_name`` at ``from_version``."""
+    prefix = f"{base_name}.kept.v{from_version}-"
+    return name.startswith(prefix) and name.removeprefix(prefix).isdigit()
 
 
 def versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -74,6 +90,16 @@ def kept_copy_name(base_name: str, from_version: int, ts: int) -> str:
     return f"{base_name}.kept.v{from_version}-{ts}"
 
 
+def allocate_kept_copy_path(source: Path, from_version: int) -> Path:
+    """Pick a non-existing kept-copy path beside ``source`` for ``from_version``."""
+    ts = int(time.time())
+    target = source.with_name(kept_copy_name(source.name, from_version, ts))
+    while target.exists():
+        ts += 1
+        target = source.with_name(kept_copy_name(source.name, from_version, ts))
+    return target
+
+
 def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = False) -> Path:
     """Move (or copy) ``source`` to a kept copy beside it and return the copy's path.
 
@@ -82,11 +108,7 @@ def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = Fals
     migration report names it. No reader picks it up under its new name.
     """
 
-    ts = int(time.time())
-    target = source.with_name(kept_copy_name(source.name, from_version, ts))
-    while target.exists():
-        ts += 1
-        target = source.with_name(kept_copy_name(source.name, from_version, ts))
+    target = allocate_kept_copy_path(source, from_version)
     if copy:
         atomic_write_bytes(target, source.read_bytes())
     else:
@@ -95,7 +117,11 @@ def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = Fals
 
 
 __all__ = [
+    "allocate_kept_copy_path",
     "ensure_versioned_backup",
+    "is_kept_copy_for",
+    "is_kept_copy_name",
+    "is_migration_copy_name",
     "is_versioned_backup_name",
     "kept_copy_name",
     "set_aside_as_kept_copy",

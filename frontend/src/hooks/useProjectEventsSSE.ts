@@ -276,6 +276,9 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         }
         useAssistantStore.getState().requestSessionResync(projectName);
       },
+      onTaskProgress(progress) {
+        if (!disposed) useTasksStore.getState().receiveProgress(progress);
+      },
       onChanges(payload: ProjectChangeBatchPayload) {
         if (disposed) return;
         lastFingerprintRef.current = payload.fingerprint;

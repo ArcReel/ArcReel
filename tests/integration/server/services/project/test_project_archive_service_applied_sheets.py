@@ -25,6 +25,7 @@ from tests.integration.server.asset_library_support import (
     store_character_with_derivatives,
 )
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
+from tests.legacy_project_shapes import read_version_history, use_legacy_history
 
 _ALL_CURRENT = LIBRARY_SHEETS_ALL_CURRENT
 
@@ -73,6 +74,7 @@ def test_backfill_claims_applied_sheets_by_the_image(library_client, owner_descr
     pm.update_project("demo", lambda project: project.__setitem__("schema_version", 7))
     (project_dir / MANIFEST_FILENAME).unlink()
 
+    use_legacy_history(project_dir)
     assert migrate_project_dir(project_dir) is True
 
     assert _statuses(pm) == _ALL_CURRENT
@@ -138,7 +140,7 @@ def test_current_package_carries_only_the_selected_applied_derivatives_and_keeps
 
     _applied_project(client, pm, owner_description="白衣少年", conflict_policy="overwrite")
     source_statuses = _statuses(pm)
-    history = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(project_dir)
     applied = {
         resource_id: next(record for record in resource["versions"] if record["version"] == resource["current_version"])
         for resource_id, resource in history[CHARACTER_DERIVATIVE_RESOURCE_TYPE].items()

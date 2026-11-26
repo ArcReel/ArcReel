@@ -25,6 +25,10 @@ def _write_project(root: Path, name: str, data: dict) -> Path:
     d = root / name
     d.mkdir(parents=True, exist_ok=True)
     (d / "project.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    if data.get("schema_version") == CURRENT_SCHEMA_VERSION:
+        from lib.artifacts.sqlite_history import SQLiteHistory
+
+        SQLiteHistory(d).create({})
     return d
 
 

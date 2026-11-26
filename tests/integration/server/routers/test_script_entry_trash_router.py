@@ -25,6 +25,7 @@ from lib.script.script_batch_edit import ScriptBatchEditor
 from server.routers import project_trash as trash_router
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import build_projects_client, override
+from tests.legacy_project_shapes import use_legacy_history
 
 _SHOT = {
     "duration_seconds": 6,
@@ -38,12 +39,14 @@ _SHOT = {
 }
 
 
-def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[ProjectManager, TestClient]:
+def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, sqlite=False) -> tuple[ProjectManager, TestClient]:
     """解说项目 ``demo``：第 1 集三个分镜，E1S02 与 E1S03 各有一张带版本历史的分镜图。"""
     manager = ProjectManager(str(tmp_path))
     manager.create_project("demo", content_mode="narration")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
     project_dir = manager.get_project_path("demo")
+    if not sqlite:
+        use_legacy_history(project_dir)
     segments = []
     for item_id in ("E1S01", "E1S02", "E1S03"):
         assets: dict[str, Any] = {}
@@ -77,10 +80,11 @@ def _remove(http: TestClient, item_id: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("changed_input", [False, True])
+@pytest.mark.parametrize("sqlite", [False, True])
 def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_media_and_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_input: bool
+    sqlite: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_input: bool
 ) -> None:
-    manager, http = _project(tmp_path, monkeypatch)
+    manager, http = _project(tmp_path, monkeypatch, sqlite=sqlite)
     project_dir = manager.get_project_path("demo")
     history = VersionManager(project_dir).get_versions("storyboards", "E1S02")
     key = ArtifactKey.episode_storyboard(1, "E1S02")
@@ -241,10 +245,11 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
     assert not VersionManager(project_dir).has_versions("storyboards", "E1S05")
 
 
+@pytest.mark.parametrize("sqlite", [False, True])
 def test_a_shot_whose_episode_was_deleted_too_can_only_come_back_with_the_episode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    sqlite: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    manager, http = _project(tmp_path, monkeypatch)
+    manager, http = _project(tmp_path, monkeypatch, sqlite=sqlite)
     with http:
         record = _remove(http, "E1S02")
         impact = delete_episode(manager, "demo", 1)

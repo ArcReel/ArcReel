@@ -11,6 +11,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { ProjectChange } from "@/types";
+import { seedTasks } from "@/test/task-state";
 import { makeTask } from "@/test/factories";
 import { createDeferred } from "@/test/deferred";
 import { FakeSseStream } from "@/test/fakeSseStream";
@@ -380,6 +381,18 @@ describe("useProjectEventsSSE", () => {
     });
 
     expect(rev()).toBeGreaterThan(afterPatch);
+  });
+
+  it("updates text progress without refreshing the task list", () => {
+    const row = makeTask({ task_id: "text", project_name: "demo", status: "running" });
+    seedTasks([row]);
+    const refresh = vi.spyOn(useTasksStore.getState(), "refreshTasks");
+    const stream = mockProjectEventStream();
+    renderHarness();
+    const event = { task_id: "text", phase: "waiting" as const, seq: 1, model: "m" };
+    act(() => stream.options?.onTaskProgress?.(event));
+    expect(useTasksStore.getState().progressById.get("text")).toEqual(event);
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("forwards an assistant session resuming on its own to the assistant store", () => {

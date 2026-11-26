@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
+import { LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 
 import { EpisodeItemRefView } from "@/components/shared/episode-item/EpisodeItemRef";
+import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
+import { TextTaskLongWaitHint, TextTaskPhaseLabel } from "@/components/shared/TextTaskProgress";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
+import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
 import {
@@ -56,6 +60,35 @@ export function TargetLabel({ record, focusable = true }: { record: UsageRecordV
   );
 }
 
+function ActiveTextStatusLabel({ taskId }: { taskId: string }) {
+  const { t } = useTranslation("dashboard");
+  const task = useTasksStore((s) => s.rowsById.get(taskId));
+  const progress = useTasksStore((s) => s.progressById.get(taskId));
+  if (!task || !isActiveStatus(task.status)) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT_CLASSES.pending)} />
+        <span className={cn("shrink-0 whitespace-nowrap", STATUS_TEXT_CLASSES.pending)}>
+          {t(STATUS_LABEL_KEYS.pending)}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="flex min-w-0 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-1.5">
+        <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-primary" />
+        <TextTaskPhaseLabel
+          progress={task.status === "running" ? progress : undefined}
+          fallback={t(task.status === "queued" ? "queued_status" : "generating_status")}
+          className="wrap-anywhere text-primary"
+        />
+      </span>
+      <TextTaskLongWaitHint task={task} />
+    </span>
+  );
+}
+
 function StatusLabel({
   record,
   showPhrase,
@@ -66,6 +99,9 @@ function StatusLabel({
   focusable?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
+  if (record.status === "pending" && record.mediaType === "text" && record.taskId !== null) {
+    return <ActiveTextStatusLabel taskId={record.taskId} />;
+  }
   const phraseKey = record.status === "failed" && showPhrase ? failurePhraseKey(record.errorCode) : null;
   return (
     <span className="flex min-w-0 items-center gap-1.5">
@@ -81,6 +117,8 @@ function StatusLabel({
 function ElapsedCell({ record }: { record: UsageRecordView }) {
   const { t } = useTranslation("dashboard");
   const now = useNowTick();
+  const task = useTasksStore((s) => (record.taskId ? s.rowsById.get(record.taskId) : undefined));
+  if (task) return <TaskElapsedReadout task={task} />;
   return <>{elapsedSince(record.startedAt, now, t)}</>;
 }
 

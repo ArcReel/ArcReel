@@ -23,6 +23,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactEntryRekeyPlan, ArtifactManifest, ArtifactManifestAdapter
 from lib.artifacts.version_manager import VersionManager
+from lib.infra.project_write_journal import track_write
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     derivative_artifact_id,
@@ -59,6 +60,7 @@ class DerivativeSheetRelocation:
         for source, destination in self.moves:
             if source.exists():
                 destination.parent.mkdir(parents=True, exist_ok=True)
+                track_write(source, destination)
                 os.replace(source, destination)
         for old_id, new_id in self.version_renames:
             self._version_manager.rename_resource(CHARACTER_DERIVATIVE_RESOURCE_TYPE, old_id, new_id)
