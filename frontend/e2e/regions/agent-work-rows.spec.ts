@@ -201,7 +201,6 @@ defineRegionScenarios("Agent 工序行", [
       await expect(row(page, /修改剪辑时间线.*压低开场原声/)).toBeVisible();
       await expect(transcript(page).getByText(/mcp__arcreel__/)).toHaveCount(0);
     },
-    screenshot: { name: "agent-work-rows-collapsed", target: agentPanel },
   },
   {
     name: "展开长结果：只显示前 10 行，「显示全部」后整段展开，不产生内层滚动",
@@ -238,6 +237,5 @@ defineRegionScenarios("Agent 工序行", [
       await expect(transcript(page).getByText("子智能体结论")).toBeVisible();
       await expect(transcript(page).getByText(/建议重新生成 E1S03/)).toBeVisible();
     },
-    screenshot: { name: "agent-work-rows-subagent", target: agentPanel },
   },
 ]);

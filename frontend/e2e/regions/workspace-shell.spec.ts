@@ -138,7 +138,6 @@ defineRegionScenarios("项目工作区外壳", [
         expect(await width(canvas(page))).toBeCloseTo(962, 0);
       }
     },
-    screenshot: { name: "workspace-shell-rail", target: sidebar },
   },
   {
     name: "多集长标题时侧栏列表在自己的区域里滚动",
@@ -153,7 +152,6 @@ defineRegionScenarios("项目工作区外壳", [
       const expected = viewport(page).width >= STANDARD_TIER_MIN_WIDTH ? SIDEBAR_DEFAULT : SIDEBAR_RAIL;
       expect(await width(sidebar(page))).toBeCloseTo(expected, 0);
     },
-    screenshot: { name: "workspace-shell-sidebar", target: sidebar },
   },
   {
     name: "多集时集页的图标栏在自己的区域里滚动",

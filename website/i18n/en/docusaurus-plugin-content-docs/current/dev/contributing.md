@@ -71,22 +71,20 @@ For the development loop and the full gate before pushing, see "工具链与校�
 
 ### Frontend Page-Level Tests {#frontend-page-tests}
 
-`frontend/e2e/` is a page-level Playwright suite. It opens each page region at five viewports from 1024×600 to 2560×1440 and checks that the document itself does not scroll, that clipped content remains reachable by scrolling, and that vertical scroll areas, including modal bodies, do not gain horizontal overflow. It also uses axe to check accessibility against WCAG 2.2 AA. The `frontend-e2e` CI job runs in the official Playwright image. Pull requests run the three viewports with screenshot baselines (`E2E_VIEWPORTS=screenshot`), and daily CI runs all five. Use the same image locally to match CI rendering.
+`frontend/e2e/` is a page-level Playwright suite. It opens each page region at five viewports from 1024×600 to 2560×1440 and checks that the document itself does not scroll, that clipped content remains reachable by scrolling, and that vertical scroll areas, including modal bodies, do not gain horizontal overflow. It also uses axe to check accessibility against WCAG 2.2 AA. The `frontend-e2e` CI job runs in the official Playwright image. Update the image version when upgrading `@playwright/test`. Pull requests cover 1024×600, 1440×900, and 2560×1440. Daily CI covers all five viewports. To run the suite locally:
 
 ```bash
 cd frontend
-pnpm e2e:server   # Terminal 1: start the Playwright run-server in Docker; the image version is taken from @playwright/test
-pnpm e2e:remote   # Terminal 2: build the frontend and run the suite against the browser in the container
+pnpm exec playwright install chromium
+pnpm e2e
 ```
 
-Without Docker, first run `pnpm exec playwright install chromium`, then run `pnpm e2e`. This approach renders on the local machine, so fonts and layout may differ from CI; the results inside the container are authoritative.
-
-When running several copies of the suite on the same machine in parallel, use environment variables to offset ports and output directories. Defaults in parentheses apply when a variable is unset: `E2E_PORT` is the preview server port (4173), `E2E_OUTPUT_DIR` is the directory for failure screenshots and traces (`frontend/test-results`), and `E2E_SERVER_PORT` is the port the run-server is mapped to on the local machine (3000); `pnpm e2e:server` and `pnpm e2e:remote` read the same variable. With `CI=1`, change the directory of the generated HTML report with Playwright's own `PLAYWRIGHT_HTML_OUTPUT_DIR`. Screenshot baselines are generated with the default ports; after changing a port, screenshots that show the local address on the page are excluded from comparison.
+For parallel runs, set a separate preview port (`E2E_PORT`, default 4173) and output directory (`E2E_OUTPUT_DIR`, default `frontend/test-results`) for each suite. Failed tests retain a trace. With `CI=1`, set `PLAYWRIGHT_HTML_OUTPUT_DIR` to choose the HTML report directory.
 
 - **Adding scenarios**: register them under `frontend/e2e/regions/` with `defineRegionScenarios`, stating the route to open, the readiness condition, and the states to probe. Scenarios focus on states that change the available height, such as expanding a panel or opening a popup.
 - **Exemptions**: exempt decorative clipping layers with `data-overflow-ok="原因"`; the attribute value must state the reason. Regions that genuinely need horizontal scrolling (timeline tracks, code blocks, tag strips) use `overflow-x-auto`, which the probe recognizes by class name, so no extra exemption is needed.
 - **Recorded API responses**: `pnpm e2e:record` starts the real backend with `uv` in a temporary data directory and records fixtures in `frontend/e2e/fixtures/recorded/`. It uses the catalog test fixture, a fixed date and version, and a demo project. It skips online catalog sync and `.env` loading. Rerun the recording when changing the API response shape or catalog fixture. `pnpm e2e:record:check` compares two runs with different system clocks, factory snapshots, and version numbers. CI runs this check in `e2e-record-drift` and the local gate runs it in `e2e-record`. Use a scenario's `api` field for stress variants such as long text or large lists.
-- **Page screenshots**: after a scenario registers `screenshot`, comparison happens only when it runs with `E2E_SCREENSHOTS=1`, and screenshots are taken only at three viewports: 1024×600, 1440×900, and 2560×1440. The CI `frontend-e2e` job sets this variable, and the job fails when a screenshot differs or its baseline is missing. Baselines can only be generated and compared in the container: run with `pnpm e2e:server` and `pnpm e2e:remote`, regenerate new or intentionally changed screenshots by adding `--update-snapshots=changed`, and commit them after checking each one. Fonts rendered on the local machine differ from the container, so do not use it to generate baselines.
+- **Visual review**: use `page.screenshot()` as needed and attach screenshots or a recording to the pull request.
 
 ## Code Quality {#code-quality}
 

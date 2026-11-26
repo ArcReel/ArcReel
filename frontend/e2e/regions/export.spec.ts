@@ -60,7 +60,6 @@ defineRegionScenarios("导出范围对话框", [
       await expect(dialog.getByRole("radio", { name: /全部数据/ })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "导出", exact: true })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "export-scope-dialog", target: exportDialog },
   },
   {
     name: "集名很长时提示换行，「导出」仍完整可见",

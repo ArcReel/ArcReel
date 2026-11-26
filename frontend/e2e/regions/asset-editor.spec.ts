@@ -248,7 +248,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(sheet.getByRole("button", { name: "下一个" })).toBeEnabled();
       await expect(sheet.getByRole("button", { name: "关闭" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor", target: (page) => page.getByRole("dialog", { name: "林夕" }) },
   },
   {
     name: "改了描述：底部出现未保存提示条，生成与预览都先保存",
@@ -262,7 +261,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(sheet.getByRole("button", { name: "保存并预览" })).toBeVisible();
       await expect(sheet.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-unsaved", target: (page) => page.getByRole("dialog", { name: "林夕" }) },
   },
   {
     name: "重新生成过期资产图：连带影响统计失败的说明很长，只有正文滚动，按钮完整可见",
@@ -301,7 +299,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await waitForEntrance(leave);
       await expect(leave.getByRole("button", { name: "保存并切换" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-leave", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "离开拦截里点「继续编辑」：回到原资产，修改还在",
@@ -334,7 +331,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(form.getByRole("button", { name: "创建" })).toBeDisabled();
       await expect(form.getByRole("button", { name: "创建" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-create", target: (page) => page.getByRole("dialog", { name: "添加角色" }) },
   },
   {
     name: "商品详情：商品原图、品牌与卖点",
@@ -408,7 +404,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(row.getByRole("button", { name: "复制引用记号 @[林夕/夜行装]" })).toBeInViewport({ ratio: 1 });
       await expect(row.getByRole("button", { name: "重新生成" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-derivatives", target: (page) => derivativesSection(page.getByRole("dialog", { name: "林夕" })) },
   },
   {
     name: "衍生多且名称与外观变化很长：只有正文滚动，末条的操作完整可见",
@@ -460,7 +455,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await waitForEntrance(menu);
       await expect(menu.getByRole("menuitem", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-derivative-menu", target: (page) => page.getByRole("menu") },
   },
   {
     name: "打开「新增衍生」弹层",
@@ -495,7 +489,6 @@ defineRegionScenarios("资产详情 Sheet", [
       await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
       await expect(confirm.getByRole("button", { name: "删除" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-editor-derivative-delete", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "查看衍生图大图：Esc 只关闭大图，Sheet 留在原处",

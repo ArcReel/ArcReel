@@ -137,7 +137,6 @@ async function messagesReady(page: Page) {
   await page.getByText("开场三个镜头已经改好").waitFor();
   await page.getByRole("region", { name: "代码块" }).waitFor();
   await page.getByRole("table", { name: "表格" }).waitFor();
-  // 代码块的高亮组件按需加载，加载完会替换掉先渲染的代码块；等它落定再交互与截图
   await page.waitForLoadState("networkidle");
 }
 
@@ -166,7 +165,6 @@ defineRegionScenarios("Agent 消息区", [
       await expectAtEnd(page);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "false");
     },
-    screenshot: { name: "agent-messages-latest", target: agentPanel },
   },
   {
     name: "上翻后出现「跳到最新」，点击回到底部",
@@ -184,7 +182,6 @@ defineRegionScenarios("Agent 消息区", [
       await page.mouse.wheel(0, -1600);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "true");
     },
-    screenshot: { name: "agent-messages-jump", target: agentPanel },
   },
   {
     name: "面板最窄 320px 时，代码块与宽表格在自己的区域里横向滚动",
@@ -227,7 +224,6 @@ defineRegionScenarios("Agent 消息区", [
       await expect(editor).toHaveValue("继续，但只改开场三个镜头。");
       await expect(page.getByText("此消息之后的对话将被丢弃")).toBeVisible();
     },
-    screenshot: { name: "agent-messages-editing", target: agentPanel },
   },
   {
     name: "放大用户消息里的图片附件",

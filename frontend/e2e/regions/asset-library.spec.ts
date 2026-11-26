@@ -107,7 +107,6 @@ defineRegionScenarios("资产库", [
       await expect(page.getByRole("tab", { name: /场景\s*1/ })).toBeVisible();
       await expect(page.getByRole("button", { name: "林夕", exact: true })).toBeVisible();
     },
-    screenshot: { name: "asset-library", target: (page) => page.getByRole("main") },
   },
   {
     name: "条目多且文字长时，滚动到底自动加载下一页",
@@ -142,7 +141,6 @@ defineRegionScenarios("资产库", [
       await expect(close).toBeInViewport({ ratio: 1 });
       await sheet.getByRole("heading", { name: LONG_NAME }).scrollIntoViewIfNeeded();
     },
-    screenshot: { name: "asset-library-detail", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "在详情里进入编辑后，保存栏固定在 Sheet 底部",
@@ -170,7 +168,6 @@ defineRegionScenarios("资产库", [
       await dialog.waitFor();
       await expect(dialog.getByRole("button", { name: "应用", exact: true })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "asset-library-apply", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "画廊「从资产库导入」：条目多时只有正文滚动，显示匹配总数",
@@ -190,7 +187,6 @@ defineRegionScenarios("资产库", [
       await expect(dialog.getByRole("button", { name: "取消" })).toBeInViewport({ ratio: 1 });
       await dialog.getByRole("searchbox").scrollIntoViewIfNeeded();
     },
-    screenshot: { name: "asset-library-picker", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "画廊「加入资产库」：只读预览，重名时提供覆盖",
@@ -209,7 +205,6 @@ defineRegionScenarios("资产库", [
       await expect(dialog.getByRole("button", { name: "覆盖已有" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByText("2 个衍生")).toBeVisible();
     },
-    screenshot: { name: "asset-library-add-preview", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "删除失败原因很长：正文可聚焦并用键盘滚动，取消仍可达",

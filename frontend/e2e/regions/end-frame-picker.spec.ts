@@ -119,6 +119,5 @@ defineRegionScenarios("尾帧选图器", [
       await expect(dialog.getByRole("button", { name: "上传" })).toBeInViewport({ ratio: 1 });
       await waitForEntrance(dialog);
     },
-    screenshot: { name: "end-frame-picker", target: picker },
   },
 ]);

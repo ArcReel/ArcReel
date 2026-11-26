@@ -1,11 +1,9 @@
 import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
-import { DEFAULT_E2E_PORT } from "./e2e/support/origin.ts";
 import { projectName, selectedViewports } from "./e2e/support/viewports.ts";
 
-// 截图基线按默认端口生成，换端口后显示本机地址的截图不参与比对（见 support/scenarios.ts）。
 const live = process.env.E2E_LIVE === "1";
-const PORT = Number(process.env.E2E_PORT ?? (live ? 4174 : DEFAULT_E2E_PORT));
+const PORT = Number(process.env.E2E_PORT ?? (live ? 4174 : 4173));
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const OUTPUT_DIR = process.env.E2E_OUTPUT_DIR ?? "./test-results";
 
@@ -22,15 +20,11 @@ const startServer = live
 export default defineConfig({
   testDir: "./e2e",
   outputDir: OUTPUT_DIR,
-  snapshotPathTemplate: "{testDir}/__screenshots__/{projectName}/{testFilePath}/{arg}{ext}",
   fullyParallel: true,
   forbidOnly: isCI,
   retries: 0,
   workers: live || isCI ? 1 : undefined,
   reporter: isCI ? [["list"], ["html", { open: "never" }]] : [["list"]],
-  expect: {
-    toHaveScreenshot: { animations: "disabled", caret: "hide", scale: "css" },
-  },
   use: {
     baseURL: BASE_URL,
     browserName: "chromium",

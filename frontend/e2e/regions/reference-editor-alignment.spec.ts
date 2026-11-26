@@ -5,14 +5,7 @@ import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
 
-// 无头 Chromium 默认带 --hide-scrollbars，滚动条不占宽度，「输入框出现滚动条后可用宽度变窄、
-// 折行与镜像层分叉」就测不出来。本文件恢复滚动条，用页面上真实的 10px 自绘滚动条；
-// launchOptions 只能在文件顶层设置，所以这组场景单独成文件，其他文件的截图不受影响。
-// 这个设置只在本地启动浏览器时生效（CI 与本机 `pnpm e2e`）。`pnpm e2e:remote` 连接的 run-server
-// 会过滤客户端传来的 ignoreDefaultArgs，滚动条仍被隐藏，场景跳过并注明原因。
 test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } });
-
-const viaRunServer = Boolean(process.env.PW_TEST_CONNECT_WS_ENDPOINT);
 
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
 const UNITS_API = "/api/v1/projects/demo/reference-videos/episodes/1/units";
@@ -88,10 +81,6 @@ async function measureScrollbarWidth(page: Page): Promise<number> {
 
 async function requireVisibleScrollbars(page: Page) {
   const scrollbarWidth = await measureScrollbarWidth(page);
-  test.skip(
-    viaRunServer && scrollbarWidth === 0,
-    "run-server 会过滤 ignoreDefaultArgs，滚动条仍被隐藏；该场景只在 CI 与本机 pnpm e2e 下生效",
-  );
   expect(scrollbarWidth, "浏览器应显示占宽度的滚动条：无头模式须去掉 --hide-scrollbars").toBeGreaterThan(0);
 }
 

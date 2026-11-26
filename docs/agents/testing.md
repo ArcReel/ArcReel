@@ -15,7 +15,7 @@
 
 testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；改动这类入口时需按路径手动补跑对应测试。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
 
-修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。若本机与 CI 结果不一致，按[贡献指南](../../CONTRIBUTING.md)中的官方镜像方式复现。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
+修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
 
 本地独立运行 `pnpm e2e` 或 `pnpm e2e:live` 时，Playwright 启动服务前会构建前端。CI 浏览器作业依赖 `frontend-static`，检出同一提交后调用 [restore-browser-build](../../.github/actions/restore-browser-build/action.yml)。该步骤校验产物来源和构建输入，恢复 `dist` 与运行浏览器测试所需的依赖，并设置 `E2E_PREBUILT=1`。
 

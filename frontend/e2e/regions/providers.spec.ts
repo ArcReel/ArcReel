@@ -457,7 +457,6 @@ defineRegionScenarios("供应商", [
       await expect(save).toBeInViewport({ ratio: 1 });
       await expect(save).toBeEnabled();
     },
-    screenshot: { name: "providers-preset-detail", target: (page) => page.getByRole("main") },
   },
   {
     name: "预置供应商详情：模型列表按类型分组，筛选「已启用」后停用的模型不再出现，长名称与状态标记换行",
@@ -476,7 +475,6 @@ defineRegionScenarios("供应商", [
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
     },
-    screenshot: { name: "providers-preset-models", target: (page) => page.getByRole("main") },
   },
   {
     name: "自定义供应商多且名称长：切到「自定义」后第一个位于栏顶，列表滚动到底",
@@ -499,7 +497,6 @@ defineRegionScenarios("供应商", [
       await rail(page).evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(rail(page).getByRole("link", { name: /添加自定义供应商/ }).filter({ visible: true })).toBeInViewport();
     },
-    screenshot: { name: "providers-rail-custom", target: rail },
   },
   {
     name: "打开「添加密钥」对话框，标题与操作按钮留在视口内",
@@ -511,7 +508,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "添加密钥" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-add-key-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "自定义供应商详情：模型列表的长模型 ID 换行，正文在详情栏里滚动，底部保存栏始终可见",
@@ -528,7 +524,6 @@ defineRegionScenarios("供应商", [
       await expect(save).toBeInViewport({ ratio: 1 });
       await expect(save).toBeEnabled();
     },
-    screenshot: { name: "providers-custom-detail", target: (page) => page.getByRole("main") },
   },
   {
     name: "自定义供应商「获取模型」：已识别与未识别分两组，长模型 ID 换行，每行可选调用端点",
@@ -545,7 +540,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByText("另有 1 个已添加的模型未列出。")).toBeVisible();
       await expect(dialog.getByRole("button", { name: "添加 2 个模型" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-fetch-models-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "「添加模型」：输入模型 ID 后可按 ID 添加，或从模型目录选择",
@@ -564,7 +558,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByRole("option", { name: /Seedance 2\.0 Pro/ })).toBeVisible();
       await expect(dialog).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-add-model-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "自定义供应商的模型 Sheet：参数全部展开时正文在 Sheet 里滚动，保存栏始终可见",
@@ -584,7 +577,6 @@ defineRegionScenarios("供应商", [
       await expect(save).toBeInViewport({ ratio: 1 });
       await expect(save).toBeEnabled();
     },
-    screenshot: { name: "providers-custom-model-sheet", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "自定义供应商的模型 Sheet：打开调用端点下拉，按媒体分组的选项留在视口内",
@@ -603,7 +595,6 @@ defineRegionScenarios("供应商", [
       await expect(listbox.getByRole("option", { name: /^Seedream \(2K\)/ })).toBeAttached();
       await expect(listbox).toBeInViewport();
     },
-    screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "自定义视频模型可选择 Gemini Omni 端点，Vertex Omni 不在选项中",
@@ -661,7 +652,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByText("项目：demo-2")).toBeVisible();
       await expect(dialog.getByRole("button", { name: "移除" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-model-remove-dialog", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "模型 Sheet：「恢复官方数据」的确认框写明无法撤销与一起恢复的供应商",
@@ -677,7 +667,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByText(/无法撤销/)).toBeVisible();
       await expect(dialog.getByRole("button", { name: "恢复官方数据" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-model-restore-dialog", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "模型 Sheet：「手动填写模型信息」对话框的字段随类型展开，正文在对话框里滚动，确定按钮留在视口内",
@@ -699,7 +688,6 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByRole("button", { name: "确定" })).toBeInViewport({ ratio: 1 });
       await expect(dialog.getByRole("button", { name: "确定" })).toBeEnabled();
     },
-    screenshot: { name: "providers-manual-entry-dialog", target: (page) => page.getByRole("dialog", { name: "手动填写模型信息" }) },
   },
   {
     name: "自定义供应商详情：删除确认写明模型数量，操作按钮留在视口内",
@@ -713,6 +701,5 @@ defineRegionScenarios("供应商", [
       await expect(dialog).toContainText("9 个模型");
       await expect(dialog.getByRole("button", { name: "删除供应商" })).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "providers-custom-delete-dialog", target: (page) => page.getByRole("alertdialog") },
   },
 ]);

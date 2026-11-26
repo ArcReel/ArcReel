@@ -91,7 +91,6 @@ defineRegionScenarios("新手引导", [
       await expect(tourTitle(page)).toHaveText("欢迎使用 ArcReel");
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "onboarding-welcome" },
   },
   {
     name: "第 6 步：空大厅上方出现「示例项目」区块，空状态保持不变",
@@ -107,7 +106,6 @@ defineRegionScenarios("新手引导", [
       await expectPopoverBesideAnchor(page);
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "onboarding-demo-section" },
   },
   {
     name: "第 7 步：演示 Agent 面板，工序行与禁用的输入框",
@@ -122,7 +120,6 @@ defineRegionScenarios("新手引导", [
       await expect(page.getByRole("textbox", { name: /./ }).last()).toBeDisabled();
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "onboarding-demo-agent" },
   },
   {
     name: "第 10 步：落到集页的分镜视图",
@@ -169,7 +166,6 @@ defineRegionScenarios("新手引导", [
       await expect(page.getByText("演示 · 只读")).toBeFocused();
       await expect(page.locator("[data-slot=tooltip-content]")).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "onboarding-demo-badge", target: (page) => page.getByRole("banner") },
   },
   {
     name: "故事设定从原文生成后，底部出现一次性提示",
@@ -189,7 +185,6 @@ defineRegionScenarios("新手引导", [
       await tip.scrollIntoViewIfNeeded();
       await expect(tip).toBeInViewport({ ratio: 1 });
     },
-    screenshot: { name: "overview-handoff-tip", target: (page) => page.getByRole("status").filter({ hasText: "故事设定已提炼完成" }) },
   },
 ]);
 

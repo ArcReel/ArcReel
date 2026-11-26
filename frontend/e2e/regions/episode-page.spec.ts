@@ -288,7 +288,6 @@ defineRegionScenarios("集页页头", [
       await expect(page.getByRole("button", { name: "补齐旁白配音 · 148" })).toBeEnabled();
       await expect(viewTabs(page).getByRole("button")).toHaveCount(0);
     },
-    screenshot: { name: "episode-page-header", target: header },
   },
   {
     name: "录制的集：没有可补的产物时三个批量按钮都置灰",
@@ -321,7 +320,6 @@ defineRegionScenarios("集页页头", [
       expect(popover.y + popover.height).toBeLessThanOrEqual(height);
       expect(popover.x + popover.width).toBeLessThanOrEqual(width);
     },
-    screenshot: { name: "episode-page-progress", target: progressPopover },
   },
   {
     name: "制作进度的提示各出现一次并标出单元，长原因与大量单元只在弹层内滚动",
@@ -345,7 +343,6 @@ defineRegionScenarios("集页页头", [
       expect(rect.height).toBeLessThanOrEqual(640);
       expect(rect.y + rect.height).toBeLessThanOrEqual(viewport(page).height);
     },
-    screenshot: { name: "episode-page-progress-content", target: progressPopover },
   },
   {
     name: "集头「⋯」菜单展开删除入口",

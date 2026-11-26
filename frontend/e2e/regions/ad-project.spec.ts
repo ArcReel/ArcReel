@@ -67,7 +67,6 @@ const LONG_AD = adProject({
   },
 });
 
-// 截图用的常规数据：三个商品与一份短的故事设定。区域高过 1024×600 的视口时元素截图会拼接错位，长数据只跑探针。
 const REGULAR_AD = adProject({
   title: "夏日汽水",
   brief: "面向通勤年轻人，调性轻快；说清低糖、真果汁与气泡足三个卖点。",
@@ -118,7 +117,6 @@ defineRegionScenarios("广告项目概览与故事设定", [
       await expect(brief(page).getByRole("radio", { name: "30 秒" })).toBeChecked();
       await expect(products(page).getByRole("button", { name: "添加商品" })).toBeVisible();
     },
-    screenshot: { name: "ad-overview-new-products", target: products },
   },
   {
     name: "长创作灵感与十二个商品：字段随内容撑高，由画布滚动到最后一个商品",
@@ -146,7 +144,6 @@ defineRegionScenarios("广告项目概览与故事设定", [
         "/app/projects/demo/products",
       );
     },
-    screenshot: { name: "ad-overview-products", target: products },
   },
   {
     name: "创作灵感有修改时下方出现未保存提示条",
@@ -171,7 +168,6 @@ defineRegionScenarios("广告项目概览与故事设定", [
       await brief(page).getByText("60 秒", { exact: true }).click();
       await expect(brief(page).getByRole("button", { name: "保存" })).toBeVisible();
     },
-    screenshot: { name: "ad-overview-brief-unsaved", target: brief },
   },
   {
     name: "「添加商品」从右侧打开资产详情 Sheet 的新建表单",
@@ -202,7 +198,6 @@ defineRegionScenarios("广告项目概览与故事设定", [
       await expect(storySetting(page).getByRole("button", { name: /从原文/ })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /补齐/ })).toHaveCount(0);
     },
-    screenshot: { name: "ad-story-setting", target: storySetting },
   },
   {
     name: "「故事设定」tab 的分秒脚本式长梗概与长世界观：字段随内容撑高，由视图滚动到底",
