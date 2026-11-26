@@ -1,6 +1,7 @@
-import i18n, { i18nReady } from "@/i18n";
+import i18n, { i18nReady } from "../i18n/index";
 
 await i18nReady;
-await i18n.changeLanguage("zh");
+if (i18n.language !== "zh") await i18n.changeLanguage("zh");
 
+export * from "../i18n/index";
 export default i18n;

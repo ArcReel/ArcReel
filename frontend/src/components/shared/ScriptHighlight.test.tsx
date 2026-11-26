@@ -38,6 +38,8 @@ describe("ScriptHighlight", () => {
     const rows = [...container.querySelectorAll<HTMLElement>(":scope > div")];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent(/^镜头1：中景。$/);
+    expect(screen.queryByText("镜头1")).not.toBeInTheDocument();
+    expect(screen.queryByText("中景。")).not.toBeInTheDocument();
   });
 
   it("leaves a blank speaker slot as plain text instead of a dialogue row", () => {

@@ -241,8 +241,10 @@ async def _embedded_listing(seeded_projects: ProjectManager) -> dict[str, types.
 async def test_both_host_listings_match_every_declaration(seeded_projects: ProjectManager, services: Services) -> None:
     embedded = await _embedded_listing(seeded_projects)
     remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}
+    declared = {declaration.name for declaration in AGENT_TOOLSET}
     names = set().union(*_TOOLS_BY_POLICY.values())
-    assert set(embedded) == set(remote) == set(ARCREEL_MCP_TOOL_IDS) == names
+    assert len(names) == sum(len(bucket) for bucket in _TOOLS_BY_POLICY.values())
+    assert set(embedded) == set(remote) == declared == set(ARCREEL_MCP_TOOL_IDS) == names
     assert _TOOLS_BY_POLICY[Blocked] == MIGRATION_BLOCKED_TOOL_IDS
 
     for declaration in AGENT_TOOLSET:

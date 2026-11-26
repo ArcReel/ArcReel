@@ -7,8 +7,7 @@ import { cleanup } from "@testing-library/react";
 // 这一套 namespace；不写的话会按 jsdom 的 navigator.language 先加载 en-US 与 en，再切回 zh。
 // 这段 setup 每个测试文件都要跑一遍，多加载的两套资源是纯开销。
 window.localStorage.setItem("i18nextLng", "zh");
-const { i18nReady } = await import("@/i18n");
-await i18nReady;
+await import("./i18n");
 
 // jsdom 默认不实现 ResizeObserver；Base UI 弹层定位（经 floating-ui 的 autoUpdate）、
 // Tabs 指示条与 TruncatedText 的截断检测都会调它跟踪尺寸变化。用空 stub 即可，

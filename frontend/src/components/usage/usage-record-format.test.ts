@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import i18n from "@/test/i18n";
+import i18n from "@/i18n";
 import comfyuiSuffixesContract from "@/test/contracts/comfyui-artifact-suffixes.json";
 import { formatElapsedMs } from "@/utils/task-elapsed";
 import {
