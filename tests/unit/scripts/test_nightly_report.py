@@ -18,7 +18,7 @@ def issue(run: int) -> dict:
 
 
 @pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
-@pytest.mark.parametrize("job", ["backend-exploration", "frontend-exploration", "live-e2e"])
+@pytest.mark.parametrize("job", ["backend-exploration", "frontend-exploration", "e2e-live"])
 def test_failed_run_rerun_and_next_green(monkeypatch, result, job):
     capacity = issue(10) | {"number": 4093, "title": "Nightly full CI 失败", "body": "运行超时"}
     confirmed = issue(11) | {"number": 41, "labels": [{"name": "ci"}, {"name": "bug"}]}
@@ -64,7 +64,7 @@ def test_failed_run_rerun_and_next_green(monkeypatch, result, job):
         "GITHUB_RUN_ID": "12",
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_SERVER_URL": "https://github.com",
-        "DEEP_JOBS": json.dumps({job: {"result": result}}),
+        "DEEP_JOBS": json.dumps({"browser-build": {"result": "success"}, job: {"result": result}}),
     }.items():
         monkeypatch.setenv(key, value)
     assert nightly_report.main() == 1
@@ -80,7 +80,7 @@ def test_failed_run_rerun_and_next_green(monkeypatch, result, job):
     assert nightly_report.main() == 1
     assert writes[1][:2] == ["comment", "42"]
     monkeypatch.setenv("GITHUB_RUN_ID", "14")
-    monkeypatch.setenv("DEEP_JOBS", json.dumps({job: {"result": "success"}}))
+    monkeypatch.setenv("DEEP_JOBS", json.dumps({"browser-build": {"result": "success"}, job: {"result": "success"}}))
     assert nightly_report.main() == 0
     assert [args[:2] for args in writes[2:]] == [["close", "42"]]
 
@@ -121,3 +121,38 @@ def test_nightly_explorations_report_and_keep_failure_logs():
         upload = next(step for step in steps if "upload-artifact" in step.get("uses", ""))
         assert upload["if"] == "failure() || cancelled()"
         assert upload["with"]["path"] in run["run"]
+
+
+def test_nightly_live_build_restore_and_reporting():
+    github = Path(__file__).resolve().parents[3] / ".github"
+    jobs = yaml.safe_load((github / "workflows/nightly-full.yml").read_text())["jobs"]
+    build = jobs["browser-build"]
+    assert "if" not in build
+    pack, upload = build["steps"][-2:]
+    assert pack["run"].splitlines() == ["pnpm build", 'node e2e/build-artifact.ts pack "$RUNNER_TEMP/browser-build"']
+    restore = yaml.safe_load((github / "actions/restore-browser-build/action.yml").read_text())["runs"]["steps"]
+    assert (
+        upload["with"]["name"] == restore[0]["with"]["name"] == "browser-build-${{ github.run_id }}-${{ github.sha }}"
+    )
+    live = jobs["e2e-live"]
+    assert live["needs"] == "browser-build"
+    assert "if" not in live
+    assert any(step.get("uses") == "./.github/actions/restore-browser-build" for step in live["steps"][:-2])
+    run, diagnostics = live["steps"][-2:]
+    assert run["env"]["E2E_LIVE"] == "1"
+    assert run["shell"] == "bash"
+    assert run["run"].splitlines() == [
+        "set -o pipefail",
+        'node node_modules/@playwright/test/cli.js test --project=live 2>&1 | tee "$RUNNER_TEMP/e2e-live.log"',
+    ]
+    assert not run.get("continue-on-error")
+    assert diagnostics["if"] == "failure()"
+    assert set(diagnostics["with"]["path"].splitlines()) == {
+        "${{ runner.temp }}/e2e-live.log",
+        "frontend/test-results/",
+        "frontend/playwright-report/",
+    }
+    report = jobs["report"]
+    assert report["if"] == "always()"
+    assert set(report["needs"]) == jobs.keys() - {"report"}
+    assert report["steps"][-1]["env"]["DEEP_JOBS"] == "${{ toJSON(needs) }}"

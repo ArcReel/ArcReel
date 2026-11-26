@@ -1,10 +1,12 @@
+import fnmatch
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from scripts import ci_reuse
+from scripts import ci_required, ci_reuse
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TEST_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "test.yml"
@@ -27,7 +29,7 @@ def _build_pr_jobs_from_workflow(
     jobs: list[dict[str, Any]] = []
     for job_id, job_def in workflow["jobs"].items():
         raw_name = job_def.get("name", job_id)
-        job_runs = _pr_job_should_run(job_id, enabled)
+        job_runs = _job_selected(job_def, enabled)
         if not job_runs:
             jobs.append({"name": raw_name, "conclusion": "skipped", "steps": []})
             continue
@@ -46,24 +48,16 @@ def _build_pr_jobs_from_workflow(
     return jobs
 
 
-def _pr_job_should_run(job_id: str, enabled: set[str]) -> bool:
-    if job_id in {"changes", "conventions", "e2e-record-drift", "ci-required"}:
+def _job_selected(job: dict[str, Any], enabled: set[str]) -> bool:
+    condition = job.get("if")
+    if condition in (None, "always()"):
         return True
-    if job_id == "release-integrity":
-        return False
-    if job_id in {"frontend-static", "test-lint", "e2e-live"}:
-        return bool(enabled & {"backend", "frontend"})
-    if job_id in {"backend-static", "backend-tests", "postgres-compat"}:
-        return "backend" in enabled
-    if job_id in {"frontend-tests", "frontend-e2e"}:
-        return "frontend" in enabled
-    if job_id == "workflow-static":
-        return "workflow" in enabled
-    if job_id == "website-checks":
-        return "website" in enabled
-    if job_id == "docker-verify":
-        return "docker" in enabled
-    raise AssertionError(f"Unhandled job in test.yml: {job_id}")
+    for clause in condition.split(" || "):
+        match = re.fullmatch(r"needs\.changes\.outputs\.(\w+) (==|!=) 'true'", clause)
+        assert match, f"Unsupported workflow condition: {clause}"
+        if (match[1] in enabled) == (match[2] == "=="):
+            return True
+    return False
 
 
 def _expand_pr_matrix(job_id: str, job_def: dict[str, Any], raw_name: str) -> list[tuple[str, dict[str, Any]]]:
@@ -170,6 +164,10 @@ def test_ci_reuse_matches_real_workflows() -> None:
     backend_suites = tuple(item["suite"] for item in workflow["jobs"]["backend-tests"]["strategy"]["matrix"]["include"])
     assert backend_suites == ci_reuse.SUITES
 
+    assert ci_reuse.required_job_ids(dict.fromkeys(ci_reuse.DOMAINS, "true"), full=True) == set(
+        workflow["jobs"]["ci-required"]["needs"]
+    )
+
     changes_steps = {step.get("name", "") for step in workflow["jobs"]["changes"]["steps"]}
     assert f"{ci_reuse.PR_CHECKOUT_STEP_PREFIX} ${{{{ github.event.number }}}} ${{{{ github.sha }}}}" in changes_steps
 
@@ -266,3 +264,62 @@ def test_push_evidence_rejects_incomplete_pr_jobs(mutation: str) -> None:
 
     base, sha, active_domains, run_git, fetch_api = _evidence_fixture(domains=domains, jobs=jobs)
     assert ci_reuse.verified_run(base, sha, active_domains, run_git=run_git, fetch_api=fetch_api, repo="a/b") is None
+
+
+@pytest.mark.parametrize(
+    ("path", "overrides", "expected_errors"),
+    [
+        ("frontend/src/main.tsx", {}, []),
+        ("server/app.py", {}, []),
+        ("alembic/versions/migration.py", {}, []),
+        ("lib/project/project_migrations/step.py", {}, []),
+        ("frontend/src/types/workflow.ts", {}, []),
+        ("server/app.py", {"e2e-live": "skipped"}, ["e2e-live: skipped"]),
+        ("server/app.py", {"backend-tests": "skipped"}, ["backend-tests: skipped"]),
+        ("website/docs/guide.md", {}, []),
+        (
+            "server/app.py",
+            {"frontend-static": "failure", "e2e-live": "skipped"},
+            ["e2e-live: skipped", "frontend-static: failure"],
+        ),
+    ],
+)
+def test_required_jobs_follow_changed_paths(path, overrides, expected_errors):
+    filter_step = _load_yaml(_DOMAIN_FILTER_PATH)["runs"]["steps"][0]
+    filters = yaml.safe_load(filter_step["with"]["filters"])
+    enabled = {domain for domain, patterns in filters.items() if any(fnmatch.fnmatchcase(path, p) for p in patterns)}
+    jobs = _load_yaml(_TEST_WORKFLOW_PATH)["jobs"]
+    aggregate = jobs["ci-required"]
+    assert aggregate["if"] == "always()"
+    assert set(aggregate["needs"]) == jobs.keys() - {"ci-required"}
+    verify = aggregate["steps"][-1]
+    assert verify["env"]["JOBS"] == "${{ toJSON(needs) }}"
+    assert verify["run"] == "python3 -m scripts.ci_required"
+    needs = {
+        job: {"result": "success" if _job_selected(jobs[job], enabled) else "skipped"} for job in aggregate["needs"]
+    }
+    assert needs["e2e-live"]["result"] == ("skipped" if path.startswith("website/") else "success")
+    assert set(jobs["e2e-live"]["needs"]) == {"changes", "frontend-static"}
+    needs["changes"]["outputs"] = {d: str(d in enabled).lower() for d in (*filters, "full", "reused")}
+    for job, result in overrides.items():
+        needs[job]["result"] = result
+    assert ci_required.failures(needs) == expected_errors
+
+
+@pytest.mark.parametrize("scope", ["reused", "full"])
+def test_required_gate_for_reused_push_and_full_run(scope):
+    jobs = _load_yaml(_TEST_WORKFLOW_PATH)["jobs"]
+    enabled = {"reused"} if scope == "reused" else ci_reuse.DOMAINS | {"full"}
+    outputs = {key: str(key in enabled).lower() for key in (*ci_reuse.DOMAINS, "full", "reused")}
+    needs = {
+        job: {"result": "success" if _job_selected(jobs[job], enabled) else "skipped"}
+        for job in jobs["ci-required"]["needs"]
+    }
+    needs["changes"]["outputs"] = outputs
+    assert ci_required.failures(needs) == []
+    if scope == "full":
+        needs["release-integrity"]["result"] = "skipped"
+        assert ci_required.failures(needs) == ["release-integrity: skipped"]
+    else:
+        needs["changes"]["result"] = "cancelled"
+        assert ci_required.failures(needs) == ["changes did not succeed"]

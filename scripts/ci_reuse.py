@@ -34,19 +34,36 @@ def product_paths_only(paths: list[str]) -> bool:
     )
 
 
-def required_jobs(domains: dict[str, str]) -> set[str]:
+def required_job_ids(domains: dict[str, str], *, full: bool = False, reused: bool = False) -> set[str]:
     enabled = _enabled_domains(domains)
-    jobs = {"changes", "conventions", "E2E fixture freshness and determinism", "ci-required"}
+    jobs = {"changes"}
+    if not reused:
+        jobs.update({"conventions", "e2e-record-drift"})
+    if full:
+        jobs.add("release-integrity")
     if enabled & {"backend", "frontend"}:
         jobs.update({"frontend-static", "test-lint", "e2e-live"})
     if "backend" in enabled:
-        jobs.update({"backend-static", "postgres-compat (16)", *(f"Backend tests ({suite})" for suite in SUITES)})
+        jobs.update({"backend-static", "postgres-compat", "backend-tests"})
     if "frontend" in enabled:
-        jobs.update({"frontend-tests", "frontend-e2e (1/2)", "frontend-e2e (2/2)"})
+        jobs.update({"frontend-tests", "frontend-e2e"})
     for domain, name in (("workflow", "workflow-static"), ("website", "website-checks"), ("docker", "docker-verify")):
         if domain in enabled:
             jobs.add(name)
     return jobs
+
+
+def required_jobs(domains: dict[str, str]) -> set[str]:
+    display_names = {
+        "backend-tests": [f"Backend tests ({suite})" for suite in SUITES],
+        "postgres-compat": ["postgres-compat (16)"],
+        "frontend-e2e": ["frontend-e2e (1/2)", "frontend-e2e (2/2)"],
+        "e2e-record-drift": ["E2E fixture freshness and determinism"],
+    }
+    names = {"ci-required"}
+    for job in required_job_ids(domains):
+        names.update(display_names.get(job, [job]))
+    return names
 
 
 def optional_steps_for_job(job_name: str, domains: dict[str, str]) -> set[str]:
