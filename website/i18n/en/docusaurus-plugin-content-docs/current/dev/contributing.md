@@ -84,7 +84,7 @@ For parallel runs, set a separate preview port (`E2E_PORT`, default 4173) and ou
 - **Adding scenarios**: register them under `frontend/e2e/regions/` with `defineRegionScenarios`, stating the route to open, the readiness condition, and the states to probe. Scenarios focus on states that change the available height, such as expanding a panel or opening a popup.
 - **Exemptions**: exempt decorative clipping layers with `data-overflow-ok="原因"`; the attribute value must state the reason. Regions that genuinely need horizontal scrolling (timeline tracks, code blocks, tag strips) use `overflow-x-auto`, which the probe recognizes by class name, so no extra exemption is needed.
 - **Recorded API responses**: `pnpm e2e:record` starts the real backend with `uv` in a temporary data directory and records fixtures in `frontend/e2e/fixtures/recorded/`. It uses the catalog test fixture, a fixed date and version, and a demo project. It skips online catalog sync and `.env` loading. Rerun the recording when changing the API response shape or catalog fixture. `pnpm e2e:record:check` compares two runs with different system clocks, factory snapshots, and version numbers. CI runs this check in `e2e-record-drift` and the local gate runs it in `e2e-record`. Use a scenario's `api` field for stress variants such as long text or large lists.
-- **Visual review**: use `page.screenshot()` as needed and attach screenshots or a recording to the pull request.
+- **Visual review**: when checking visual changes, call `page.screenshot()` as needed and attach screenshots or a screen recording to the pull request.
 
 ## Code Quality {#code-quality}
 
