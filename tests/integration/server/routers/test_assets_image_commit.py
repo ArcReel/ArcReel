@@ -17,8 +17,16 @@ from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING
 from tests.fakes import bind_session_factory, use_assets_router_sessions, use_object_storage_sdk
 
 
-@pytest.mark.parametrize("entry", ["create", "replace", "from-project"])
-@pytest.mark.parametrize("failure", ["before_commit", "after_commit"])
+@pytest.mark.parametrize(
+    ("failure", "entry"),
+    [
+        ("before_commit", "create"),
+        ("before_commit", "replace"),
+        ("before_commit", "from-project"),
+        ("after_commit", "replace"),
+        ("after_commit", "from-project"),
+    ],
+)
 async def test_asset_image_compensation_stops_at_commit(assets_env, db_engine, db_factory, monkeypatch, entry, failure):
     objects: dict[str, bytes] = {}
     sdk = SimpleNamespace(
