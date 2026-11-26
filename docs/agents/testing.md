@@ -37,6 +37,7 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 - 新 worktree 在后端执行 `uv sync`，在前端、文档站各自执行 `pnpm install --frozen-lockfile`。可从主检出复制 `.testmondata`，代码指纹有变化的用例会重跑。
 - 根 [conftest](../../tests/conftest.py)设置 `PYTHON_DOTENV_DISABLED=1`，测试环境无需空 `.env`。涉及 `local_port` 的用例需在允许绑定本地端口的环境运行。
+- 进入真实应用 lifespan 的测试（包括以 `with TestClient(app)` 启动应用的 fixture）可显式依赖 `app_lifespan_stubs`，跳过宿主沙箱探测，并将官方目录同步、素材入库和远端素材维护替换为空任务。
 - 模型目录测试使用 [catalog fixture](../../tests/fixtures/catalog.json)，按 fixture 日期判定关停等生命周期。用 [catalog_support](../../tests/catalog_support.py) 构造用例数据或切换日期。验证出厂快照本身用 [test_factory_snapshot](../../tests/unit/lib/catalog/test_factory_snapshot.py)。发布数据格式由目录构建侧校验，发版刷新快照不应使普通用例失败。
 
 ## 源码注释检查

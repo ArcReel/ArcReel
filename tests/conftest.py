@@ -38,7 +38,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from _pytest.main import resolve_collection_argument
-from sqlalchemy import event, pool, text
+from sqlalchemy import create_mock_engine, event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.memory_db_guard import install_shared_connection_write_guard
@@ -265,22 +265,6 @@ def isolated_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch: py
     reset_project_manager_for_tests()
 
 
-@pytest.fixture(autouse=True)
-def stub_sandbox_check(isolated_data_root, monkeypatch, request):
-    """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
-
-    GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``
-    会让 ``server.app.check_sandbox_available`` 的 bwrap probe 启动失败，连带
-    把任何走 FastAPI lifespan 的测试（TestClient / lifespan / startup hook 集成测试）
-    全部拖崩。测试本不该依赖 host 能跑非特权 user namespace；该函数本身的契约
-    由 ``tests/unit/server/test_startup_assertions.py`` 独立覆盖（用更精细的 subprocess.run
-    stub）— 那个文件需要走真实函数，故按文件名跳过此 autouse stub。
-    """
-    if request.path.name == "test_startup_assertions.py":
-        return
-    monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
-
-
 _TEST_CATALOG_FILE = Path(__file__).parent / "fixtures" / "catalog.json"
 
 
@@ -326,32 +310,15 @@ def installed_bare_provider_models():
     v19_to_v20.install_bare_provider_models(previous)
 
 
-@pytest.fixture(autouse=True)
-def offline_official_catalog_sync(isolated_data_root, monkeypatch):
-    """应用 lifespan 启动的模型目录官方同步换成不发请求的空任务。
-
-    真实 lifespan 会立刻向目录数据仓库的 raw 地址取清单文件，用例结果随之依赖外网与网络时序：
-    断网时抓取立即失败、在后台写同步表并改进程内的同步状态，联网时又可能卡在建连上拖住关停。
-    这里只换 lifespan 引用的入口，autouse 让以后新增的 lifespan 用例同样不外发；空任务照常由
-    ``stop_official_sync`` 取消。同步本身的行为由 ``tests/integration/lib/catalog/test_official_sync.py``
-    直接调用 ``lib.catalog.official_sync`` 覆盖，不受影响。
-    """
+@pytest.fixture
+def app_lifespan_stubs(isolated_data_root, monkeypatch):
+    """真实应用 lifespan 用例跳过宿主沙箱探测，用可取消的空循环替代后台轮询。"""
+    import server.app as app_module
+    from lib.asset_library import ingest
+    from lib.material import maintenance
 
     def start_offline(*args, **kwargs) -> asyncio.Task[bool]:
         return asyncio.get_running_loop().create_task(asyncio.Event().wait(), name="catalog-official-sync-offline")
-
-    monkeypatch.setattr("server.app.start_official_sync", start_offline)
-
-
-@pytest.fixture(autouse=True)
-def idle_asset_library_ingest(monkeypatch):
-    """应用 lifespan 启动的素材库入库循环换成不访问数据库与网络的空循环。
-
-    真实循环启动时即查询入库任务表并按间隔轮询，lifespan 用例的数据库与关停时序会随之变化。入库循环本身由
-    ``tests/unit/lib/asset_library`` 与 ``tests/unit/server/routers/test_provider_asset_links_api.py`` 直接调用
-    ``lib.asset_library.ingest.run_once`` 覆盖。
-    """
-    from lib.asset_library import ingest
 
     class _IdleRunner(ingest.AssetIngestRunner):
         async def _loop(self) -> None:
@@ -362,30 +329,21 @@ def idle_asset_library_ingest(monkeypatch):
         runner.start()
         return runner
 
-    monkeypatch.setattr("server.app.start_asset_ingest", start_idle)
-
-
-@pytest.fixture(autouse=True)
-def idle_material_maintenance(monkeypatch):
-    """应用 lifespan 启动的远端素材维护循环换成空循环，理由同 ``idle_asset_library_ingest``。
-
-    结算、补偿删除与工作文件清理由 ``tests/integration/server/routers/test_remote_material_storage.py``
-    直接调用 ``lib.material`` 的入口覆盖。
-    """
-    from lib.material import maintenance
-
     class _IdleMaintenance(maintenance.MaterialMaintenance):
         async def _loop(self) -> None:
             await asyncio.Event().wait()
 
-    def start_idle(
+    def start_idle_maintenance(
         session_factory, projects_dir, deleted_projects_dir=None, data_root=None
     ) -> maintenance.MaterialMaintenance:
         runner = _IdleMaintenance(session_factory, projects_dir, deleted_projects_dir, data_root)
         runner.start()
         return runner
 
-    monkeypatch.setattr("server.app.start_material_maintenance", start_idle)
+    monkeypatch.setattr(app_module, "check_sandbox_available", lambda: True)
+    monkeypatch.setattr(app_module, "start_official_sync", start_offline)
+    monkeypatch.setattr(app_module, "start_asset_ingest", start_idle)
+    monkeypatch.setattr(app_module, "start_material_maintenance", start_idle_maintenance)
 
 
 #: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
@@ -615,6 +573,20 @@ def _register_models() -> None:
     register_db_models()
 
 
+@functools.cache
+def _sqlite_schema_ddl() -> str:
+    """仅缓存 ORM 生成的 SQLite 建表语句，每例在自己的空库中执行。"""
+    _register_models()
+    statements: list[str] = []
+
+    def collect(statement, _parameters):
+        statements.append(str(statement.compile(dialect=compiler.dialect)))
+
+    compiler = create_mock_engine("sqlite+aiosqlite://", collect)
+    Base.metadata.create_all(compiler, checkfirst=False)
+    return ";\n".join(statements) + ";"
+
+
 @asynccontextmanager
 async def make_test_engine(
     *, dialect_aware: bool = True, file_path: Path | None = None, sqlite_template: Path | None = None
@@ -676,11 +648,11 @@ async def make_test_engine(
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.close()
 
-    if sqlite_template is None:
-        async with engine.begin() as conn:
-            _register_models()
-            await conn.run_sync(Base.metadata.create_all)
     try:
+        if sqlite_template is None:
+            async with engine.connect() as conn:
+                raw = await conn.get_raw_connection()
+                await raw.driver_connection.executescript("BEGIN;\n" + _sqlite_schema_ddl() + "\nCOMMIT;")
         yield engine
     finally:
         await engine.dispose()
