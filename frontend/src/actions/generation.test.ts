@@ -1,3 +1,4 @@
+import { createDeferred } from "@/test/deferred";
 import { seedTaskState, seedTasks } from "@/test/task-state";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -145,14 +146,15 @@ describe("enqueueStoryboard", () => {
       currentScripts: {},
     });
     vi.spyOn(API, "generateStoryboard").mockResolvedValue(SINGLE_OK);
-    const locateSpy = vi.spyOn(API, "locateItems").mockResolvedValue({
-      items: [{ episode: 2, item_id: "E2S03", position: 3, status: "found" }],
-    });
+    const lookup = createDeferred<Awaited<ReturnType<typeof API.locateItems>>>();
+    const locateSpy = vi.spyOn(API, "locateItems").mockReturnValue(lookup.promise);
+    const result = await enqueueStoryboard("demo", "E2S03", "img prompt", "episode_2.json");
 
-    await enqueueStoryboard("demo", "E2S03", "img prompt", "episode_2.json");
-
+    expect(result.taskIds).toEqual([SINGLE_OK.task_id]);
+    expect(useAppStore.getState().toast?.text).toContain("雨夜 · S03");
     expect(locateSpy).toHaveBeenCalledWith("demo", ["E2S03"], expect.anything());
-    expect(useAppStore.getState().toast?.text).toContain("雨夜 · 3");
+    lookup.resolve({ items: [{ episode: 2, item_id: "E2S03", position: 3, status: "found" }] });
+    await vi.waitFor(() => expect(useAppStore.getState().toast?.text).toContain("雨夜 · 3"));
   });
 });
 

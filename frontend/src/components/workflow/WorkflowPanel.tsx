@@ -98,8 +98,8 @@ function extractReferencedAssets(plan: WorkflowPlan | null): ReadonlySet<string>
   if (!hasExplicitSheetReport && contentLists.length === 0) return null;
   const names = new Set<string>();
   for (const name of contentLists) addAssetAliases(names, name);
-  if (sheets) {
-    for (const id of [...(sheets.current_ids ?? []), ...(sheets.stale_ids ?? []), ...(sheets.missing_ids ?? [])]) {
+  for (const collection of Object.values(sheets ?? {})) {
+    for (const id of [...(collection.current_ids ?? []), ...(collection.stale_ids ?? []), ...(collection.missing_ids ?? [])]) {
       addAssetAliases(names, id);
     }
   }
@@ -220,7 +220,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   useEffect(() => {
     if (!projectName) return;
     const prev = lastRequestedRef.current;
-    if (prev && prev.key === currentKey && prev.signal === settledLiveSignal) return;
+    if (liveSignalRef.current !== settledLiveSignal || (prev?.key === currentKey && prev.signal === settledLiveSignal)) return;
     if (isDocumentHidden()) {
       pendingVisibleRefreshRef.current = true;
       return;
@@ -381,7 +381,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           }
           case "start_blank_script":
             await API.startBlankScript(projectName, episodeId);
-            await refreshAfterWrite(projectName, t);
+            await refreshAfterWrite(projectName, t, { scope: { episodes: [episodeId] } });
             void refreshPlan(projectName, episode);
             break;
           default:

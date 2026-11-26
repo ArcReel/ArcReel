@@ -1,11 +1,13 @@
 
 import type {
   FailureObservation,
+  ItemLocationStatus,
   ReferenceProjectionAdmission,
 } from "@/types";
 import i18n from "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
-import { findEpisodeItem } from "@/utils/episode-item";
+import { useItemLocationsStore } from "@/stores/item-locations-store";
+import { findEpisodeItem, isLocatableItemId } from "@/utils/episode-item";
 
 export interface ErrorResponse {
   code?: string;
@@ -30,6 +32,7 @@ export interface SpeechAdmissionProblem {
   episode?: number | null;
   item_id?: string | null;
   position?: number | null;
+  location_status?: ItemLocationStatus;
   locations: SpeechAdmissionLocation[];
   reason: string;
   action: string;
@@ -41,6 +44,7 @@ export interface SpeechAdmission {
   episode?: number | null;
   item_id?: string | null;
   position?: number | null;
+  location_status?: ItemLocationStatus;
   mode: null;
   problems: SpeechAdmissionProblem[];
 }
@@ -52,6 +56,7 @@ export interface ScriptEditProblem {
   episode?: number | null;
   item_id?: string | null;
   position?: number | null;
+  location_status?: ItemLocationStatus;
   locations: SpeechAdmissionLocation[];
   reason: string;
   next_action: string;
@@ -65,6 +70,20 @@ export interface ScriptEditResult {
   revision: string;
   affected_ids: string[];
   problems: ScriptEditProblem[];
+}
+
+export async function locateDiagnosticItems(
+  project: string | null, result: SpeechAdmission | ScriptEditResult, signal?: AbortSignal,
+): Promise<void> {
+  const { currentProjectName, currentScripts } = useProjectsStore.getState();
+  if (!project || project !== currentProjectName || signal?.aborted) return;
+  const ids = result.problems.flatMap((problem) => {
+    const id = problem.unit_id;
+    if (problem.location_status === "deleted" || problem.location_status === "ambiguous") return [];
+    if (!id || typeof problem.position === "number" || !isLocatableItemId(id) || findEpisodeItem(currentScripts, id)) return [];
+    return [id];
+  });
+  if (ids.length) await useItemLocationsStore.getState().locateNow(project, ids, signal);
 }
 
 export class ScriptEditCommandError extends Error {
@@ -273,7 +292,9 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
       : typeof admission.position === "number" && (admission.item_id ?? admission.unit_id) === problem.unit_id
         ? admission.position
         : findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
-  return i18n.t(`dashboard:${key}`, { position: position ?? i18n.t("common:deleted"), location });
+  const projectName = useProjectsStore.getState().currentProjectName;
+  const cached = projectName ? useItemLocationsStore.getState().getLocation(projectName, problem.unit_id) : undefined;
+  return i18n.t(`dashboard:${key}`, { position: position ?? cached?.position ?? problem.unit_id, location });
 }
 
 function formatScriptEditResult(result: ScriptEditResult): string {

@@ -314,7 +314,8 @@ def _diff_scripts(previous: Mapping[str, Any], current: Mapping[str, Any]) -> li
             if _without(before_item, _GENERATED_ASSETS_KEY) != _without(after_item, _GENERATED_ASSETS_KEY):
                 changes.append(_item_change(after, script_file, item_id, "updated", important=True))
 
-        if before["document"] != after["document"]:
+        reordered = before_items.keys() == after_items.keys() and before["positions"] != after["positions"]
+        if reordered or before["document"] != after["document"]:
             changes.extend(_script_level_change(after, script_file))
     return changes
 

@@ -250,6 +250,21 @@ defineRegionScenarios("分镜详情", [
     },
   },
   {
+    name: "从单集返回项目概览时可继续编辑并保留草稿",
+    path: BOARD_PATH,
+    api: API,
+    ready: boardReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      const prompt = page.getByRole("textbox", { name: "分镜图提示词" });
+      await prompt.fill("保留这次修改");
+      await page.getByRole("link", { name: "项目概览", exact: true }).click();
+      await page.getByRole("alertdialog").getByRole("button", { name: "继续编辑" }).click();
+      await expect(prompt).toHaveValue("保留这次修改");
+      await expect(page).toHaveURL(/episodes\/1/);
+    },
+  },
+  {
     name: "有未保存修改时按 J 切换分镜先询问",
     path: BOARD_PATH,
     api: API,

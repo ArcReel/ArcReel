@@ -5,6 +5,8 @@ import { useRetainWhile } from "@/components/shared/edit-unit/edit-unit-retentio
 import { API, ApiRequestError } from "@/api";
 import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 
 type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
@@ -260,6 +262,10 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       }
       const confirmEpoch = loadEpochRef.current;
       adopt(await API.confirmScriptReview(projectName, episode, options), confirmEpoch);
+      const workspace = useProjectsStore.getState();
+      if (workspace.currentProjectName === projectName) {
+        void refreshAfterWrite(projectName, t, { scope: { episodes: [episode] } });
+      }
       onConfirmed();
       return true;
     } catch (err) {

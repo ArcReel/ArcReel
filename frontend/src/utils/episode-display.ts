@@ -96,7 +96,9 @@ export function episodeItemLabel(
   }
   const episodeId = parseItemIdEpisode(itemId);
   if (episodeId === null) return itemId;
-  const within = isPositionedItemId(itemId)
+  const relyOnLoadedScript = locations === undefined && Object.values(scripts).some((script) =>
+    typeof script === "object" && script !== null && "episode" in script && script.episode === episodeId);
+  const within = relyOnLoadedScript && isPositionedItemId(itemId)
     ? t("common:deleted")
     : itemIdWithinEpisode(itemId);
   return `${episodeDisplayName(episodes, episodeId, t)} · ${within}`;

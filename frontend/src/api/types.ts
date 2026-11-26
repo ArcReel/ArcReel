@@ -105,6 +105,7 @@ export interface ShotUploadResult {
 }
 
 export interface ProjectEventStreamOptions {
+  activeEpisode?: () => number | null;
   projectName: string;
   onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
   onTaskProgress?: (payload: TaskProgress) => void;

@@ -1,3 +1,4 @@
+import { clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
@@ -219,6 +220,13 @@ defineRegionScenarios("文件视图", [
     api: {
       ...EVENT_STREAM,
       ...workspaceOverride({ episodes: [{ ...firstEpisode, title: LONG_EPISODE_TITLE }] }),
+      "POST /api/v1/projects/demo/trash/deleted-shot-5/restore": {
+        status: 200,
+        body: { object: { episode: 1, item_id: "E1S09", position: 2 }, restored: [], download_only: [], degraded: false },
+      },
+      "GET /api/v1/projects/demo/workspace?episodes=1": workspaceOverride({
+        episodes: [{ ...firstEpisode, title: LONG_EPISODE_TITLE }],
+      })["GET /api/v1/projects/demo/workspace"],
       "GET /api/v1/projects/demo/trash": {
         status: 200,
         body: {
@@ -240,6 +248,9 @@ defineRegionScenarios("文件视图", [
         await expect(title).toBeVisible();
         await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)).toBe(true);
       }
+      await clearAgentOverlay(page);
+      await page.getByRole("button", { name: "恢复", exact: true }).first().click();
+      await expect(page.getByText(`${LONG_EPISODE_TITLE} · 2 已恢复`, { exact: true })).toBeVisible();
     },
   },
   {

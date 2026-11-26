@@ -102,6 +102,7 @@ function EpisodePageContent({
   episode: number;
   projectData: ProjectData | null;
   script: EpisodeScript | null;
+  scriptLoading?: boolean;
   demo: boolean;
   onSaveTitle: (title: string) => Promise<void>;
   onViewUnit: (unitId: string) => void;
@@ -279,11 +280,15 @@ export function EpisodePage(props: Parameters<typeof EpisodePageContent>[0]) {
   const { t } = useTranslation("dashboard");
   const meta = props.projectData?.episodes?.find((entry) => entry.episode === props.episode);
   const source = showsEpisodeSource(props.projectData, props.episode, props.script, props.demo);
-  const identity = `${props.projectName}:${props.episode}:${!meta ? "missing" : source ? "source" : props.script ? "script" : "draft"}`;
+  const identity = `${props.projectName}:${props.episode}:${!meta ? "missing" : source ? "source" : props.scriptLoading ? "loading" : props.script ? meta.script_file : "draft"}`;
   const message = !meta ? "episode_externally_removed" : props.script || hasEpisodeDraft(meta) ? "episode_source_replaced" : "episode_script_removed";
   return (
     <RetainedEditUnit identity={identity} value={props} message={t(message)}>
-      {(shown) => <EpisodePageContent {...shown} />}
+      {(shown) => shown.scriptLoading ? (
+        <div className="flex h-full items-center justify-center text-muted-foreground">
+          {t("loading_placeholder")}
+        </div>
+      ) : <EpisodePageContent {...shown} />}
     </RetainedEditUnit>
   );
 }

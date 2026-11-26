@@ -1,3 +1,4 @@
+import { createDeferred } from "@/test/deferred";
 import { seedTaskState } from "@/test/task-state";
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -354,8 +355,78 @@ describe("useTaskFailureNotifications", () => {
       });
     });
 
-    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications[0]?.text).toContain("雨夜 · 4"));
     expect(locateSpy).toHaveBeenCalledWith("demo", ["E2S04"], expect.anything());
     expect(useAppStore.getState().workspaceNotifications[0].text).toContain("雨夜 · 4");
   });
+  it("updates the same legacy failure after a cold lookup and a snapshot", async () => {
+    const store = useItemLocationsStore.getState();
+    store.reset("demo");
+    useProjectsStore.setState({ currentScripts: {} });
+    const locate = vi.spyOn(API, "locateItems")
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ items: [{ item_id: "E1S01", episode: null, position: null, status: "unloaded" }] })
+      .mockResolvedValue({ items: [{ item_id: "E1S01", episode: 1, position: 7, status: "found" }] });
+    seedTaskState({ tasks: [task({})] });
+    render(<Harness project="demo" />);
+    act(() => seedTaskState({ tasks: [task({ status: "failed" })] }));
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    const { id } = useAppStore.getState().workspaceNotifications[0];
+    act(() => store.notifySnapshotReady("demo", false));
+    await waitFor(() => expect(store.getLocation("demo", "E1S01")?.status).toBe("unloaded"));
+    act(() => store.notifySnapshotReady("demo", false));
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toMatchObject([
+      { id, text: expect.stringContaining("E1 · 7") },
+    ]));
+    act(() => store.notifySnapshotReady("demo", false));
+    expect(locate).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the item ID after an episode invalidates an in-flight lookup", async () => {
+    const store = useItemLocationsStore.getState();
+    store.reset("demo");
+    useProjectsStore.setState({
+      currentScripts: {
+        "ep1.json": { episode: 1, title: "E1", content_mode: "narration", novel: { title: "", chapter: "" }, segments: [] },
+      },
+    });
+    const stale = createDeferred<Awaited<ReturnType<typeof API.locateItems>>>();
+    const locate = vi.spyOn(API, "locateItems")
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValue({ items: [{ item_id: "E1S01", episode: 1, position: 7, status: "found" }] });
+    seedTaskState({ tasks: [task({})] });
+    render(<Harness project="demo" />);
+    act(() => seedTaskState({ tasks: [task({ status: "failed" })] }));
+    expect(locate).toHaveBeenCalledTimes(1);
+    act(() => store.invalidateEpisodes("demo", [1]));
+    const { id } = useAppStore.getState().workspaceNotifications[0];
+    await act(async () => stale.resolve({ items: [{ item_id: "E1S01", episode: 1, position: 5, status: "found" }] }));
+    expect(useAppStore.getState().workspaceNotifications).toMatchObject([
+      { id, text: expect.stringContaining("E1 · S01") },
+    ]);
+    act(() => store.notifySnapshotReady("demo", false));
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toMatchObject([
+      { id, text: expect.stringContaining("E1 · 7") },
+    ]));
+    act(() => store.notifySnapshotReady("demo", false));
+    expect(locate).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["unmount", "switch project"])("cancels a pending snapshot retry on %s", async (action) => {
+    const store = useItemLocationsStore.getState();
+    store.reset("demo");
+    useProjectsStore.setState({ currentScripts: {} });
+    const locate = vi.spyOn(API, "locateItems").mockResolvedValue({
+      items: [{ item_id: "E1S01", episode: null, position: null, status: "unloaded" }],
+    });
+    seedTaskState({ tasks: [task({})] });
+    const view = render(<Harness project="demo" />);
+    act(() => seedTaskState({ tasks: [task({ status: "failed" })] }));
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    if (action === "unmount") view.unmount();
+    else view.rerender(<Harness project="other" />);
+    act(() => store.notifySnapshotReady("demo", false));
+    expect(locate).toHaveBeenCalledTimes(1);
+  });
+
 });

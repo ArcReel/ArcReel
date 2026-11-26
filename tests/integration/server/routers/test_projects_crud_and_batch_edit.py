@@ -1,6 +1,9 @@
 """Tests for projects_crud_and_batch_edit."""
 
+import asyncio
+import json
 import os
+import threading
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
@@ -25,6 +28,53 @@ from tests.integration.server.routers.projects_router_support import (
 
 
 class TestProjectsRouter:
+    def test_script_version_matches_bytes_replaced_during_read(self, tmp_path, monkeypatch):
+        pm = _FakePM(tmp_path)
+        path = tmp_path / "ready/scripts/episode_1.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text('{"title":"old"}')
+        threads = []
+        revision = projects.script_revision
+
+        def read(_name, _filename):
+            threads.append(threading.get_ident())
+            value = json.loads(path.read_text())
+            if value["title"] == "old":
+                replacement = path.with_suffix(".tmp")
+                replacement.write_text('{"title":"new"}')
+                replacement.replace(path)
+            return value
+
+        def hash_script(script):
+            assert threading.get_ident() == threads[-1]
+            assert not _on_event_loop()
+            return revision(script)
+
+        def _on_event_loop():
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return False
+            return True
+
+        monkeypatch.setattr(pm, "load_script", read)
+        monkeypatch.setattr(projects, "script_revision", hash_script)
+        endpoint = "/api/v1/projects/ready/scripts/episode_1.json"
+        probe = {"X-ArcReel-Optional-Read": "1", "X-ArcReel-Script-Version": "include"}
+        with build_projects_client(monkeypatch, pm) as client:
+            result = client.get(endpoint, headers=probe)
+            assert result.json() == {"script": {"title": "new"}, "revision": revision({"title": "new"})}
+            assert len(threads) == 2
+            stamp = client.get(endpoint, headers={"X-ArcReel-Script-Version": "only"})
+            assert stamp.json()["file_version"] == result.headers["X-ArcReel-Script-Version"]
+            assert len(threads) == 2
+            assert client.get(endpoint).json() == result.json()
+            path.unlink()
+            missing = client.get(endpoint, headers=probe)
+            assert missing.json() is None
+            assert missing.headers["X-ArcReel-Script-Version"] == "missing"
+            assert client.get(endpoint, headers={"X-ArcReel-Script-Version": "only"}).json() == {"file_version": None}
+
     def test_list_and_create_and_delete(self, tmp_path, monkeypatch):
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:

@@ -972,8 +972,11 @@ class WorkflowStateService:
         project_name: str,
         *,
         preloaded_scripts: Mapping[str, dict[str, Any] | None] | None = None,
+        detail_scripts: dict[str, dict[str, Any] | None] | None = None,
         project: dict[str, Any] | None = None,
         workspace: bool = False,
+        episode_numbers: list[int] | None = None,
+        media_paths: set[str] | None = None,
         currency: ProjectSummaryCurrency = "verified",
     ) -> ProjectSummary:
         """项目在广度视图上的投影（见 ``ProjectSummary``）。
@@ -988,10 +991,20 @@ class WorkflowStateService:
 
         project = self.pm.load_project(project_name) if project is None else project
         project_path = self.pm.get_project_path(project_name)
+        episodes = self._episodes(project, [])
+        if episode_numbers is not None:
+            requested = set(episode_numbers)
+            episodes = [pair for pair in episodes if pair[0] in requested]
+            if (
+                not requested
+                or min(requested) < 1
+                or len(requested) != len(episode_numbers)
+                or len(episodes) != len(requested)
+            ):
+                raise WorkflowRequestError("expected distinct positive episode numbers from the current ledger")
         failure = load_migration_verdict(project_path, project=project)
         if failure is not None:
-            return self._migration_blocked_summary(project, self._episodes(project, []), failure)
-        episodes = self._episodes(project, [])
+            return self._migration_blocked_summary(project, episodes, failure)
         try:
             resolver: ArtifactComparer | None = (
                 RegisteredArtifactResolver(project_path, project)
@@ -1000,9 +1013,19 @@ class WorkflowStateService:
             )
         except (ArtifactManifestError, OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             resolver = None
-        assets = self._asset_counts(project_path, project, resolver)
+        assets = self._asset_counts(project_path, project, resolver) if episode_numbers is None else {}
         episode_summaries = []
         for number, entry in episodes:
+            script_file = entry.get("script_file")
+            if detail_scripts is not None and script_file and script_file not in detail_scripts:
+                path = f"scripts/{self.pm.normalize_script_filename(script_file)}"
+                snapshot = resolver.script_snapshot(path) if isinstance(resolver, ArtifactCurrencyResolver) else None
+                try:
+                    detail_scripts[script_file] = self.pm.load_script(
+                        project_name, script_file, snapshot=snapshot.content_bytes if snapshot else None
+                    )
+                except FileNotFoundError:
+                    detail_scripts[script_file] = None
             episode_summaries.append(
                 self._episode_summary(
                     project_name,
@@ -1011,8 +1034,9 @@ class WorkflowStateService:
                     number,
                     entry,
                     workspace=workspace,
+                    media_paths=media_paths,
                     resolver=resolver,
-                    preloaded_scripts=preloaded_scripts,
+                    preloaded_scripts=detail_scripts if detail_scripts is not None else preloaded_scripts,
                 )
             )
             if isinstance(resolver, ArtifactCurrencyResolver):
@@ -1050,6 +1074,7 @@ class WorkflowStateService:
         entry: dict[str, Any],
         *,
         workspace: bool,
+        media_paths: set[str] | None = None,
         resolver: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any] | None] | None,
     ) -> EpisodeSummary:
@@ -1069,6 +1094,11 @@ class WorkflowStateService:
                     items = (
                         [item for item in raw_items if isinstance(item, dict)] if isinstance(raw_items, list) else []
                     )
+        if media_paths is not None:
+            for item in items:
+                generated = item.get("generated_assets")
+                if isinstance(generated, dict):
+                    media_paths.update(path for path in generated.values() if isinstance(path, str))
         storyboards = (
             ArtifactCount.of(
                 self._media_collection(

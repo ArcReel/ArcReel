@@ -1241,3 +1241,40 @@ async def test_batch_item_locations_read_only_the_existing_snapshot(tmp_path, mo
                 assert [(row["episode"], row["position"]) for row in rows[:2]] == [(1, 1), (2, 1)]
     finally:
         await service.shutdown()
+
+
+async def test_first_episode_snapshot_samples_after_baseline_read(tmp_path):
+    from lib.infra.content_digest import file_identity, file_version
+    from tests.integration.lib.workflow.test_workflow_state import _valid_narration_segment
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "", "narration")
+    filename = "episode_1.json"
+    pm.save_script(
+        "demo",
+        {"episode": 1, "title": "1", "content_mode": "narration", "segments": [_valid_narration_segment()]},
+        filename,
+    )
+    pm.sync_episode_from_script("demo", filename)
+    path = pm.get_project_path("demo") / "scripts" / filename
+    old = file_version(file_identity(path.stat()))
+
+    def replace_before_snapshot(project):
+        data = json.loads(path.read_bytes())
+        data["title"] = "updated"
+        replacement = path.with_suffix(".new")
+        replacement.write_text(json.dumps(data))
+        replacement.replace(path)
+        return read_project_state(pm, project)
+
+    service = ProjectEventService(tmp_path, read_state=replace_before_snapshot, poll_interval=60)
+    try:
+        async with service.stream_events("demo", episode=1) as stream:
+            event, snapshot = await anext(stream)
+            assert event == "snapshot"
+            version = file_version(file_identity(path.stat()))
+            assert version != old
+            assert snapshot["episode_script"] == {"episode": 1, "filename": filename, "file_version": version}
+    finally:
+        await service.shutdown()

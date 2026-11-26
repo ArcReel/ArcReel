@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { stripScriptsPrefix } from "@/utils/task-target";
+import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect } from "wouter";
 import {
@@ -10,7 +11,7 @@ import {
   WORKSPACE_ROUTE_FILES,
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
-import { useProjectsStore } from "@/stores/projects-store";
+import { normalizeScriptFile, useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
@@ -46,7 +47,6 @@ import {
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
-import type { EpisodeScript } from "@/types/script";
 
 const ReferenceVideoCanvas = lazyNamed(() => import("./reference/ReferenceVideoCanvas"), "ReferenceVideoCanvas");
 const GridImageToVideoCanvas = lazyNamed(() => import("./grid/GridImageToVideoCanvas"), "GridImageToVideoCanvas");
@@ -57,15 +57,24 @@ const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
 type PromptField = "image_prompt" | "video_prompt";
 
 function resolveSegmentPrompt(
-  scripts: Record<string, EpisodeScript>,
+  projectName: string,
+  episode: number,
+  saving: ReadonlyMap<string, number>,
   segmentId: string,
   field: PromptField,
   scriptFile?: string,
 ): { resolvedFile: string; prompt: unknown; duration: number } | null {
-  const resolvedFile = scriptFile ?? Object.keys(scripts)[0];
-  if (!resolvedFile) return null;
-  const script = scripts[resolvedFile];
-  if (!script) return null;
+  const { currentProjectName, currentProjectData, currentScripts, activeEpisodeScript } = useProjectsStore.getState();
+  const bound = currentProjectData?.episodes.find((entry) => entry.episode === episode);
+  const resolvedFile = normalizeScriptFile(bound?.script_file);
+  if (currentProjectName !== projectName || !resolvedFile || (scriptFile && scriptFile !== resolvedFile)) return null;
+  if (saving.has(JSON.stringify([projectName, resolvedFile]))) return null;
+  if (!isDemoProject(projectName) && (
+    activeEpisodeScript.status !== "ready" || activeEpisodeScript.projectName !== projectName ||
+    activeEpisodeScript.episode !== episode || activeEpisodeScript.scriptFile !== resolvedFile
+  )) return null;
+  const script = currentScripts[resolvedFile];
+  if (!script || script.episode !== episode) return null;
   if ("video_units" in script) return null;
   const seg =
     script.content_mode === "narration"
@@ -73,10 +82,11 @@ function resolveSegmentPrompt(
       : script.content_mode === "ad"
         ? script.shots.find((s) => s.shot_id === segmentId)
         : script.scenes.find((s) => s.scene_id === segmentId);
+  if (!seg) return null;
   return {
     resolvedFile,
-    prompt: seg?.[field] ?? "",
-    duration: seg?.duration_seconds ?? 4,
+    prompt: seg[field] ?? "",
+    duration: seg.duration_seconds ?? 4,
   };
 }
 
@@ -109,10 +119,13 @@ export function StudioCanvasRouter() {
       currentProjectName
         ? useProjectsStore
             .getState()
-            .refreshProject(currentProjectName, { invalidateKeys })
+            .refreshProject(currentProjectName, {
+              invalidateKeys,
+              scope: activeEpisodeScript.episode ? { episodes: [activeEpisodeScript.episode] } : undefined,
+            })
             .then((result) => result === "success")
         : Promise.resolve(false),
-    [currentProjectName],
+    [currentProjectName, activeEpisodeScript.episode],
   );
 
   const refreshAfterAction = useCallback(
@@ -121,21 +134,31 @@ export function StudioCanvasRouter() {
     [currentProjectName, t],
   );
 
+  const saves = useRef(new Map<string, number>());
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
     patch: Record<string, unknown>,
     scriptFile?: string,
   ): Promise<boolean> => {
     if (!currentProjectName) throw new Error(t("common:no_project_selected"));
-    const mode = currentProjectData?.content_mode ?? "narration";
-    if (mode === "ad") {
-      await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
-    } else if (mode === "drama") {
-      await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
-    } else {
-      await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
+    const pending = saves.current;
+    const target = JSON.stringify([currentProjectName, scriptFile]);
+    pending.set(target, (pending.get(target) ?? 0) + 1);
+    try {
+      const mode = currentProjectData?.content_mode ?? "narration";
+      if (mode === "ad") {
+        await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
+      } else if (mode === "drama") {
+        await API.updateScene(currentProjectName, segmentId, scriptFile ?? "", patch);
+      } else {
+        await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
+      }
+      return await refreshProject();
+    } finally {
+      const remaining = (pending.get(target) ?? 1) - 1;
+      if (remaining) pending.set(target, remaining);
+      else pending.delete(target);
     }
-    return refreshProject();
   }, [currentProjectName, currentProjectData, refreshProject, t]);
 
   const handleMoveShot = useCallback(async (
@@ -204,10 +227,9 @@ export function StudioCanvasRouter() {
     await refreshAfterAction();
   }, [currentProjectName, refreshAfterAction, t]);
 
-  const handleGenerateStoryboard = useCallback(async (segmentId: string, scriptFile?: string) => {
-    const scripts = useProjectsStore.getState().currentScripts;
-    if (!currentProjectName || !scripts) return;
-    const resolved = resolveSegmentPrompt(scripts, segmentId, "image_prompt", scriptFile);
+  const handleGenerateStoryboard = useCallback(async (episode: number, segmentId: string, scriptFile?: string) => {
+    if (!currentProjectName) return;
+    const resolved = resolveSegmentPrompt(currentProjectName, episode, saves.current, segmentId, "image_prompt", scriptFile);
     if (!resolved) return;
     try {
       await enqueueStoryboard(
@@ -221,10 +243,9 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, t]);
 
-  const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
-    const scripts = useProjectsStore.getState().currentScripts;
-    if (!currentProjectName || !scripts) return;
-    const resolved = resolveSegmentPrompt(scripts, segmentId, "video_prompt", scriptFile);
+  const handleGenerateVideo = useCallback(async (episode: number, segmentId: string, scriptFile?: string) => {
+    if (!currentProjectName) return;
+    const resolved = resolveSegmentPrompt(currentProjectName, episode, saves.current, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
     try {
       await enqueueVideo(
@@ -284,6 +305,7 @@ export function StudioCanvasRouter() {
   }, [currentProjectData?.generation_mode]);
 
   const handleWorkflowRegenerate = useCallback(async (
+    episode: number,
     stepId: string,
     unitIds: string[],
     scriptFile: string,
@@ -293,9 +315,9 @@ export function StudioCanvasRouter() {
       try {
         if (stepId === "storyboard") {
           // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 逐个入队保持任务队列与画布单元同序，并发提交会打乱入队顺序
-          await handleGenerateStoryboard(unitId, scriptFile);
+          await handleGenerateStoryboard(episode, unitId, scriptFile);
         } else if (stepId === "video") {
-          await handleGenerateVideo(unitId, scriptFile);
+          await handleGenerateVideo(episode, unitId, scriptFile);
         }
       } catch (err) {
         useAppStore.getState().pushToast(t("generate_video_failed", { message: errMsg(err) }), "error");
@@ -455,7 +477,7 @@ export function StudioCanvasRouter() {
         {(params) => {
           const epNum = parseInt(params.episodeId, 10);
           const episode = currentProjectData?.episodes?.find((e) => e.episode === epNum);
-          const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
+          const scriptFile = episode?.script_file ? stripScriptsPrefix(episode.script_file) : undefined;
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const scriptLoading =
             !demoMode &&
@@ -466,13 +488,6 @@ export function StudioCanvasRouter() {
             activeEpisodeScript.projectName === currentProjectName &&
             ((activeEpisodeScript.episode === epNum && activeEpisodeScript.status === "loading") ||
               (episode?.script_status === "generated" && activeEpisodeScript.episode !== epNum));
-          if (scriptLoading) {
-            return (
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                {t("loading_placeholder")}
-              </div>
-            );
-          }
           const route = normalizeRoute(currentProjectData?.generation_mode);
           const durationOptions = capabilities.supportedDurations ?? undefined;
           const planDurationOptions = capabilities.planningDurations ?? undefined;
@@ -484,6 +499,7 @@ export function StudioCanvasRouter() {
           const isAd = currentProjectData?.content_mode === "ad";
           return (
             <EpisodePage
+              scriptLoading={scriptLoading}
               projectName={currentProjectName}
               episode={epNum}
               projectData={currentProjectData}
@@ -494,7 +510,7 @@ export function StudioCanvasRouter() {
               onRegenerate={
                 route === "reference_video" || !scriptFile
                   ? undefined
-                  : (stepId, unitIds) => void handleWorkflowRegenerate(stepId, unitIds, scriptFile)
+                  : (stepId, unitIds) => void handleWorkflowRegenerate(epNum, stepId, unitIds, scriptFile)
               }
               renderCanvas={({ view, onViewChange }) => (
                 <LazyBoundary variant="pane">
@@ -530,8 +546,8 @@ export function StudioCanvasRouter() {
                       lastFrame={capabilities.lastFrame}
                       capabilitiesLoading={capabilities.loading}
                       onUpdatePrompt={handleUpdatePrompt}
-                      onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                      onGenerateVideo={handleGenerateVideo}
+                      onGenerateStoryboard={(id) => void handleGenerateStoryboard(epNum, id, scriptFile)}
+                      onGenerateVideo={(id) => handleGenerateVideo(epNum, id, scriptFile)}
                       onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
                       onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
                       onGenerateGrid={handleGenerateGrid}
@@ -563,8 +579,8 @@ export function StudioCanvasRouter() {
                       onMoveShot={handleMoveShot}
                       onInsertShot={handleInsertShot}
                       onRemoveShot={handleRemoveShot}
-                      onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
-                      onGenerateVideo={handleGenerateVideo}
+                      onGenerateStoryboard={(id) => void handleGenerateStoryboard(epNum, id, scriptFile)}
+                      onGenerateVideo={(id) => handleGenerateVideo(epNum, id, scriptFile)}
                       onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
                       onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
                       onRestoreStoryboard={handleRestoreAsset}

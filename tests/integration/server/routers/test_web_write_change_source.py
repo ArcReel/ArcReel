@@ -290,13 +290,13 @@ async def test_deleting_a_reference_unit_with_its_video_broadcasts_as_webui(refe
     assert [record.origin for record in list_records(reference_env.project_path)] == ["user"]
 
 
-async def test_moving_a_reference_unit_broadcasts_nothing(reference_env: _Env) -> None:
-    """快照按单元编号比对条目、不记顺序，调换单元顺序不产生变更批次，也就不会被当成外部改动。"""
+async def test_moving_a_reference_unit_broadcasts_episode_update_as_webui(reference_env: _Env) -> None:
     with reference_env.reads_held():
         response = await reference_env.client.post(f"{_UNITS}/E1U2/move", json={"after_unit_id": None})
     assert [unit["unit_id"] for unit in response.json()["units"]] == ["E1U2", "E1U1"]
 
-    assert await reference_env.batches_after_barrier() == []
+    batches = await reference_env.batches_until(_is("episode", "updated", "1"))
+    assert _sources(batches) == {"webui"}
 
 
 _TIMELINES = "/projects/demo/edit-timelines"

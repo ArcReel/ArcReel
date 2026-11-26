@@ -244,6 +244,7 @@ function isWorkspaceEditing(hasUnsavedChanges: () => boolean): boolean {
 }
 
 interface PendingHiddenSync {
+  notifications: Array<() => void>;
   workspace: boolean;
   scope: ProjectRefreshScope | null;
   tasks: boolean;
@@ -253,12 +254,12 @@ interface PendingHiddenSync {
   referenceUnits: boolean;
   grids: boolean;
   snapshotReady: boolean;
-  snapshotChanged: boolean;
   invalidationKeys: Set<string>;
 }
 
 function emptyHiddenSync(): PendingHiddenSync {
   return {
+    notifications: [],
     workspace: false,
     scope: null,
     tasks: false,
@@ -268,7 +269,6 @@ function emptyHiddenSync(): PendingHiddenSync {
     referenceUnits: false,
     grids: false,
     snapshotReady: false,
-    snapshotChanged: false,
     invalidationKeys: new Set(),
   };
 }
@@ -300,7 +300,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const sourceRef = useRef<SseStreamHandle | null>(null);
   const lastFingerprintRef = useRef<string | null>(null);
   const queuedFocusRef = useRef<WorkspaceNotificationTarget | null>(null);
-  const hiddenSyncRef = useRef<PendingHiddenSync>(emptyHiddenSync());
+  const hiddenSyncRef = useRef<PendingHiddenSync | null>(null);
 
   const executeFocus = useCallback(
     (target: WorkspaceNotificationTarget) => {
@@ -329,10 +329,20 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   }, [executeFocus, hasUnsavedChanges]);
 
   const refreshProject = useCallback(
-    async (scope?: ProjectRefreshScope): Promise<RefreshProjectResult> => {
+    async (scope: ProjectRefreshScope): Promise<RefreshProjectResult> => {
       if (!projectName) return "cancelled";
       const focusSnapshot = queuedFocusRef.current;
+      let scriptCancelledAfterCommit = false;
+      const pending = hiddenSyncRef.current;
+      const retryWorkspace = pending?.workspace;
+      const notifications = retryWorkspace ? pending.notifications.splice(0) : [];
+      if (pending && retryWorkspace) {
+        scope = mergePendingScope(pending.scope, scope);
+        pending.scope = null;
+        pending.workspace = false;
+      }
       const result = await useProjectsStore.getState().refreshProject(projectName, {
+        onScriptCancelledAfterCommit: () => { scriptCancelledAfterCommit = true; },
         scope,
         onError: (err) =>
           pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning"),
@@ -344,7 +354,16 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           queuedFocusRef.current = null;
         }
       }
-      return result;
+      if (pending && retryWorkspace && hiddenSyncRef.current === pending) {
+        if (result === "success" || scriptCancelledAfterCommit) {
+          notifications.forEach((notify) => notify());
+        } else {
+          pending.scope = mergePendingScope(pending.scope, scope);
+          pending.workspace = true;
+          pending.notifications.unshift(...notifications);
+        }
+      }
+      return scriptCancelledAfterCommit ? "success" : result;
     },
     [flushQueuedFocus, projectName, pushNotification],
   );
@@ -367,7 +386,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     if (!projectName || typeof document === "undefined") return;
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
-      const pending = hiddenSyncRef.current;
+      const pending = hiddenSyncRef.current ??= emptyHiddenSync();
+      useItemLocationsStore.getState().resumePending(projectName);
       const hasPending =
         pending.workspace ||
         pending.tasks ||
@@ -379,22 +399,21 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         pending.snapshotReady ||
         pending.invalidationKeys.size > 0;
       if (!hasPending) return;
-      hiddenSyncRef.current = emptyHiddenSync();
-      if (pending.invalidationKeys.size > 0) {
-        invalidateEntities([...pending.invalidationKeys]);
+      const deferred = { ...pending };
+      if (pending.workspace) void refreshProject(pending.scope ?? { projectWide: true, assets: true });
+      Object.assign(pending, emptyHiddenSync());
+      if (deferred.invalidationKeys.size > 0) {
+        invalidateEntities([...deferred.invalidationKeys]);
       }
-      if (pending.trash) useAppStore.getState().invalidateTrash();
-      if (pending.referenceUnits) useAppStore.getState().invalidateReferenceVideoUnits();
-      if (pending.grids) useAppStore.getState().invalidateGrids();
-      if (pending.snapshotReady) {
-        useItemLocationsStore.getState().notifySnapshotReady(projectName, pending.snapshotChanged);
+      if (deferred.trash) useAppStore.getState().invalidateTrash();
+      if (deferred.referenceUnits) useAppStore.getState().invalidateReferenceVideoUnits();
+      if (deferred.grids) useAppStore.getState().invalidateGrids();
+      if (deferred.snapshotReady) {
+        useItemLocationsStore.getState().notifySnapshotReady(projectName, false);
       }
-      if (pending.workspace) {
-        void refreshProject(pending.scope ?? { projectWide: true, assets: true });
-      }
-      if (pending.tasks) void useTasksStore.getState().refreshTasks();
-      if (pending.usage) void useUsageHeaderStore.getState().refresh();
-      if (pending.cost) useCostStore.getState().debouncedFetch(projectName);
+      if (deferred.tasks) void useTasksStore.getState().refreshTasks();
+      if (deferred.usage) void useUsageHeaderStore.getState().refresh();
+      if (deferred.cost) useCostStore.getState().debouncedFetch(projectName);
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -410,16 +429,21 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
     const source = API.openProjectEventStream({
       projectName,
+      activeEpisode: () => {
+        const active = useProjectsStore.getState().activeEpisodeScript;
+        return active.projectName === projectName ? active.episode : null;
+      },
       onSnapshot(payload) {
         if (disposed) return;
+        useProjectsStore.getState().receiveScriptBaseline(projectName, payload.episode_script);
         const previousFingerprint = lastFingerprintRef.current;
         lastFingerprintRef.current = payload.fingerprint;
         const fingerprintChanged = Boolean(previousFingerprint && previousFingerprint !== payload.fingerprint);
         if (isDocumentHidden()) {
-          const pending = hiddenSyncRef.current;
+          const pending = hiddenSyncRef.current ??= emptyHiddenSync();
           pending.snapshotReady = true;
-          pending.snapshotChanged ||= fingerprintChanged;
           if (fingerprintChanged) {
+            useItemLocationsStore.getState().invalidateEpisodes(projectName);
             const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
             for (const { episode } of episodes) {
               pending.invalidationKeys.add(buildEntityRevisionKey("script_plan", `episode_${episode}`));
@@ -443,6 +467,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             episodes.map(({ episode }) => buildEntityRevisionKey("script_plan", `episode_${episode}`)),
           );
           void refreshProject({ projectWide: true, assets: true });
+        } else if (hiddenSyncRef.current?.scope) {
+          void refreshProject(hiddenSyncRef.current.scope);
         }
         if (previousFingerprint) {
           void useTasksStore.getState().refreshTasks();
@@ -472,13 +498,16 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           if (change.asset_fingerprints) {
             Object.assign(mergedFingerprints, change.asset_fingerprints);
           }
+          if (change.entity_type === "episode" && typeof change.episode === "number") {
+            structurallyChangedEpisodes.add(change.episode);
+          }
           if (SCRIPT_ITEM_ENTITY_TYPES.has(change.entity_type)) {
             if (change.position !== undefined) {
               directLocations.push({
                 episode: change.episode ?? null,
                 item_id: change.item_id ?? change.entity_id,
                 position: change.position,
-                status: change.position === null ? "deleted" : "found",
+                status: change.location_status ?? (change.position !== null ? "found" : change.action === "deleted" ? "deleted" : "unloaded"),
               });
             }
             if ((change.action === "created" || change.action === "deleted") && typeof change.episode === "number") {
@@ -553,29 +582,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit || hasUsageRecord;
         const refreshScope = entityChanges.length > 0 ? deriveRefreshScope(entityChanges) : null;
 
-        if (isDocumentHidden()) {
-          const pending = hiddenSyncRef.current;
-          for (const key of invalidationKeys) pending.invalidationKeys.add(key);
-          if (hasTrash) pending.trash = true;
-          if (taskChanges.length > 0) pending.tasks = true;
-          if (hasReferenceUnitChange) pending.referenceUnits = true;
-          if (hasGridEvent) pending.grids = true;
-          if (hasUsageRecord || taskChanges.length > 0) pending.usage = true;
-          if (hasCostChange) pending.cost = true;
-          if (refreshScope) {
-            pending.workspace = true;
-            pending.scope = mergePendingScope(pending.scope, refreshScope);
-          }
-          return;
-        }
-
-        if (hasTrash) {
-          useAppStore.getState().invalidateTrash();
-        }
-        if (invalidationKeys.length > 0) {
-          invalidateEntities(invalidationKeys);
-        }
-
         const groupedChanges = sortGroupedChanges(groupChangesByType(entityChanges));
 
         const notifyChanges = entityChanges.length > 0 && payload.source !== "webui";
@@ -595,7 +601,52 @@ export function useProjectEventsSSE(projectName?: string | null): void {
               })
               .find(Boolean) ?? null;
 
-          queuedFocusRef.current = isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
+          if (!isDocumentHidden()) queuedFocusRef.current = isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
+        }
+
+        const deliverNotifications = () => {
+          if (disposed) return;
+          const { currentProjectData, currentScripts } = useProjectsStore.getState();
+          const episodeLedger = currentProjectData?.episodes ?? [];
+          for (const group of groupedChanges) {
+            if (!hasImportantChanges(group)) {
+              continue;
+            }
+            pushNotification(
+              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger, currentScripts),
+              "success",
+            );
+          }
+          for (const { group, target } of workspaceNotifications) {
+            pushWorkspaceNotification({
+              text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger, currentScripts),
+              target,
+            });
+          }
+        };
+
+        if (isDocumentHidden()) {
+          const pending = hiddenSyncRef.current ??= emptyHiddenSync();
+          for (const key of invalidationKeys) pending.invalidationKeys.add(key);
+          if (hasTrash) pending.trash = true;
+          if (taskChanges.length > 0) pending.tasks = true;
+          if (hasReferenceUnitChange) pending.referenceUnits = true;
+          if (hasGridEvent) pending.grids = true;
+          if (hasUsageRecord || taskChanges.length > 0) pending.usage = true;
+          if (hasCostChange) pending.cost = true;
+          if (refreshScope) {
+            pending.workspace = true;
+            if (notifyChanges) pending.notifications.push(deliverNotifications);
+            pending.scope = mergePendingScope(pending.scope, refreshScope);
+          }
+          return;
+        }
+
+        if (hasTrash) {
+          useAppStore.getState().invalidateTrash();
+        }
+        if (invalidationKeys.length > 0) {
+          invalidateEntities(invalidationKeys);
         }
 
         if (taskChanges.length > 0) {
@@ -609,23 +660,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (refreshScope) {
           void refreshProject(refreshScope).then((result) => {
             if (disposed || !notifyChanges || result !== "success") return;
-            const { currentProjectData, currentScripts } = useProjectsStore.getState();
-            const episodeLedger = currentProjectData?.episodes ?? [];
-            for (const group of groupedChanges) {
-              if (!hasImportantChanges(group)) {
-                continue;
-              }
-              pushNotification(
-                formatGroupedNotificationText(group, tEventsRef.current, episodeLedger, currentScripts),
-                "success",
-              );
-            }
-            for (const { group, target } of workspaceNotifications) {
-              pushWorkspaceNotification({
-                text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger, currentScripts),
-                target,
-              });
-            }
+            deliverNotifications();
           });
         }
 

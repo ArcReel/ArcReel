@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import builtins
 import json
 import os
 import shutil
@@ -43,6 +42,7 @@ from lib.workflow.workflow_state import WorkflowStateService
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.factories import register_project_sources
 from tests.integration.lib.artifacts.test_content_digest_currency import _age, _count_content_reads
+from tests.integration.lib.content_read_support import observe_builtin_open
 from tests.integration.lib.episode_media_support import episodes_with_media
 from tests.integration.lib.manifest_parse_support import count_manifest_parses, count_versions_parses
 from tests.integration.lib.workflow.test_workflow_state import (
@@ -180,19 +180,16 @@ def _count_artifact_opens(monkeypatch: pytest.MonkeyPatch, project_path: Path) -
         artifact_fd_reads.pop(fd, None)
         original_os_close(fd)
 
-    original_builtin_open = builtins.open
-
-    def _counted_builtin_open(file: Any, *args: Any, **kwargs: Any) -> IO[Any]:
+    def _counted_builtin_open(file: Any, _stream: IO[Any]) -> None:
         if isinstance(file, (str, Path)) and Path(file).name == "versions.json":
             counts["versions_opens"] += 1
-        return original_builtin_open(file, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", _counted_path_open)
     monkeypatch.setattr(Path, "read_bytes", _counted_read_bytes)
     monkeypatch.setattr(os, "open", _counted_os_open)
     monkeypatch.setattr(os, "read", _counted_os_read)
     monkeypatch.setattr(os, "close", _counted_os_close)
-    monkeypatch.setattr(builtins, "open", _counted_builtin_open)
+    observe_builtin_open(monkeypatch, _counted_builtin_open)
     return counts
 
 

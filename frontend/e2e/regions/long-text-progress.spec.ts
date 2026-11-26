@@ -1,3 +1,4 @@
+import { recordedDemoEpisode, workspaceOverride } from "../support/workspace-override.ts";
 import type { Page } from "@playwright/test";
 import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
@@ -12,10 +13,6 @@ const STARTED_16S_AGO = "2026-01-01T07:59:44.000Z";
 const LONG_WAIT_HINT = "长文本通常需要数十秒至数分钟，可先切换处理其他页面。";
 const WAIT_TIMEOUT_COPY = "本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试";
 
-interface RecordedProject {
-  project: { episodes: Record<string, unknown>[] } & Record<string, unknown>;
-  scripts: Record<string, unknown>;
-}
 interface RecordedPlan {
   status: {
     content: Record<string, unknown>;
@@ -25,7 +22,6 @@ interface RecordedPlan {
   steps: ({ id: string; tasks?: unknown[] } & Record<string, unknown>)[];
 }
 
-const project = recorded<RecordedProject>("project-demo.json");
 const plan = recorded<RecordedPlan>("project-demo-workflow-plan.json");
 
 const BASE: ApiOverrides = {
@@ -50,18 +46,12 @@ function makeTextTask(overrides: Record<string, unknown>) {
   };
 }
 
-function scriptlessProject(episode: Record<string, unknown>): ApiOverrides[string] {
-  const { script_file: _scriptFile, script_status: _scriptStatus, ...recordedEpisode } = project.project.episodes[0];
+function scriptlessProject(episode: Record<string, unknown>): ApiOverrides {
   return {
-    status: 200,
-    body: {
-      ...project,
-      project: {
-        ...project.project,
-        episodes: [{ ...recordedEpisode, status: "draft", ...episode }],
-      },
-      scripts: {},
-    },
+    ...workspaceOverride({
+      episodes: [{ ...recordedDemoEpisode(), script_file: "", script_status: "none", status: "draft", ...episode }],
+    }),
+    "GET /api/v1/projects/demo/scripts/episode_1.json": { status: 404, body: { detail: "Script not found" } },
   };
 }
 
@@ -177,7 +167,7 @@ const SCRIPT_PLAN_TASK = makeTextTask({
 
 const SCRIPT_PLAN_RUNNING: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": scriptlessProject({ source_origin: "own" }),
+  ...scriptlessProject({ source_origin: "own" }),
   "POST /api/v1/projects/demo/workflow-plan": SCRIPTLESS_PLAN,
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: "夜色压低了城墙的轮廓。" },
   "GET /api/v1/tasks/active?project_name=demo": {
@@ -192,7 +182,7 @@ const SCRIPT_PLAN_RUNNING: ApiOverrides = {
 
 const SCRIPT_PLAN_TIMEOUT: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": scriptlessProject({ source_origin: "own" }),
+  ...scriptlessProject({ source_origin: "own" }),
   "POST /api/v1/projects/demo/workflow-plan": SCRIPTLESS_PLAN,
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: "夜色压低了城墙的轮廓。" },
   "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: [], truncated: false } },
@@ -219,7 +209,7 @@ const SCRIPT_PLAN_TIMEOUT: ApiOverrides = {
 const EXACT_15000_SOURCE = "夜".repeat(15_000);
 const LONG_SOURCE_EPISODE: ApiOverrides = {
   ...BASE,
-  "GET /api/v1/projects/demo": scriptlessProject({ source_origin: "own" }),
+  ...scriptlessProject({ source_origin: "own" }),
   "POST /api/v1/projects/demo/workflow-plan": SCRIPTLESS_PLAN,
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: EXACT_15000_SOURCE },
   "PUT /api/v1/projects/demo/episodes/1/source": {

@@ -76,7 +76,7 @@ function changeItemLabel(
         episode: change.episode ?? null,
         item_id: change.item_id ?? itemId,
         position: change.position,
-        status: change.position === null ? "deleted" : "found",
+        status: change.location_status ?? (change.position !== null ? "found" : change.action === "deleted" ? "deleted" : "unloaded"),
       },
       episodes,
       t,

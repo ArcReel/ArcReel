@@ -94,7 +94,13 @@ def item_location(request: Request, params: dict[str, Any]) -> dict[str, Any]:
     service = getattr(request.app.state, "project_event_service", None)
     name = request.path_params.get("project_name") or request.path_params.get("name")
     location = service.locate_items(name, [item_id])[0] if service and name else {}
-    return {"episode": episode, "item_id": item_id, "position": location.get("position")}
+    position = params.get("position")
+    return {
+        "episode": episode,
+        "item_id": item_id,
+        "position": position if isinstance(position, int) else location.get("position"),
+        "location_status": "found" if isinstance(position, int) else location.get("status", "unloaded"),
+    }
 
 
 def with_problem_locations(request: Request, detail: Any) -> Any:

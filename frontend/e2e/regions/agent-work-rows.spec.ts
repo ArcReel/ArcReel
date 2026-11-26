@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { expect, type ApiOverrides } from "../support/test.ts";
+import { RECORDED_ACCESS_TOKEN } from "../support/recorded.ts";
+import { expect, test, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
@@ -233,3 +234,35 @@ defineRegionScenarios("Agent 工序行", [
     },
   },
 ]);
+
+test("概览页旧聊天遇到冷索引，事件流重连后显示当前集内位置", async ({ page, api }) => {
+  api.override(API);
+  await page.addInitScript((token) => localStorage.setItem("arcreel_auth_token", token), RECORDED_ACCESS_TOKEN);
+  const scriptReads: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/projects/demo/scripts/")) scriptReads.push(request.url());
+  });
+  let ready = false;
+  let connections = 0;
+  let coldLookup = () => {};
+  const lookedUp = new Promise<void>((resolve) => { coldLookup = resolve; });
+  await page.route("**/projects/demo/item-locations", async (route) => {
+    const { item_ids: ids } = route.request().postDataJSON() as { item_ids: string[] };
+    const items = ids.map((id) => ({ item_id: id, episode: 1, position: ready ? 9 : null, status: ready ? "found" : "unloaded" }));
+    await route.fulfill({ json: { items } });
+    if (ids.includes("E1S03")) coldLookup();
+  });
+  await page.route("**/projects/demo/events/stream", async (route) => {
+    connections += 1;
+    if (connections > 2) return route.fulfill({ status: 404, json: {} });
+    if (connections === 2) {
+      await lookedUp;
+      ready = true;
+    }
+    await route.fulfill({ contentType: "text/event-stream", body: 'retry: 100\nevent: snapshot\ndata: {"fingerprint":"same"}\n\n' });
+  });
+  await page.goto("/app/projects/demo");
+  await expect(row(page, /生成视频.*第一集 · 9.*运行中/)).toBeVisible({ timeout: 15000 });
+  expect(connections).toBeGreaterThanOrEqual(2);
+  expect(scriptReads).toEqual([]);
+});

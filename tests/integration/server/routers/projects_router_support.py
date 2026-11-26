@@ -422,7 +422,9 @@ class _FakeSummaries:
         self.last_preloaded_scripts: dict | None = None
         self.currencies: list[str] = []
 
-    def get_project_summary(self, name, *, preloaded_scripts=None, currency="verified") -> ProjectSummary:
+    def get_project_summary(
+        self, name, *, preloaded_scripts=None, currency="verified", project=None, detail_scripts=None
+    ) -> ProjectSummary:
         self.last_preloaded_scripts = preloaded_scripts
         self.currencies.append(currency)
         return ProjectSummary(

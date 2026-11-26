@@ -1376,7 +1376,7 @@ class ProjectManager:
         self.update_project(project_name, _mutate)
         return issued
 
-    def load_script(self, project_name: str, filename: str) -> dict:
+    def load_script(self, project_name: str, filename: str, *, snapshot: bytes | None = None) -> dict:
         """
         加载分镜剧本（含存量迁移，迁移结果在剧本锁内回写落盘）
 
@@ -1388,7 +1388,10 @@ class ProjectManager:
             剧本字典
         """
         norm = self.normalize_script_filename(filename)
-        script, migrated = self._read_script_unlocked(project_name, norm)
+        if snapshot is None or self._script_reader is not None:
+            script, migrated = self._read_script_unlocked(project_name, norm)
+        else:
+            script, migrated = self._migrate_read_script(json.loads(snapshot.decode("utf-8")), norm)
         if not migrated:
             return script
         with self._script_lock(project_name, norm):

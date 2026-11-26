@@ -36,7 +36,7 @@ class _FakeService:
         self.pm = _FakePM()
 
     @contextlib.asynccontextmanager
-    async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0):
+    async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0, episode: int | None = None):
         async def _iter():
             yield (
                 "snapshot",
@@ -151,7 +151,7 @@ async def test_stream_project_events_breaks_on_disconnect_during_continuous_even
             self.pm = _FakePM()
 
         @contextlib.asynccontextmanager
-        async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0):
+        async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0, episode: int | None = None):
             async def _iter():
                 yield ("snapshot", {"project_name": project_name, "fingerprint": "fp-0"})
                 i = 0
@@ -190,7 +190,7 @@ async def test_stream_project_events_ends_naturally_after_project_deleted_event(
             self.pm = _FakePM()
 
         @contextlib.asynccontextmanager
-        async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0):
+        async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0, episode: int | None = None):
             async def _iter():
                 yield ("snapshot", {"project_name": project_name, "fingerprint": "fp-0"})
                 yield ("project_deleted", {"project_name": project_name})

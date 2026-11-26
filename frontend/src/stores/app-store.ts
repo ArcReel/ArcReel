@@ -85,7 +85,8 @@ interface AppState {
     text: string,
     tone?: Toast["tone"],
     options?: { target?: WorkspaceNotificationTarget | null },
-  ) => void;
+  ) => string;
+  updateNotificationText: (id: string, text: string) => void;
   workspaceNotifications: WorkspaceNotification[];
   pushWorkspaceNotification: (input: WorkspaceNotificationInput) => void;
   markWorkspaceNotificationRead: (id: string) => void;
@@ -175,14 +176,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       toast: { id: `${Date.now()}-${Math.random()}`, text, tone, action: options?.action },
     }),
-  pushNotification: (text, tone = "info", options) =>
+  pushNotification: (text, tone = "info", options) => {
+    const note = buildWorkspaceNotification({ text, tone, target: options?.target ?? null });
     set((s) => ({
-      toast: { id: `${Date.now()}-${Math.random()}`, text, tone },
-      workspaceNotifications: [
-        buildWorkspaceNotification({ text, tone, target: options?.target ?? null }),
-        ...s.workspaceNotifications,
-      ].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
-    })),
+      toast: { id: note.id, text, tone },
+      workspaceNotifications: [note, ...s.workspaceNotifications].slice(0, MAX_WORKSPACE_NOTIFICATIONS),
+    }));
+    return note.id;
+  },
+  updateNotificationText: (id, text) => set((s) => ({
+    toast: s.toast?.id === id ? { ...s.toast, text } : s.toast,
+    workspaceNotifications: s.workspaceNotifications.map((note) => note.id === id ? { ...note, text } : note),
+  })),
   workspaceNotifications: [],
   pushWorkspaceNotification: (input) =>
     set((s) => ({

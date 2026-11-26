@@ -677,8 +677,14 @@ describe("useProjectEventsSSE", () => {
     expect(getProjectSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("shows a toast without navigation for generation completion batches", async () => {
+  it.each([false, true])("delivers generation completion when the active episode view closes: %s", async (closeEpisode) => {
     const stream = mockProjectEventStream();
+    const store = useProjectsStore.getState();
+    const snapshot = { script: { episode: 1, segments: [] } as never, revision: "r1" };
+    const reread = createDeferred<typeof snapshot>();
+    expect(await store.refreshProject("demo")).toBe("success");
+    vi.spyOn(API, "getScript").mockResolvedValueOnce(snapshot).mockReturnValueOnce(reread.promise);
+    expect(await store.loadEpisodeScript("demo", 1, "episode_1.json")).toBe("success");
 
     renderHarness("/episodes/1");
 
@@ -705,6 +711,11 @@ describe("useProjectEventsSSE", () => {
       );
     });
 
+    await waitFor(() => expect(API.getScript).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      if (closeEpisode) store.clearActiveEpisodeScript();
+      reread.resolve(snapshot);
+    });
     await waitFor(() => {
       expect(API.getWorkspace).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().toast?.text).toBe("分镜「E1S01」的分镜图已生成");
@@ -1640,30 +1651,45 @@ describe("useProjectEventsSSE", () => {
       expect(getScriptSpy).not.toHaveBeenCalled();
     });
 
-    it("后台标签页收到变更后延后刷新，切回前台时按待刷作用域补取一次", async () => {
+    it("隐藏期间立即失效位置，前台恢复失败后下次可见时补取", async () => {
       const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
-      let visibility: DocumentVisibilityState = "hidden";
+      let visibility: DocumentVisibilityState = "visible";
       Object.defineProperty(document, "visibilityState", {
         configurable: true,
         get: () => visibility,
       });
       try {
         const stream = mockProjectEventStream();
+        useProjectsStore.getState().setCurrentProject("demo", {
+          ...makeGetWorkspaceResult("Demo").project,
+          episodes: [1, 2].map((episode) => ({ episode, title: String(episode), script_file: `scripts/episode_${episode}.json` })),
+        });
         renderHarness("/");
 
-        act(() => {
+        const locate = vi.spyOn(API, "locateItems").mockResolvedValue({
+          items: [{ episode: 1, item_id: "E1S01", position: 1, status: "found" }],
+        });
+        const locations = useItemLocationsStore.getState();
+        const release = locations.registerVisible("demo", ["E1S01"]);
+        await waitFor(() => expect(locations.getLocation("demo", "E1S01")?.position).toBe(1));
+        const firstRefresh = createDeferred<GetWorkspaceResult>();
+        vi.mocked(API.getWorkspace).mockReturnValueOnce(firstRefresh.promise).mockRejectedValueOnce(new Error("503"));
+        visibility = "hidden";
+
+        const changeEpisode = (episode: number) => act(() => {
           stream.options?.onChanges?.({
             project_name: "demo",
-            batch_id: "batch-bg",
-            fingerprint: "fp-bg",
+            batch_id: `batch-bg-${episode}`,
+            fingerprint: `fp-bg-${episode}`,
             generated_at: "2026-03-01T00:00:00Z",
             source: "filesystem",
             changes: [
               {
-                entity_type: "character",
+                entity_type: "episode",
+                episode,
                 action: "updated",
-                entity_id: "hero",
-                label: "角色「hero」",
+                entity_id: String(episode),
+                label: `第 ${episode} 集`,
                 focus: null,
                 important: false,
               },
@@ -1671,6 +1697,10 @@ describe("useProjectEventsSSE", () => {
           });
         });
 
+        changeEpisode(1);
+        await Promise.resolve();
+        expect(locations.getLocation("demo", "E1S01")).toBeUndefined();
+        expect(locate).toHaveBeenCalledTimes(1);
         expect(API.getWorkspace).not.toHaveBeenCalled();
 
         visibility = "visible";
@@ -1681,6 +1711,28 @@ describe("useProjectEventsSSE", () => {
         await waitFor(() => {
           expect(API.getWorkspace).toHaveBeenCalledTimes(1);
         });
+        expect(locate).toHaveBeenCalledTimes(2);
+        visibility = "hidden";
+        document.dispatchEvent(new Event("visibilitychange"));
+        changeEpisode(2);
+        await act(async () => { firstRefresh.reject(new Error("503")); });
+        expect(API.getWorkspace).toHaveBeenCalledTimes(1);
+        visibility = "visible";
+        document.dispatchEvent(new Event("visibilitychange"));
+        await waitFor(() => expect(API.getWorkspace).toHaveBeenCalledTimes(2));
+        expect(API.getWorkspace).toHaveBeenLastCalledWith("demo", {
+          episodes: expect.arrayContaining([1, 2]), signal: expect.any(AbortSignal),
+        });
+        act(() => {
+          stream.options?.onSnapshot?.({
+            project_name: "demo", fingerprint: "fp-bg-2", generated_at: "2026-03-01T00:01:00Z",
+          });
+        });
+        await waitFor(() => expect(API.getWorkspace).toHaveBeenCalledTimes(3));
+        expect(API.getWorkspace).toHaveBeenLastCalledWith("demo", {
+          episodes: expect.arrayContaining([1, 2]), signal: expect.any(AbortSignal),
+        });
+        release();
       } finally {
         if (originalVisibility) {
           Object.defineProperty(document, "visibilityState", originalVisibility);

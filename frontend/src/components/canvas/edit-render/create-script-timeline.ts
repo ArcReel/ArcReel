@@ -25,5 +25,5 @@ export async function createScriptEditTimeline(
     timelines.map((timeline) => timeline.name),
   );
   const created = await API.createEditTimeline(projectName, episode, name);
-  return { created, refreshed: await refreshAfterWrite(projectName, t) };
+  return { created, refreshed: await refreshAfterWrite(projectName, t, { scope: { episodes: [episode] } }) };
 }

@@ -69,14 +69,14 @@ describe("EditTimelineEmptyState", () => {
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(result));
     expect(create).toHaveBeenCalledWith("demo", 2, "完整版");
-    expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo", undefined);
+    expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo", { scope: { episodes: [2] } });
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
     expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("新建后项目刷新失败时提示，新时间线照常选中（剪辑视图自行重读时间线）", async () => {
     vi.mocked(useProjectsStore.getState().refreshProject).mockRestore();
-    vi.spyOn(API, "getProject").mockRejectedValue(new Error("offline"));
+    vi.spyOn(API, "getWorkspace").mockRejectedValue(new Error("offline"));
     const result = created("完整版");
     vi.spyOn(API, "createEditTimeline").mockResolvedValue(result);
     const onCreated = vi.fn();

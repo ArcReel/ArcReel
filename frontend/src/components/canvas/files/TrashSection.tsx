@@ -197,7 +197,9 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
       const result = await API.restoreTrashRecord(projectName, record.id);
       if (result.download_only.length === 0) dropRecords((item) => item.id !== record.id);
       if (record.object.kind === "script_entry" && !result.degraded) {
-        if (await refreshAfterWrite(projectName, t) !== "success") return;
+        const episode = result.object.episode ?? record.object.episode;
+        const scope = typeof episode === "number" ? { episodes: [episode] } : undefined;
+        if (await refreshAfterWrite(projectName, t, { scope }) !== "success") return;
       }
       useAppStore.getState().pushToast(restoredMessage(t, record, result), result.degraded ? "warning" : "success");
     } catch (error) {

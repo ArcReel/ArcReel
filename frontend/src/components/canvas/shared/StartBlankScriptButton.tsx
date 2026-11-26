@@ -40,7 +40,7 @@ export function StartBlankScriptButton({ projectName, episode, discardsPlan, var
     try {
       await API.startBlankScript(projectName, episode);
       setConfirmOpen(false);
-      await refreshAfterWrite(projectName, t);
+      await refreshAfterWrite(projectName, t, { scope: { episodes: [episode] } });
     } catch (err) {
       useAppStore.getState().pushToast(t("blank_script_failed", { message: errMsg(err) }), "error");
     } finally {
