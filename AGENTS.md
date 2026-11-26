@@ -7,11 +7,12 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；push 前需运行完整闸门（在团队流程中由负责 push 的角色执行）：
 
 ```bash
-uv run python scripts/gate.py --changed            # 按相对 origin/main 的改动选域，一次跑完
+uv run python scripts/gate.py --changed            # 开发快检（默认相对 origin/main）
+uv run python scripts/gate.py --changed --full     # push 前完整运行受影响域
 uv run python scripts/gate.py backend frontend     # 或直接点名域；各域的触发路径与步骤见 --list
 ```
 
-已有闸门在跑时，新检查会自动排队。相关测试必须实际运行并通过。提 PR 前按 `docs/agents/lessons.md`「收尾自查」检查本次是否有值得记录的教训。新增或升级依赖见 `docs/agents/dependencies.md`。开发服务器、数据库迁移、分支与提交规范见 `CONTRIBUTING.md`。
+全量后端与前端测试跨 worktree 排队，静态检查与定向测试可并行。相关测试必须实际运行并通过。提 PR 前按 `docs/agents/lessons.md`「收尾自查」检查本次是否有值得记录的教训。新增或升级依赖见 `docs/agents/dependencies.md`。开发服务器、数据库迁移、分支与提交规范见 `CONTRIBUTING.md`。
 
 ## Code Review Rules
 

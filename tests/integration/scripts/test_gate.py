@@ -19,10 +19,18 @@ def test_changed_paths_lists_moves_untracked_files_and_non_ascii_names_verbatim(
     (tmp_path / "frontend" / "说明.md").write_text("旧\n", encoding="utf-8")
     _vcs(tmp_path, "add", "server/a.py", "frontend/说明.md")
     _vcs(tmp_path, "commit", "-q", "-m", "base")
+    _vcs(tmp_path, "checkout", "-q", "-b", "topic")
+    _vcs(tmp_path, "commit", "--allow-empty", "-qm", "topic commit")
+    _vcs(tmp_path, "checkout", "-q", "main")
+    (tmp_path / "base-only.txt").touch()
+    _vcs(tmp_path, "add", "base-only.txt")
+    _vcs(tmp_path, "commit", "-qm", "base advanced")
+    _vcs(tmp_path, "checkout", "-q", "topic")
     (tmp_path / "docs").mkdir()
     _vcs(tmp_path, "mv", "server/a.py", "docs/a.py")
     (tmp_path / "frontend" / "说明.md").write_text("新\n", encoding="utf-8")
     (tmp_path / "lib").mkdir()
+    _vcs(tmp_path, "commit", "-qm", "move across domains")
     (tmp_path / "lib" / "新建.py").write_text("y = 2\n", encoding="utf-8")
 
     assert changed_paths("main", root=tmp_path) == ["docs/a.py", "frontend/说明.md", "lib/新建.py", "server/a.py"]
