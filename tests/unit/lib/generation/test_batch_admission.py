@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from lib.generation.batch_admission import (
     BatchAdmission,
@@ -19,6 +21,7 @@ from lib.generation.generation_result import (
     GenerationResultBuilder,
     GenerationSelectionMode,
 )
+from server.services.admission.video_quote import quote_sheet
 
 
 def _admission(*tickets: UnitAdmissionTicket) -> BatchAdmission:
@@ -116,33 +119,42 @@ _UNUSABLE = GenerationProblem(
 )
 
 
-def test_a_reference_overflow_withdraws_only_its_own_unit():
-    admission = _admission(UnitAdmissionTicket(unit_id="E1U1"), UnitAdmissionTicket("E1U2", problems=(_OVERFLOW,)))
+@pytest.mark.invariant
+@given(targets=st.lists(st.tuples(st.booleans(), st.booleans(), st.booleans()), min_size=1, max_size=6))
+def test_overflow_withdrawal_agrees_with_the_batch_quote(targets):
+    tickets = []
+    holding = []
+    confirm = []
+    eligible = []
+    for index, (overflow, unusable, changed_tier) in enumerate(targets):
+        unit_id = f"E1U{index + 1}"
+        problems = []
+        if overflow:
+            problems.append(_OVERFLOW)
+        if unusable:
+            problems.append(_UNUSABLE)
+        if changed_tier:
+            problems.extend(_confirmation_ticket(unit_id, request=8).problems)
+        tickets.append(UnitAdmissionTicket(unit_id, problems=tuple(problems), request_duration_seconds=8))
+        if unusable or (changed_tier and not overflow):
+            holding.append(unit_id)
+        if not overflow and not unusable:
+            eligible.append(unit_id)
+            if changed_tier:
+                confirm.append(unit_id)
 
-    assert admission.decision is BatchAdmissionDecision.ADMITTED
-    assert admission.holding_unit_ids == ()
-
-
-def test_a_withdrawn_unit_needs_no_consent_of_its_own():
-    """超限单元不会入队，它的档位确认不再要求用户拍板。"""
-
-    confirmation = _confirmation_ticket("E1U2", request=8)
-    withdrawn = UnitAdmissionTicket("E1U2", problems=(_OVERFLOW, *confirmation.problems))
-    admission = _admission(UnitAdmissionTicket(unit_id="E1U1"), withdrawn)
-
-    assert admission.decision is BatchAdmissionDecision.ADMITTED
-    assert admission.confirmation_tiers() == ()
-
-
-def test_an_overflowing_unit_with_another_gap_still_holds_the_batch():
-    """超限只剔除本单元；同一单元的其他缺口仍按全有或全无扣下整批。"""
-
-    admission = _admission(
-        UnitAdmissionTicket(unit_id="E1U1"), UnitAdmissionTicket("E1U2", problems=(_OVERFLOW, _UNUSABLE))
-    )
-
-    assert admission.decision is BatchAdmissionDecision.BLOCKED
-    assert admission.holding_unit_ids == ("E1U2",)
+    admission = _admission(*tickets)
+    sheet = quote_sheet(admission)
+    submittable = bool(eligible) and not any(unusable for _, unusable, _ in targets)
+    assert sheet.submittable == submittable
+    assert tuple(holding) == admission.holding_unit_ids
+    assert [uid for tier in admission.confirmation_tiers() for uid in tier.unit_ids] == confirm
+    if not submittable:
+        assert admission.decision is BatchAdmissionDecision.BLOCKED
+    elif confirm:
+        assert admission.decision is BatchAdmissionDecision.CONFIRMATION_REQUIRED
+    else:
+        assert admission.decision is BatchAdmissionDecision.ADMITTED
 
 
 def test_confirmation_tiers_group_by_request_duration_with_totals():
