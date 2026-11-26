@@ -287,6 +287,7 @@ defineRegionScenarios("剪辑视图", [
   },
   {
     name: "出片对话框：成片过时，以重新渲染为主动作",
+    viewports: "both",
     path: EDIT_PATH,
     api: TIMELINE,
     ready: timelineReady,

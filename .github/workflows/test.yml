@@ -467,7 +467,7 @@ jobs:
         working-directory: frontend
         env:
           SHARD: ${{ matrix.shard }}/2
-        run: node node_modules/@playwright/test/cli.js test --project=layout-probe --project=1440x900 --project=1024x600 --shard="$SHARD"
+        run: node node_modules/@playwright/test/cli.js test --grep-invert "@viewport-contract" --shard="$SHARD"
 
       - name: Run single-worker viewport contracts
         if: matrix.shard == 1
