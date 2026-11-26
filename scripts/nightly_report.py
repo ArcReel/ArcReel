@@ -50,7 +50,9 @@ def signature(conclusion: str, log: str) -> str:
         return "容量"
     if re.search(r"Test timed out in \d+ms|TimeoutError: (?:locator|page)\.|Flaky Tests? ", log, re.I):
         return "测试竞态"
-    if re.search(r"AssertionError[:\s]|TestingLibraryElementError:|\bFAILED \S+::", log):
+    if re.search(
+        r"AssertionError[:\s]|TestingLibraryElementError:|Property failed after \d+ tests?\b|\bFAILED \S+::", log
+    ):
         return "产品断言"
     return "基础设施"
 

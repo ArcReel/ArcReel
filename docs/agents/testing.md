@@ -39,6 +39,12 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 失败报告会输出收缩后的输入与完整重放命令。重放时需在同一提交和锁文件下，从仓库根目录原样执行该命令：保留 `FC_PROFILE`、`FC_SEED` 和 `FC_PATH`；命令模型还需保留 `FC_REPLAY_PATH`（普通事件数组下该值为空）。确认回归后，将最小事件或动作序列连同业务断言固化为确定性用例，命令模型一并记录对应的重放参数。每次生成或收缩都必须重建投影器，或重置任务 store 与刷新队列，避免跨样例残留状态。
 
+## Nightly 不变量与旧包升级
+
+从仓库根目录运行 `uv run python scripts/nightly_invariants.py backend`、`frontend` 或 `archives`（后两项替换命令末尾的参数）。后端按 `invariant` 标记收集根仓用例。uv workspace 子包在自身 `pyproject.toml` 的 `tool.pytest.ini_options.markers` 中登记同名标记，并加载 `tests.invariant_profiles`，即可使用相同的 Nightly 预算。前端按 `frontend/src/**/*.property.test.*` 收集。
+
+将真实发行版导出包放入 `tests/fixtures/released_archives/`。每个 ZIP 都经过导入、升级及二次迁移稳定性检查。针对特定版本的回归断言使用 `released_archive` 标记。任一登记套件选中零项或有用例跳过，作业都会失败。运行告警链接到失败作业，其诊断产物保留完整测试日志。在相同提交下，从仓库根目录执行日志中的重放命令；Hypothesis 使用该次探索的种子，fast-check 使用收缩后的路径。
+
 ## Worktree 与测试数据
 
 - 新 worktree 在后端执行 `uv sync`，在前端、文档站各自执行 `pnpm install --frozen-lockfile`。可从主检出复制 `.testmondata`，代码指纹有变化的用例会重跑。

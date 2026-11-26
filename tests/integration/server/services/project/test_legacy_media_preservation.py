@@ -415,7 +415,18 @@ def _assert_second_upgrade_stable(root: Path) -> None:
     assert business_state() == before
 
 
+@pytest.mark.released_archive
+@pytest.mark.parametrize("archive", sorted(_RELEASE.parent.glob("*.zip")), ids=lambda path: path.name)
+def test_released_archive_upgrades_to_current_schema(tmp_path: Path, archive: Path) -> None:
+    manager = ProjectManager(tmp_path)
+    imported = ProjectArchiveService(manager).import_project_archive(archive, confirm_report=True)
+    root = manager.get_project_path(imported.project_name)
+    assert _read_json(root / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    _assert_second_upgrade_stable(root)
+
+
 @pytest.mark.invariant
+@pytest.mark.released_archive
 def test_released_v037_full_archive_upgrades(tmp_path: Path) -> None:
     assert (
         hashlib.sha256(_RELEASE.read_bytes()).hexdigest()
