@@ -440,6 +440,21 @@ describe("active snapshot reconciliation", () => {
     expect(busy()).toBe(true);
   });
 
+  it("keeps an off-page voice sample released when its old active row arrives after lookup", async () => {
+    const voice = { ...row, task_type: "voice_sample", media_type: "audio" as const };
+    const release = state().retainTask("proj", voice.task_id);
+    state().beginOptimisticActive("proj", "voice_sample", voice.resource_id, "voice_sample").settle([voice.task_id]);
+    vi.spyOn(API, "lookupTasks").mockResolvedValue({
+      items: [{ ...voice, status: "succeeded", updated_at: "2026-07-17T00:00:00Z" }], missing_ids: [],
+    });
+    await state().refreshTasks();
+    expect(state().tracked.get(voice.task_id)?.status).toBe("resolved");
+    vi.mocked(API.getActiveTasks).mockResolvedValueOnce(active([voice]));
+    await state().refreshTasks();
+    expect(isResourceBusy("voice_sample", "proj", voice.resource_id)).toBe(false);
+    release();
+  });
+
   it("retains known occupancy across truncated snapshots and releases it on a complete snapshot", async () => {
     vi.mocked(API.getActiveTasks).mockResolvedValueOnce(active([row], true)).mockResolvedValueOnce(active([], true));
     await state().refreshTasks();
