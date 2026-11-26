@@ -385,6 +385,7 @@ describe("API", () => {
       await API.createProject({ title: "Untitled", generation_mode: "reference_video" });
       await API.getProject("a b");
       await API.getWorkspace("a b");
+      await API.getWorkspace("a b", { episodes: [3, 1, 3] });
       await API.locateItems("demo", ["E1S01", "E2S03"]);
       await API.getAssetSheetStatus("demo", { include: "derivative_references" });
       await API.updateProject("demo", { style: "Anime" });
@@ -447,6 +448,7 @@ describe("API", () => {
         body: JSON.stringify({ title: "Untitled", generation_mode: "reference_video" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b", { signal: undefined });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/workspace?episodes=1&episodes=3", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/workspace", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/item-locations", {
         method: "POST",

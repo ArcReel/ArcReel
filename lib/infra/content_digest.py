@@ -112,6 +112,11 @@ def file_identity(file_stat: os.stat_result) -> FileIdentity:
     return file_stat.st_dev, file_stat.st_ino, file_stat.st_size, file_stat.st_mtime_ns
 
 
+def file_version(identity: FileIdentity) -> str:
+    """Opaque stat identity shared by speculative reads and the event stream."""
+    return "-".join(format(part, "x") for part in identity)
+
+
 class _FileDigestCache:
     """进程内、有容量上限的文件摘要缓存（LRU）；线程安全，调用方可能在工作线程里取摘要。"""
 

@@ -1,3 +1,4 @@
+import { episodeNumberFromTaskResource, stripScriptsPrefix } from "@/utils/task-target";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
@@ -120,21 +121,16 @@ const ASSET_TASK_KINDS: ReadonlySet<string> = new Set([
   "voice_sample",
 ]);
 
-const EPISODE_RESOURCE_PATTERN = /^episode-(\d+)$/;
 const CANONICAL_SCRIPT_PATTERN = /^episode_(\d+)\.json$/;
 
-function taskEpisodeNumber(task: TaskItem, targetScriptFile?: string | null): number | null {
+function taskEpisodeNumber(task: TaskItem): number | null {
   if (typeof task.episode === "number") return task.episode;
-  const epMatch = EPISODE_RESOURCE_PATTERN.exec(task.resource_id);
-  if (epMatch) return Number(epMatch[1]);
+  const episode = episodeNumberFromTaskResource(task.resource_id);
+  if (episode !== null) return episode;
   const itemEp = parseItemIdEpisode(task.item_id ?? task.resource_id);
   if (itemEp !== null) return itemEp;
   if (task.script_file) {
     const normalized = stripScriptsPrefix(task.script_file);
-    if (targetScriptFile && normalized === stripScriptsPrefix(targetScriptFile)) {
-      const match = CANONICAL_SCRIPT_PATTERN.exec(normalized);
-      if (match) return Number(match[1]);
-    }
     const fileMatch = CANONICAL_SCRIPT_PATTERN.exec(normalized);
     if (fileMatch) return Number(fileMatch[1]);
   }
@@ -173,7 +169,7 @@ export function selectWorkflowEpisodeTaskSignal(
         if (ASSET_TASK_KINDS.has(kind)) {
           if (referencedAssets && !assetMatchesReferenced(task.resource_id, referencedAssets)) continue;
         } else {
-          const taskEp = taskEpisodeNumber(task, targetScriptFile);
+          const taskEp = taskEpisodeNumber(task);
           const matchesScript =
             targetScriptFile !== null &&
             task.script_file !== null &&
@@ -592,10 +588,6 @@ export function selectActiveResourceIds(
 
 export function isResourceBusy(kind: ResourceKind, projectName: string, resourceId: string): boolean {
   return selectActiveResourceIds(useTasksStore.getState(), kind, projectName).has(resourceId);
-}
-
-function stripScriptsPrefix(path: string): string {
-  return path.replace(/^scripts\//, "");
 }
 
 export function selectHasActiveTaskForScriptFile(

@@ -12,6 +12,7 @@ export function useAssetSheetStatus(
   const [loaded, setLoaded] = useState<{
     projectName: string;
     include?: "derivative_references";
+    revision: number;
     rows: AssetSheetStatusRow[];
   } | null>(null);
   const revision = useProjectsStore((s) =>
@@ -31,15 +32,23 @@ export function useAssetSheetStatus(
     const controller = new AbortController();
     void API.getAssetSheetStatus(projectName, { signal: controller.signal, include })
       .then((res) => {
-        if (!controller.signal.aborted) setLoaded({ projectName, include, rows: res.assets ?? [] });
+        if (!controller.signal.aborted) setLoaded({ projectName, include, revision, rows: res.assets ?? [] });
       })
       .catch(() => {
-        /* 读取失败（含被作废）保留上一次的状态 */
+        if (include && !controller.signal.aborted) {
+          setLoaded((prev) => prev?.projectName === projectName && prev.include === include
+            ? { ...prev, rows: prev.rows.map((row) => row.referenced === undefined ? row : { ...row, referenced: null }) }
+            : prev);
+        }
       });
     return () => controller.abort();
   }, [enabled, projectName, include, revision, activeCount]);
 
-  return loaded?.projectName === projectName && loaded.include === include ? loaded.rows : NO_ROWS;
+  return useMemo(() => {
+    if (loaded?.projectName !== projectName || loaded.include !== include) return NO_ROWS;
+    if (!include || loaded.revision === revision) return loaded.rows;
+    return loaded.rows.map((row) => row.referenced === undefined ? row : { ...row, referenced: null });
+  }, [loaded, projectName, include, revision]);
 }
 
 const NO_ROWS: AssetSheetStatusRow[] = [];

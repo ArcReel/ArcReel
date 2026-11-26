@@ -311,6 +311,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("confirms without opening the assistant panel or prefilling a message", async () => {
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi
@@ -325,6 +326,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
     expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行");
+    expect(refresh).toHaveBeenCalledWith("p", { scope: { episodes: [1] } });
     expect(useAssistantStore.getState().input).toBe("");
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
@@ -525,6 +527,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("still shows the confirm toast after switching tabs within the same project", async () => {
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
     useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
@@ -541,6 +544,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     resolveConfirm(pendingState(CONFIRMED));
 
     await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行"));
+    expect(refresh).toHaveBeenCalledWith("p", { scope: { episodes: [1] } });
     expect(useAssistantStore.getState().input).toBe("");
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });

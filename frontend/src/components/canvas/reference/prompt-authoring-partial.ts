@@ -26,7 +26,6 @@ const AGENT_RETRY_SUFFIX =
   /[；;]\s*请用\s*entry_ids\s*点名重试（重写需重新认可覆盖），或用\s*patch_episode_script\s*修改\s*$/;
 const LEADING_CONFLICT_CODE = /^formal_revision_conflict:\s*/i;
 const UNIT_LABEL_RE = /(?:unit\s+)?(?<![A-Za-z0-9])(E\d+U\d+(?:_\d+)?)(?![A-Za-z0-9])/g;
-const EPISODE_RESOURCE_ID_RE = /^episode-(\d+)$/;
 
 function parseFailedUnit(raw: unknown): ReferenceAuthoringFailedUnit | null {
   if (!raw || typeof raw !== "object") return null;
@@ -68,11 +67,6 @@ export function parseReferenceAuthoringPartial(
     writtenIds,
     failedUnits,
   };
-}
-
-export function episodeNumberFromTaskResource(resourceId: string): number | null {
-  const match = EPISODE_RESOURCE_ID_RE.exec(resourceId);
-  return match ? Number(match[1]) : null;
 }
 
 export function referenceUnitPosition(

@@ -95,7 +95,8 @@ export interface WorkspaceEpisodeSummary {
   storyboards: ArtifactCount;
 }
 
-export interface WorkspaceSummary extends ProjectStatus {
+export interface WorkspaceSummary extends Omit<ProjectStatus, "episodes_summary"> {
+  episodes_summary: EpisodesSummary | null;
   currency: "registered";
   episodes: WorkspaceEpisodeSummary[];
 }
@@ -137,6 +138,8 @@ export interface EpisodeMeta {
   source_origin?: "whole_source" | "own" | "none";
   source_kind?: "novel" | "screenplay";
   ledger_status?: "planned" | "consumed" | "stale";
+  stale_script_plan_revision?: string | null;
+  stale_script_plan_rebuilt_revision?: string | null;
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
   prompt_authoring_instructions?: string;
   script_plan_instructions?: string;

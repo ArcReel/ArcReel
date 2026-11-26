@@ -98,8 +98,7 @@ defineRegionScenarios("顶栏状态条", [
     act: async (page) => {
       await page.route("**/api/v1/projects/demo/workflow-status/episodes*", async (route) => {
         const url = new URL(route.request().url());
-        const requested = (url.searchParams.get("episodes") ?? "")
-          .split(",")
+        const requested = url.searchParams.getAll("episodes")
           .map((value) => Number(value))
           .filter((value) => Number.isFinite(value) && value > 0);
         const episodes =

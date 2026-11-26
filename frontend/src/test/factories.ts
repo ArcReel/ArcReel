@@ -209,7 +209,7 @@ export function makeWorkspaceResponse(
       assets: status?.assets ?? {},
       episodes_summary: status?.episodes_summary ?? {
         total: episodes.length,
-        scripted: episodes.filter((e) => e.script_status !== "none").length,
+        scripted: episodes.filter((e) => e.script_status === "generated").length,
         in_production: episodes.filter((e) => e.status === "in_production").length,
         completed: episodes.filter((e) => e.status === "completed").length,
       },

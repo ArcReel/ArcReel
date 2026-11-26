@@ -34,6 +34,7 @@ _SERVICE = "来源在服务层标记：{}"
 _ASSET_LINK = "只写数据库里的供应商素材关联与入库任务；早期版本记录按需补写内容版本身份，不改变创作内容"
 
 _EXEMPT: dict[str, str] = {
+    "project_events:locate_project_items": _NO_WRITE,
     "ad_script:generate_ad_script": _TASK,
     "asset_sheets:submit_asset_sheet_batch_route": _TASK,
     "edit_timelines:export_jianying_draft": _TASK,

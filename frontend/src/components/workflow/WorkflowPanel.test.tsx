@@ -242,7 +242,7 @@ describe("WorkflowPanel 准入与置灰", () => {
     expect(within(next).queryByRole("button", { name: "交给 Agent" })).not.toBeInTheDocument();
     fireEvent.click(within(next).getByRole("button", { name: "从空白开始" }));
     await waitFor(() => expect(start).toHaveBeenCalledWith("proj", 1));
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", undefined));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", { scope: { episodes: [1] } }));
   });
 
   it("从空白开始建出脚本后项目刷新失败时提示", async () => {
@@ -333,7 +333,7 @@ describe("WorkflowPanel 剪辑", () => {
     fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "新建剪辑时间线" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledWith("proj", 1, "完整版 2"));
-    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", undefined));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj", { scope: { episodes: [1] } }));
     await waitFor(() => expect(vi.mocked(API.getWorkflowPlan).mock.calls.length).toBeGreaterThan(plans));
   });
 
@@ -1005,7 +1005,7 @@ describe("WorkflowPanel 刷新纪律", () => {
         next: nextAction("generate_videos"),
         status: {
           artifacts: {
-            asset_sheets: { state: "current", current_ids: ["character/林默"], stale_ids: [], missing_ids: [] },
+            asset_sheets: { character: { state: "current", current_ids: ["林默"], stale_ids: [], missing_ids: [] } },
           },
         },
       }),

@@ -47,7 +47,10 @@ const FAILURE_TEXT_KEYS: Partial<
   text_reference_script_plan: { key: "script_plan_task_failed", idParam: "episode" },
 };
 
-const EPISODE_RESOURCE_ID = /^episode-(\d+)$/;
+export function episodeNumberFromTaskResource(resourceId: string): number | null {
+  const match = /^episode-(\d+)$/.exec(resourceId);
+  return match ? Number(match[1]) : null;
+}
 
 function failureTarget(
   idParam: "id" | "unitId" | "episode",
@@ -59,8 +62,8 @@ function failureTarget(
 ): string {
   const episodes = projectData?.episodes ?? [];
   if (idParam === "episode") {
-    const match = EPISODE_RESOURCE_ID.exec(task.resource_id);
-    return match ? episodeDisplayName(episodes, Number(match[1]), t) : task.resource_id;
+    const episode = episodeNumberFromTaskResource(task.resource_id);
+    return episode !== null ? episodeDisplayName(episodes, episode, t) : task.resource_id;
   }
   if (typeof task.position === "number") {
     return formatEpisodeItemLocation(

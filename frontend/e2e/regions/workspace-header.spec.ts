@@ -261,8 +261,8 @@ defineRegionScenarios("工作区顶栏", [
       await view(`角色「${NOTICE_CHARACTER}」`).click();
       await expect(page).toHaveURL(new RegExp(`${CHARACTERS_PATH}$`));
       const card = page.locator(`[id="character-${NOTICE_CHARACTER}"]`);
-      await expect(card).toBeInViewport();
       await expect(card).toHaveClass(/workspace-focus-flash/);
+      await expect(card).toBeInViewport();
     },
   },
   {

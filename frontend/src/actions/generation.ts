@@ -26,20 +26,26 @@ import {
 import { episodeItemLabel } from "@/utils/episode-display";
 import { findEpisodeItem, isLocatableItemId } from "@/utils/episode-item";
 
-async function resolveItemLabel(projectName: string, itemId: string): Promise<string> {
-  const { currentProjectData, currentScripts } = useProjectsStore.getState();
-  const episodes = currentProjectData?.episodes ?? [];
-  if (findEpisodeItem(currentScripts, itemId)) {
-    return episodeItemLabel(itemId, currentScripts, episodes, i18n.t);
-  }
-  let locations = useItemLocationsStore.getState().projectName === projectName
-    ? useItemLocationsStore.getState().locations
-    : undefined;
-  if (isLocatableItemId(itemId) && !locations?.get(itemId)) {
-    locations = await useItemLocationsStore.getState().locateNow(projectName, [itemId]);
-  }
-  const latestEpisodes = useProjectsStore.getState().currentProjectData?.episodes ?? episodes;
-  return episodeItemLabel(itemId, useProjectsStore.getState().currentScripts, latestEpisodes, i18n.t, locations);
+function notifyItemEnqueued(
+  projectName: string, itemId: string, deduped: boolean,
+  key: "dashboard:storyboard_task_submitted_toast" | "dashboard:video_task_submitted_toast" | "dashboard:narration_task_submitted_toast",
+): void {
+  if (deduped) return notifyEnqueued(true, null);
+  const state = useProjectsStore.getState();
+  if (state.currentProjectName !== projectName) return notifyEnqueued(false, i18n.t(key, { id: itemId }));
+  const locations = useItemLocationsStore.getState();
+  const cached = locations.projectName === projectName ? locations.locations : undefined;
+  const episodes = state.currentProjectData?.episodes ?? [];
+  const label = episodeItemLabel(itemId, state.currentScripts, episodes, i18n.t, cached);
+  notifyEnqueued(false, i18n.t(key, { id: label }));
+  const toastId = useAppStore.getState().toast?.id;
+  if (!toastId || !isLocatableItemId(itemId) || cached?.has(itemId) || findEpisodeItem(state.currentScripts, itemId)) return;
+  void locations.locateNow(projectName, [itemId]).then((updated) => {
+    const latest = useProjectsStore.getState();
+    if (latest.currentProjectName !== projectName || useAppStore.getState().toast?.id !== toastId || !updated.has(itemId)) return;
+    const id = episodeItemLabel(itemId, latest.currentScripts, latest.currentProjectData?.episodes ?? episodes, i18n.t, updated);
+    useAppStore.getState().updateNotificationText(toastId, i18n.t(key, { id }));
+  });
 }
 
 export interface EnqueueResult {
@@ -120,10 +126,7 @@ export async function enqueueStoryboard(
     () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
     oneTaskId,
   );
-  notifyEnqueued(
-    res.deduped,
-    res.deduped ? null : i18n.t("dashboard:storyboard_task_submitted_toast", { id: await resolveItemLabel(projectName, segmentId) }),
-  );
+  notifyItemEnqueued(projectName, segmentId, res.deduped, "dashboard:storyboard_task_submitted_toast");
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
@@ -139,10 +142,7 @@ export async function enqueueVideo(
     () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
     oneTaskId,
   );
-  notifyEnqueued(
-    res.deduped,
-    res.deduped ? null : i18n.t("dashboard:video_task_submitted_toast", { id: await resolveItemLabel(projectName, segmentId) }),
-  );
+  notifyItemEnqueued(projectName, segmentId, res.deduped, "dashboard:video_task_submitted_toast");
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
@@ -156,10 +156,7 @@ export async function enqueueNarration(
     () => API.generateNarrationAudio(projectName, segmentId, scriptFile),
     oneTaskId,
   );
-  notifyEnqueued(
-    res.deduped,
-    res.deduped ? null : i18n.t("dashboard:narration_task_submitted_toast", { id: await resolveItemLabel(projectName, segmentId) }),
-  );
+  notifyItemEnqueued(projectName, segmentId, res.deduped, "dashboard:narration_task_submitted_toast");
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 

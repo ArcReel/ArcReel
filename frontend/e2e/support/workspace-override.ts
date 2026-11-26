@@ -94,7 +94,7 @@ export function buildWorkspaceBody(
       ? (inlineStatus as { episodes_summary?: RecordedWorkspace["summary"]["episodes_summary"] }).episodes_summary
       : undefined) ?? {
       total: summaryEpisodes.length,
-      scripted: summaryEpisodes.filter((entry) => entry.script_status !== "none").length,
+      scripted: summaryEpisodes.filter((entry) => entry.script_status === "generated").length,
       in_production: summaryEpisodes.filter((entry) => entry.status === "in_production").length,
       completed: summaryEpisodes.filter((entry) => entry.status === "completed").length,
     };

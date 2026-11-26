@@ -4,6 +4,7 @@ import asyncio
 import threading
 
 import httpx
+import pytest
 
 from lib.i18n import _
 from server.dependencies import project_reads
@@ -22,8 +23,10 @@ class _ArrivalSpy(RequestCoalescer):
     def __init__(self):
         super().__init__()
         self.arrivals: asyncio.Queue[None] = asyncio.Queue()
+        self.keys = []
 
     async def run(self, key, compute):
+        self.keys.append(key)
         self.arrivals.put_nowait(None)
         return await super().run(key, compute)
 
@@ -40,7 +43,7 @@ class _GatedSummaries(_FakeSummaries):
     def get_project_summary(self, name, **kwargs):
         self._loop.call_soon_threadsafe(self.started.set)
         self.gate.wait()
-        summary = super().get_project_summary(name, **kwargs)
+        summary = super().get_project_summary(name, currency=kwargs.get("currency", "verified"))
         return summary.model_copy(update={"needs_repair": True, "repair_reason": "scripts/episode_1.json"})
 
 
@@ -180,7 +183,8 @@ class TestProjectsRouter:
             assert "storyboards/scene_E1S01.png" in data["asset_fingerprints"]
             assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
-    async def test_get_project_does_not_share_results_across_languages(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("suffix", ["", "/workspace"])
+    async def test_get_project_does_not_share_results_across_languages(self, tmp_path, monkeypatch, suffix):
         """合流按语言分开：中文计算在跑、中文请求已占等待位时到达的英文请求，拿到英文文案。"""
         summaries = _GatedSummaries()
         spy = _ArrivalSpy()
@@ -191,7 +195,9 @@ class TestProjectsRouter:
         ) as client:
 
             def get(locale):
-                return asyncio.create_task(client.get("/api/v1/projects/ready", headers={"Accept-Language": locale}))
+                return asyncio.create_task(
+                    client.get(f"/api/v1/projects/ready{suffix}", headers={"Accept-Language": locale})
+                )
 
             running = get("zh")
             try:
@@ -208,7 +214,8 @@ class TestProjectsRouter:
             episode = _("episode_position_name", locale=locale, position=1)
             return _("episode_script_name", locale=locale, name=episode)
 
-        reasons = [r.json()["project"]["status"]["repair_reason"] for r in responses]
+        payloads = [r.json() for r in responses]
+        reasons = [(p["summary"] if suffix else p["project"]["status"])["repair_reason"] for p in payloads]
         assert reasons == [expected("zh"), expected("zh"), expected("en")]
 
 
@@ -218,6 +225,7 @@ def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypat
     from lib.artifacts.artifact_planner import TargetStatePlanner
     from lib.workflow.workflow_state import WorkflowStateService
     from server.routers import projects
+    from tests.integration.lib.artifacts.test_content_digest_currency import _count_content_reads
     from tests.integration.lib.project.test_project_summary import (
         _make_project,
         _plan_one_episode,
@@ -239,6 +247,8 @@ def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypat
         },
     )
     with build_projects_client(monkeypatch, manager, WorkflowStateService(manager)) as client:
+        reads = _ArrivalSpy()
+        override(client, project_reads, lambda: reads)
         with monkeypatch.context() as guards:
             for owner, method in [(TargetStatePlanner, "__init__"), (projects, "annotate_derivative_references")]:
                 guards.setattr(owner, method, Mock(side_effect=AssertionError(method)))
@@ -254,8 +264,38 @@ def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypat
         row = data["summary"]["episodes"][0]
         assert data["summary"]["currency"] == "registered"
         assert (row["needs_replan"], row["videos"], row["status"]) == (1, {"total": 1, "available": 0}, "scripted")
-        load_script = Mock(wraps=manager.load_script)
-        monkeypatch.setattr(manager, "load_script", load_script)
-        monkeypatch.setattr(manager, "load_script_readonly", Mock(side_effect=AssertionError("duplicate read")))
+        manager.update_project(
+            "demo",
+            lambda project: project["episodes"].append(
+                {**project["episodes"][0], "episode": 2, "script_file": "scripts/other.json"}
+            ),
+        )
+        _write_registered_script(
+            project_dir,
+            {**manager.load_script("demo", "episode_1.json"), "episode": 2},
+            episode=2,
+            filename="other.json",
+        )
+        with monkeypatch.context() as guards:
+            read_script = Mock(wraps=manager.load_script_readonly)
+            guards.setattr(manager, "load_script_readonly", read_script)
+            assert client.get("/api/v1/projects/demo/workspace").status_code == 200
+            assert any(call.args[1] == "scripts/other.json" for call in read_script.call_args_list)
+            read_script.reset_mock()
+            scoped = client.get("/api/v1/projects/demo/workspace", params={"episodes": 1})
+            assert scoped.status_code == 200
+            partial = scoped.json()["summary"]
+            assert partial["episodes_summary"] is None
+            assert partial["episodes"] == [row]
+            assert reads.keys[-2] != reads.keys[-1]
+            assert all("other.json" not in str(call) for call in read_script.call_args_list)
+            for selection in ([1, 1], [0], [3]):
+                assert client.get("/api/v1/projects/demo/workspace", params={"episodes": selection}).status_code == 400
+            for malformed in ("", "1,1", "abc"):
+                assert client.get("/api/v1/projects/demo/workspace", params={"episodes": malformed}).status_code == 422
+        script_reads = [
+            _count_content_reads(monkeypatch, project_dir / "scripts" / name)
+            for name in ("episode_1.json", "other.json")
+        ]
         assert client.get("/api/v1/projects/demo").status_code == 200
-        assert load_script.call_count == 1
+        assert [counter["content_reads"] for counter in script_reads] == [1, 1]

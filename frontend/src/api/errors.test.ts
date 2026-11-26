@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
-import { ScriptEditCommandError, SpeechAdmissionError } from "./errors";
+import { API } from "@/api";
+import { useItemLocationsStore } from "@/stores/item-locations-store";
+import { locateDiagnosticItems, ScriptEditCommandError, SpeechAdmissionError } from "./errors";
 
 describe("api/errors position formatting without currentScripts", () => {
   beforeEach(() => {
@@ -42,6 +44,24 @@ describe("api/errors position formatting without currentScripts", () => {
     });
     expect(err.message).toContain("视频单元 3");
     expect(err.message).not.toContain("E2U03");
+  });
+
+  it("locates a legacy admission without loading its episode script", async () => {
+    const admission = { allowed: false as const, mode: null, unit_id: "U03", problems: [{
+      code: "needs_replan" as const, unit_id: "U03", locations: [], reason: "replan", action: "replan",
+    }] };
+    useItemLocationsStore.getState().reset();
+    const locate = vi.spyOn(API, "locateItems").mockResolvedValue({
+      items: [{ episode: 2, item_id: "E2U03", position: 6, status: "found" }],
+    });
+    try {
+      await locateDiagnosticItems("demo", admission);
+      expect(new SpeechAdmissionError(admission).message).toContain("视频单元 6");
+      expect(locate).toHaveBeenCalledTimes(1);
+    } finally {
+      locate.mockRestore();
+      useItemLocationsStore.getState().reset();
+    }
   });
 
   it("formats ScriptEditCommandError using backend-supplied problem.position without loaded scripts", () => {

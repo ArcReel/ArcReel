@@ -15,6 +15,7 @@ import {
   isScriptEditResult,
   isSpeechAdmission,
   messageFromDetail,
+  locateDiagnosticItems,
   type ErrorResponse,
 } from "./errors";
 
@@ -127,7 +128,8 @@ export function sseErrorHandler(onError?: (error: SseStreamError) => void) {
 
 export async function requestJson<T = unknown>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  onHeaders?: (headers: Headers) => void,
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const defaultOptions: RequestInit = {
@@ -143,21 +145,17 @@ export async function requestJson<T = unknown>(
     const payload = await response
       .json()
       .catch(() => ({ detail: response.statusText })) as unknown;
-    if (isScriptEditResult(payload)) {
-      throw new ScriptEditCommandError(payload);
-    }
     const error = payload as ErrorResponse;
-    if (isScriptEditResult(error.detail)) {
-      throw new ScriptEditCommandError(error.detail);
+    const detail = isScriptEditResult(payload) ? payload : error.detail;
+    if (isScriptEditResult(detail) || isSpeechAdmission(detail)) {
+      await locateDiagnosticItems(extractProjectName(endpoint), detail, options.signal ?? undefined);
+      throw isScriptEditResult(detail) ? new ScriptEditCommandError(detail) : new SpeechAdmissionError(detail);
     }
     if (isAgentFailureDetail(error.detail)) {
       throw new AgentFailureError(error.detail.message, error.detail.failure);
     }
     if (isReferenceProjectionAdmission(error.detail)) {
       throw new ReferenceProjectionError(error.detail);
-    }
-    if (isSpeechAdmission(error.detail)) {
-      throw new SpeechAdmissionError(error.detail);
     }
     throw new ApiRequestError(
       requestErrorMessage(error, i18n.t("errors:request_failed")),
@@ -167,6 +165,7 @@ export async function requestJson<T = unknown>(
     );
   }
 
+  onHeaders?.(response.headers);
   if (response.status === 204) {
     return undefined as T;
   }

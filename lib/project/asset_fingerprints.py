@@ -1,6 +1,7 @@
 """资产文件指纹计算 — 基于 mtime 的内容寻址缓存支持"""
 
 from pathlib import Path
+from stat import S_ISREG
 
 _MEDIA_SUBDIRS = (
     "storyboards",
@@ -36,7 +37,7 @@ def _scan_media_tree(prefix: str, dir_path: Path, fingerprints: dict[str, int]) 
             _scan_media_tree(f"{prefix}/{entry.name}", entry, fingerprints)
 
 
-def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
+def compute_asset_fingerprints(project_path: Path, paths: set[str] | None = None) -> dict[str, int]:
     """
     扫描项目目录下所有媒体文件，返回 {相对路径: mtime_ns_int} 映射。
 
@@ -44,6 +45,30 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
     对约 50 个文件，耗时 <1ms（仅读文件系统元数据）。
     """
     fingerprints: dict[str, int] = {}
+
+    if paths is not None:
+        root = project_path.resolve()
+        for name in paths:
+            relative = Path(name)
+            if (
+                not relative.parts
+                or relative.parts[0] not in _MEDIA_SUBDIRS
+                or ".." in relative.parts
+                or _VERSIONS_DIR in relative.parts
+            ):
+                continue
+            file = root / relative
+            try:
+                if file.parent.resolve(strict=True) != file.parent or not file.resolve(strict=True).is_relative_to(
+                    root
+                ):
+                    continue
+                metadata = file.stat()
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if S_ISREG(metadata.st_mode):
+                fingerprints[name] = metadata.st_mtime_ns
+        return fingerprints
 
     for subdir in _MEDIA_SUBDIRS:
         dir_path = project_path / subdir

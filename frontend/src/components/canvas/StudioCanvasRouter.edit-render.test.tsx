@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -122,6 +122,44 @@ describe("StudioCanvasRouter edit view mounts", () => {
     useWorkflowStore.setState({ plan: null, planKey: null });
     vi.restoreAllMocks();
     stubMediaElementPlayback();
+  });
+
+  it.each(["save", "discard"])("retains the prompt across an Agent script rebind until %s", async (action) => {
+    const script = makeScript(null);
+    renderEditView(script, "/episodes/1?view=board");
+    const prompt = await screen.findByDisplayValue("image prompt");
+    fireEvent.change(prompt, { target: { value: "local edit" } });
+    const original = useProjectsStore.getState();
+    const project = original.currentProjectData!;
+    const rebound = { ...project, episodes: project.episodes.map(ep => ({ ...ep, script_file: "scripts/b.json" })) };
+    act(() => useProjectsStore.setState({
+      currentProjectData: rebound, currentScripts: {},
+      activeEpisodeScript: { ...original.activeEpisodeScript, projectName: "demo", episode: 1, scriptFile: "b.json", status: "loading" },
+    }));
+    expect(screen.getByDisplayValue("local edit")).toBeVisible();
+    act(() => useProjectsStore.setState({ currentScripts: { "b.json": script } }));
+    expect(screen.getByDisplayValue("local edit")).toBeVisible();
+    act(() => useProjectsStore.setState(original));
+    expect(screen.getByDisplayValue("local edit")).toBeVisible();
+    const replacement = makeScript(null);
+    if (replacement.content_mode !== "narration" || !("segments" in replacement)) throw new Error("expected narration");
+    replacement.segments[0].image_prompt = "replacement prompt";
+    act(() => useProjectsStore.setState({ currentProjectData: rebound, currentScripts: { "b.json": replacement } }));
+    const save = vi.spyOn(API, "updateSegment").mockRejectedValue(new Error("offline"));
+    fireEvent.click(screen.getByRole("button", { name: /^保存$/ }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("demo", "E1S03", {
+      script_file: "episode_1.json", image_prompt: "local edit",
+    }));
+    if (action === "save") {
+      save.mockResolvedValue({ success: true });
+      act(() => useProjectsStore.setState({ refreshProject: vi.fn().mockResolvedValue("success") }));
+      fireEvent.click(await screen.findByRole("button", { name: /^保存$/ }));
+    } else {
+      fireEvent.click(await screen.findByRole("button", { name: "放弃修改" }));
+    }
+    expect(await screen.findByDisplayValue("replacement prompt")).toBeVisible();
+    expect(save).toHaveBeenCalledTimes(action === "save" ? 2 : 1);
+    expect(save.mock.lastCall?.[2].script_file).toBe("episode_1.json");
   });
 
   it("uses the edit timeline's time even when the URL also contains a unit", async () => {

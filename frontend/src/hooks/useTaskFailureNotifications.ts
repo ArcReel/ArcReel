@@ -4,13 +4,12 @@ import { useTranslation } from "react-i18next";
 import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { useItemLocationsStore } from "@/stores/item-locations-store";
+import { onNextLocationSnapshot, useItemLocationsStore } from "@/stores/item-locations-store";
 import { suppressedAssetSheetTaskIds, useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
-import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
+import { episodeNumberFromTaskResource, buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
 import { episodeDisplayName } from "@/utils/episode-display";
-import { findEpisodeItem, isPositionedItemId } from "@/utils/episode-item";
+import { findEpisodeItem, isLocatableItemId } from "@/utils/episode-item";
 import {
-  episodeNumberFromTaskResource,
   parseReferenceAuthoringPartial,
 } from "@/components/canvas/reference/prompt-authoring-partial";
 import type { TaskItem, TaskStatus } from "@/types";
@@ -33,15 +32,14 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
   const seededRef = useRef(false);
   const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
-  const generationRef = useRef(0);
+  const requestScope = useRef<AbortController | null>(null);
 
   useEffect(() => {
     prevStatusRef.current = new Map();
     seededRef.current = false;
-    generationRef.current += 1;
-    return () => {
-      generationRef.current += 1;
-    };
+    const controller = new AbortController();
+    requestScope.current = controller;
+    return () => controller.abort();
   }, [projectName]);
 
   useEffect(() => {
@@ -55,7 +53,7 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
     const currentScripts = useProjectsStore.getState().currentScripts;
-    const deferredFailures: TaskItem[] = [];
+    const pending = new Map<string, TaskItem>();
     for (const tk of tasks) {
       if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
@@ -92,29 +90,21 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
         }
       }
       if (notify && tk.status === "failed") {
+        const cached = projectName && useItemLocationsStore.getState().getLocation(projectName, tk.resource_id);
         const needsLookup =
           Boolean(projectName) &&
           typeof tk.position !== "number" &&
           !tk.resource_ref &&
-          isPositionedItemId(tk.resource_id) &&
+          isLocatableItemId(tk.resource_id) &&
           !findEpisodeItem(currentScripts, tk.resource_id) &&
-          !useItemLocationsStore.getState().getLocation(projectName, tk.resource_id);
-        if (needsLookup) {
-          deferredFailures.push(tk);
-        } else {
-          const locations = projectName ? useItemLocationsStore.getState().locations : undefined;
-          const text = describeTaskFailure(
-            tRef.current,
-            tk,
-            projectDataRef.current,
-            currentScripts,
-            locations,
-          );
-          if (text) {
-            useAppStore.getState().pushNotification(text, "error", {
-              target: buildTaskFailureTarget(tk, projectDataRef.current),
-            });
-          }
+          (!cached || cached.status === "unloaded");
+        const locations = projectName ? useItemLocationsStore.getState().locations : undefined;
+        const text = describeTaskFailure(tRef.current, tk, projectDataRef.current, currentScripts, locations);
+        if (text) {
+          const id = useAppStore.getState().pushNotification(text, "error", {
+            target: buildTaskFailureTarget(tk, projectDataRef.current),
+          });
+          if (needsLookup) pending.set(id, tk);
         }
       }
       next.set(tk.task_id, tk.status);
@@ -123,30 +113,25 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     if (!isTransitionCommit) {
       seededRef.current = true;
     }
-    if (deferredFailures.length > 0 && projectName) {
-      const gen = generationRef.current;
-      const missingIds = deferredFailures.map((tk) => tk.resource_id);
-      void useItemLocationsStore
-        .getState()
-        .locateNow(projectName, missingIds)
-        .then((locations) => {
-          if (generationRef.current !== gen) return;
-          const latestScripts = useProjectsStore.getState().currentScripts;
-          for (const tk of deferredFailures) {
-            const text = describeTaskFailure(
-              tRef.current,
-              tk,
-              projectDataRef.current,
-              latestScripts,
-              locations,
-            );
-            if (text) {
-              useAppStore.getState().pushNotification(text, "error", {
-                target: buildTaskFailureTarget(tk, projectDataRef.current),
-              });
-            }
-          }
-        });
+    const signal = requestScope.current?.signal;
+    if (pending.size && projectName && signal) {
+      const locate = async () => {
+        const store = useItemLocationsStore.getState();
+        const revision = store.snapshotRevision;
+        const ids = [...pending.values()].map((task) => task.resource_id);
+        const locations = await store.locateNow(projectName, ids, signal);
+        if (signal.aborted) return;
+        for (const [id, task] of pending) {
+          const location = locations.get(task.resource_id);
+          if (!location || location.status === "unloaded") continue;
+          const text = describeTaskFailure(tRef.current, task, projectDataRef.current,
+            useProjectsStore.getState().currentScripts, locations);
+          if (text) useAppStore.getState().updateNotificationText(id, text);
+          pending.delete(id);
+        }
+        if (pending.size) onNextLocationSnapshot(projectName, revision, signal, () => void locate());
+      };
+      void locate();
     }
   }, [tasks, connected, projectName]);
 }

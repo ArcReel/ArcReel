@@ -251,7 +251,7 @@ export interface WorkflowStatus {
   content: WorkflowContent | null;
   operations: Record<string, WorkflowOperation>;
   gates: Record<string, Record<string, unknown>>;
-  artifacts: Record<string, WorkflowArtifactCollection>;
+  artifacts: Record<string, WorkflowArtifactCollection> & { asset_sheets?: Record<string, WorkflowArtifactCollection> };
   next_action: WorkflowNextAction;
   next_alternatives: WorkflowNextAction[];
   migration_report?: WorkflowMigrationReport | null;

@@ -9,7 +9,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
@@ -76,9 +76,12 @@ async def stream_project_events(
     project_name: str,
     request: Request,
     service: ProjectEventService = Depends(_project_events_service),
+    episode: Annotated[int | None, Header(alias="X-ArcReel-Active-Episode", ge=1)] = None,
 ) -> AsyncIterator[ServerSentEvent]:
     try:
-        async with service.stream_events(project_name, idle_timeout=PROJECT_EVENTS_SSE_POLL_SECONDS) as stream:
+        async with service.stream_events(
+            project_name, idle_timeout=PROJECT_EVENTS_SSE_POLL_SECONDS, episode=episode
+        ) as stream:
             async for item in stream:
                 if await request.is_disconnected():
                     break

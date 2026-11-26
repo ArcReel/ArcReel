@@ -29,6 +29,22 @@ class TestComputeAssetFingerprints:
         assert "videos/scene_E1S01.mp4" in result
         assert isinstance(result["storyboards/scene_E1S01.png"], int)
 
+    def test_partial_fingerprints_only_probe_requested_media(self, tmp_path, monkeypatch):
+        from pathlib import Path
+
+        folder = tmp_path / "videos"
+        folder.mkdir()
+        selected = folder / "E1S01.mp4"
+        selected.write_bytes(b"one")
+        (folder / "E2S01.mp4").write_bytes(b"two")
+
+        def forbid_scan(path):
+            raise AssertionError(f"unexpected directory scan: {path}")
+
+        monkeypatch.setattr(Path, "iterdir", forbid_scan)
+        result = compute_asset_fingerprints(tmp_path, {"videos/E1S01.mp4", "videos/missing.mp4", "../foreign"})
+        assert result == {"videos/E1S01.mp4": selected.stat().st_mtime_ns}
+
     def test_includes_thumbnails_characters_scenes_props(self, tmp_path):
         for subdir, name in [
             ("thumbnails", "scene_E1S01.jpg"),

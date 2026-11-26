@@ -98,7 +98,7 @@ function useProjectWorkflowStatus(
 
   const liveSignal = yieldToPanel
     ? `yielded::${projectWideRevision}::${currentEpisodeCompleted ? "done" : "open"}`
-    : `active::${projectWideRevision}::${targetEpisodeRevision}::${taskSignal}`;
+    : `active::${projectWideRevision}::${targetEpisodeRevision}::${episodes.find((ep) => ep.status !== "completed")?.episode ?? ""}::${taskSignal}`;
   const settledLiveSignal = useDebouncedValue(liveSignal, STATUS_REFRESH_DEBOUNCE_MS);
   const liveSignalRef = useRef(liveSignal);
   useEffect(() => {
@@ -159,7 +159,7 @@ function useProjectWorkflowStatus(
       return;
     }
     const prev = lastFetchedRef.current;
-    if (prev && prev.projectName === projectName && prev.signal === settledLiveSignal) return;
+    if (settledLiveSignal !== liveSignalRef.current || (prev?.projectName === projectName && prev.signal === settledLiveSignal)) return;
     if (isDocumentHidden()) {
       pendingVisibleRefreshRef.current = true;
       return;
@@ -431,7 +431,8 @@ function EpisodeList({
     const el = listRef.current;
     if (!el) return;
     const firstRow = el.firstElementChild as HTMLElement | null;
-    const rowHeight = Math.max(firstRow?.offsetHeight || EPISODE_LIST_ESTIMATED_ROW_HEIGHT, 16);
+    const gap = parseFloat(getComputedStyle(el).rowGap) || 0;
+    const rowHeight = Math.max(firstRow?.offsetHeight || EPISODE_LIST_ESTIMATED_ROW_HEIGHT, 16) + gap;
     const visibleCount = Math.max(
       Math.ceil((el.clientHeight || rowHeight * 12) / rowHeight),
       EPISODE_LIST_WINDOW_SIZE - EPISODE_LIST_OVERSCAN * 2,

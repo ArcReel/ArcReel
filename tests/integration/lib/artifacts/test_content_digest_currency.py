@@ -18,6 +18,7 @@ from lib.infra.content_digest import reset_file_digest_cache_for_tests
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.integration.lib.content_read_support import observe_builtin_open
 from tests.integration.lib.workflow.test_workflow_state import (
     _make_project,
     _register_produced_artifacts,
@@ -90,6 +91,11 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
             return False
         return (info.st_dev, info.st_ino) in identities
 
+    def _counted_open(_file: Any, stream: IO[Any]) -> None:
+        info = os.fstat(stream.fileno())
+        if (info.st_dev, info.st_ino) in identities:
+            counts["content_reads"] += 1
+
     def _counted_path_open(self: Path, *args: Any, **kwargs: Any) -> IO[Any]:
         if _is_target(self):
             counts["content_reads"] += 1
@@ -115,6 +121,7 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
         fd_reads.pop(fd, None)
         original_os_close(fd)
 
+    observe_builtin_open(monkeypatch, _counted_open)
     monkeypatch.setattr(Path, "open", _counted_path_open)
     monkeypatch.setattr(os, "open", _counted_os_open)
     monkeypatch.setattr(os, "read", _counted_os_read)
