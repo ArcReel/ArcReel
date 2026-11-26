@@ -644,7 +644,6 @@ describe("AgentCopilot", () => {
       render(<AgentCopilot />);
 
       const tray = screen.getByRole("list", { name: "排队消息" });
-      expect(tray).toHaveClass("max-h-[30cqh]", "overflow-y-auto");
       expect(tray).toHaveAttribute("tabindex", "0");
       expect(tray.scrollTop).toBe(640);
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();

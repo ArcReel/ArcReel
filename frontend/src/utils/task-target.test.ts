@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
-import i18n from "@/i18n";
+import i18n from "@/test/i18n";
 import type { ProjectData, TaskItem } from "@/types";
 import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
 
