@@ -445,6 +445,8 @@ async function presetDetailReady(page: Page) {
 defineRegionScenarios("供应商", [
   {
     name: "预置供应商详情：密钥多时正文在详情栏里滚动，底部保存栏始终可见",
+    viewports: "both",
+    a11y: true,
     path: PROVIDERS_PATH,
     api: { ...PROVIDERS_WITH_KEYS, ...MANY_CREDENTIALS },
     ready: presetDetailReady,
@@ -561,6 +563,8 @@ defineRegionScenarios("供应商", [
   },
   {
     name: "自定义供应商的模型 Sheet：参数全部展开时正文在 Sheet 里滚动，保存栏始终可见",
+    viewports: "both",
+    a11y: true,
     path: CUSTOM_PROVIDER_PATH,
     api: CUSTOM_PROVIDER_DETAIL,
     ready: customDetailReady,
@@ -691,6 +695,7 @@ defineRegionScenarios("供应商", [
   },
   {
     name: "自定义供应商详情：删除确认写明模型数量，操作按钮留在视口内",
+    a11y: true,
     path: CUSTOM_PROVIDER_PATH,
     api: CUSTOM_PROVIDER_DETAIL,
     ready: customDetailReady,

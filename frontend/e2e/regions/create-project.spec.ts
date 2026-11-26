@@ -89,6 +89,7 @@ async function scrollBodyToTop(page: Page) {
 defineRegionScenarios("新建项目向导", [
   {
     name: "第一步未填写时列出缺少的必填项，正文可滚到生成方式",
+    a11y: true,
     path: LOBBY,
     ready: lobbyReady,
     act: async (page) => {
@@ -102,6 +103,7 @@ defineRegionScenarios("新建项目向导", [
   },
   {
     name: "第一步填满并展开宫格分镜后，正文仍可滚到底",
+    viewports: "both",
     path: LOBBY,
     ready: lobbyReady,
     act: async (page) => {
@@ -186,6 +188,7 @@ defineRegionScenarios("新建项目向导", [
   },
   {
     name: "风格步骤只有一个滚动容器，模版网格可滚到底",
+    a11y: true,
     path: LOBBY,
     ready: lobbyReady,
     act: async (page) => {

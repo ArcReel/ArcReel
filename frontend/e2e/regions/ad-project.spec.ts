@@ -122,6 +122,7 @@ defineRegionScenarios("广告项目概览与故事设定", [
     name: "长创作灵感与十二个商品：字段随内容撑高，由画布滚动到最后一个商品",
     path: OVERVIEW_PATH,
     api: LONG_AD,
+    viewports: "both",
     ready: overviewReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -135,6 +136,7 @@ defineRegionScenarios("广告项目概览与故事设定", [
     name: "已登记三个商品：整行列出缩略图、名称与描述，标题行有「查看全部」与「添加商品」",
     path: OVERVIEW_PATH,
     api: REGULAR_AD,
+    a11y: true,
     ready: overviewReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -189,6 +191,7 @@ defineRegionScenarios("广告项目概览与故事设定", [
     name: "视频页的「故事设定」tab：排在第一个，没有批量动作，也没有「从原文生成」",
     path: SETTING_PATH,
     api: REGULAR_AD,
+    a11y: true,
     ready: settingReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -203,6 +206,7 @@ defineRegionScenarios("广告项目概览与故事设定", [
     name: "「故事设定」tab 的分秒脚本式长梗概与长世界观：字段随内容撑高，由视图滚动到底",
     path: SETTING_PATH,
     api: LONG_AD,
+    viewports: "both",
     ready: settingReady,
     act: async (page) => {
       await clearAgentOverlay(page);

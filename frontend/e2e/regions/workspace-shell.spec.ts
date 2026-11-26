@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { defineRegionScenarios } from "../support/scenarios.ts";
+import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -129,6 +129,8 @@ defineRegionScenarios("项目工作区外壳", [
     name: "集页侧栏收为图标栏，Agent 面板默认展开",
     path: EPISODE_PATH,
     api: API,
+    viewports: "both",
+    a11y: "all-viewports",
     ready: episodeReady,
     act: async (page) => {
       expect(await width(sidebar(page))).toBeCloseTo(SIDEBAR_RAIL, 0);
@@ -143,6 +145,7 @@ defineRegionScenarios("项目工作区外壳", [
     name: "多集长标题时侧栏列表在自己的区域里滚动",
     path: CHARACTERS_PATH,
     api: MANY_EPISODES,
+    viewports: "both",
     ready: async (page) => {
       await shellReady(page);
       const lastEpisode = { name: /第 40 集/ };
@@ -157,39 +160,14 @@ defineRegionScenarios("项目工作区外壳", [
     name: "多集时集页的图标栏在自己的区域里滚动",
     path: EPISODE_PATH,
     api: MANY_EPISODES,
+    viewports: "both",
     ready: episodeReady,
-  },
-  {
-    name: "紧凑档 Agent 面板覆盖画布右侧，画布不被挤窄",
-    path: EPISODE_PATH,
-    api: API,
-    ready: episodeReady,
-    act: async (page) => {
-      await page.setViewportSize({ width: 1100, height: 700 });
-      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
-      expect(await width(sidebar(page))).toBeCloseTo(SIDEBAR_RAIL, 0);
-      await expectAgentLayout(page, AGENT_DEFAULT);
-    },
-  },
-  {
-    name: "紧凑档焦点在 Agent 面板内时 Esc 收起面板，焦点回到开关",
-    path: EPISODE_PATH,
-    api: API,
-    ready: episodeReady,
-    act: async (page) => {
-      await page.setViewportSize({ width: 1100, height: 700 });
-      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
-      await agentInput(page).focus();
-      await page.keyboard.press("Escape");
-      await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
-      await expect(agentToggle(page)).toBeFocused();
-      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
-    },
   },
   {
     name: "收起 Agent 面板后画布占满，再展开回到原来的宽度",
     path: EPISODE_PATH,
     api: API,
+    viewports: "both",
     ready: episodeReady,
     act: async (page) => {
       const { width: viewportWidth } = viewport(page);
@@ -207,6 +185,7 @@ defineRegionScenarios("项目工作区外壳", [
     name: "只用键盘调宽：方向键每次 16px，双击恢复默认宽度",
     path: CHARACTERS_PATH,
     api: API,
+    viewports: "both",
     ready: shellReady,
     act: async (page) => {
       await agentHandle(page).focus();
@@ -230,6 +209,7 @@ defineRegionScenarios("项目工作区外壳", [
     name: "把 Agent 面板拖到最宽时画布至少保留 480px",
     path: CHARACTERS_PATH,
     api: API,
+    viewports: "both",
     ready: shellReady,
     act: async (page) => {
       const handle = await box(agentHandle(page));
@@ -257,6 +237,36 @@ defineRegionScenarios("项目工作区外壳", [
     act: async (page) => {
       await agentInput(page).fill(NINE_LINES);
       await expectInputCapped(page);
+    },
+  },
+]);
+
+defineViewportContracts("项目工作区外壳", [
+  {
+    name: "紧凑档 Agent 面板覆盖画布右侧，画布不被挤窄",
+    viewport: { width: 1100, height: 700 },
+    path: EPISODE_PATH,
+    api: API,
+    ready: episodeReady,
+    act: async (page) => {
+      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
+      expect(await width(sidebar(page))).toBeCloseTo(SIDEBAR_RAIL, 0);
+      await expectAgentLayout(page, AGENT_DEFAULT);
+    },
+  },
+  {
+    name: "紧凑档焦点在 Agent 面板内时 Esc 收起面板，焦点回到开关",
+    viewport: { width: 1100, height: 700 },
+    path: EPISODE_PATH,
+    api: API,
+    ready: episodeReady,
+    act: async (page) => {
+      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
+      await agentInput(page).focus();
+      await page.keyboard.press("Escape");
+      await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "false");
+      await expect(agentToggle(page)).toBeFocused();
+      await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
     },
   },
 ]);

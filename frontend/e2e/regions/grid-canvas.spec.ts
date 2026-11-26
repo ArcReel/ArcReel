@@ -137,6 +137,8 @@ async function gridReady(page: Page) {
 defineRegionScenarios("多宫格分镜图", [
   {
     name: "每组一张卡片，联合图占媒体栏，页头只有「补齐联合图」",
+    viewports: "both",
+    a11y: true,
     path: GRID_PATH,
     api: API,
     ready: gridReady,

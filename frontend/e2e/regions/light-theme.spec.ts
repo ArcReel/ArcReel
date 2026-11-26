@@ -12,6 +12,8 @@ defineRegionScenarios("浅色主题", [
     name: "项目大厅",
     path: "/app/projects",
     colorScheme: "light",
+    viewports: "both",
+    a11y: true,
     ready: async (page) => {
       await page.getByRole("heading", { level: 1 }).waitFor();
     },
@@ -20,6 +22,7 @@ defineRegionScenarios("浅色主题", [
     name: "设置的通用分区",
     path: "/app/settings?section=general",
     colorScheme: "light",
+    a11y: true,
     ready: async (page) => {
       await page.getByRole("combobox", { name: "主题" }).waitFor();
     },
@@ -29,6 +32,8 @@ defineRegionScenarios("浅色主题", [
     path: EPISODE_PATH,
     api: EVENT_STREAM,
     colorScheme: "light",
+    viewports: "both",
+    a11y: "all-viewports",
     ready: async (page) => {
       await page.getByRole("button", { name: "添加一集" }).waitFor();
     },
@@ -38,6 +43,7 @@ defineRegionScenarios("浅色主题", [
     path: EPISODE_PATH,
     api: EVENT_STREAM,
     colorScheme: "light",
+    a11y: true,
     ready: async (page) => {
       await page.getByRole("button", { name: "添加一集" }).waitFor();
     },

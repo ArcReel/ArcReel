@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
-import { projectName, selectedViewports } from "./e2e/support/viewports.ts";
+import {
+  COMPACT_VIEWPORT,
+  DESKTOP_VIEWPORT,
+  projectName,
+  RESPONSIVE_TAG,
+  VIEWPORT_CONTRACT_TAG,
+} from "./e2e/support/viewports.ts";
 
 const live = process.env.E2E_LIVE === "1";
 const PORT = Number(process.env.E2E_PORT ?? (live ? 4174 : 4173));
@@ -23,7 +29,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: 0,
-  workers: live || isCI ? 1 : undefined,
+  workers: live ? 1 : isCI ? 2 : undefined,
   reporter: isCI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   use: {
     baseURL: BASE_URL,
@@ -37,18 +43,32 @@ export default defineConfig({
   projects: live ? [{
     name: "live",
     testMatch: "live/**/*.spec.ts",
-    use: { viewport: { width: 1440, height: 900 } },
+    use: { viewport: { width: DESKTOP_VIEWPORT.width, height: DESKTOP_VIEWPORT.height } },
   }] : [
     {
       name: "layout-probe",
       testMatch: "probe/**/*.spec.ts",
       use: { viewport: { width: 1280, height: 720 } },
     },
-    ...selectedViewports().map((viewport) => ({
-      name: projectName(viewport),
+    {
+      name: projectName(DESKTOP_VIEWPORT),
       testMatch: "regions/**/*.spec.ts",
-      use: { viewport: { width: viewport.width, height: viewport.height } },
-    })),
+      grepInvert: new RegExp(VIEWPORT_CONTRACT_TAG),
+      use: { viewport: { width: DESKTOP_VIEWPORT.width, height: DESKTOP_VIEWPORT.height } },
+    },
+    {
+      name: projectName(COMPACT_VIEWPORT),
+      testMatch: "regions/**/*.spec.ts",
+      grep: new RegExp(RESPONSIVE_TAG),
+      grepInvert: new RegExp(VIEWPORT_CONTRACT_TAG),
+      use: { viewport: { width: COMPACT_VIEWPORT.width, height: COMPACT_VIEWPORT.height } },
+    },
+    {
+      name: "viewport-contracts",
+      testMatch: "regions/**/*.spec.ts",
+      grep: new RegExp(VIEWPORT_CONTRACT_TAG),
+      use: { viewport: { width: DESKTOP_VIEWPORT.width, height: DESKTOP_VIEWPORT.height } },
+    },
   ],
   webServer: {
     command: prebuilt ? startServer : `pnpm exec vite build && ${startServer}`,

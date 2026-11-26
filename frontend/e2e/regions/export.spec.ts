@@ -51,6 +51,7 @@ async function openExportDialog(page: Page) {
 defineRegionScenarios("导出范围对话框", [
   {
     name: "打开导出范围对话框，「导出」与两个范围选项都在视口内",
+    a11y: true,
     path: EPISODE_PATH,
     api: EVENT_STREAM,
     ready: episodeReady,
@@ -63,6 +64,7 @@ defineRegionScenarios("导出范围对话框", [
   },
   {
     name: "集名很长时提示换行，「导出」仍完整可见",
+    viewports: "both",
     path: EPISODE_PATH,
     api: LONG_EPISODE_NAME,
     ready: episodeReady,

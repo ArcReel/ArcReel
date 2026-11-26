@@ -96,6 +96,8 @@ const picker = (page: Page) => page.getByRole("dialog", { name: "选择尾帧" }
 defineRegionScenarios("尾帧选图器", [
   {
     name: "分镜图与切图很多时打开尾帧选图器，选中一张后底部按钮可用",
+    viewports: "both",
+    a11y: true,
     path: BOARD_PATH,
     api: API,
     ready: async (page) => {

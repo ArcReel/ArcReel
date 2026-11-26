@@ -1,6 +1,6 @@
 import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/region-helpers.ts";
 import type { Page } from "@playwright/test";
-import { defineRegionScenarios } from "../support/scenarios.ts";
+import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -261,6 +261,7 @@ defineRegionScenarios("集页页头", [
     name: "直接打开分镜链接后选中目标，刷新已清理的地址后不再定位",
     path: `${EPISODE_PATH}?view=board&unit=E1S16&from=agent`,
     api: PROGRESS_STRESS,
+    viewports: "both",
     ready: pageReady,
     act: async (page) => {
       const shots = page.getByRole("navigation", { name: "分镜列表" });
@@ -276,6 +277,7 @@ defineRegionScenarios("集页页头", [
     name: "两行页头约 85px，批量按钮写明补几份，没有可补的置灰",
     path: EPISODE_PATH,
     api: STRESS,
+    a11y: true,
     ready: async (page) => {
       await pageReady(page);
       await page.getByRole("button", { name: "补齐分镜图 · 34" }).waitFor();
@@ -325,6 +327,7 @@ defineRegionScenarios("集页页头", [
     name: "制作进度的提示各出现一次并标出单元，长原因与大量单元只在弹层内滚动",
     path: EPISODE_PATH,
     api: PROGRESS_STRESS,
+    viewports: "both",
     ready: pageReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -360,6 +363,8 @@ defineRegionScenarios("集页页头", [
     name: "查看原文：长原文只在弹层正文里滚动，页头高度不变",
     path: EPISODE_PATH,
     api: OWN_SOURCE,
+    viewports: "both",
+    a11y: true,
     ready: pageReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -388,6 +393,26 @@ defineRegionScenarios("集页页头", [
       await expect(viewTabs(page).getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tabpanel", { name: "脚本规划" })).toBeVisible();
       await expect(page.getByRole("button", { name: /^补齐|已齐$/ })).toHaveCount(0);
+    },
+  },
+]);
+
+defineViewportContracts("集页页头", [
+  {
+    name: "矮屏制作进度弹层的重新生成按钮保持对比度",
+    viewport: { width: 1280, height: 600 },
+    path: EPISODE_PATH,
+    api: PROGRESS_STRESS,
+    a11y: true,
+    ready: pageReady,
+    act: async (page) => {
+      await progress(page).click();
+      const popover = progressPopover(page);
+      await waitForEntrance(popover);
+      const boards = popover.getByTestId("workflow-row-boards");
+      await expect(boards.getByRole("button", { name: /^重新生成 / }).first()).toBeVisible();
+      const rect = await box(popover);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(viewport(page).height);
     },
   },
 ]);

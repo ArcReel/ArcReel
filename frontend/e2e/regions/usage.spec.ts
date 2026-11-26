@@ -285,6 +285,7 @@ defineRegionScenarios("使用记录", [
   },
   {
     name: "记录满一页且名称很长，表格滚到底后最后一行与分页可见",
+    a11y: true,
     path: USAGE,
     api: STRESS,
     ready: recordsReady,
@@ -301,12 +302,17 @@ defineRegionScenarios("使用记录", [
   },
   {
     name: "趋势、构成与需要关注在压力数据下不裁切",
+    viewports: "both",
     path: USAGE,
     api: STRESS,
     ready: recordsReady,
+    act: async (page) => {
+      await page.evaluate(() => document.fonts.ready);
+    },
   },
   {
     name: "从深链打开长提示词的详情弹窗，只有弹窗主体滚动",
+    a11y: true,
     path: `${USAGE}&record=7`,
     api: STRESS,
     ready: async (page) => {
@@ -349,6 +355,7 @@ defineRegionScenarios("使用记录", [
   },
   {
     name: "顶栏使用记录弹层在进行中与已结束都很多时，两栏各自滚动、底部链接可见",
+    viewports: "both",
     path: EPISODE_PATH,
     api: POPOVER_STRESS,
     ready: async (page) => {

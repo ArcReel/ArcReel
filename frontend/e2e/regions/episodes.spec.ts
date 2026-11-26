@@ -317,6 +317,7 @@ defineRegionScenarios("分集视图", [
     name: "规划失败的长原因与展开详情在弹层内可读",
     path: PATH,
     api: { ...POPULATED, ...FAILED_TASK },
+    a11y: true,
     ready: populatedReady,
     act: async (page) => {
       await revealCanvasRight(page);
@@ -360,6 +361,8 @@ defineRegionScenarios("分集视图", [
     name: "整本源文按集分段，集目录与原文各自滚动，正文行长受控",
     path: PATH,
     api: POPULATED,
+    viewports: "both",
+    a11y: true,
     ready: populatedReady,
     act: async (page) => {
       await expectOnlyColumnsScroll(page);
@@ -452,6 +455,7 @@ defineRegionScenarios("分集视图", [
     name: "有新的分集方案时集目录让位，原文右侧是方案栏",
     path: PATH,
     api: WITH_REPLAN,
+    viewports: "both",
     ready: async (page) => {
       await page.getByRole("region", { name: "新的分集方案" }).waitFor();
       await manuscript(page).getByRole("article").first().waitFor();

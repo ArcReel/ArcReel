@@ -53,6 +53,7 @@ async function sectionReady(page: Page) {
 defineRegionScenarios("全局设置 · ArcReel Agent", [
   {
     name: "没有 Agent 供应商时，本分区就地提示内嵌 Agent 未配置",
+    a11y: true,
     path: PATH,
     ready: async (page) => {
       await sectionReady(page);
@@ -82,6 +83,8 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
   },
   {
     name: "添加 Agent 供应商对话框展开模型路由后，内容可滚动到底，底部按钮始终可见",
+    viewports: "both",
+    a11y: true,
     path: PATH,
     ready: sectionReady,
     act: async (page) => {

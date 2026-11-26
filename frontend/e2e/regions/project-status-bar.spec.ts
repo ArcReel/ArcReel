@@ -99,6 +99,8 @@ async function headerReady(page: Page) {
 defineRegionScenarios("顶栏状态条", [
   {
     name: "30 集长标题时打开集进度，逐集清单在弹层里滚动",
+    viewports: "both",
+    a11y: true,
     path: OVERVIEW_PATH,
     api: MANY_EPISODES,
     ready: async (page) => {

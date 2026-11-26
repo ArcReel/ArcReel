@@ -135,6 +135,7 @@ defineRegionScenarios("文件视图", [
         body: JSON.stringify({ episode: 1, segments: [] }),
       },
     },
+    a11y: true,
     ready: (page) => tree(page).getByRole("button", { name: /scripts/ }).waitFor(),
     act: async (page) => {
       await tree(page).getByRole("button", { name: /scripts/ }).click();
@@ -148,6 +149,7 @@ defineRegionScenarios("文件视图", [
     name: "大目录与长正文（压力）：目录树与预览各自滚动",
     path: PATH,
     api: STRESS,
+    viewports: "both",
     slow: true,
     ready: (page) => tree(page).getByRole("button", { name: /storyboards/ }).waitFor(),
     act: async (page) => {
@@ -246,6 +248,7 @@ defineRegionScenarios("文件视图", [
     name: "项目回收站分区：降级恢复后只能下载的记录",
     path: PATH,
     api: TRASH_DEGRADED,
+    a11y: true,
     ready: (page) => sections(page).waitFor(),
     act: async (page) => {
       await sections(page).getByRole("tab", { name: "项目回收站" }).click();

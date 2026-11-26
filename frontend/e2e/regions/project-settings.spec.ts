@@ -141,6 +141,8 @@ async function tabReady(page: Page, title: string) {
 defineRegionScenarios("项目设置", [
   {
     name: "基础分页：改动后侧栏标出修改，外壳底行的保存栏在表单滚到底时完整可见",
+    viewports: "both",
+    a11y: true,
     path: settings(),
     ready: (page) => tabReady(page, "基础"),
     act: async (page) => {
@@ -166,6 +168,7 @@ defineRegionScenarios("项目设置", [
   },
   {
     name: "风格分页：「更换」打开风格对话框，只有对话框正文滚动",
+    a11y: true,
     path: settings("style"),
     api: projectWith({ style_template_id: "live_premium_drama" }),
     ready: (page) => tabReady(page, "风格"),
@@ -181,6 +184,7 @@ defineRegionScenarios("项目设置", [
   },
   {
     name: "模型分页（压力）：覆盖说明条、通道来源与展开的细分区，滚到底仍可保存",
+    viewports: "both",
     path: settings("models"),
     api: manyModelsOverrides(),
     ready: async (page) => {

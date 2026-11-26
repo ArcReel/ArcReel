@@ -40,36 +40,20 @@ jobs:
       website: ${{ steps.domains.outputs.website }}
       full: ${{ steps.scope.outputs.full }}
       coverage: ${{ steps.scope.outputs.coverage }}
-      e2e_viewports: ${{ steps.scope.outputs.e2e_viewports }}
-      e2e_shards: ${{ steps.scope.outputs.e2e_shards }}
-      e2e_shard_total: ${{ steps.scope.outputs.e2e_shard_total }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 2
       - name: Decide run scope
-        # 分片数按每片约 115 条用例定：单 worker 下 2560×1440 一档约 3 秒一条，最慢一片约 7 分钟，
-        # 与 Backend tests (integration) 相当。三档 921 条分 8 片，五档 1521 条分 13 片。
-        # 用例数明显变化时重算。
         id: scope
         env:
           FULL: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
           COVERAGE: ${{ inputs.coverage == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
         run: |
-          if [[ "$FULL" == "true" ]]; then
-            viewports=all
-            shard_total=13
-          else
-            viewports=screenshot
-            shard_total=8
-          fi
           {
             echo "full=$FULL"
             echo "coverage=$COVERAGE"
-            echo "e2e_viewports=$viewports"
-            echo "e2e_shards=$(jq -cn --argjson total "$shard_total" '[range(1; $total + 1)]')"
-            echo "e2e_shard_total=$shard_total"
           } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/domain-filter
         id: domains
@@ -456,15 +440,15 @@ jobs:
           fail_ci_if_error: false
 
   frontend-e2e:
-    name: frontend-e2e (${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }})
+    name: frontend-e2e (${{ matrix.shard }}/2)
     needs: [changes, frontend-static]
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.e2e_shards) }}
+        shard: [1, 2]
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001 --ipc=host
@@ -482,9 +466,13 @@ jobs:
       - name: Run page-level suite
         working-directory: frontend
         env:
-          E2E_VIEWPORTS: ${{ needs.changes.outputs.e2e_viewports }}
-          SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }}
-        run: node node_modules/@playwright/test/cli.js test --shard="$SHARD"
+          SHARD: ${{ matrix.shard }}/2
+        run: node node_modules/@playwright/test/cli.js test --project=layout-probe --project=1440x900 --project=1024x600 --shard="$SHARD"
+
+      - name: Run single-worker viewport contracts
+        if: matrix.shard == 1
+        working-directory: frontend
+        run: node node_modules/@playwright/test/cli.js test --project=viewport-contracts --workers=1
 
       - name: Upload Playwright report
         if: failure()

@@ -53,6 +53,8 @@ function diagnosticsDialog(page: Page): Locator {
 defineRegionScenarios("弹层与提示", [
   {
     name: "诊断条目多且长时，标题与关闭按钮留在视口内，只有正文滚动",
+    viewports: "both",
+    a11y: true,
     path: EPISODE_PATH,
     api: MANY_DIAGNOSTICS,
     ready: episodeReady,
@@ -117,6 +119,7 @@ defineRegionScenarios("弹层与提示", [
   },
   {
     name: "打开侧栏「添加一集」菜单",
+    a11y: true,
     path: EPISODE_PATH,
     api: EVENT_STREAM,
     ready: episodeReady,

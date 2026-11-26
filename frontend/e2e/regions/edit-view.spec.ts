@@ -264,6 +264,8 @@ defineRegionScenarios("剪辑视图", [
     name: "播放器、详情栏与四条轨道同屏，只有详情栏滚动",
     path: EDIT_PATH,
     api: TIMELINE,
+    viewports: "both",
+    a11y: true,
     ready: timelineReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -298,6 +300,8 @@ defineRegionScenarios("剪辑视图", [
     name: "出片对话框：TTS 配音项目的剪映草稿选项最多，主操作仍在视口内",
     path: EDIT_PATH,
     api: TTS_TIMELINE,
+    viewports: "both",
+    a11y: true,
     ready: timelineReady,
     act: async (page) => {
       await openRenderDialog(page);

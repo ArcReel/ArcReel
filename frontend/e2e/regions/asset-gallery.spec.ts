@@ -263,6 +263,7 @@ defineRegionScenarios("资产画廊", [
     name: "浏览卡网格按画布宽度加列，状态标记在图片左上角",
     path: PATH,
     api: BASE,
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       const xiaoman = page.getByRole("article", { name: "小满" });
@@ -279,6 +280,7 @@ defineRegionScenarios("资产画廊", [
     name: "条目多且名字与描述很长：卡片不撑破网格，工具栏留在顶部",
     path: PATH,
     api: MANY_API,
+    viewports: "both",
     ready: async (page) => {
       await expect(cards(page)).toHaveCount(40);
     },
@@ -307,6 +309,7 @@ defineRegionScenarios("资产画廊", [
     name: "打开卡片的「更多」菜单",
     path: PATH,
     api: BASE,
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       const menu = await openMenu(page, "林夕");
@@ -400,6 +403,7 @@ defineRegionScenarios("资产画廊", [
     name: "查看大图：←/→ 只在有资产图的资产之间切换",
     path: PATH,
     api: VIEWER_API,
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       let viewer = await openViewer(page, "林夕");
@@ -440,6 +444,7 @@ defineRegionScenarios("资产画廊", [
     name: "查看大图：名字很长、版本很多时版本条横向滚动，操作留在视野里",
     path: PATH,
     api: VIEWER_MANY_API,
+    viewports: "both",
     ready: async (page) => {
       await expect(cards(page).first()).toBeVisible();
     },

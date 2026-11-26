@@ -240,6 +240,7 @@ defineRegionScenarios("资产详情 Sheet", [
     name: "打开角色详情：资产图、原图、描述、声音、别名与衍生",
     path: CHARACTERS_PATH,
     api: BASE,
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       const sheet = await openSheet(page, "林夕");
@@ -266,6 +267,8 @@ defineRegionScenarios("资产详情 Sheet", [
     name: "重新生成过期资产图：连带影响统计失败的说明很长，只有正文滚动，按钮完整可见",
     path: CHARACTERS_PATH,
     api: STALE_IMPACT_FAILED_API,
+    viewports: "both",
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       const sheet = await openSheet(page, "林夕");
@@ -321,6 +324,7 @@ defineRegionScenarios("资产详情 Sheet", [
     name: "添加角色：在 Sheet 里打开空白表单",
     path: CHARACTERS_PATH,
     api: BASE,
+    a11y: true,
     ready: galleryReady,
     act: async (page) => {
       await clearAgentOverlay(page);
@@ -409,6 +413,7 @@ defineRegionScenarios("资产详情 Sheet", [
     name: "衍生多且名称与外观变化很长：只有正文滚动，末条的操作完整可见",
     path: CHARACTERS_PATH,
     api: DERIVATIVES_API,
+    viewports: "both",
     ready: galleryReady,
     act: async (page) => {
       const sheet = await openSheet(page, "林夕");
