@@ -107,7 +107,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
-from lib.project.script_entry_cleanup import trash_entries
+from lib.project.script_entry_cleanup import archive_script_overwrite, trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
 from lib.script.item_ids import (
@@ -746,6 +746,7 @@ class ProjectManager:
         filename: str,
         *,
         validate: bool = True,
+        new_script_version: bool = False,
         artifact_basis: ArtifactBasisDescriptor | None = None,
         expected_fingerprint: str | _Unset | None = _UNSET,
         project_update: Callable[[dict[str, Any]], None] | None = None,
@@ -760,6 +761,7 @@ class ProjectManager:
                 其余文件名在写盘一致性校验处拒绝
             validate: 是否做「不更坏」结构校验（默认 True，fail-safe）。直连保存不持有
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
+            new_script_version: 按整份新剧本发号。已有正式文件时保存本次覆盖移除的文件。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
@@ -790,13 +792,6 @@ class ProjectManager:
                 script_path = Path(self._safe_subpath(project_path / "scripts", filename))
                 before_script = self._load_script_or_none(script_path)
                 items, id_field, script_kind = resolve_items(script)
-                resource_ids = tuple(
-                    resource_id
-                    for item in items
-                    if isinstance(item, Mapping)
-                    and isinstance((resource_id := item.get(id_field)), str)
-                    and resource_id
-                )
                 previous_resource_ids: tuple[str, ...] = ()
                 previous_kind = script_kind
                 if before_script is not None:
@@ -814,12 +809,27 @@ class ProjectManager:
                         )
 
                 def _prepare_manifest_commit() -> Callable[[Path], None] | None:
+                    if new_script_version:
+                        from lib.project.item_id_history import issue_landing_item_ids
+
+                        issue_landing_item_ids(
+                            self.get_project_path(project_name), self._read_project_raw_unlocked(project_name), script
+                        )
+                    resource_ids = tuple(
+                        resource_id
+                        for item in items
+                        if isinstance(item, Mapping)
+                        and isinstance((resource_id := item.get(id_field)), str)
+                        and resource_id
+                    )
+                    remaining = set(resource_ids)
+                    removed_ids = tuple(dict.fromkeys(rid for rid in previous_resource_ids if rid not in remaining))
                     manifest_commit = prepare_episode_script_manifest_commit(
                         project_path,
                         episode=episode,
                         artifact_path=f"scripts/{filename}",
                         resource_ids=resource_ids,
-                        removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
+                        removed_resource_ids=removed_ids,
                         basis=artifact_basis,
                     )
                     before_files = {
@@ -829,14 +839,16 @@ class ProjectManager:
                     }
 
                     def _register_manifest(_script_path: Path) -> None:
+                        if new_script_version and f"scripts/{filename}" in before_files:
+                            archive_script_overwrite(
+                                project_path, episode, filename, removed_ids, before_files, manifest_commit
+                            )
+                            return
                         trash_entries(
                             project_path,
                             episode=episode,
                             script_file=filename,
-                            entries=dict.fromkeys(
-                                (rid for rid in previous_resource_ids if rid not in resource_ids),
-                                previous_kind,
-                            ),
+                            entries=dict.fromkeys(removed_ids, previous_kind),
                             before=before_files,
                             removed=previous_resource_ids,
                             then=manifest_commit,

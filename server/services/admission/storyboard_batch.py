@@ -55,6 +55,7 @@ from lib.generation.generation_result import (
     GenerationSelectionMode,
     GenerationTargetState,
     select_generation_targets,
+    select_observed_targets,
 )
 from lib.generation.video_request_facts import (
     VideoRequestCostFacts,
@@ -538,11 +539,7 @@ async def load_storyboard_video_batch_plan(
         clean, screen_refused = screen_storyboard_items(items, id_field, requested_ids=None)
         resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
         states = video_target_states(clean, id_field, episode=loaded.episode, resolver=resolver)
-        selection = select_generation_targets(
-            candidates=[state.candidate for state in states.values()],
-            requested_ids=None,
-            resolver=resolver,
-        )
+        selection = select_observed_targets(states.values(), None)
         target_ids = set(selection.target_ids)
         pending = [item for item in clean if str(storyboard_item_id(item, id_field) or "") in target_ids]
         return loaded, id_field, screen_refused, resolver, states, selection, pending

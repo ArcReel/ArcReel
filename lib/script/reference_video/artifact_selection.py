@@ -14,6 +14,7 @@ from lib.artifacts.artifact_activation import (
     snapshot_usable_artifact_input_claim,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key
 from lib.script.reference_video.request_projection import FilesystemReferenceAssets, ResolvedReferenceAsset
 
 
@@ -26,10 +27,22 @@ class CurrentReferenceAssets:
     for a fresh check at the provider boundary.
     """
 
-    def __init__(self, project_path: Path, project: Mapping[str, object]) -> None:
+    def __init__(
+        self, project_path: Path, project: Mapping[str, object], *, resolver: ArtifactCurrencyResolver | None = None
+    ) -> None:
         self._project_path = project_path.resolve()
         self._filesystem = FilesystemReferenceAssets(project_path)
-        self._resolver: ArtifactCurrencyResolver = active_artifact_currency_resolver(project_path, project)
+        self._resolver: ArtifactCurrencyResolver = resolver or active_artifact_currency_resolver(project_path, project)
+
+    def preload(self, groups: Sequence[Sequence[ResolvedReferenceAsset]]) -> None:
+        self._resolver.preload_sheet_history(
+            {
+                (BUCKET_KEY[item.reference.type], asset_name_comparison_key(item.reference.name))
+                for group in groups
+                for item in group
+                if item.kind == "sheet"
+            }
+        )
 
     def _claim_for(self, asset: ResolvedReferenceAsset) -> ArtifactInputClaim | None:
         if asset.kind == "original":

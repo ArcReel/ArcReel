@@ -87,7 +87,7 @@ When you restore the merged asset, the system only adds:
 
 When you remove a storyboard or a video unit in the storyboard detail or the reference-to-video workbench, it becomes one deletion record together with its storyboard image, end frame, video, voice-over, thumbnails, subtitles, presentation, and version history. An entry without any media still becomes a record.
 
-When a content confirmation or a full regeneration overwrites the final script, the entries in the old script also become deletion records.
+Confirming a script plan for the first time does not write to the project trash. When content confirmation or a full regeneration overwrites an existing final script, ArcReel saves one record for that overwrite containing the pre-overwrite formal script and any removed current or past media files. You can identify each file by its original path in the project trash, download it individually, and upload it manually to a chosen target in the workspace; old shots and relationships are not put back automatically. Actively removing an individual storyboard or video unit still uses direct restore as described below.
 
 A restored entry returns to its original episode and is inserted after its original previous entry. If it was first, it goes back to the front; if the previous entry is gone, it is placed at the end of the episode. When several adjacent entries were removed in one batch, restore them in their original order so the position is closest to what it was before the deletion.
 
@@ -155,5 +155,5 @@ In **Deleted projects** in the project list header you can restore a project as 
 - The Agent cannot directly delete or overwrite media files or the version history. It cannot change these directories with write, edit, or shell commands, so it can only delete through the project trash.
 - When you explicitly ask it to delete an unreferenced file or a past version that is not current, the Agent can move it to the project trash. A referenced file is refused, and the Agent asks you to handle it in the screen that owns it.
 - The Agent's own structural operations also go to the project trash: removing storyboards or video units, overwriting the final script, merging assets, and replacing source files. The origin of these records is shown as the Agent.
-- In a conversation you can ask the Agent to list deletion records, confirm with you which one to restore, and restore it. The result states whether the object came back under a new name or number, whether the restore fell back to files only, and which files can only be downloaded.
+- In a conversation you can ask the Agent to list deletion records, confirm with you which one to restore, and restore it. The result states whether the object came back under a new name or number, whether the restore fell back to files only, and which files can only be downloaded. A record created by overwriting a formal script cannot be restored directly; download its files individually by original path from the project trash in the **Files** view.
 - Only you can permanently delete or empty the project trash, in the interface. The Agent has neither capability.

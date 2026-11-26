@@ -153,6 +153,17 @@ def _work_files(data: object, project: dict[str, Any]) -> list[_WorkFile]:
     return _work_files_from_rows(VersionManager._history_rows(data) if isinstance(data, dict) else (), project)
 
 
+def archived_remote_files(history: dict) -> dict[str, _WorkFile]:
+    return {item.path: item for item in _work_files(history, {})}
+
+
+async def fetch_archived_file(item: _WorkFile) -> bytes:
+    data = await fetch_object_content(item.stored)
+    if (await asyncio.to_thread(hashlib.sha256, data)).hexdigest() != item.digest:
+        raise MaterialFetchFailedError("content_mismatch")
+    return data
+
+
 def _work_files_from_rows(rows, project):
     result: list[_WorkFile] = []
     for resource_type, resource_id, current, record in rows:

@@ -88,19 +88,15 @@ def hydrate_reference_units(
     pending = list(units)
     if not pending:
         return ()
-    assets = MemoizedReferenceAssets(
-        availability if availability is not None else CurrentReferenceAssets(project_path, project)
-    )
+    current = availability if availability is not None else CurrentReferenceAssets(project_path, project)
     expansion = ReferenceExpansionCache(project, project_path)
+    groups = [resolve_reference_assets(project, project_path, unit, expansion=expansion) for unit in pending]
+    if isinstance(current, CurrentReferenceAssets):
+        current.preload(groups)
+    assets = MemoizedReferenceAssets(current)
     return tuple(
-        hydrate_unit_references(
-            project,
-            unit,
-            resolve_reference_assets(project, project_path, unit, expansion=expansion),
-            assets,
-            catalog=expansion.catalog,
-        )
-        for unit in pending
+        hydrate_unit_references(project, unit, group, assets, catalog=expansion.catalog)
+        for unit, group in zip(pending, groups, strict=True)
     )
 
 

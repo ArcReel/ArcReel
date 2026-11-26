@@ -44,7 +44,7 @@ from lib.generation.generation_result import (
     artifact_is_reusable,
     normalize_requested_ids,
     record_batch_outcomes,
-    select_generation_targets,
+    select_observed_targets,
 )
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.infra.async_thread import run_sync_transaction
@@ -599,6 +599,7 @@ async def _generate_reference_units(
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
+        currency_resolver=resolver,
     )
     if call.preview:
         return ReferenceGenerationPreview(admission)
@@ -606,12 +607,13 @@ async def _generate_reference_units(
         return BatchAdmissionRefused(admission)
     projections = admission.projections()
     admission.record_blocked_units(builder, states=states)
-    admitted_ids = {ticket.unit_id for ticket in admission.tickets if ticket.admitted}
-    specs = [spec for spec in specs if spec.resource_id in admitted_ids]
+    admitted = {ticket.unit_id: ticket for ticket in admission.tickets if ticket.admitted}
+    specs = [spec for spec in specs if spec.resource_id in admitted]
 
     for spec in specs:
         unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
         spec.payload = {**(spec.payload or {}), "reference_request_options": unit_options.to_payload()}
+        spec.advisory_provider_id = admitted[spec.resource_id].advisory_provider_id
         spec.unit_id = spec.resource_id
         spec.source = call.caller.source
 
@@ -1178,11 +1180,7 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
     def select_targets() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState], GenerationSelection]:
         resolver = active_artifact_currency_resolver(project_dir, sb.project)
         states = video_target_states(items, id_field, episode=sb.episode, resolver=resolver)
-        selection = select_generation_targets(
-            candidates=[state.candidate for state in states.values()],
-            requested_ids=None,
-            resolver=resolver,
-        )
+        selection = select_observed_targets(states.values(), None)
         return resolver, states, selection
 
     currency, states, selection = await asyncio.to_thread(select_targets)

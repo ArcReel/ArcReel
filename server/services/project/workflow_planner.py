@@ -381,6 +381,7 @@ class WorkflowPlanner:
                 script=facts.script,
                 script_file=facts.script_file,
                 units=targets,
+                currency_resolver=facts.currency,
                 request_options=ReferenceRequestOptions(),
                 operation=status.next_action.type,
                 selection=selection.mode,

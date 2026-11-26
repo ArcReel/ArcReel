@@ -579,3 +579,34 @@ it("uses the current position after restoring a shot under a new ID without load
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("雨夜 · 2 已恢复"));
   expect(useProjectsStore.getState().currentScripts).toEqual({});
 });
+
+it("downloads individual files from a script overwrite without restoring entries", async () => {
+  const files = ["scripts/episode_2.json", "reference_videos/E2U1.mp4", "versions/reference_videos/old.mp4"];
+  const record = timelineRecord({
+    object: { kind: "script_overwrite", episode: 2 },
+    files,
+    has_snapshot: false,
+    download_only: true,
+  });
+  const downloads: string[] = [];
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => {} }));
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/files")) {
+      downloads.push(url.searchParams.get("path") ?? "");
+      return Promise.resolve(new Response("old video"));
+    }
+    return Promise.resolve(Response.json(url.pathname.endsWith("/trash")
+      ? { records: [record], total_size: 10, retention_days: 30 }
+      : { path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("第 2 集覆盖前的正式剧本与素材")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "恢复" })).not.toBeInTheDocument();
+  for (const path of files) {
+    await user.click(screen.getByRole("button", { name: `下载 ${path}` }));
+  }
+  expect(downloads).toEqual(files);
+});

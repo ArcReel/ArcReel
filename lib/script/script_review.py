@@ -515,8 +515,8 @@ def render_overwrite_loss_text(overwrite: Mapping[str, Any], translate: Callable
     ]
     if totals:
         lines.append(translate("script_overwrite_loss", items=separator.join(totals)))
+    lines.append(translate("script_overwrite_history"))
     if entries:
-        lines.append(translate("script_overwrite_history"))
         rendered: list[str] = []
         for entry in entries:
             kinds = [translate(key) for field, key in _OVERWRITE_ENTRY_KINDS if entry.get(field)]

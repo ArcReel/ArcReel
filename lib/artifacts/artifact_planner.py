@@ -233,6 +233,7 @@ class RuntimePlanningContext:
     bindings: dict[int, _EpisodeBinding] | None = None
     catalog: ReferenceCatalog | None = None
 
+    selected_sheets: dict[tuple[str, str], dict] = field(default_factory=dict)
     asset_aliases: dict[int, dict[str, str]] = field(default_factory=dict)
 
     def episode_bindings(self, project: Mapping[str, Any]) -> Mapping[int, _EpisodeBinding]:
@@ -252,6 +253,9 @@ class RuntimePlanningContext:
     ) -> Mapping[str, Any]:
         if store is not None:
             if equivalent:
+                keys = tuple(keys)
+                if proof_version is None and len(keys) == 1 and keys[0] in self.selected_sheets:
+                    return self.selected_sheets[keys[0]]
                 keys = [pair for kind, name in keys for pair in store.equivalent_keys(kind, name)]
             return store.selected_resources(keys, proof_version=proof_version)
         relative = "versions/versions.json"

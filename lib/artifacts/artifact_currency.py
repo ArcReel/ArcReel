@@ -163,6 +163,10 @@ class ArtifactCurrencyResolver:
         self._history = history if history.path.is_file() else None
         self._manifest = ArtifactManifest(self._adapter)
 
+    def preload_sheet_history(self, keys: set[tuple[str, str]]) -> None:
+        if self._history is not None and keys:
+            self._runtime.selected_sheets.update(self._history.selected_equivalents(keys))
+
     def script_snapshot(self, path: str) -> ArtifactObservation:
         snapshot = self._runtime.script_snapshot
         if snapshot is None or snapshot.artifact_path != path:

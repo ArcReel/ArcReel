@@ -15,6 +15,7 @@ from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import TargetStatePlanner
 from lib.artifacts.artifact_registration import register_current_artifact
+from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_deletion import delete_episode
 from lib.infra.api_errors import ApiError
@@ -390,6 +391,88 @@ def test_overwriting_the_script_records_each_dropped_shot_at_its_position_before
         ("E1S02", 2, "风吹过旷野。"),
         ("E1S03", 3, "风吹过旷野。"),
     ]
+
+
+def test_overwritten_shots_keep_independent_restorable_histories(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    manager, http = _project(tmp_path, monkeypatch, sqlite=True)
+    directory = manager.get_project_path("demo")
+    source = directory / "source" / "episode_1.txt"
+    source.write_text("before replacement")
+    script = manager.load_script("demo", "episode_1.json")
+    manager.save_script("demo", {**script, "segments": script["segments"][:1]}, "episode_1.json")
+    source.write_text("after replacement")
+
+    records = project_trash.list_records(directory)
+    assert len(records) == 2
+    with http:
+        for record in records:
+            snapshot = project_trash.trash_dir(directory) / record.id / project_trash.SNAPSHOT_DIRNAME
+            assert (snapshot / "source/episode_1.txt").read_text() == "before replacement"
+            restored = http.post(f"/api/v1/projects/demo/trash/{record.id}/restore")
+            assert restored.status_code == 200, restored.text
+            assert not restored.json()["degraded"]
+            new_id = restored.json()["object"]["id"]
+            history = VersionManager(directory).get_versions("storyboards", new_id)
+            assert history["versions"][0]["prompt"] == f"提示词 {record.object['id']}"
+
+
+@pytest.mark.parametrize("confirm", [False, True])
+def test_rolled_back_script_replacement_removes_every_new_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, confirm: bool
+):
+    manager, _http = _project(tmp_path, monkeypatch, sqlite=True)
+    directory = manager.get_project_path("demo")
+    versions = VersionManager(directory)
+    script = manager.load_script("demo", "episode_1.json")
+    script_path = directory / "scripts" / "episode_1.json"
+    before = script_path.read_bytes()
+    histories = {item_id: versions.get_versions("storyboards", item_id) for item_id in ("E1S02", "E1S03")}
+
+    def abort_replacement() -> None:
+        with project_metadata_lock(directory):
+            manager.save_script(
+                "demo", {**script, "segments": script["segments"][:1]}, "episode_1.json", new_script_version=confirm
+            )
+            assert len(project_trash.list_records(directory)) == (1 if confirm else 2)
+            raise RuntimeError("abort")
+
+    with pytest.raises(RuntimeError, match="abort"):
+        abort_replacement()
+
+    assert script_path.read_bytes() == before
+    for item_id, history in histories.items():
+        assert versions.get_versions("storyboards", item_id) == history
+        media = directory / resource_relative_path("storyboards", item_id)
+        assert media.read_bytes() == f"image-{item_id}".encode()
+    assert not any(path.is_file() for path in project_trash.trash_dir(directory).rglob("*"))
+
+
+@pytest.mark.parametrize("sqlite", [False, True])
+def test_failed_overwrite_manifest_commit_withdraws_only_moved_files(tmp_path, monkeypatch, sqlite):
+    from lib.project.script_entry_cleanup import archive_script_overwrite
+
+    manager, _http = _project(tmp_path, monkeypatch, sqlite=sqlite)
+    project = manager.get_project_path("demo")
+    versions = VersionManager(project)
+    rel = "scripts/episode_1.json"
+    current_script = (project / rel).read_bytes()
+    key = ("storyboards", "E1S02")
+    history = versions.resource_records([key])
+    paths = [resource_relative_path(*key), *versions.snapshot_files(history)]
+    original = {path: (project / path).read_bytes() for path in paths}
+
+    def refuse_manifest():
+        assert not versions.has_versions(*key)
+        assert len(project_trash.list_records(project)) == 1
+        raise RuntimeError("manifest conflict")
+
+    with project_metadata_lock(project), pytest.raises(RuntimeError, match="manifest conflict"):
+        archive_script_overwrite(project, 1, "episode_1.json", [key[1]], {rel: b"old script"}, refuse_manifest)
+
+    assert versions.resource_records([key]) == history
+    assert {path: (project / path).read_bytes() for path in paths} == original
+    assert (project / rel).read_bytes() == current_script
+    assert project_trash.list_records(project) == []
 
 
 def test_a_record_without_a_position_snapshot_still_lists_and_restores(
