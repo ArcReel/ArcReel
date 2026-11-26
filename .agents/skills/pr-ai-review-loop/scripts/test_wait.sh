@@ -160,24 +160,16 @@ elif [[ "$*" == *'/issues/1767/comments?'* ]]; then
         extra_body=$(<"$WAIT_TEST_DATA/codex_summary_failed_pr3850.txt") ;;
     esac
   fi
-  trigger_at=''
-  if [[ "${WAIT_TEST_CODEX:-started}" == "silent" && "$mode" == "codex_triggered" ]]; then
-    trigger_at=$BEFORE
-  fi
   jq -cn --arg updated_at "$updated_at" --argjson reaction_count "$reaction_count" \
     --arg wb "$walkthrough_body" --arg wu "$walkthrough_updated" \
-    --arg extra_user "$extra_user" --arg extra_body "$extra_body" --arg after "$AFTER" \
-    --arg trigger_at "$trigger_at" '
+    --arg extra_user "$extra_user" --arg extra_body "$extra_body" --arg after "$AFTER" '
     [{id:"C1",created_at:"1969-12-31T00:00:00Z",updated_at:$updated_at,reactions:{eyes:$reaction_count},
       user:{login:"someone"},body:"a human note that mentions @codex review mid-text"},
      {id:"W1",created_at:"1969-12-31T00:00:01Z",updated_at:$wu,reactions:{eyes:0},
       user:{login:"coderabbitai[bot]"},body:$wb}]
     + (if $extra_user == "" then [] else
         [{id:"C2",created_at:$after,updated_at:$after,reactions:{eyes:0},
-          user:{login:$extra_user},body:$extra_body}] end)
-    + (if $trigger_at == "" then [] else
-        [{id:"C3",created_at:$trigger_at,updated_at:$trigger_at,reactions:{eyes:0},
-          user:{login:"someone"},body:"@codex review"}] end)'
+          user:{login:$extra_user},body:$extra_body}] end)'
 elif [[ "$*" == *'/pulls/1767' ]]; then
   count=$(<"$WAIT_TEST_ROOT/issue_comment-count")
   head_sha=${WAIT_TEST_HEAD:-abc}
@@ -339,6 +331,20 @@ expect_wait() {
   [[ "$(sleeps)" == "$expected_sleeps" ]] || fail "$label: expected sleeps $expected_sleeps, got $(sleeps)"
 }
 
+reset_case
+WAIT_TEST_CODEX=silent run_wait flat --max 360
+grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "silent Codex woke an ordinary PR at $(sleeps)"
+WAIT_TEST_CODEX=silent expect_wait "green checks with silent Codex" all_finish "WAIT_READY: checks_passed"
+
+for mode in codex_receipt codex_summary; do
+  reset_case
+  WAIT_TEST_HEAD=f250154adca3b572cdde28c4fea5acbb58097b84 run_wait "$mode" --wait-codex --max 180
+  [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_result" ]] || fail "missed targeted $mode"
+  reset_case
+  run_wait "$mode" --max 180 --wait-codex
+  grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "accepted stale $mode"
+done
+
 SIGNALS=(
   "head_change|WAIT_READY: head_changed|WAIT_READY: head_changed"
   "new_review|WAIT_READY: new_finding|WAIT_READY: new_finding"
@@ -346,10 +352,11 @@ SIGNALS=(
   "new_inline|WAIT_READY: new_finding|WAIT_READY: new_finding"
   "security_change|WAIT_READY: new_finding|WAIT_READY: new_finding"
   "bot_comment|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
+  "codex_failed|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
   "codex_quota|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
   "walkthrough_paused|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
-  "walkthrough_rate_limited|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
-  "walkthrough_skipped|WAIT_READY: reviewer_notice|WAIT_READY: reviewer_notice"
+  "walkthrough_rate_limited|WAIT_READY: codex_fallback|WAIT_READY: codex_fallback"
+  "walkthrough_skipped|WAIT_READY: codex_fallback|WAIT_READY: codex_fallback"
   "flat|WAIT_TIMEOUT|WAIT_TIMEOUT"
   "new_empty_review|WAIT_TIMEOUT|WAIT_READY: state_changed"
   "new_inline_reply|WAIT_TIMEOUT|WAIT_READY: state_changed"
@@ -401,39 +408,6 @@ for rules in none empty; do
   [[ ! -s "$TMP_ROOT/result.err" ]] || fail "expected unreadable rules not to report an error"
 done
 echo "PASS: without readable required-check rules every check run on the head stands in"
-
-reset_case
-WAIT_TEST_CODEX=silent run_wait flat --max 600
-[[ "$(sleeps)" == "60,60,60,60,60" ]] || fail "expected the Codex window to close 300 seconds after the head commit, got $(sleeps)"
-[[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_silent" ]] || fail "expected codex_silent, got: $(<"$TMP_ROOT/result.out")"
-reset_case
-WAIT_TEST_CODEX=silent WAIT_TEST_PUSH_AT=1969-12-31T23:50:00Z run_wait flat --max 600
-grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a window already closed on entry not to end the wait"
-reset_case
-WAIT_TEST_CODEX=silent WAIT_TEST_PUSH_AT=1969-12-31T23:50:00Z run_wait checks_finish --max 600
-[[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: checks_passed" ]] || fail "expected only checks_passed with the window closed on entry"
-reset_case
-WAIT_TEST_CODEX=silent run_wait codex_triggered --max 600
-grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a posted @codex review to close the window quietly"
-for mode in codex_receipt codex_summary; do
-  reset_case
-  WAIT_TEST_CODEX=silent run_wait "$mode" --max 600
-  [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_silent" ]] \
-    || fail "expected a $mode naming another commit not to count as a start signal, got: $(<"$TMP_ROOT/result.out")"
-done
-for codex in silent started; do
-  reset_case
-  WAIT_TEST_CODEX=$codex WAIT_TEST_HEAD=00259c60c4d473b0639d7e794faeb26c42a54aad run_wait codex_failed --max 600
-  [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: reviewer_notice" && "$(sleeps)" == "60" ]] \
-    || fail "expected a failed Codex review to end the wait at once ($codex), got: $(<"$TMP_ROOT/result.out")"
-done
-reset_case
-WAIT_TEST_CODEX=silent run_wait codex_quota --max 600
-grep -q '^WAIT_READY: reviewer_notice' "$TMP_ROOT/result.out" || fail "expected a Codex comment without a commit anchor to stay a notice"
-reset_case
-run_wait flat --max 600
-grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a started Codex never to report codex_silent"
-echo "PASS: the Codex trigger window ends the wait once, only when it closes during the wait with no start signal and no trigger"
 
 reset_case
 run_wait flat --max 125

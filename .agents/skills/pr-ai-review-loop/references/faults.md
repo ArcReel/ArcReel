@@ -5,17 +5,17 @@
 ## 需要交接的故障
 
 - 必要的 reviewer 或 CodeQL 结果超过 30 分钟仍未到达；合法沿用的审查不算缺失。
-- Codex 在对同一 HEAD 手动触发后，仍报告审查失败（`codex.failed_current_head`）。
-- bot 报错、`POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`，或认证、权限失败；保留原始错误，不把空数据当作无问题。
+- 本轮必要的 Codex 在定向触发后，仍报告审查失败（`codex.failed_current_head`）。
+- 必要 reviewer 报错、`POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`，或认证、权限失败；保留原始错误，不把空数据当作无问题。
 - CodeQL 分析失败或 alerts API 不可用；分析失败时告警数据可能仍属于旧 HEAD，不能据此终核。未接入的确认方式见 [reviewers.md](reviewers.md)。
 
-当 `wait.sh` 以 `reviewer_notice` 返回时，先重新 poll，再按下文「配额与未接入」核对。遇到 `WAIT_TIMEOUT` 后同样先重新 poll，确认仍缺少结果时再按超时交接。
+当 `wait.sh` 以 `reviewer_notice` 返回时，先重新 poll；普通 PR 上 Codex 缺席或失败无需等待或补发请求。遇到配额回执再按下文「配额与未接入」核对。遇到 `WAIT_TIMEOUT` 后同样先重新 poll，确认仍缺少结果时再按超时交接。
 
 ## 配额与未接入
 
 先核实是否仍受阻：配额提示之后已有成功审查的，按已恢复处理。Codex 出现配额提示且其后无成功审查时，本 PR 停用该家，不等待恢复，并在退出汇报中记录覆盖缺口。
 
-CodeRabbit 限流由循环自行处理，不询问用户：等待限流恢复后手动 `@coderabbitai review` 重试一次；仍限流则本 PR 停用该家并记入退出汇报。等待超过 30 分钟仍无恢复信号时，按超时交接。
+CodeRabbit 当前覆盖缺口按 [reviewers.md「Codex」](reviewers.md#codex) 立即转定向审查，记录回执和未审范围。两家均未覆盖必要范围时，列明缺口交委派方裁决。
 
 reviewer 回复或官方通知明确证实 App 未接入、要求创建或连接账号、服务已停止时，可将该家本 PR 标为不参审并停止触发。无响应和一般报错不构成这种证据。
 

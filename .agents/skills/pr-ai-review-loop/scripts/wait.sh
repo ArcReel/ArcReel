@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-#   with no run yet — the minutes right after a push — is unfinished. When the rules are
-#   unreadable or name nothing, every check run on the head stands in, and an empty list is
-#   unfinished.
 # The default wait uses 1770 seconds of a 30-minute command budget, leaving 30 seconds
 # for setup and result delivery. --max is an override for tests and manual diagnostics.
 
@@ -15,11 +12,11 @@ shift "$REPO_CONTEXT_SHIFT"
 
 DEFAULT_MAX_WAIT=1770
 POLL_INTERVAL=60
-CODEX_WINDOW=300
+WAIT_CODEX=false
 RETRY_DELAYS=(2 5 10)
 
 usage() {
-  echo "WAIT_ERROR: Usage: bash wait.sh [--repo-root <path>] <PR_NUMBER> [--max <seconds>]" >&2
+  echo "WAIT_ERROR: Usage: bash wait.sh [--repo-root <path>] <PR_NUMBER> [--wait-codex] [--max <seconds>]" >&2
   exit 2
 }
 
@@ -28,10 +25,13 @@ PR="$1"
 shift
 MAX_WAIT="$DEFAULT_MAX_WAIT"
 
-if [[ $# -gt 0 ]]; then
-  [[ $# -eq 2 && "$1" == "--max" ]] || usage
-  MAX_WAIT="$2"
-fi
+while (( $# )); do
+  case "$1" in
+    --wait-codex) WAIT_CODEX=true; shift ;;
+    --max) [[ $# -ge 2 ]] || usage; MAX_WAIT="$2"; shift 2 ;;
+    *) usage ;;
+  esac
+done
 
 [[ "$PR" =~ ^[0-9]+$ ]] || usage
 [[ "$MAX_WAIT" =~ ^[0-9]+$ && "$MAX_WAIT" -gt 0 ]] || usage
@@ -382,6 +382,7 @@ probe_once() {
     --slurpfile check_runs "$WORKDIR/check-runs.json" \
     --slurpfile security_alerts_pr "$WORKDIR/security-alerts-pr.json" \
     --slurpfile security_alerts_base "$WORKDIR/security-alerts-base.json" \
+    --argjson wait_codex "$WAIT_CODEX" \
     --argjson security_available "$security_available" \
     '
       include "signals";
@@ -408,7 +409,6 @@ probe_once() {
       | ([$all_comments[] | select(is_cr)] | sort_by(.created_at) | first | .id) as $walkthrough_id
       | {
         head: $head,
-        push_at: $push_at,
         required: $required,
         checks: {
           done: (($gate | length) > 0 and all($gate[]; . != null and .status == "completed")),
@@ -421,6 +421,10 @@ probe_once() {
            + [$security_alerts_pr[][]? | select(.number as $n | $base_alerts | index($n) | not)
               | "alert:\(.number)"]
            | unique),
+        coverage_gaps:
+          [$all_comments[] | select(is_cr and (.updated_at // .created_at) > $push_at)
+           | select(.body | cr_review_skipped_body or quota_alert_body)
+           | "gap:\(.id):\(.updated_at // .created_at)"],
         notices:
           ([$all_comments[] | select(is_cr or is_codex)
             | (.body // "") as $body
@@ -433,27 +437,18 @@ probe_once() {
               (if $body | cr_review_skipped_body then "skipped:\(.id)" else empty end),
               (if $body | quota_alert_body then "quota:\(.id)" else empty end)]
            | unique),
-        codex: {
-          started:
-            ((any($all_comments[];
-                  is_codex and (.body | codex_summary_failed)
-                  and ((.body | codex_summary_commit) as $sha | $sha != null and ($head | startswith($sha))))
-              | not)
-             and (any($all_reviews[]; is_codex and .commit_id == $head)
-             or any($codex_reactions[]; .created_at > $push_at)
-             # A comment that names its commit (summary, receipt) counts by that anchor alone:
-             # a slow review of an orphaned head lands after the push too. Same rule as poll.sh.
-             or any($all_comments[];
-                    is_codex
-                    and ((.body | codex_summary_commit // codex_reviewed_commit_from_body) as $sha
-                         | if $sha == null then .created_at > $push_at
-                           else ($head | startswith($sha)) end)))),
-          triggered:
-            any($all_comments[];
-                (is_cr or is_codex | not)
-                and .created_at > $push_at
-                and (.body | is_trigger_command("@codex review")))
-        },
+        codex_results:
+          (if $wait_codex then
+             [$all_reviews[] | select(is_codex and .commit_id == $head and .state == "COMMENTED")
+              | "review:\(.id)"]
+             + [$codex_reactions[] | select(.content == "+1" and .created_at > $push_at)
+                | "reaction:\(.id)"]
+             + [$all_comments[] | select(is_codex)
+                | select(.body | codex_comment_has_pass_marker or codex_summary_completed)
+                | (.body | codex_summary_commit // codex_reviewed_commit_from_body) as $sha
+                | select(if $sha == null then .created_at > $push_at else ($head | startswith($sha)) end)
+                | "comment:\(.id):\(.updated_at)"]
+           else [] end),
         raw: {
           reviews:
             ([$all_reviews[]
@@ -504,24 +499,18 @@ probe_once() {
 }
 
 ready_reasons() {
-  local current_file="$1" now="$2"
+  local current_file="$1"
   jq -r -n \
     --slurpfile baseline "$BASELINE_FILE" \
     --slurpfile current "$current_file" \
-    --argjson entry "$ENTERED_AT" \
-    --argjson now "$now" \
-    --argjson window "$CODEX_WINDOW" \
     '
-      def codex_due($at):
-        (.codex.started | not) and (.codex.triggered | not)
-        and (($at - (.push_at | fromdateiso8601)) >= $window);
       $baseline[0] as $b
       | $current[0] as $c
       | [ (if $c.head != $b.head then "head_changed" else empty end),
           (if ($c.findings - $b.findings) | length > 0 then "new_finding" else empty end),
-          (if ($c.notices - $b.notices) | length > 0 then "reviewer_notice" else empty end),
-          (if $c.head == $b.head and ($b | codex_due($entry) | not) and ($c | codex_due($now))
-           then "codex_silent" else empty end),
+          (if ($c.coverage_gaps - $b.coverage_gaps) | length > 0 then "codex_fallback"
+           elif ($c.notices - $b.notices) | length > 0 then "reviewer_notice" else empty end),
+          (if ($c.codex_results - $b.codex_results) | length > 0 then "codex_result" else empty end),
           (if ($b.checks.done | not) and $c.checks.done
            then (if $c.checks.failing | length > 0
                  then "checks_failed(" + ($c.checks.failing | join(" ")) + ")"
@@ -547,7 +536,6 @@ else
   cat "$LAST_ERROR_FILE" >&2
   exit 5
 fi
-ENTERED_AT=$(date +%s)
 
 while true; do
   now=$(date +%s)
@@ -574,7 +562,7 @@ while true; do
     exit 5
   fi
 
-  REASONS=$(ready_reasons "$CURRENT_FILE" "$(date +%s)")
+  REASONS=$(ready_reasons "$CURRENT_FILE")
   if [[ -n "$REASONS" ]]; then
     echo "WAIT_READY: $REASONS"
     exit 0
