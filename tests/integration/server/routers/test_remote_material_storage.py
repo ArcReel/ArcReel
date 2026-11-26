@@ -43,6 +43,7 @@ from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.object_storage import FormalObject, FormalObjectRef, RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.content_digest import sha256_file
+from lib.infra.project_write_journal import is_history_database_path
 from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
     ObjectContentStorage,
@@ -110,6 +111,7 @@ from tests.integration.server.derivative_sheet_support import (
 )
 from tests.integration.server.routers.projects_router_support import build_projects_client
 from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
+from tests.legacy_project_shapes import read_version_history, use_legacy_history
 
 TOS_SK = "TEST-TOS-SECRET-0066"
 BUCKET = "formal-bucket"
@@ -244,7 +246,10 @@ def _upload(api: TestClient, content: bytes, project_name: str = "demo"):
 
 
 def _history(project: ProjectManager, project_name: str = "demo") -> dict[str, Any]:
-    path = project.get_project_path(project_name) / "versions" / "versions.json"
+    manager = VersionManager(project.get_project_path(project_name))
+    if manager.sqlite.path.is_file():
+        return manager.resource_records([("characters", "Alice")])["characters"]["Alice"]
+    path = manager.versions_file
     return json.loads(path.read_text(encoding="utf-8"))["characters"]["Alice"]
 
 
@@ -254,7 +259,7 @@ def _durable_state(project: ProjectManager) -> tuple:
         (project_dir / "characters" / "Alice.png").read_bytes(),
         (project_dir / "project.json").read_bytes(),
         (project_dir / ".arcreel_artifacts.json").read_bytes(),
-        (project_dir / "versions" / "versions.json").read_bytes(),
+        read_version_history(project_dir),
     )
 
 
@@ -1207,8 +1212,13 @@ async def test_switching_local_and_remote_versions_keeps_content_versions_and_th
     assert _identities(project) == identities
 
 
-async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purged(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purged(
+    api, sessions, project, bucket, sqlite
+):
     """删除远端历史版本：回收站持有引用，恢复回同一内容版本与对象；彻底删除后回收对象，删除失败可重试。"""
+    if not sqlite:
+        use_legacy_history(project.get_project_path("demo"))
     await _remote(sessions)
     image_b = solid_png_bytes((10, 120, 10), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
@@ -1257,8 +1267,11 @@ def _file_view_entries(api: TestClient, path: str) -> dict[str, dict[str, Any]]:
     return {entry["path"]: entry for entry in resp.json()["entries"]}
 
 
-async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket, sqlite):
     """清理缓存后：文件视图按版本记录列出远端版本且不下载；删除历史版本先取回内容再移进回收站，对象按引用保留。"""
+    if not sqlite:
+        use_legacy_history(project.get_project_path("demo"))
     image_a = solid_png_bytes((30, 30, 200), size=(64, 64))
     assert _upload(api, image_a).status_code == 200
     await _remote(sessions)
@@ -1395,8 +1408,11 @@ async def test_agent_deletes_an_evicted_remote_history_version_like_the_file_vie
     assert record_c in _history(project)["versions"]
 
 
-async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket):
+@pytest.mark.parametrize("sqlite", [False, True])
+async def test_deleted_asset_restores_from_remote_after_cache_cleanup(api, sessions, project, bucket, sqlite):
     """工作文件清理后删除资产：回收站记录保留对象引用，恢复后预览从对象存储取回。"""
+    if not sqlite:
+        use_legacy_history(project.get_project_path("demo"))
     await _remote(sessions)
     image = solid_png_bytes((60, 160, 200), size=(64, 64))
     assert _upload(api, image).status_code == 200
@@ -1614,7 +1630,7 @@ async def test_remote_upload_published_while_the_project_is_being_deleted_is_ref
     assert deleted.status_code == 200, deleted.text
     assert uploaded.status_code == 409, uploaded.text
     [tombstone] = list(project.layout.deleted_projects_dir.iterdir())
-    history = json.loads((tombstone / "versions" / "versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(tombstone)
     assert [record.get("storage") for record in history["characters"]["Alice"]["versions"]] == [None]
     assert bucket.objects == {}
     assert await _objects(sessions) == []
@@ -1696,9 +1712,7 @@ async def test_connection_moved_before_the_first_object_is_registered_fails_the_
     assert bucket.calls == []
     assert await _objects(sessions) == []
     assert (project.get_project_path("demo") / "project.json").read_bytes() == before
-    assert not (project.get_project_path("demo") / "versions" / "versions.json").is_file() or "Alice" not in (
-        json.loads((project.get_project_path("demo") / "versions" / "versions.json").read_text()).get("characters", {})
-    )
+    assert "Alice" not in read_version_history(project.get_project_path("demo")).get("characters", {})
 
     assert _upload(api, solid_png_bytes((5, 50, 150), size=(64, 64))).status_code == 200
     assert {location[0] for location in bucket.objects} == {"replacement-bucket"}
@@ -1786,7 +1800,7 @@ async def test_generation_from_evicted_remote_sheet_fetches_it_and_saves_the_new
     assert close_to(decode_data_url_image(sent).convert("RGB").getpixel((8, 8)), ALICE_RGB)
 
     sheet_path = derivative_sheet_relative_path("Alice", "战斗装")
-    versions = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    versions = read_version_history(project_dir)
     derivative_history = versions[CHARACTER_DERIVATIVE_RESOURCE_TYPE][derivative_artifact_id("Alice", "战斗装")]
     assert _remote_saved(project_dir, derivative_history, bucket, sheet_path) == result
 
@@ -1915,8 +1929,12 @@ def _grid_upload(project: ProjectManager) -> _ManualUpload:
     )
 
 
-def _project_files(project_dir: Path) -> dict[str, bytes]:
-    return {str(path.relative_to(project_dir)): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+def _project_files(project_dir: Path) -> tuple[dict, dict[str, bytes]]:
+    return read_version_history(project_dir), {
+        str(path.relative_to(project_dir)): path.read_bytes()
+        for path in project_dir.rglob("*")
+        if path.is_file() and not is_history_database_path(path)
+    }
 
 
 @pytest.mark.parametrize("prepare", [_storyboard_upload, _derivative_upload, _grid_upload], ids=lambda f: f.__name__)

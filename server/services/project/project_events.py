@@ -338,6 +338,11 @@ class ProjectEventService:
         finally:
             await self._unsubscribe(project_name, queue)
 
+    def publish_task_progress(self, project_name: str, payload: dict[str, Any]) -> None:
+        channel = self._channels.get(project_name)
+        if channel is not None:
+            channel.sse.broadcast(("task_progress", payload))
+
     def publish_assistant_session_resumed(self, project_name: str, session_id: str) -> None:
         """向项目订阅者广播会话回到 running；没有订阅者时丢弃。须在事件循环线程调用。"""
         channel = self._channels.get(project_name)

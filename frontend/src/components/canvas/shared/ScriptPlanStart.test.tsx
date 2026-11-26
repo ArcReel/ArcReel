@@ -1,10 +1,12 @@
 import { seedTasks } from "@/test/task-state";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { makePlan, makeStatus, makeTask } from "@/test/factories";
+import type { TaskProgress } from "@/types";
 import { ScriptPlanStart } from "./ScriptPlanStart";
 
 function renderStart(savedInstructions = "") {
@@ -75,7 +77,7 @@ describe("ScriptPlanStart", () => {
       ]);
     renderStart();
 
-    expect(screen.getByRole("status")).toHaveTextContent("AI 正在规划脚本。");
+    expect(screen.getByText("AI 正在规划脚本。")).toBeVisible();
     expect(screen.queryByRole("button", { name: "AI 规划" })).not.toBeInTheDocument();
   });
 
@@ -92,5 +94,64 @@ describe("ScriptPlanStart", () => {
       expect(button).toHaveAccessibleDescription("需要先补充本集原文");
     }
     expect(screen.getByRole("button", { name: "从空白开始" })).toBeEnabled();
+  });
+
+  it("renders live text task phases, elapsed time, and the 15s long-wait hint on controllable clock", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T12:00:10Z"));
+      const task = makeTask({
+        task_id: "plan-run-1",
+        project_name: "p",
+        task_type: "text_drama_script_plan",
+        media_type: "text",
+        resource_id: "episode-1",
+        status: "running",
+        started_at: "2026-11-01T12:00:00Z",
+      });
+      seedTasks([task]);
+      renderStart();
+
+      const status = screen.getByRole("status");
+      expect(screen.getByText("AI 正在规划脚本。")).toBeVisible();
+      expect(screen.getByLabelText(/已运行.*10/)).toBeInTheDocument();
+      const update = (event: TaskProgress) => act(() => useTasksStore.getState().receiveProgress(event));
+      update({ task_id: task.task_id, seq: 1, phase: "waiting", model: "Claude" });
+      expect(status).toHaveTextContent("正在等待 Claude 响应…");
+      update({ task_id: task.task_id, seq: 2, phase: "receiving", thinking: true, characters: 0 });
+      expect(status).toHaveTextContent("模型思考中…");
+      update({ task_id: task.task_id, seq: 3, phase: "receiving", thinking: false, characters: 320 });
+      expect(status).toHaveTextContent(/^正在接收生成内容…$/);
+      expect(screen.getByText(/已接收约 320 字/)).toBeVisible();
+      update({ task_id: task.task_id, seq: 4, phase: "retrying", attempt: 2, max_attempts: 3, error: "RateLimitError" });
+      expect(status).toHaveTextContent("正在重试（第 2/3 次尝试）…");
+
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(screen.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(screen.getByText(/长文本通常需要数十秒至数分钟/)).toHaveAttribute("aria-live", "polite");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows non-blocking guidance only when episode source exceeds 15,000 characters", async () => {
+    const plan = vi
+      .spyOn(API, "planScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
+    const { rerender } = render(
+      <ScriptPlanStart projectName="p" episode={1} savedInstructions="" sourceCharCount={15_000} />,
+    );
+    expect(screen.queryByText(/超过 15,000 字/)).not.toBeInTheDocument();
+
+    rerender(<ScriptPlanStart projectName="p" episode={1} savedInstructions="" sourceCharCount={15_001} />);
+    expect(screen.getByText(/本集原文约 15,001 字，超过 15,000 字/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "去分集" })).toHaveAttribute("href", "/episodes?episode=1");
+
+    const aiButton = screen.getByRole("button", { name: "AI 规划" });
+    expect(aiButton).toBeEnabled();
+    fireEvent.click(aiButton);
+    await waitFor(() => expect(plan).toHaveBeenCalledWith("p", 1, { instructions: null }));
   });
 });

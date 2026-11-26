@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lib.generation.generation_result import GenerationAction, GenerationProblem
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import ASSET_SPECS
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
 from lib.workflow.workflow_state import (
@@ -151,7 +152,7 @@ class WorkflowPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     status: WorkflowStatus
     steps: list[WorkflowPlanStep]
     blockers: list[WorkflowBlocker]
@@ -183,6 +184,7 @@ _TASK_STEP: dict[str, str] = {
     "text_reference_script_plan": "script_plan_content",
     "text_episode_script": "final_script",
     **dict.fromkeys(ASSET_SPECS, "asset_sheets"),
+    DERIVATIVE_TASK_TYPE: "asset_sheets",
     "storyboard": "storyboard",
     "grid": "storyboard",
     "video": "video",

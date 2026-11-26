@@ -30,6 +30,7 @@ from typing import BinaryIO, NamedTuple, Protocol, Self, cast
 
 import portalocker
 
+from lib.artifacts.legacy_history_index import LegacyHistoryIndex
 from lib.infra.content_digest import (
     CONTENT_DIGEST_RE,
     HASH_ALGORITHM,
@@ -40,6 +41,7 @@ from lib.infra.content_digest import (
     prefixed,
     remember_file_digest,
 )
+from lib.infra.project_write_journal import has_sqlite_history, track_write
 from lib.infra.schema_guards import is_str
 from lib.material.work_files import absent_work_file_digest
 from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key
@@ -801,9 +803,11 @@ class ProjectArtifactManifestAdapter:
         project_dir: Path,
         *,
         nofollow_supported: bool = True,
+        legacy_history: LegacyHistoryIndex | None = None,
         clock_ns: Callable[[], int] = time.time_ns,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        self._legacy_history = legacy_history
         self._nofollow_supported = nofollow_supported
         self._clock_ns = clock_ns
         self._sleep = sleep
@@ -909,7 +913,7 @@ class ProjectArtifactManifestAdapter:
         需要实际字节的读取方先经 ``lib.material.work_files.local_work_files`` 取回；这里只回答在场与内容身份。
         没有 stat：图片类产物不记内容事实。
         """
-        digest = absent_work_file_digest(self._project_dir, normalized)
+        digest = absent_work_file_digest(self._project_dir, normalized, history=self._legacy_history)
         if digest is None:
             return None
         return ArtifactObservation(
@@ -1481,6 +1485,18 @@ class ProjectArtifactManifestAdapter:
 
     @contextmanager
     def _locked(self) -> Generator[int | None]:
+        from lib.artifacts.formal_write import project_metadata_lock
+
+        project_lock = (
+            project_metadata_lock(self._project_dir)
+            if has_sqlite_history(self._project_dir)
+            else contextlib.nullcontext()
+        )
+        with project_lock, self._manifest_lock() as root_fd:
+            yield root_fd
+
+    @contextmanager
+    def _manifest_lock(self) -> Generator[int | None]:
         lock_path = self._project_dir / LOCK_FILENAME
         with self._opened_project_root() as root_fd:
             checked_lock_identity: tuple[int, int] | None = None
@@ -1707,6 +1723,8 @@ class ProjectArtifactManifestAdapter:
             ) from exc
 
     def _remove_manifest_unlocked(self, root_fd: int | None) -> None:
+        track_write(self._project_dir / MANIFEST_FILENAME)
+
         def unlink() -> None:
             if root_fd is None:
                 (self._project_dir / MANIFEST_FILENAME).unlink()  # hard-delete: infra -- 已清空的产物清单 sidecar
@@ -1721,6 +1739,7 @@ class ProjectArtifactManifestAdapter:
             raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc
 
     def _atomic_replace(self, content: bytes, root_fd: int | None) -> None:
+        track_write(self._project_dir / MANIFEST_FILENAME)
         if root_fd is None:
             fd, tmp_name = tempfile.mkstemp(
                 prefix=f"{MANIFEST_FILENAME}.",

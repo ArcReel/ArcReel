@@ -562,7 +562,7 @@ class TestFilesRouter:
             project_dir = pm.get_project_path("demo")
             target = project_dir / first.json()["path"]
             manifest = project_dir / ".arcreel_artifacts.json"
-            versions_file = project_dir / "versions" / "versions.json"
+            from tests.legacy_project_shapes import read_version_history
 
             def _durable_state():
                 snapshots = sorted(path.name for path in (project_dir / "versions" / "characters").iterdir())
@@ -570,7 +570,7 @@ class TestFilesRouter:
                     target.read_bytes(),
                     (project_dir / "project.json").read_bytes(),
                     manifest.read_bytes(),
-                    versions_file.read_bytes(),
+                    read_version_history(project_dir),
                     snapshots,
                 )
 

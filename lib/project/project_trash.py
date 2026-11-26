@@ -30,6 +30,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.infra.api_errors import ConflictError, NotFoundError
 from lib.infra.json_io import atomic_write_json
+from lib.infra.project_write_journal import active_journal, track_write
 from lib.project.project_change_hints import (
     emit_project_change_batch,
     emit_project_change_hint,
@@ -193,6 +194,7 @@ def record_deletion(
     origin: Origin | None = None,
     sources: Mapping[str, Path] | None = None,
     before: Mapping[str, bytes] | None = None,
+    histories: Mapping | None = None,
 ) -> TrashRecord:
     """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
 
@@ -213,11 +215,16 @@ def record_deletion(
         size = 0
         stored.mkdir(parents=True)
         if snapshot:
+            store = VersionManager(project_dir).sqlite
+            if store.path.is_file():
+                before = dict(before or {})
+                before["versions/versions.json"] = json.dumps(histories or {}).encode()
             deleted = set(files)
             for rel in sorted(set(structure_files(project_dir)).union(before or ())):
                 if rel not in deleted and is_structure_file(rel):
                     target = record_dir / SNAPSHOT_DIRNAME / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    track_write(target)
                     if before is not None and rel in before:
                         target.write_bytes(before[rel])
                     else:
@@ -230,6 +237,7 @@ def record_deletion(
             target = stored / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             size += source.stat().st_size
+            track_write(source, target)
             os.replace(source, target)
             moved.append((target, source))
         record = TrashRecord(
@@ -254,14 +262,25 @@ def record_deletion(
     return record
 
 
+def _track_tree(project_dir: Path, directory: Path) -> None:
+    if active_journal(project_dir) is None or not directory.is_dir():
+        return
+    for path in directory.rglob("*"):
+        if path.is_file():
+            track_write(path)
+
+
 def withdraw(project_dir: Path, record_id: str) -> None:
     """撤回同一临界区里刚建立的删除记录：被删文件搬回原处，记录消失。删除提交失败时补偿用；调用方持有项目锁。"""
     record = require_record(project_dir, record_id)
     record_dir = trash_dir(project_dir) / record.id
     for rel in record.files:
+        source = record_dir / FILES_DIRNAME / rel
         target = project_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(record_dir / FILES_DIRNAME / rel, target)
+        track_write(source, target)
+        os.replace(source, target)
+    _track_tree(project_dir, record_dir)
     shutil.rmtree(record_dir)
     _notify(project_dir)
 
@@ -297,7 +316,7 @@ def restore(project_dir: Path, record_id: str) -> RestoreResult:
             project_dir,
             [(record_dir / FILES_DIRNAME / rel, rel) for rel in record.files],
             record.object,
-            then=lambda: shutil.rmtree(record_dir),
+            then=lambda: consume(project_dir, record_id),
         )
     _notify(project_dir)
     return RestoreResult(record.object, restored)
@@ -338,10 +357,14 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
         download_only=True,
     )
     atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **kept.to_dict()})
-    shutil.rmtree(record_dir / SNAPSHOT_DIRNAME, ignore_errors=True)
+    snapshot_dir = record_dir / SNAPSHOT_DIRNAME
+    _track_tree(project_dir, snapshot_dir)
+    shutil.rmtree(snapshot_dir, ignore_errors=True)
     for rel in record.files:
         if rel not in kept.files:
-            (stored / rel).unlink(missing_ok=True)
+            removed = stored / rel
+            track_write(removed)
+            removed.unlink(missing_ok=True)
 
 
 def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[BinaryIO, os.stat_result]:
@@ -359,7 +382,9 @@ def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[Binar
 
 def consume(project_dir: Path, record_id: str) -> None:
     """恢复流水线落地成功后删去记录；调用方持有项目锁。记录已被并发的恢复或清理拿走时抛 ``trash_record_not_found``。"""
-    shutil.rmtree(trash_dir(project_dir) / require_record(project_dir, record_id).id)
+    directory = trash_dir(project_dir) / require_record(project_dir, record_id).id
+    _track_tree(project_dir, directory)
+    shutil.rmtree(directory)
 
 
 def purge(project_dir: Path, record_id: str) -> None:
@@ -468,6 +493,7 @@ def _land_file(
         return RestoredFile(rel, path, as_history=True)
     if not (target.exists() or target.is_symlink()):
         target.parent.mkdir(parents=True, exist_ok=True)
+        track_write(stored, target)
         os.replace(stored, target)
         moved.append((stored, target))
         return RestoredFile(rel, rel)
@@ -485,6 +511,7 @@ def _land_file(
             stem = stem[: FILENAME_MAX_LENGTH - len(suffix)]
         candidate = path.with_name(f"{stem}{suffix}").as_posix()
         if not ((project_dir / candidate).exists() or (project_dir / candidate).is_symlink()):
+            track_write(stored, project_dir / candidate)
             os.replace(stored, project_dir / candidate)
             moved.append((stored, project_dir / candidate))
             return RestoredFile(rel, candidate)

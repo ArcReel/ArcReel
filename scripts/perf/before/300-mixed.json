@@ -1,0 +1,373 @@
+{
+  "workload": "synthetic",
+  "base_commit": "90a15892587769b9c8f88455b4b21c451fbe9df1",
+  "argv": [
+    "uv",
+    "run",
+    "python",
+    "-m",
+    "scripts.perf.bench",
+    "all",
+    "--rebuild",
+    "--episodes",
+    "300",
+    "--distribution",
+    "mixed",
+    "--duration",
+    "8",
+    "--reps",
+    "1",
+    "--video-kb",
+    "1",
+    "--sheet-kb",
+    "1",
+    "--no-racy-wait",
+    "--data-root",
+    "/tmp/arcreel-fix-s1.aYmy79/300-mixed"
+  ],
+  "host": {
+    "arch": "aarch64",
+    "cpu": "4 x Neoverse-N1",
+    "memory_kib": 24548116,
+    "python": "3.12.3"
+  },
+  "migration": {
+    "target_schema": 21,
+    "startup_migration_s": 16.927308804006316,
+    "videos": 5598,
+    "with_facts": 5598
+  },
+  "idle": {
+    "project": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220740,
+          "sampled_peak_kib": 9192492,
+          "high_water_kib": 9192072
+        }
+      },
+      "response_bytes": 2924267,
+      "reads": {
+        "project": 4,
+        "script": 900,
+        "history": 301
+      },
+      "first_open_s": 10.58254615496844,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 10.442510099033825,
+      "warm_s": [
+        10.056093382067047
+      ],
+      "p50": 10.056093382067047,
+      "p95": 10.056093382067047,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 1,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "cost": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 221772,
+          "sampled_peak_kib": 341736,
+          "high_water_kib": 381016
+        }
+      },
+      "response_bytes": 3575397,
+      "reads": {
+        "project": 2,
+        "script": 300,
+        "history": 1
+      },
+      "first_open_s": 3.276021898025647,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 3.1644702709745616,
+      "warm_s": [
+        2.847424585954286
+      ],
+      "p50": 2.847424585954286,
+      "p95": 2.847424585954286,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 302,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "wf_status": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220096,
+          "sampled_peak_kib": 470720,
+          "high_water_kib": 470456
+        }
+      },
+      "response_bytes": 7066,
+      "reads": {
+        "project": 4,
+        "script": 10,
+        "history": 6
+      },
+      "first_open_s": 0.9766188849462196,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 0.8982121070148423,
+      "warm_s": [
+        0.7636421710485592
+      ],
+      "p50": 0.7636421710485592,
+      "p95": 0.7636421710485592,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 2,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "wf_plan": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220416,
+          "sampled_peak_kib": 471040,
+          "high_water_kib": 470716
+        }
+      },
+      "response_bytes": 17607,
+      "reads": {
+        "project": 7,
+        "script": 12,
+        "history": 8
+      },
+      "first_open_s": 1.3317763559753075,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 1.2228404519846663,
+      "warm_s": [
+        0.868119062972255
+      ],
+      "p50": 0.868119062972255,
+      "p95": 0.868119062972255,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 6,
+      "lock_acq": 0,
+      "status": 200
+    },
+    "units": {
+      "memory": {
+        "rss": {
+          "baseline_kib": 220748,
+          "sampled_peak_kib": 375024,
+          "high_water_kib": 374604
+        }
+      },
+      "response_bytes": 18609,
+      "reads": {
+        "project": 2,
+        "script": 1,
+        "history": 1
+      },
+      "first_open_s": 0.6664808599743992,
+      "first_open_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "cache_cleared_s": 0.7999902319861576,
+      "warm_s": [
+        0.22491610806901008
+      ],
+      "p50": 0.22491610806901008,
+      "p95": 0.22491610806901008,
+      "warm_media": {
+        "reads": 0,
+        "bytes": 0
+      },
+      "hops": 3,
+      "lock_acq": 0,
+      "status": 200
+    }
+  },
+  "peak": {
+    "duration_s": 8.0,
+    "writes": 2,
+    "write_p95_s": 6.878812041017227,
+    "drain_s": 34.71819615701679,
+    "drain_capped": false,
+    "leftover": {},
+    "manifest_lock_wait_s": 0.001554843969643116,
+    "version_write_lock_wait_s": 4.680128768086433e-06,
+    "manifest_lock_nb_failures": 0,
+    "video_facts_after": {
+      "videos": 5598,
+      "with_facts": 5598
+    },
+    "thread_queue_max": 2,
+    "loop_lag_max_s": 0.5702297480311245,
+    "cpu_cores_mean": 1.031487666813867,
+    "cpu_cores_max": 1.4421086038567754,
+    "stack_samples": null,
+    "endpoints": {
+      "project": {
+        "n": 2,
+        "response_bytes": 5849066,
+        "reads": {
+          "project": 8,
+          "script": 1800,
+          "history": 602
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 1,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 29.89336336904671,
+        "p95": 29.89336336904671,
+        "max": 29.89336336904671,
+        "delivered_p95": 29.89336336904671,
+        "inflight_max": 2,
+        "computing_max": 1,
+        "mean_thread_hops": 1,
+        "mean_thread_qwait_s": 0.00022330053616315126,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 19.399894814472646,
+        "mean_thread_cpu_s": 10.320185640000002
+      },
+      "cost": {
+        "n": 2,
+        "response_bytes": 7150794,
+        "reads": {
+          "project": 4,
+          "script": 600,
+          "history": 2
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 1,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 17.90361085603945,
+        "p95": 17.90361085603945,
+        "max": 17.90361085603945,
+        "delivered_p95": 12.874014777014963,
+        "inflight_max": 2,
+        "computing_max": 1,
+        "mean_thread_hops": 302,
+        "mean_thread_qwait_s": 0.44314340548589826,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 8.917998486664146,
+        "mean_thread_cpu_s": 2.264628320000001
+      },
+      "wf_status": {
+        "n": 4,
+        "response_bytes": 28264,
+        "reads": {
+          "project": 16,
+          "script": 40,
+          "history": 24
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 2,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 7.711044283933006,
+        "p95": 7.964338830905035,
+        "max": 7.964338830905035,
+        "delivered_p95": 7.964338830905035,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 2,
+        "mean_thread_qwait_s": 0.0071519805351272225,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 7.633256486966275,
+        "mean_thread_cpu_s": 1.2635456200000001
+      },
+      "wf_plan": {
+        "n": 4,
+        "response_bytes": 70428,
+        "reads": {
+          "project": 28,
+          "script": 48,
+          "history": 32
+        },
+        "abandon_rate": 0.75,
+        "abandoned": 3,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 12.765372152905911,
+        "p95": 12.774781739106402,
+        "max": 12.774781739106402,
+        "delivered_p95": 9.965928859077394,
+        "inflight_max": 4,
+        "computing_max": 4,
+        "mean_thread_hops": 6,
+        "mean_thread_qwait_s": 0.2101540167350322,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 10.352736007916974,
+        "mean_thread_cpu_s": 1.6127938399999997
+      },
+      "units": {
+        "n": 4,
+        "response_bytes": 75036,
+        "reads": {
+          "project": 8,
+          "script": 4,
+          "history": 4
+        },
+        "abandon_rate": 0.5,
+        "abandoned": 2,
+        "unfinished": 0,
+        "errors": 0,
+        "p50": 5.511906265979633,
+        "p95": 5.539492543088272,
+        "max": 5.539492543088272,
+        "delivered_p95": 5.375239404034801,
+        "inflight_max": 2,
+        "computing_max": 2,
+        "mean_thread_hops": 3,
+        "mean_thread_qwait_s": 1.43319959071232,
+        "mean_lock_wait_s": 0.0,
+        "mean_thread_run_s": 3.9432239764137194,
+        "mean_thread_cpu_s": 0.5415475900000001
+      }
+    },
+    "probes": {
+      "auth_verify": {
+        "n": 37,
+        "p95": 0.0012440040009096265,
+        "max": 0.001252483925782144,
+        "errors": 0
+      },
+      "media_range": {
+        "n": 19,
+        "p95": 4.397915555979125,
+        "max": 4.397915555979125,
+        "errors": 0
+      }
+    }
+  },
+  "units_trace": {
+    "episode": 45,
+    "python_peak_bytes": 156803213,
+    "status": 200
+  },
+  "observed_at_end": {
+    "history_bytes": 29533257,
+    "manifest_bytes": 2429791,
+    "asset_images": 400
+  }
+}

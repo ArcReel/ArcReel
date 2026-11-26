@@ -578,6 +578,7 @@ def test_formal_script_plan_write_serializes_with_schema_last_activation(tmp_pat
 
     for version in range(ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, CURRENT_SCHEMA_VERSION - 1):
         MIGRATORS[version](project_dir)
+    VersionManager(project_dir).enable_sqlite_history()
 
     def _pause_before_schema(project_dir_arg: Path, project: Mapping[str, Any]) -> None:
         activation_ready.set()
@@ -1274,10 +1275,12 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
 
 
 def test_workflow_uses_the_activation_asset_identity_for_legacy_whitespace(tmp_path: Path) -> None:
-    project_dir, project, _script_plan, _script = _project(tmp_path)
+    project_dir, project, _script_plan, script = _project(tmp_path)
     raw_name = "  阿离  "
     project["characters"] = {raw_name: project["characters"]["阿离"]}
+    script["segments"][0].update({"novel_text": "雨夜", "duration_seconds": 4, "characters_in_segment": [raw_name]})
     _write_json(project_dir / "project.json", project)
+    _write_json(project_dir / "scripts" / "episode_1.json", script)
 
     migrate_project_dir(project_dir)
 

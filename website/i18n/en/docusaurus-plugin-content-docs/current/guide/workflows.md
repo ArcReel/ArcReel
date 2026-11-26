@@ -298,6 +298,8 @@ When generating a script plan for Narration or Drama, the model uses the duratio
 
 ArcReel saves a structurally valid first script plan and lists any issues that block confirmation in the generation result. You can save edits in Content Review and confirm once every blocking issue is resolved. If a plan already exists, a regenerated plan must pass validation before it can replace it. After a failed regeneration, you can still edit an unconfirmed plan in Content Review. A confirmed plan stays read-only. Edit the formal script to make further changes.
 
+While running, long-text tasks (episode planning, script planning, and prompt authoring) display their real-time phase (waiting for the model, receiving generated characters or thinking, or retrying) and elapsed time. If waiting exceeds 15 seconds, the workspace reminds you that long-text generation typically takes tens of seconds to a few minutes and you can switch to other pages while it runs. On the single-episode script planning start panel, when the episode source (including unsaved edits) exceeds 15,000 characters, ArcReel shows a non-blocking suggestion to split it with episode planning first while still letting you submit directly.
+
 You can ask an agent to make targeted edits to an unconfirmed script plan. Both the built-in agent and external agents connected over MCP can read the current revision with `get_script_plan_content` and submit edits with `patch_script_plan`. The result includes the current issues that block confirmation. After content review, agents use `patch_episode_script` to edit the formal script.
 
 ### Stage 1: Project Goals {#stage-project-goal}

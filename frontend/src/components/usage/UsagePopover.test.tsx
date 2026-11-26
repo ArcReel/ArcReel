@@ -338,4 +338,93 @@ describe("UsagePopover", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
+
+  it("renders live text task phases from active snapshot, elapsed time, and 15s hint on controllable clock", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T12:00:10Z"));
+      const textTask = makeTask({
+        task_id: "t-text-1",
+        project_name: HEADER_PROJECT,
+        task_type: "text_drama_script_plan",
+        media_type: "text",
+        provider_id: "anthropic",
+        model: "claude-sonnet-4",
+        resource_id: "episode-1",
+        status: "running",
+        started_at: "2026-11-01T12:00:00Z",
+        progress: { task_id: "t-text-1", seq: 1, phase: "waiting", model: "claude-sonnet-4" },
+      });
+      vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [textTask], truncated: false });
+      vi.spyOn(API, "listTasks").mockResolvedValue({ items: [textTask], total: 1, page: 1, page_size: 200 });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+
+      useTasksStore.getState().setRefreshScope({ projectName: HEADER_PROJECT });
+      await act(useTasksStore.getState().refreshTasks);
+      openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI }) });
+
+      const running = screen.getByRole("region", { name: "进行中" });
+      expect(within(running).getByText("正在等待 claude-sonnet-4 响应…")).toBeInTheDocument();
+      expect(within(running).getByLabelText(/已运行.*10/)).toBeInTheDocument();
+
+      act(() =>
+        useTasksStore.getState().receiveProgress({
+          task_id: "t-text-1",
+          seq: 2,
+          phase: "receiving",
+          thinking: true,
+          characters: 0,
+        }),
+      );
+      expect(within(running).getByText("模型思考中…")).toBeInTheDocument();
+
+      act(() =>
+        useTasksStore.getState().receiveProgress({
+          task_id: "t-text-1",
+          seq: 3,
+          phase: "receiving",
+          thinking: false,
+          characters: 850,
+        }),
+      );
+      expect(within(running).getByText("正在接收生成内容 · 已接收约 850 字…")).toBeInTheDocument();
+
+      act(() =>
+        useTasksStore.getState().receiveProgress({
+          task_id: "t-text-1",
+          seq: 4,
+          phase: "retrying",
+          attempt: 2,
+          max_attempts: 3,
+          error: "429",
+        }),
+      );
+      expect(within(running).getByText("正在重试（第 2/3 次尝试）…")).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(within(running).queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(within(running).getByText(/长文本通常需要数十秒至数分钟/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("labels a text_wait_timeout failure in the recently finished list", () => {
+    openPopover({
+      recent: [
+        makeUsageRecord({
+          id: 9,
+          media_type: "text",
+          purpose: "script_generation",
+          segment_id: null,
+          status: "failed",
+          error_code: "text_wait_timeout",
+        }),
+      ],
+    });
+
+    expect(within(screen.getByRole("region", { name: "最近已结束" })).getByText("等待超时")).toBeInTheDocument();
+  });
 });

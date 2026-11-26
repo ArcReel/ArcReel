@@ -33,6 +33,7 @@ from tests.integration.server.derivative_sheet_support import (
     solid_png_bytes,
     write_two_tone_png,
 )
+from tests.legacy_project_shapes import read_version_history, use_legacy_history
 
 _EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "current", "Eve": "missing"}
 
@@ -88,6 +89,7 @@ def _backfilled_project(pm: ProjectManager) -> Path:
 
     pm.update_project("demo", _legacy)
     (project_dir / MANIFEST_FILENAME).unlink()
+    use_legacy_history(project_dir)
     assert migrate_project_dir(project_dir) is True
     return project_dir
 
@@ -194,7 +196,7 @@ def test_current_package_carries_only_the_selected_upload_and_keeps_the_source_c
     pm.update_asset_entry(asset_type, "demo", "Hero", lambda entry: entry.update(description="黑发少年"))
     key = ArtifactKey.asset_sheet(asset_type, "Hero")
     source_status = ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=sheet_path).status.value
-    history = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(project_dir)
     [upload] = [
         record
         for record in history[spec.bucket_key]["Hero"]["versions"]

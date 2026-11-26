@@ -323,6 +323,8 @@ def storyboard_image_input(
     episode: int,
     resource_id: str,
     observation: InputObservation,
+    item_index: int | None = None,
+    catalog: ReferenceCatalog | None = None,
 ) -> StoryboardImageInput:
     """按项目现状为一张分镜图备齐生成输入。
 
@@ -338,7 +340,9 @@ def storyboard_image_input(
     """
 
     items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
-    resolved = find_storyboard_item(items, id_field, resource_id)
+    resolved = (
+        find_storyboard_item(items, id_field, resource_id) if item_index is None else (items[item_index], item_index)
+    )
     if resolved is None:
         raise ValueError(f"scene/segment not found: {resource_id}")
     item, index = resolved
@@ -349,7 +353,8 @@ def storyboard_image_input(
         raise ValueError("storyboard style and style description must be strings")
     canvas_ratio = resolve_video_aspect_ratio(project, "storyboards")
 
-    catalog = build_reference_catalog(project)
+    if catalog is None:
+        catalog = build_reference_catalog(project)
     assembly = _Assembly(observation)
     image_prompt = item.get("image_prompt")
     if image_prompt is None:

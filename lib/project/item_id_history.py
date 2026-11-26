@@ -62,7 +62,16 @@ def used_item_numbers(project_dir: Path) -> dict[int, set[int]]:
         for item_id in _id_fields(_load(path)):
             _record(found, item_id)
 
-    versions = _load(project_dir / "versions" / "versions.json")
+    from lib.artifacts.sqlite_history import SQLiteHistory
+
+    store = SQLiteHistory(project_dir)
+    if store.path.is_file():
+        for kind, name in store.resource_keys():
+            if kind in _ENTRY_RESOURCE_TYPES:
+                _record(found, name)
+        versions = None
+    else:
+        versions = _load(project_dir / "versions" / "versions.json")
     if isinstance(versions, dict):
         for resource_type in _ENTRY_RESOURCE_TYPES:
             resources = versions.get(resource_type)

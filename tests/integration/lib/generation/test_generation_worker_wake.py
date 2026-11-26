@@ -26,7 +26,13 @@ class _WakeQueue:
         assert media_type == "text"
         if self.idle.is_set() and not self.claimed:
             self.claimed = True
-            return {"task_id": "wake-task", "media_type": "text", "provider_id": "text"}
+            return {
+                "task_id": "wake-task",
+                "project_name": "demo",
+                "task_type": "text_episode_script",
+                "media_type": "text",
+                "provider_id": "text",
+            }
         self.idle.set()
         return None
 

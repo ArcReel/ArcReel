@@ -507,6 +507,108 @@ describe("EpisodesView", () => {
       expect(popover.getByText(/请在设置中换一个文本模型后再试/)).toBeInTheDocument();
       expect(popover.queryByRole("link", { name: "去登记最大输出长度" })).not.toBeInTheDocument();
     });
+
+    it("renders single-window live progress phases, elapsed time, and 15s hint on controllable clock", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(new Date("2026-11-01T12:00:10Z"));
+        vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+        const task = makeTask({
+          task_id: "plan-win-1",
+          project_name: "demo",
+          task_type: "text_episode_plan",
+          media_type: "text",
+          resource_id: "episode-planning",
+          status: "running",
+          started_at: "2026-11-01T12:00:00Z",
+        });
+        seedTaskState({ tasks: [task] });
+        renderView();
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        fireEvent.click(screen.getByRole("button", { name: "AI 规划中 · 67%" }));
+        const popover = within(screen.getByRole("dialog"));
+        expect(popover.getByLabelText(/已运行.*10/)).toBeInTheDocument();
+
+        act(() =>
+          useTasksStore.getState().receiveProgress({
+            task_id: task.task_id,
+            seq: 1,
+            phase: "waiting",
+            model: "Claude",
+          }),
+        );
+        expect(popover.getByText("正在等待 Claude 响应…")).toBeInTheDocument();
+
+        act(() =>
+          useTasksStore.getState().receiveProgress({
+            task_id: task.task_id,
+            seq: 2,
+            phase: "receiving",
+            thinking: true,
+            characters: 0,
+          }),
+        );
+        expect(popover.getByText("模型思考中…")).toBeInTheDocument();
+
+        act(() =>
+          useTasksStore.getState().receiveProgress({
+            task_id: task.task_id,
+            seq: 3,
+            phase: "receiving",
+            thinking: false,
+            characters: 412,
+          }),
+        );
+        expect(popover.getByText("正在接收生成内容 · 已接收约 412 字…")).toBeInTheDocument();
+
+        act(() =>
+          useTasksStore.getState().receiveProgress({
+            task_id: task.task_id,
+            seq: 4,
+            phase: "retrying",
+            attempt: 2,
+            max_attempts: 3,
+            error: "503",
+          }),
+        );
+        expect(popover.getByText("正在重试（第 2/3 次尝试）…")).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(5_000));
+        expect(popover.queryByText(/长文本通常需要数十秒至数分钟/)).not.toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(popover.getByText(/长文本通常需要数十秒至数分钟/)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("renders honest wait-timeout copy when episode planning fails with text_wait_timeout", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      seedTaskState({
+        tasks: [
+          makeTask({
+            project_name: "demo",
+            task_type: "text_episode_plan",
+            media_type: "text",
+            resource_id: "episode-planning",
+            status: "failed",
+            error_code: "text_wait_timeout",
+            error_message: null,
+          }),
+        ],
+      });
+      renderView();
+
+      const popover = await openPlanning("AI 规划剩余内容");
+      expect(popover.getByRole("alert")).toHaveTextContent(
+        "本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试",
+      );
+    });
   });
 
   it("changes a drama file's source kind after confirming the started episodes it stales", async () => {

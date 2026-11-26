@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
-import type { TaskItem, TaskStats, TaskStatus } from "@/types";
+import type { TaskItem, TaskProgress, TaskStats, TaskStatus } from "@/types";
 import { isTerminalStatus } from "@/types/task";
 
 const TASKS_PAGE_SIZE = 200;
@@ -61,6 +61,7 @@ interface Lease {
 }
 
 interface TaskRows {
+  progressById: Map<string, TaskProgress>;
   rowsById: Map<string, TaskItem>;
   recentTaskIds: string[];
   activeTaskIds: Set<string>;
@@ -71,7 +72,7 @@ interface TaskRows {
 
 function emptyRows(): TaskRows {
   return {
-    rowsById: new Map(), recentTaskIds: [], activeTaskIds: new Set(), activeTruncated: false,
+    progressById: new Map(), rowsById: new Map(), recentTaskIds: [], activeTaskIds: new Set(), activeTruncated: false,
     optimisticMarks: new Map(), tracked: new Map(),
   };
 }
@@ -81,6 +82,7 @@ interface TasksState extends TaskRows {
   connected: boolean;
   refreshScope: TasksRefreshScope | null;
   setRefreshScope: (scope: TasksRefreshScope | null) => void;
+  receiveProgress: (progress: TaskProgress) => void;
   refreshTasks: () => Promise<void>;
   retainTask: (projectName: string, taskId: string) => () => void;
   cancelTask: (id: string) => Promise<void>;
@@ -99,6 +101,13 @@ export function selectRecentTasks(s: TaskRows): TaskItem[] {
 
 export function selectActiveTasks(s: TaskRows): TaskItem[] {
   return Array.from(s.activeTaskIds, (id) => s.rowsById.get(id)!);
+}
+
+export function useActiveEpisodePlan(projectName: string): TaskItem | undefined {
+  return useTasksStore((s) => {
+    const plans = selectActiveTasks(s).filter((row) => row.project_name === projectName && row.task_type === "text_episode_plan");
+    return plans.find((row) => row.status === "running") ?? plans[0];
+  });
 }
 
 export function selectProjectTaskFingerprint(s: TaskRows, projectName: string): string {
@@ -126,6 +135,9 @@ function versionOrder(a: TaskItem, b: TaskItem): number {
 function pruneUnreferencedRows(s: TaskRows) {
   const referenced = new Set([...s.activeTaskIds, ...s.recentTaskIds, ...s.tracked.keys()]);
   for (const id of s.rowsById.keys()) if (!referenced.has(id)) s.rowsById.delete(id);
+  for (const id of s.progressById.keys()) {
+    if (!s.activeTaskIds.has(id) || s.rowsById.get(id)?.status !== "running") s.progressById.delete(id);
+  }
   return s;
 }
 
@@ -153,7 +165,7 @@ function reconcile(s: TaskRows, landed: Set<string>, missing = new Set<string>()
 
 function copyRows(s: TaskRows): TaskRows {
   return {
-    rowsById: new Map(s.rowsById), activeTaskIds: new Set(s.activeTaskIds),
+    progressById: new Map(s.progressById), rowsById: new Map(s.rowsById), activeTaskIds: new Set(s.activeTaskIds),
     recentTaskIds: s.recentTaskIds, activeTruncated: s.activeTruncated,
     optimisticMarks: new Map(s.optimisticMarks), tracked: new Map(s.tracked),
   };
@@ -181,6 +193,12 @@ function hasNewReferenceOutput(row: TaskItem, previous: TaskItem | undefined): b
   );
 }
 
+function acceptsProgress(s: TaskRows, progress: TaskProgress): boolean {
+  const id = progress.task_id;
+  return s.activeTaskIds.has(id) && s.rowsById.get(id)?.status === "running" &&
+    progress.seq > (s.progressById.get(id)?.seq ?? 0);
+}
+
 export function mergeTaskSnapshot(
   prev: TaskRows,
   active: { items: TaskItem[]; truncated: boolean },
@@ -191,10 +209,11 @@ export function mergeTaskSnapshot(
   next.activeTruncated = active.truncated;
   if (!active.truncated) next.activeTaskIds = protectedIds;
   const landed = new Set<string>();
-  for (const row of active.items) {
+  for (const { progress, ...row } of active.items) {
     mergeRow(next, row);
     if (isActiveStatus(next.rowsById.get(row.task_id)!.status)) {
       next.activeTaskIds.add(row.task_id);
+      if (progress?.task_id === row.task_id && acceptsProgress(next, progress)) next.progressById.set(row.task_id, progress);
       if (!active.truncated) landed.add(row.task_id);
     }
   }
@@ -209,6 +228,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
   let markSeq = 0;
   let connectedOnce = false;
   let writeRevisions = new Map<string, number>();
+  let snapshotEvents: Map<string, TaskProgress> | null = null;
   let flight: Promise<void> | null = null;
   let waiters: Array<() => void> = [];
   let requestAbort: AbortController | undefined;
@@ -280,6 +300,8 @@ export const useTasksStore = create<TasksState>((set, get) => {
     requestAbort = controller;
     const { signal } = controller;
     const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
+    const events = new Map<string, TaskProgress>();
+    snapshotEvents = events;
     let observedActive: TaskItem[] = [];
     try {
       const [active, recent, stats] = await Promise.all([
@@ -298,6 +320,9 @@ export const useTasksStore = create<TasksState>((set, get) => {
         recent.items.filter(notDeletedLocally),
         protectedIds,
       );
+      for (const progress of events.values()) {
+        if (acceptsProgress(next, progress)) next.progressById.set(progress.task_id, progress);
+      }
       const invalidate = connectedOnce && selectRecentTasks(next).some((row) =>
         hasNewReferenceOutput(row, prev.rowsById.get(row.task_id)),
       );
@@ -312,6 +337,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
       clearTimeout(timeout);
       if (requestAbort === controller) requestAbort = undefined;
     }
+    if (snapshotEvents === events) snapshotEvents = null;
     if (generation === epoch) await lookupPending(projectName, observedActive, epoch);
   }
 
@@ -347,6 +373,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
     setRefreshScope(scope) {
       if (scope && get().refreshScope?.projectName === scope.projectName) return;
       generation++;
+      snapshotEvents = null;
       connectedOnce = false;
       waiters.forEach((resolve) => resolve());
       waiters = [];
@@ -354,6 +381,19 @@ export const useTasksStore = create<TasksState>((set, get) => {
       requestAbort?.abort();
       writeRevisions = new Map();
       set({ ...emptyRows(), refreshScope: scope, stats: defaultTaskStats, connected: false });
+    },
+    receiveProgress(progress) {
+      const state = get();
+      if (!acceptsProgress(state, progress)) {
+        const row = state.rowsById.get(progress.task_id);
+        if (snapshotEvents && (!row || row.status === "queued") &&
+            progress.seq > (snapshotEvents.get(progress.task_id)?.seq ?? 0)) {
+          snapshotEvents.set(progress.task_id, progress);
+        }
+        return;
+      }
+      writeRevisions.set(progress.task_id, ++revision);
+      set({ progressById: new Map(state.progressById).set(progress.task_id, progress) });
     },
     refreshTasks() {
       if (!flight) return startRefresh();

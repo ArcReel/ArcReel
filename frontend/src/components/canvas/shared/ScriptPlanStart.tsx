@@ -1,19 +1,23 @@
 import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Sparkles } from "lucide-react";
+import { Bot, LoaderCircle, Sparkles } from "lucide-react";
 
+import { EpisodeSourceLengthHint, SavedEpisodeSourceLengthHint } from "./EpisodeSourceLengthHint";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
+import { TextTaskLongWaitHint, TextTaskProgress } from "@/components/shared/TextTaskProgress";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useScriptPlanSubmit } from "@/hooks/useScriptPlanSubmit";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
+import { isActiveStatus } from "@/stores/tasks-store";
 
 interface ScriptPlanStartProps {
   projectName: string;
   episode: number;
   savedInstructions: string;
+  sourceCharCount?: number;
   prepare?: () => Promise<boolean>;
 }
 
@@ -21,7 +25,7 @@ export function ScriptPlanStart(props: ScriptPlanStartProps) {
   return <ScriptPlanStartForm key={`${props.projectName}:${props.episode}`} {...props} />;
 }
 
-function ScriptPlanStartForm({ projectName, episode, savedInstructions, prepare }: ScriptPlanStartProps) {
+function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCharCount, prepare }: ScriptPlanStartProps) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
   const fieldId = useId();
@@ -50,6 +54,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, prepare 
     await action(instructions);
   };
 
+  const activeTask = latestTask && isActiveStatus(latestTask.status) ? latestTask : undefined;
   const disabled = submitting || preparing || refusedReason !== null;
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
@@ -60,13 +65,23 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, prepare 
         <p className="text-sm text-muted-foreground">{t("script_plan_desc")}</p>
       </div>
       {busy ? (
-        <p role="status" className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm text-foreground">
-          <span aria-hidden className="size-1.5 shrink-0 animate-breath rounded-full bg-primary" />
-          <span>
-            {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}{" "}
-            <span className="text-subtle-foreground">{t("script_plan_progress_hint")}</span>
-          </span>
-        </p>
+        <div className="flex flex-col gap-1 rounded-lg bg-primary/10 px-3 py-2 text-sm text-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <LoaderCircle aria-hidden className="size-3.5 shrink-0 animate-spin text-primary" />
+            <span role={activeTask ? undefined : "status"}>
+              {activeTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
+            </span>
+            {activeTask && (
+              <TextTaskProgress
+                task={activeTask}
+                showIcon={false}
+                showLongWaitHint={false}
+                className="text-subtle-foreground"
+              />
+            )}
+          </div>
+          {activeTask && <TextTaskLongWaitHint task={activeTask} className="text-subtle-foreground" />}
+        </div>
       ) : (
         <>
           <div className="flex flex-col gap-1.5">
@@ -82,6 +97,9 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, prepare 
               className="max-h-40"
             />
           </div>
+          {sourceCharCount === undefined
+            ? <SavedEpisodeSourceLengthHint projectName={projectName} episode={episode} />
+            : <EpisodeSourceLengthHint episode={episode} count={sourceCharCount} />}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"

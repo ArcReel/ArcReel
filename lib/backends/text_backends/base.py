@@ -104,6 +104,43 @@ _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 
 
+class StreamingBodyCounter:
+    """Count answer characters while a leading inline reasoning block arrives in fragments."""
+
+    def __init__(self) -> None:
+        self.state = "prefix"
+        self.fragment = ""
+        self.leading_spaces = 0
+
+    def consume(self, text: str) -> tuple[int, bool]:
+        if self.state == "body":
+            return len(text), False
+        value = self.fragment + text
+        self.fragment = ""
+        if self.state == "prefix":
+            trimmed = value.lstrip()
+            self.leading_spaces += len(value) - len(trimmed)
+            if len(trimmed) < len(_THINK_OPEN) and _THINK_OPEN.startswith(trimmed):
+                self.fragment = trimmed
+                return 0, False
+            if not trimmed.startswith(_THINK_OPEN):
+                self.state = "body"
+                return self.leading_spaces + len(trimmed), False
+            self.state = "thinking"
+            value = trimmed[len(_THINK_OPEN) :]
+        if self.state == "thinking":
+            end = value.find(_THINK_CLOSE)
+            if end < 0:
+                self.fragment = value[-(len(_THINK_CLOSE) - 1) :]
+                return 0, True
+            value = value[end + len(_THINK_CLOSE) :]
+            self.state = "after"
+        body = value.lstrip()
+        if body:
+            self.state = "body"
+        return len(body), not body
+
+
 def strip_leading_think_block(text: str) -> str:
     """剥掉输出开头的 ``<think>…</think>`` 思考块，返回其后的正文。
 

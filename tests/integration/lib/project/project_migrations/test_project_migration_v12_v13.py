@@ -22,6 +22,7 @@ from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.legacy_project_shapes import (
     advance_project_schema,
+    read_version_history,
     write_legacy_reference_video_project,
     write_legacy_storyboard_project,
 )
@@ -32,7 +33,7 @@ def _read_json(path: Path) -> dict:
 
 
 def _selected_record(project_dir: Path, resource_type: str, resource_id: str) -> dict:
-    bucket = _read_json(project_dir / "versions" / "versions.json")[resource_type][resource_id]
+    bucket = read_version_history(project_dir)[resource_type][resource_id]
     return next(record for record in bucket["versions"] if record["version"] == bucket["current_version"])
 
 

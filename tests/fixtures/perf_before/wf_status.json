@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "project_revision": "sha256-v1:1ee050b10f199fa8a77545c5bc4b4032e1c423673a4af2f5891c5ebd3ba98281",
+  "source_revision": "sha256-v1:571e13f16c495252c6db0de689ff8fbee05e2909a02af2ccfdb99b3c8de9b8d2",
+  "project": {
+    "content_mode": "drama",
+    "generation_mode": "reference_video",
+    "grid_storyboard": false
+  },
+  "target": {
+    "episode": 1,
+    "script": "scripts/episode_1.json",
+    "script_filename": "episode_1.json",
+    "source": "source/episode_1.txt"
+  },
+  "blockers": [],
+  "issues": [],
+  "content": {
+    "episode_count": 2,
+    "whole_source": "present",
+    "source_remaining": false,
+    "ad_inputs": "not_applicable",
+    "products_without_selling_points": [],
+    "episode_source": "present",
+    "episode_plan_stale": false,
+    "expected_stale_script_plan_revision": null,
+    "formal_script": "present",
+    "script_item_count": 2,
+    "pending_authoring_ids": [],
+    "needs_replan_ids": [],
+    "referenced_assets_without_sheet": [],
+    "unregistered_references": [],
+    "referenced_asset_sheets_stale": [],
+    "referenced_assets_without_description": [],
+    "episode_complete": false,
+    "project_complete": false
+  },
+  "operations": {
+    "plan_episodes": {
+      "state": "admitted",
+      "reason": null
+    },
+    "create_edit_timeline": {
+      "state": "admitted",
+      "reason": null
+    },
+    "prepare_script_plan": {
+      "state": "admitted",
+      "reason": null
+    },
+    "generate_script": {
+      "state": "not_applicable",
+      "reason": "operation_not_applicable"
+    },
+    "author_prompts": {
+      "state": "refused",
+      "reason": "no_pending_authoring"
+    }
+  },
+  "gates": {
+    "script_plan_review": {
+      "state": "confirmed",
+      "revision": "sha256-v1:cde5e4db275326671e5dbc9d95218dd092fdbeb8aabc9e58ea5eeaa170c6623b"
+    }
+  },
+  "artifacts": {
+    "asset_sheets": {
+      "character": {
+        "current_ids": [
+          "角色1"
+        ],
+        "missing_ids": [],
+        "stale_ids": []
+      },
+      "scene": {
+        "current_ids": [
+          "场景1"
+        ],
+        "missing_ids": [],
+        "stale_ids": []
+      },
+      "prop": {
+        "current_ids": [
+          "道具1"
+        ],
+        "missing_ids": [],
+        "stale_ids": []
+      },
+      "product": {
+        "current_ids": [],
+        "missing_ids": [],
+        "stale_ids": []
+      }
+    },
+    "script_plan": {
+      "state": "current",
+      "path": "drafts/episode_1/script_plan_reference_units.json",
+      "revision": "sha256-v1:cde5e4db275326671e5dbc9d95218dd092fdbeb8aabc9e58ea5eeaa170c6623b"
+    },
+    "script": {
+      "state": "current",
+      "path": "scripts/episode_1.json"
+    },
+    "storyboards": {
+      "state": "not_applicable",
+      "current_ids": [],
+      "missing_ids": [],
+      "stale_ids": []
+    },
+    "videos": {
+      "current_ids": [
+        "E1U1",
+        "E1U2"
+      ],
+      "missing_ids": [],
+      "stale_ids": []
+    },
+    "audio": {
+      "state": "not_applicable",
+      "current_ids": [],
+      "missing_ids": [],
+      "stale_ids": []
+    },
+    "edit_timelines": {
+      "timeline_ids": []
+    }
+  },
+  "next_action": {
+    "type": "create_edit_timeline",
+    "args": {
+      "episode_id": 1
+    },
+    "requested_ids": [],
+    "requires_confirmation": false,
+    "reason": "episode has no edit timeline"
+  },
+  "next_alternatives": [],
+  "migration_report": null
+}

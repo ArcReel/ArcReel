@@ -151,7 +151,10 @@ export function describeTaskFailure(
   projectData: ProjectData | null = null,
   scripts: ProjectScripts = {},
 ): string | null {
-  const reason = task.error_message ?? t("reference_status_failed");
+  const reason =
+    task.error_code === "text_wait_timeout"
+      ? t("errors:text_wait_timeout")
+      : (task.error_message ?? t("reference_status_failed"));
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
   const target = failureTarget(config.idParam, task, projectData, scripts, t);

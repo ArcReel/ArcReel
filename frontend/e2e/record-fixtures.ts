@@ -159,6 +159,7 @@ function createNormalizer(dataDir: string): (value: unknown) => unknown {
   const normalize = (value: unknown, parentKey?: string): unknown => {
     if (typeof value === "string") {
       if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
+      if ((parentKey === "task_id" || parentKey === "batch_id") && /^[0-9a-f]{32}$/.test(value)) return fixedUuid(value).replaceAll("-", "");
       if (UUID.test(value)) return fixedUuid(value);
       return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>")
         .replace(/#deleted-\d{8}T\d{6}Z$/, "#deleted-20260101T080000Z");
@@ -320,6 +321,15 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
     await request(baseUrl, token, { method: "PATCH", path: "/api/v1/system/config",
       json: { default_video_backend_i2v: "ark/doubao-seedance-2-0-260128" } });
     await recordResponse({ file: "script-review-confirm", method: "POST", path: `${review}/confirm` });
+    await postJson(baseUrl, token, "/api/v1/projects", { name: "progress-demo", title: "文本进展", generation_mode: "storyboard" });
+    await postJson(baseUrl, token, "/__record/start-progress", {});
+    await recordResponse({ file: "running-text-task", method: "GET", path: "/api/v1/projects/progress-demo/tasks/active" });
+    await postJson(baseUrl, token, "/__record/finish-progress", {});
+    const planningProject = "/api/v1/projects/progress-demo";
+    await postJson(baseUrl, token, `${planningProject}/episodes`, { title: "长文本规划" });
+    const episode = `${planningProject}/episodes/1`;
+    await recordResponse({ file: "episode-source-save", method: "PUT", path: `${episode}/source`, json: { text: "山雨初歇。", confirm: false } });
+    await recordResponse({ file: "episode-script-plan", method: "POST", path: `${episode}/script-plan`, json: {} });
     return files;
   } finally {
     if (!exited) backend.kill("SIGTERM");

@@ -1765,6 +1765,23 @@ def without_version_content_digests(versions: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def use_legacy_history(project_dir: Path) -> None:
+    from lib.artifacts.version_manager import VersionManager
+
+    manager = VersionManager(project_dir)
+    if manager.sqlite.is_enabled():
+        if not manager.versions_file.exists():
+            manager.sqlite.export_json(manager.versions_file)
+        manager.sqlite.path.unlink()
+
+
+def read_version_history(project_dir: Path) -> dict:
+    from lib.artifacts.version_manager import VersionManager
+
+    with VersionManager(project_dir).locked_history() as history:
+        return history
+
+
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
     """按迁移链把项目从当前 ``schema_version`` 逐级推进到 ``to_version``。"""
 

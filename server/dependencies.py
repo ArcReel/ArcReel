@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Annotated
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,8 +14,20 @@ from lib.db import get_async_session
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_guard import assert_project_migration_ok
+from server.services.project.coalesce import RequestCoalescer
 
 _READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def project_reads(request: Request) -> RequestCoalescer:
+    reads = getattr(request.app.state, "project_reads", None)
+    if reads is None or reads.is_closed:
+        reads = RequestCoalescer(asyncio.get_running_loop())
+        request.app.state.project_reads = reads
+    return reads
+
+
+ProjectReads = Annotated[RequestCoalescer, Depends(project_reads)]
 
 
 def get_config_service(

@@ -53,6 +53,7 @@ from tests.legacy_project_shapes import (
     break_script_item_ids,
     cross_bind_episode_scripts,
     duplicate_legacy_ad_ids,
+    read_version_history,
     refer_to_asset_in_episode,
     repoint_registered_asset_sheet,
     reuse_item_id_across_episodes,
@@ -516,8 +517,9 @@ def test_a_sheet_copy_preserves_the_original_image_referencing_its_target(tmp_pa
     assert (project_dir / bob["reference_image"]).read_bytes() == b"Bob-reference"
     assert bob["character_sheet"] == "characters/Bob.png"
     assert bob["reference_image"] == "characters/refs/Bob.png"
-    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
-    assert "Bob" in status["character"]["current_ids" if from_version == 5 else "missing_ids"]
+    assert _sheet_status(project_dir, "character", "Bob", bob["character_sheet"]) == (
+        "current" if from_version == 5 else "missing"
+    )
 
 
 @pytest.mark.parametrize("directory", ["refs", "refs_audio"])
@@ -553,8 +555,6 @@ def test_reference_copy_targets_preserve_all_fields_and_sheet_currency(
     assert _sheet_status(project_dir, "character", "Bob", bob["character_sheet"]) == currency
     expected = None if currency == "missing" else (bob["character_sheet"], claim.basis_digest)
     assert _sheet_claim(project_dir, "character", "Bob") == expected
-    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
-    assert "Bob" in status["character"][f"{currency}_ids"]
 
 
 def test_product_reference_lists_keep_distinct_reserved_copy_targets(tmp_path: Path) -> None:
@@ -648,8 +648,9 @@ def test_a_missing_reference_stays_missing_when_its_own_target_is_occupied(
     assert report is not None
     backups = [project_dir / item.backup for item in report.adjusted if item.backup]
     assert any(path.read_bytes() == b"orphan-reference" for path in backups)
-    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
-    assert name in status["character"]["current_ids" if from_version == 5 else "missing_ids"]
+    assert _sheet_status(project_dir, "character", name, bob["character_sheet"]) == (
+        "current" if from_version == 5 else "missing"
+    )
     after = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
     assert not runner.migrate_project_dir(project_dir)
     assert {
@@ -838,9 +839,9 @@ def _assert_sheets_keep_their_currency(
     assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "current"
     assert _sheet_claim(project_dir, "scene", "雨巷") is None
     assert _sheet_status(project_dir, "scene", "雨巷", "scenes/雨巷.png") == "missing"
-    sheets = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").artifacts["asset_sheets"]
-    assert "阿青" in sheets["character"]["current_ids"]
-    assert "雨巷" in sheets["scene"]["missing_ids"]
+    assets = WorkflowStateService(ProjectManager(str(tmp_path))).get_project_summary("demo").assets
+    assert assets["character"].available == 2
+    assert assets["scene"].available == 0
 
 
 def test_an_asset_sheet_shared_with_another_asset_gets_its_own_copy_and_keeps_its_currency(tmp_path: Path) -> None:
@@ -1292,7 +1293,7 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
     assert hat_claim is not None
     assert entries[derivative_artifact_key("Alice", "Hat")] == replace(hat_claim, artifact_path=kept_hat_sheet)
     assert coat_key not in entries
-    derivative_history = _read_json(versions_path)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
+    derivative_history = read_version_history(project_dir)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
     assert f"{variant}/Hat" not in derivative_history
     assert f"{variant}/Coat" not in derivative_history
     assert derivative_history["Alice/Hat"] == hat_history
@@ -1723,7 +1724,7 @@ def test_a_schema_8_reference_draft_the_process_cannot_open_is_left_as_is(tmp_pa
 )
 def test_a_video_whose_selected_snapshot_cannot_be_opened_is_reported(tmp_path: Path) -> None:
     project_dir = _write_storyboard_project_with_a_video(tmp_path)
-    versions = _read_json(project_dir / "versions" / "versions.json")
+    versions = read_version_history(project_dir)
     snapshot = project_dir / versions["videos"]["E1S1"]["versions"][0]["file"]
     snapshot.chmod(0)
     try:

@@ -10,6 +10,7 @@ import asyncio
 import builtins
 import contextvars
 import functools
+import hashlib
 import importlib
 import inspect
 import io
@@ -111,12 +112,46 @@ def commit_video(unit_id: str, video_kb: int, script_file: str, *, register: boo
     )
 
 
-def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: int, video_ratio: float) -> None:
+def _large_video(path: Path, uid: str, size: int, text: str) -> dict[str, Any]:
+    payload = random.Random(uid).randbytes(size * 1024)
+    current = path / "reference_videos" / f"{uid}.mp4"
+    current.parent.mkdir(exist_ok=True)
+    current.write_bytes(payload)
+    snapshot = Path("versions/reference_videos") / f"{uid}_v1_20261001T000000.mp4"
+    (path / snapshot).parent.mkdir(exist_ok=True, parents=True)
+    (path / snapshot).write_bytes(payload)
+    return {
+        "current_version": 1,
+        "versions": [
+            {
+                "version": 1,
+                "file": str(snapshot),
+                "prompt": text,
+                "created_at": "2026-10-01T00:00:00Z",
+                "source": "manual_upload",
+                "content_version_id": hashlib.sha256(uid.encode()).hexdigest()[:32],
+            }
+        ],
+    }
+
+
+def build(
+    *,
+    episodes: int,
+    units: int,
+    assets: int,
+    video_kb: int,
+    sheet_kb: int,
+    video_ratio: float,
+    distribution: str = "mixed",
+) -> None:
     """构建参考生视频合成项目：整本源文、每集已确认的单元规划与剧本、按比例已出片的视频。"""
 
     from lib.artifacts.artifact_activation import activate_artifact_target_state
     from lib.artifacts.artifact_manifest import ArtifactKey
     from lib.artifacts.artifact_registration import register_current_artifact, register_current_artifact_if_provable
+    from lib.edit_timeline.model import RevisionAuthor
+    from lib.edit_timeline.service import EditTimelineService
     from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
     from lib.episode.episode_source_commands import register_whole_source_file
     from lib.episode.episode_sources import discover_sources
@@ -124,6 +159,7 @@ def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: in
     from lib.project.project_manager import ProjectManager
     from lib.script import script_review
 
+    history: dict[str, Any] = {}
     rnd = random.Random(7)
     pm = ProjectManager(data_root())
     pm.create_project(PROJECT)
@@ -152,7 +188,7 @@ def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: in
         for name, desc in names.items():
             rel = f"{folder}/{name}.png"
             (path / folder).mkdir(parents=True, exist_ok=True)
-            (path / rel).write_bytes(os.urandom(sheet_kb * 1024))
+            (path / rel).write_bytes(random.Random(name).randbytes(sheet_kb * 1024))
             specs[folder][name] = {"description": f"{name}，{desc}" * 4, sheet_key: rel}
 
     def _plan(project: dict[str, Any]) -> None:
@@ -184,14 +220,20 @@ def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: in
         draft = path / "drafts" / f"episode_{n}"
         draft.mkdir(parents=True, exist_ok=True)
         (path / "source" / f"episode_{n}.txt").write_text(novel[per * (n - 1) : per * n], encoding="utf-8")
-        plan_units, video_units, filmed = [], [], []
+        plan_units, video_units = [], []
+        filmed: dict[str, str] = {}
         for u in range(1, units + 1):
             uid = f"E{n}U{u}"
             text = _unit_text(rnd, chars, scenes, props)
             plan_units.append({"unit_id": uid, "text": text, "duration_seconds": 8})
             assets_done: dict[str, str] = {}
-            if rnd.random() < video_ratio:
-                filmed.append(uid)
+            sample = rnd.random()
+            if distribution == "mixed":
+                has_video = sample < video_ratio or (episodes >= 300 and n % 5 != 0)
+            else:
+                has_video = distribution != "tail" or (n, u) != (episodes, units)
+            if has_video:
+                filmed[uid] = text
                 assets_done = {
                     "video_clip": f"reference_videos/{uid}.mp4",
                     "video_generated_at": "2026-10-01T00:00:00+00:00",
@@ -211,11 +253,29 @@ def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: in
         atomic_write_json(path / "scripts" / f"episode_{n}.json", script)
         register_current_artifact_if_provable(path, ArtifactKey.episode_script_plan(n))
         register_current_artifact(path, ArtifactKey.episode_script(n))
-        for uid in filmed:
-            commit_video(uid, video_kb, f"scripts/episode_{n}.json", register=False)
+        if len(filmed) == units and (episodes >= 300 or distribution != "mixed"):
+            EditTimelineService(pm)._create_from_script_sync(PROJECT, n, "剪辑", RevisionAuthor(kind="creator"))
+        for uid, prompt in filmed.items():
+            if episodes >= 300:
+                history[uid] = _large_video(path, uid, video_kb, prompt)
+            else:
+                commit_video(uid, video_kb, f"scripts/episode_{n}.json", register=False)
         if n % 10 == 0:
             print(f"  built episode {n}/{episodes} ({time.perf_counter() - t0:.0f}s)", flush=True)
 
+    if history:
+        from lib.artifacts.version_manager import VersionManager
+
+        versions = {key: {} for key in VersionManager.RESOURCE_TYPES}
+        versions["reference_videos"] = history
+        payload_size = len(json.dumps(versions, ensure_ascii=False, indent=2).encode())
+        extra = max(0, (29_000_000 - payload_size) // len(history))
+        for resource in history.values():
+            resource["versions"][0]["prompt"] += ("scene direction " * (extra // 16 + 1))[:extra]
+        store = VersionManager(path).sqlite
+        batch = store.resources(())
+        batch.update(versions)
+        store.save(batch)
     revisions = {
         n: script_review.content_fingerprint(path / "drafts" / f"episode_{n}" / "script_plan_reference_units.json")
         for n in range(1, episodes + 1)
@@ -235,8 +295,7 @@ CONTENT_FACT_FIELDS = ("content_digest", "content_size", "content_mtime_ns")
 def downgrade_to_v17() -> None:
     """把构建好的项目退回 schema 17 的形态：抹掉清单条目与版本记录上的内容指纹。
 
-    存量项目升级时，内容指纹由启动迁移的 v17→v18 补录写入；基准据此让存量视频走生产补录拿到指纹，
-    并测出这一步的耗时。
+    启动迁移会为存量视频补录内容指纹。基准测量整条迁移链的耗时，并校验补录数量。
     """
 
     from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
@@ -249,15 +308,17 @@ def downgrade_to_v17() -> None:
         for field in CONTENT_FACT_FIELDS:
             entry.pop(field, None)
     atomic_write_json(path / MANIFEST_FILENAME, manifest)
-    versions_file = VersionManager(path).versions_file
-    versions = json.loads(versions_file.read_text(encoding="utf-8"))
+    manager = VersionManager(path)
+    versions = manager.sqlite.snapshot()
     for bucket in versions.values():
         for resource in bucket.values():
             for record in resource["versions"]:
                 record.pop(VERSION_CONTENT_DIGEST, None)
-    atomic_write_json(versions_file, versions)
+    atomic_write_json(manager.versions_file, versions)
+    manager.sqlite.path.unlink()
     project = json.loads((path / "project.json").read_text(encoding="utf-8"))
     project["schema_version"] = 17
+    project["default_text_backend"] = "ark"
     atomic_write_json(path / "project.json", project)
 
 
@@ -275,23 +336,64 @@ def video_fact_coverage() -> dict[str, int]:
 def run_startup_migration() -> dict[str, Any]:
     """按服务启动的方式跑一遍项目迁移并计时。先清进程内缓存，模拟新进程；操作系统页缓存仍是热的。"""
 
+    from lib.config import pre_upgrade_recommendations
+    from lib.config.repository import SystemSettingRepository
+    from lib.db import async_session_factory, upgrade_source
     from lib.project.project_migrations import run_project_migrations
+    from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
+        install_bare_provider_models,
+        installed_bare_provider_models,
+    )
+    from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
+    async def capture():
+        await ensure_db()
+        async with async_session_factory() as session:
+            await SystemSettingRepository(session).insert_if_absent(
+                upgrade_source.SOURCE_SETTING_KEY, json.dumps({"revision": "f6d2a8c4b931"})
+            )
+            await session.commit()
+            return await pre_upgrade_recommendations.capture(session)
+
+    previous = installed_bare_provider_models()
+    recommendations = asyncio.run(capture())
     clear_caches()
     t = time.perf_counter()
-    summary = run_project_migrations(data_root() / "projects")
+    install_bare_provider_models(recommendations.model)
+    try:
+        summary = run_project_migrations(data_root() / "projects")
+    finally:
+        install_bare_provider_models(previous)
     elapsed = time.perf_counter() - t
     if summary.migrated != [PROJECT]:
         raise SystemExit(f"startup migration did not migrate {PROJECT}: {summary}")
-    return {"startup_migration_s": elapsed, **video_fact_coverage()}
+    migrated = json.loads((project_path() / "project.json").read_bytes())
+    if (
+        migrated["schema_version"] != CURRENT_PROJECT_SCHEMA_VERSION
+        or migrated["default_text_backend"] != "ark/doubao-seed-2-1-lite-260915"
+    ):
+        raise ValueError("unexpected migration result for synthetic v17 project")
+    return {"target_schema": CURRENT_PROJECT_SCHEMA_VERSION, "startup_migration_s": elapsed, **video_fact_coverage()}
 
 
 def ensure_project(
-    *, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: int, video_ratio: float, rebuild: bool
+    *,
+    episodes: int,
+    units: int,
+    assets: int,
+    video_kb: int,
+    sheet_kb: int,
+    video_ratio: float,
+    rebuild: bool,
+    distribution: str = "mixed",
+    wait_racy_window: bool = True,
 ) -> None:
     """参数与上次构建一致就复用已有项目，否则清掉重建。"""
 
-    marker = data_root() / f"built-{episodes}x{units}x{assets}-v{video_kb}-s{sheet_kb}-r{video_ratio}.ok"
+    marker = (
+        data_root()
+        / f"built-provider-fixture-sqlite-{distribution}-{episodes}x{units}x{assets}-v{video_kb}-s{sheet_kb}-r{video_ratio}.ok"
+    )
     if rebuild or not marker.exists():
         shutil.rmtree(data_root() / "projects", ignore_errors=True)
         for old in data_root().glob("built-*.ok"):
@@ -305,18 +407,28 @@ def ensure_project(
             video_kb=video_kb,
             sheet_kb=sheet_kb,
             video_ratio=video_ratio,
+            distribution=distribution,
         )
         downgrade_to_v17()
         migration = run_startup_migration()
         print(
-            f"startup migration v17->v18: {migration['startup_migration_s']:.1f}s, "
+            f"startup migration v17->v{migration['target_schema']}: {migration['startup_migration_s']:.1f}s, "
             f"video entries with content facts {migration['with_facts']}/{migration['videos']}",
             flush=True,
         )
         (data_root() / "migration.json").write_text(json.dumps(migration))
+        if distribution == "stale":
+            for episode in range(2, episodes + 1, 2):
+                video = project_path() / "reference_videos" / f"E{episode}U1.mp4"
+                with video.open("ab") as handle:
+                    handle.write(b"stale")
+        declared = sum(1 for _ in (project_path() / "reference_videos").glob("*.mp4"))
+        if migration["with_facts"] != declared:
+            raise ValueError(f"expected {declared} videos with content facts, found {migration}")
         marker.write_text("ok")
         # 刚写完的文件落在内容指纹缓存的 racy 窗口里不入缓存，等窗口过去再测，热态才是真热态。
-        time.sleep(FILE_DIGEST_RACY_WINDOW_S)
+        if wait_racy_window:
+            time.sleep(FILE_DIGEST_RACY_WINDOW_S)
         print(f"built project in {time.perf_counter() - t:.0f}s", flush=True)
     videos = sum(1 for p in project_path().rglob("*.mp4") if not p.name.startswith("."))
     print(f"project={project_path()} mp4 files (formal + version snapshots)={videos}", flush=True)
@@ -399,6 +511,9 @@ def pct(xs: list[float], p: float) -> float:
 REQ: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("perf_req", default=None)
 
 
+VERSION_WRITE = contextvars.ContextVar("perf_version_write", default=False)
+
+
 class Probe:
     """进程内计数：线程跳数与排队、清单锁、同时在算的计算份数、媒体文件内容读取。"""
 
@@ -406,6 +521,8 @@ class Probe:
         self.lock = threading.Lock()
         self.computing: dict[str, int] = defaultdict(int)
         self.computing_max: dict[str, int] = defaultdict(int)
+        self.version_write_lock_s = 0.0
+        self.manifest_lock_wait_s = 0.0
         self.lock_fail = 0
         self.media_bytes: dict[str, int] = defaultdict(int)
         self._media_fds: dict[int, str] = {}
@@ -428,8 +545,28 @@ class Probe:
     def install(self) -> None:
         self._install_to_thread()
         self._install_manifest_lock()
+        self._install_version_lock()
         self._install_compute_markers()
         self._install_media_reads()
+
+    def _install_version_lock(self) -> None:
+        from lib.artifacts.version_manager import VersionManager
+
+        original = VersionManager._lock
+        probe = self
+
+        @contextmanager
+        def timed(lock):
+            start = time.perf_counter()
+            with lock:
+                probe.version_write_lock_s += time.perf_counter() - start
+                yield
+
+        def lock(manager):
+            actual = original.__get__(manager, VersionManager)
+            return timed(actual) if VERSION_WRITE.get() else actual
+
+        VersionManager._lock = property(lock)
 
     def _install_to_thread(self) -> None:
         orig = asyncio.to_thread
@@ -471,9 +608,12 @@ class Probe:
                 req = REQ.get()
                 t0 = time.perf_counter()
                 with orig_locked(self_) as fd:
+                    waited = time.perf_counter() - t0
+                    with self.lock:
+                        self.manifest_lock_wait_s += waited
                     if req is not None:
                         req["lock_acq"] += 1
-                        req["lock_wait"] += time.perf_counter() - t0
+                        req["lock_wait"] += waited
                     yield fd
 
             adapter._locked = _locked
@@ -592,6 +732,15 @@ class Probe:
 
         def counting_open(file, mode="r", *args, **kwargs):
             handle = real_open(file, mode, *args, **kwargs)
+            req = REQ.get()
+            if req is not None and "r" in mode and isinstance(file, (str, os.PathLike)):
+                path = Path(file)
+                key = {"project.json": "project", "versions.json": "history"}.get(path.name)
+                if path.parent.name == "scripts" and path.suffix == ".json":
+                    key = "script"
+                if key:
+                    with probe.lock:
+                        req["reads"][key] += 1
             if "b" in mode and not set(mode) & set("wax+") and is_media(file):
                 return _CountingFile(handle, os.fsdecode(file))
             return handle
@@ -608,6 +757,7 @@ def new_request(name: str, started: float) -> dict[str, Any]:
         "qwait": 0.0,
         "run": 0.0,
         "cpu": 0.0,
+        "reads": dict.fromkeys(("project", "script", "history"), 0),
         "lock_acq": 0,
         "lock_wait": 0.0,
         "abandoned": False,
