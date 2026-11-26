@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "entry": ["e2e/build-artifact.ts"],
   "project": ["src/**/*.{ts,tsx,css}", "e2e/**/*.ts", "*.{ts,js}"],
   "ignoreBinaries": ["uv"],
   "ignoreExportsUsedInFile": true,

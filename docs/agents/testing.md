@@ -17,6 +17,8 @@ testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执�
 
 修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。若本机与 CI 结果不一致，按[贡献指南](../../CONTRIBUTING.md)中的官方镜像方式复现。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
 
+本地独立运行 `pnpm e2e` 或 `pnpm e2e:live` 时，Playwright 启动服务前会构建前端。CI 浏览器作业依赖 `frontend-static`，检出同一提交后调用 [restore-browser-build](../../.github/actions/restore-browser-build/action.yml)。该步骤校验产物来源和构建输入，恢复 `dist` 与运行浏览器测试所需的依赖，并设置 `E2E_PREBUILT=1`。
+
 ## Worktree 与测试数据
 
 - 新 worktree 在后端执行 `uv sync`，在前端、文档站各自执行 `pnpm install --frozen-lockfile`。可从主检出复制 `.testmondata`，代码指纹有变化的用例会重跑。

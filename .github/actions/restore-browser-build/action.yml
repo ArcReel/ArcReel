@@ -1,0 +1,15 @@
+name: Restore browser build
+description: Restore this run's verified frontend and browser test dependencies
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: browser-build-${{ github.run_id }}-${{ github.sha }}
+        path: ${{ runner.temp }}/browser-build
+    - name: Verify and restore browser build
+      working-directory: frontend
+      shell: bash
+      run: |
+        node e2e/build-artifact.ts restore "$RUNNER_TEMP/browser-build"
+        echo "E2E_PREBUILT=1" >> "$GITHUB_ENV"

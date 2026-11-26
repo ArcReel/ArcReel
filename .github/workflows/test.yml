@@ -358,7 +358,7 @@ jobs:
 
   frontend-static:
     needs: changes
-    if: needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -381,16 +381,30 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: pnpm lint
 
       - name: Knip
+        if: needs.changes.outputs.frontend == 'true'
         working-directory: frontend
         run: pnpm knip
 
       - name: Build
         working-directory: frontend
-        run: pnpm build
+        run: |
+          pnpm build
+          node e2e/build-artifact.ts pack "$RUNNER_TEMP/browser-build"
+
+      - name: Upload shared browser build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-build-${{ github.run_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/browser-build/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 7
 
   frontend-tests:
     needs: changes
@@ -440,7 +454,7 @@ jobs:
     # 页面级验收套件（溢出探针 + axe + 区域截图比对）。镜像版本必须与 frontend/package.json 的
     # @playwright/test 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
     name: frontend-e2e (${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }})
-    needs: changes
+    needs: [changes, frontend-static]
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -456,19 +470,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        with:
-          version: 10
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-          cache: "pnpm"
-          cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/restore-browser-build
 
       - name: Run page-level suite
         working-directory: frontend
@@ -476,7 +482,7 @@ jobs:
           E2E_SCREENSHOTS: "1"
           E2E_VIEWPORTS: ${{ needs.changes.outputs.e2e_viewports }}
           SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }}
-        run: pnpm e2e --shard="$SHARD"
+        run: node node_modules/@playwright/test/cli.js test --shard="$SHARD"
 
       - name: Upload Playwright report
         if: failure()
