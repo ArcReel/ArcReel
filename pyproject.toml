@@ -71,6 +71,7 @@ dev = [
     "tree-sitter>=0.25,<0.27",
     "hypothesis>=6.170.17",
     "coverage>=7.15.4",
+    "psutil>=7.2.2",
 ]
 
 [tool.uv.workspace]
@@ -283,6 +284,7 @@ DEP002 = [
     "pytest-testmon",   # pytest 插件，经 entry point 加载；按改动选测试，用法见 docs/agents/testing.md
 ]
 DEP004 = [
+    "psutil",
     "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
     "pytest",
     "coverage",

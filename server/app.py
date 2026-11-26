@@ -382,7 +382,8 @@ async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGener
 
     await asyncio.to_thread(log_ffmpeg_status)
 
-    await asyncio.to_thread(migrate_legacy_log_dir)
+    if os.environ.get("ARCREEL_SKIP_LEGACY_LOG_MIGRATION") != "1":
+        await asyncio.to_thread(migrate_legacy_log_dir)
     attach_file_handler()
     warn_if_log_dir_env_set()
     warn_if_env_diverges_from_file()

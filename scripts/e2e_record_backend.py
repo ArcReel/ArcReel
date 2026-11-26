@@ -123,6 +123,8 @@ def main() -> None:
     parser.add_argument("--perturb", action="store_true", help="换掉系统时钟、出厂快照与版本号的真实来源")
     args = parser.parse_args()
 
+    os.environ["ARCREEL_SKIP_LEGACY_LOG_MIGRATION"] = "1"
+
     # 后端启动时拒绝父进程环境里的供应商密钥；录制环境本就没有配置供应商，开发者 shell 里导出的密钥不带进来。
     from lib.config.env_keys import PROVIDER_SECRET_KEYS
 

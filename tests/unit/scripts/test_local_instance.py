@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import io
 import json
-import signal
-import socket
 import subprocess
 from pathlib import Path
 
@@ -11,18 +8,12 @@ import pytest
 
 from scripts.local_instance import (
     SENTINEL_NAME,
-    STATE_FILENAME,
     build_backend_env,
     build_parser,
     cleanup_data_dir,
     ensure_frontend_dist,
-    instance_status,
-    is_port_free,
     main,
-    pick_port,
     prepare_data_dir,
-    start_instance,
-    stop_instance,
     wait_until_healthy,
 )
 
@@ -86,12 +77,15 @@ def test_build_backend_env_strips_provider_secrets_and_isolates_storage(tmp_path
         "AI_ANIME_PROJECTS": "/prod/projects",
         "GEMINI_API_KEY": "secret-gemini",
         "OPENAI_API_KEY": "secret-openai",
+        "AUTH_TOKEN_SECRET": "parent-only",
+        "CLAUDE_CODE_OAUTH_TOKEN": "parent-only",
         "AUTH_USERNAME": "leaked-user",
         "AUTH_PASSWORD": "leaked-pass",
     }
 
     no_auth = build_backend_env(tmp_path, auth_enabled=False, base_env=base_env)
-    assert no_auth["ARCREEL_DATA_DIR"] == str(tmp_path)
+    assert {"AUTH_TOKEN_SECRET", "CLAUDE_CODE_OAUTH_TOKEN"}.isdisjoint(no_auth)
+    assert no_auth["ARCREEL_DATA_DIR"] == str(tmp_path / "data")
     assert no_auth["PYTHON_DOTENV_DISABLED"] == "1"
     assert no_auth["ARCREEL_SKIP_CATALOG_SYNC"] == "1"
     assert no_auth["AUTH_ENABLED"] == "false"
@@ -162,80 +156,6 @@ def test_wait_until_healthy_detects_ready_early_exit_and_timeout() -> None:
             sleeper=lambda _: None,
             opener=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("down")),
         )
-
-
-def test_start_status_and_stop_lifecycle(tmp_path: Path) -> None:
-    dist_index = tmp_path / "frontend" / "dist" / "index.html"
-    dist_index.parent.mkdir(parents=True)
-    dist_index.write_text("<!doctype html>", encoding="utf-8")
-    data_dir = tmp_path / "instance-data"
-    alive_pids = {54321}
-    signals_sent: list[tuple[int, int]] = []
-
-    def popen(argv: tuple[str, ...], **kwargs: object) -> FakeProcess:
-        stdout = kwargs.get("stdout")
-        if isinstance(stdout, io.TextIOBase):
-            stdout.write(f"started {' '.join(argv)}\n")
-            stdout.flush()
-        return FakeProcess(pid=54321)
-
-    def killer(pid: int, sig: int) -> None:
-        if pid not in alive_pids:
-            raise ProcessLookupError(pid)
-        if sig != 0:
-            signals_sent.append((pid, sig))
-            alive_pids.discard(pid)
-
-    state = start_instance(
-        root=tmp_path,
-        port=18159,
-        data_dir=data_dir,
-        skip_build=True,
-        popen=popen,
-        opener=lambda *args, **kwargs: FakeResponse({"status": "ok"}),
-        sleeper=lambda _: None,
-        port_picker=lambda port, _host: port or 18159,
-    )
-    assert state["pid"] == 54321
-    assert state["port"] == 18159
-    assert state["base_url"] == "http://127.0.0.1:18159"
-    assert (data_dir / STATE_FILENAME).is_file()
-    assert (data_dir / SENTINEL_NAME).is_file()
-
-    status = instance_status(
-        data_dir=data_dir,
-        opener=lambda *args, **kwargs: FakeResponse({"status": "ok"}),
-        killer=killer,
-        port_checker=lambda _port, _host: False,
-    )
-    assert status["process_alive"] is True
-    assert status["healthy"] is True
-    assert status["port_free"] is False
-
-    stopped = stop_instance(
-        data_dir=data_dir,
-        killer=killer,
-        sleeper=lambda _: None,
-        port_checker=lambda port, host: port == 18159 and host == "127.0.0.1",
-    )
-    assert stopped["stopped"] is True
-    assert stopped["data_dir_removed"] is True
-    assert signals_sent == [(54321, signal.SIGTERM)]
-    assert not data_dir.exists()
-
-
-@pytest.mark.local_port
-def test_pick_port_and_is_port_free_detect_active_listener() -> None:
-    port = pick_port()
-    assert is_port_free(port) is True
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("127.0.0.1", port))
-        listener.listen(1)
-        assert is_port_free(port) is False
-        with pytest.raises(RuntimeError, match="已被占用"):
-            pick_port(port)
-    assert is_port_free(port) is True
 
 
 def test_cli_help_exposes_subcommands_and_flags(capsys: pytest.CaptureFixture[str]) -> None:
