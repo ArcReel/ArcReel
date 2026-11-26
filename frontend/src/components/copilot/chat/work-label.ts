@@ -162,6 +162,7 @@ export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts
 const ARCREEL_TOOL_PREFIX = /^mcp__arcreel__([a-z0-9_]+)$/;
 
 const BUILTIN_TOOLS: Record<string, { key: string; icon: LucideIcon }> = {
+  ToolSearch: { key: "tool_builtin_tool_search", icon: Search },
   Read: { key: "tool_builtin_read", icon: FileText },
   Write: { key: "tool_builtin_write", icon: FilePlus },
   Edit: { key: "tool_builtin_edit", icon: FilePen },

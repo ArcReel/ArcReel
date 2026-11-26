@@ -1,5 +1,9 @@
 
 export default {
+  'activity_waiting': 'Waiting for model response',
+  'activity_running': 'Working on a task',
+  'activity_thinking': 'Thinking through a response',
+  'tool_builtin_tool_search': 'Find tools',
   episode_externally_removed: "This episode was deleted. Saving will fail; copy your content before discarding changes.",
   episode_script_removed: "The episode script was removed. Saving will fail; copy your content before discarding changes.",
   shot_externally_removed: 'This shot was deleted. Saving will fail; copy your changes before discarding them.',

@@ -1,6 +1,10 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  'activity_waiting': 'Ожидание ответа модели',
+  'activity_running': 'Выполняется задача',
+  'activity_thinking': 'Формирует ответ',
+  'tool_builtin_tool_search': 'Поиск инструментов',
   episode_externally_removed: "Эта серия удалена. Сохранение не удастся; скопируйте текст, прежде чем отменить изменения.",
   episode_script_removed: "Сценарий серии удалён. Сохранение не удастся; скопируйте текст, прежде чем отменить изменения.",
   shot_externally_removed: 'Этот кадр удалён. Сохранение не удастся; скопируйте внесённые изменения, прежде чем отказаться от них.',

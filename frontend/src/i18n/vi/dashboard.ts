@@ -1,6 +1,10 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
+  'activity_waiting': 'Đang chờ mô hình phản hồi',
+  'activity_running': 'Đang thực hiện tác vụ',
+  'activity_thinking': 'Đang suy nghĩ và soạn câu trả lời',
+  'tool_builtin_tool_search': 'Tìm công cụ',
   episode_externally_removed: "Tập này đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
   episode_script_removed: "Kịch bản của tập đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
   shot_externally_removed: 'Phân cảnh này đã bị xóa. Lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.',

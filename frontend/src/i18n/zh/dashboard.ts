@@ -1,6 +1,10 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  'activity_waiting': '等待模型响应',
+  'activity_running': '正在执行任务',
+  'activity_thinking': '正在思考并组织回复',
+  'tool_builtin_tool_search': '查找工具',
   episode_externally_removed: "本集已被删除，保存会失败；可以复制内容后放弃修改。",
   episode_script_removed: "本集脚本已被移除，保存会失败；可以复制内容后放弃修改。",
   shot_externally_removed: '这个分镜已被删除，保存会失败；可以复制内容后放弃修改。',

@@ -101,6 +101,31 @@ function makeSession(id: string, title: string, overrides: Partial<SessionMeta> 
 }
 
 describe("AgentCopilot", () => {
+  it("shows a waiting activity while the agent runs without a trace, then the latest tool", () => {
+    useAssistantStore.setState({
+      currentSessionId: "session-1",
+      sessionStatus: "running",
+      draftTurn: null,
+    });
+    const { rerender } = render(<AgentCopilot />);
+    expect(screen.getByRole("status")).toHaveTextContent("等待模型响应");
+
+    useAssistantStore.setState({
+      turns: [{ type: "assistant", content: [{ type: "tool_use", name: "ToolSearch", result: "完成" }] }],
+      draftTurn: null,
+    });
+    rerender(<AgentCopilot />);
+    expect(screen.getByRole("status")).toHaveTextContent("查找工具");
+    expect(screen.getByRole("status")).not.toHaveTextContent("ToolSearch");
+
+    useAssistantStore.setState({
+      draftTurn: { type: "assistant", content: [{ type: "tool_use", name: "Read" }] },
+    });
+    rerender(<AgentCopilot />);
+    expect(screen.getByRole("status")).toHaveTextContent("读取文件");
+  });
+
+
   const sendMessage = vi.fn().mockResolvedValue(undefined);
   const rewriteMessage = vi.fn().mockResolvedValue(true);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
