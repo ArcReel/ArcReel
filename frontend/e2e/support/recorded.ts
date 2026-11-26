@@ -1,5 +1,5 @@
 // 本文件同时被 Node 直接运行的录制脚本引用，只能写可擦除的 TypeScript 语法。
-import { readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const RECORDED_DIR = join(import.meta.dirname, "..", "fixtures", "recorded");
@@ -22,15 +22,29 @@ export function recordedKey(method: string, url: string): string {
   return `${method.toUpperCase()} ${parsed.pathname}${parsed.search}`;
 }
 
-export function loadRecordedResponses(): Map<string, RecordedResponse> {
-  const responses = new Map<string, RecordedResponse>();
+type Hit = "route" | "direct" | "override";
+
+function traceHit(file: string, hit: Hit) {
+  const output = process.env.E2E_RECORDING_TRACE;
+  if (output) appendFileSync(output, `${file}\t${hit}\n`);
+}
+
+export function loadRecordedResponses() {
+  const responses = new Map<string, { file: string; response: RecordedResponse }>();
   for (const file of readdirSync(RECORDED_DIR).filter((name) => name.endsWith(".json")).sort()) {
-    const recorded = JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse;
-    responses.set(recordedKey(recorded.method, recorded.path), recorded);
+    const response = JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse;
+    responses.set(recordedKey(response.method, response.path), { file, response });
   }
-  return responses;
+  return {
+    get(key: string, hit: Hit = "direct") {
+      const entry = responses.get(key);
+      if (entry) traceHit(entry.file, hit);
+      return entry?.response;
+    },
+  };
 }
 
 export function recorded<T>(file: string): T {
+  traceHit(file, "direct");
   return (JSON.parse(readFileSync(join(RECORDED_DIR, file), "utf8")) as RecordedResponse).body as T;
 }

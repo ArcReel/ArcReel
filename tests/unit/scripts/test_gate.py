@@ -35,12 +35,15 @@ def test_triggers_only_name_known_domains() -> None:
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("lib/foo.py", ["backend", "tests", "conventions"]),
+        ("lib/foo.py", ["backend", "tests", "conventions", "e2e-freshness"]),
         ("docs/agents/testing.md", ["tests", "conventions"]),
-        ("packages/arcreel-market-core/src/x.py", ["backend", "market-core", "tests", "conventions"]),
-        ("packages/arcreel-catalog-core/src/x.py", ["backend", "catalog-core", "tests", "conventions"]),
-        ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend"]),
-        ("frontend/e2e/record-fixtures.ts", ["tests", "conventions", "frontend", "e2e-record"]),
+        ("packages/arcreel-market-core/src/x.py", ["backend", "market-core", "tests", "conventions", "e2e-freshness"]),
+        (
+            "packages/arcreel-catalog-core/src/x.py",
+            ["backend", "catalog-core", "tests", "conventions", "e2e-freshness"],
+        ),
+        ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend", "e2e-freshness"]),
+        ("frontend/e2e/record-fixtures.ts", ["tests", "conventions", "frontend", "e2e-freshness", "e2e-record"]),
         ("frontend/e2e/live/backend.py", ["tests", "conventions", "frontend", "e2e-live"]),
         ("frontend/src/a.tsx", ["tests", "conventions", "frontend"]),
         (".github/workflows/test.yml", ["tests", "conventions", "workflows"]),
@@ -57,6 +60,7 @@ def test_select_domains_merges_paths() -> None:
         "tests",
         "conventions",
         "frontend",
+        "e2e-freshness",
     ]
 
 
@@ -142,6 +146,24 @@ def test_shared_and_unknown_inputs_run_complete_suites(path, domains, tmp_path):
 )
 def test_recording_inputs_trigger_double_recording(path):
     assert "e2e-record" in select_domains([path])
+
+
+def test_ci_recording_inputs_match_local_gate() -> None:
+    assert set(_ci_filters()["recording"]) == set(TRIGGERS["e2e-record"])
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "server/routers/auth.py",
+        "lib/db/session.py",
+        "packages/arcreel-catalog-core/src/schema.py",
+        "frontend/e2e/fixtures/recorded/auth-status.json",
+        "unclassified/input.json",
+    ],
+)
+def test_response_changes_only_require_single_recording(path):
+    assert set(select_domains([path])) & {"e2e-record", "e2e-freshness"} == {"e2e-freshness"}
 
 
 @pytest.mark.parametrize(

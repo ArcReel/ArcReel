@@ -12,6 +12,9 @@ inputs:
     default: "false"
 
 outputs:
+  recording:
+    description: 录制器、种子、归一化或录制环境输入变更
+    value: ${{ inputs.full == 'true' || steps.filter.outputs.recording == 'true' }}
   workflow:
     description: CI 配置域（.github/、.codecov.yml、.gitignore）是否变更
     value: ${{ steps.gate.outputs.workflow }}
@@ -36,6 +39,19 @@ runs:
       id: filter
       with:
         filters: |
+          recording:
+            - 'scripts/e2e_record_backend.py'
+            - 'tests/fixtures/catalog.json'
+            - 'lib/app_version.py'
+            - 'lib/catalog/lifecycle.py'
+            - 'lib/catalog/query.py'
+            - 'frontend/pnpm-lock.yaml'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'frontend/e2e/record-fixtures.ts'
+            - 'frontend/e2e/support/recorded.ts'
+            - 'frontend/e2e/fixtures/comfyui.ts'
+            - 'frontend/package.json'
           workflow:
             - '.github/**'
             - '.codecov.yml'

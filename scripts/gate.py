@@ -90,6 +90,7 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step(("pnpm", "exec", "vite", "build"), FRONT),
         Step(("env", "E2E_PREBUILT=1", "pnpm", "e2e:live"), FRONT),
     ),
+    "e2e-freshness": (Step(("pnpm", "e2e:record:freshness"), FRONT),),
     "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
 }
 
@@ -128,6 +129,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/package.json",
         "frontend/pnpm-lock.yaml",
     ),
+    "e2e-freshness": (*BACKEND_TRIGGERS, "frontend/e2e/fixtures/recorded/*"),
     "e2e-record": (
         "scripts/e2e_record_backend.py",
         "tests/fixtures/catalog.json",
@@ -165,7 +167,9 @@ def select_domains(paths: Iterable[str]) -> list[str]:
         if any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
     }
     if any(_unknown(path) for path in changed):
-        hit.update(("backend", "frontend"))
+        hit.update(("backend", "frontend", "e2e-freshness"))
+    if "e2e-record" in hit:
+        hit.add("e2e-freshness")
     hit.update(ALWAYS_WHEN_CHANGED)
     return [name for name in DOMAINS if name in hit]
 

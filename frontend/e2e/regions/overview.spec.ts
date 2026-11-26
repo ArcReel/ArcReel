@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { recordedDemoEpisode, recordedDemoWorkspace, workspaceOverride } from "../support/workspace-override.ts";
 
@@ -13,9 +11,7 @@ const EVENT_STREAM: ApiOverrides = {
 };
 
 const recordedWorkspace = recordedDemoWorkspace();
-const recordedCost = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo-cost-estimate.json"), "utf8")) as RecordedResponse
-).body as Record<string, unknown>;
+const recordedCost = recorded<Record<string, unknown>>("project-demo-cost-estimate.json");
 const firstEpisode = recordedDemoEpisode();
 
 function withProject(project: Record<string, unknown>): ApiOverrides {

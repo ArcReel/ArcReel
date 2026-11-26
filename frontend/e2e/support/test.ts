@@ -30,7 +30,9 @@ export const test = base.extend<{ api: ApiStub }>({
       await page.route("**/api/**", async (route) => {
         const request = route.request();
         const key = recordedKey(request.method(), request.url());
-        const response = overrides.get(key) ?? RECORDED.get(key);
+        const override = overrides.get(key);
+        const recording = RECORDED.get(key, override ? "override" : "route");
+        const response = override ?? recording;
         if (!response) {
           unrecorded.push(key);
           await route.fulfill({ status: 501, json: { detail: `没有录制 ${key}` } });

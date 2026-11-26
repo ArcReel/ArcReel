@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-DOMAINS = {"backend", "frontend", "workflow", "website", "docker"}
+DOMAINS = {"recording", "backend", "frontend", "workflow", "website", "docker"}
 SUITES = ("unit", "integration", "market-core", "catalog-core")
 PR_CHECKOUT_STEP_PREFIX = "PR checkout"
 FAILURE_ONLY_OPTIONAL_STEPS = frozenset(
@@ -36,9 +36,9 @@ def product_paths_only(paths: list[str]) -> bool:
 
 def required_jobs(domains: dict[str, str]) -> set[str]:
     enabled = _enabled_domains(domains)
-    jobs = {"changes", "conventions", "ci-required"}
+    jobs = {"changes", "conventions", "E2E fixture freshness and determinism", "ci-required"}
     if enabled & {"backend", "frontend"}:
-        jobs.update({"frontend-static", "test-lint", "e2e-live", "E2E fixture recording drift"})
+        jobs.update({"frontend-static", "test-lint", "e2e-live"})
     if "backend" in enabled:
         jobs.update({"backend-static", "postgres-compat (16)", *(f"Backend tests ({suite})" for suite in SUITES)})
     if "frontend" in enabled:
@@ -54,6 +54,8 @@ def optional_steps_for_job(job_name: str, domains: dict[str, str]) -> set[str]:
     optional = set(FAILURE_ONLY_OPTIONAL_STEPS)
     if job_name == "changes":
         optional.add("Verify equivalent PR checks")
+    if job_name == "E2E fixture freshness and determinism" and "recording" not in enabled:
+        optional.add("Record twice and compare")
     if job_name.startswith("Backend tests (") and job_name != "Backend tests (integration)":
         optional.add("Install system dependencies")
     if job_name == "frontend-static" and "frontend" not in enabled:
