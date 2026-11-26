@@ -60,7 +60,11 @@ FC_PROFILE=nightly pnpm --dir frontend exec vitest run .property.test
 
 ## CI 覆盖率与 Nightly 告警
 
-普通 `main` 推送按改动选择测试域，后端、PostgreSQL 兼容与前端测试均跳过覆盖率采集。Nightly 和发布 PR 采集覆盖率。复用 Tests 工作流时，`full` 控制检查范围，`coverage` 控制覆盖率采集。PR 的 `changes` 作业摘要列出改动涉及的静态门禁文件，供审阅者核查。
+普通 PR 和 `main` 推送按改动选择测试域。PR 的 `changes` 作业记录受测合并提交，摘要列出改动涉及的静态门禁文件。对于仅修改产品源码或站点文档的推送，`main` 核对已合并 PR、受测树、合并父提交以及各受影响域的实际作业和步骤结果。证据缺失、基线前移、门禁变更或应跑项被跳过时，重新运行受影响域。
+
+每周日 02:00 UTC、推送 `v*` 标签或手动运行 `weekly-full.yml` 时，Tests 工作流通过 `full: true` 运行全部域。`release-please--*` 发布 PR 自动使用同一范围。巡检包括容器健康检查、PostgreSQL 16、17、18 兼容测试和发布完整性检查。普通验证与全域巡检均关闭覆盖率采集。
+
+Nightly 将后端测试分片采集为 `coverage-<编号>/raw.coverage`。各片通过后，`backend-report` 核对分片并生成一份后端 XML 报告。前端和真实 PostgreSQL 的覆盖率分别上传至 `frontend` 和 `postgres` 标记。新增每夜深度检查时，在 `nightly-full.yml` 定义作业并将其 ID 加入 `report.needs`。汇总作业读取每个直接依赖的 `result`，仅在全部成功时执行恢复流程。矩阵作业使用 `fail-fast: false`，失败时保留诊断。
 
 Nightly 按运行编号创建告警，重跑失败时在同一告警追加记录。记录按失败作业给出产品断言、测试竞态、容量或基础设施的初步分类。确认问题后可另开 issue，也可为运行告警添加 `bug` 等标签将其保留。Nightly 恢复通过后，只关闭同一 Git 引用下本次及更早运行的自动告警（须保留原始告警标记与标题，且仅带 `ci` 标签）。
 

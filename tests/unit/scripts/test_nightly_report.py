@@ -15,7 +15,8 @@ def issue(run: int) -> dict:
     }
 
 
-def test_failed_run_rerun_and_next_green(monkeypatch):
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped"])
+def test_failed_run_rerun_and_next_green(monkeypatch, result):
     capacity = issue(10) | {"number": 4093, "title": "Nightly full CI 失败", "body": "运行超时"}
     confirmed = issue(11) | {"number": 41, "labels": [{"name": "ci"}, {"name": "bug"}]}
     alerts = [
@@ -60,13 +61,14 @@ def test_failed_run_rerun_and_next_green(monkeypatch):
         "GITHUB_RUN_ID": "12",
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_SERVER_URL": "https://github.com",
-        "RESULT": "failure",
+        "DEEP_JOBS": json.dumps({"live-e2e": {"result": result}}),
     }.items():
         monkeypatch.setenv(key, value)
     nightly_report.main()
     (created,) = writes
     assert created[0] == "create"
     body = created[created.index("--body") + 1]
+    assert f"live-e2e: {result}" in body
     assert "容量" in body
     assert "integration" in body
     alerts.append(issue(12) | {"number": 42, "body": body, "title": created[created.index("--title") + 1]})
@@ -75,7 +77,7 @@ def test_failed_run_rerun_and_next_green(monkeypatch):
     nightly_report.main()
     assert writes[1][:2] == ["comment", "42"]
     monkeypatch.setenv("GITHUB_RUN_ID", "14")
-    monkeypatch.setenv("RESULT", "success")
+    monkeypatch.setenv("DEEP_JOBS", json.dumps({"live-e2e": {"result": "success"}}))
     nightly_report.main()
     assert [args[:2] for args in writes[2:]] == [["close", "42"]]
 

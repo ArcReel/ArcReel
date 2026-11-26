@@ -1,0 +1,21 @@
+name: Weekly and release verification
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-suite:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/test.yml
+    with:
+      full: true

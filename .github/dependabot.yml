@@ -104,6 +104,7 @@ updates:
         patterns:
           - "anyio"
           - "pytest*"
+          - "coverage"
           - "hypothesis"
           - "ruff"
           - "basedpyright"

@@ -83,7 +83,7 @@ def failure_details(repo: str, run_id: int, attempt: str) -> str:
     return "\n".join(rows) or "- 基础设施 · 未取得失败作业签名，请检查运行记录。"
 
 
-def main() -> None:
+def main() -> int:
     repo, ref = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_REF"]
     run_id, attempt = int(os.environ["GITHUB_RUN_ID"]), os.environ["GITHUB_RUN_ATTEMPT"]
     url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/actions/runs/{run_id}/attempts/{attempt}"
@@ -93,16 +93,19 @@ def main() -> None:
         for i in page
         if "pull_request" not in i
     ]
-    if os.environ["RESULT"] == "success":
+    results = json.loads(os.environ["DEEP_JOBS"])
+    incomplete = [f"{job}: {state['result']}" for job, state in results.items() if state["result"] != "success"]
+    if results and not incomplete:
         for number in recovery_targets(issues, ref, run_id):
             gh("issue", "close", str(number), "-R", repo, "--comment", f"Nightly CI 已恢复：{url}")
-        return
+        return 0
 
-    report = f"Nightly CI 运行失败：{url}\n\n{failure_details(repo, run_id, attempt)}"
+    summary = ", ".join(incomplete) or "缺少作业结果"
+    report = f"Nightly CI 运行失败：{url}\n\n{summary}\n\n{failure_details(repo, run_id, attempt)}"
     for issue in issues:
         if alert_run(issue, ref) == run_id:
             gh("issue", "comment", str(issue["number"]), "-R", repo, "--body", report)
-            return
+            return 1
     gh(
         "issue",
         "create",
@@ -115,7 +118,8 @@ def main() -> None:
         "--body",
         f"{_alert_marker(ref, run_id)}\n{report}",
     )
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
