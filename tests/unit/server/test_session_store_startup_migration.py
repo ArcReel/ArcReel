@@ -10,6 +10,7 @@ from lib.project.project_manager import ProjectManager
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("app_lifespan_stubs")
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
     from tests.fakes import use_project_manager

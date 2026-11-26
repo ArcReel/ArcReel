@@ -38,6 +38,7 @@ class TestAppModule:
         assert received == {"executor": execute_generation_task, "resume_executor": execute_resume_video_task}
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_lifespan_starts_and_stops_worker(self, monkeypatch):
         worker = stub_lifespan_dependencies(monkeypatch)
 
@@ -52,6 +53,7 @@ class TestAppModule:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("failing_service", ["assistant", "worker"])
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_lifespan_drains_both_services_before_closing_shared_resources(self, monkeypatch, failing_service):
         worker = stub_lifespan_dependencies(monkeypatch)
         assistant_started = asyncio.Event()
@@ -103,6 +105,7 @@ class TestAppModule:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("auth_enabled", "expect_warning"), [("false", True), ("true", False)])
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_lifespan_warns_when_auth_disabled(self, monkeypatch, caplog, auth_enabled, expect_warning):
         monkeypatch.setenv("AUTH_ENABLED", auth_enabled)
         stub_lifespan_dependencies(monkeypatch)
@@ -122,6 +125,7 @@ class TestAppModule:
         assert bool(warnings) is expect_warning
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_lifespan_keeps_model_references_to_retired_models(self, monkeypatch, file_db_factory):
         """设置里引用的旧型号启动后原样保留：下线只经目录条目的生命周期提示，启动时不按写死的映射改写。"""
         from lib.config.repository import SystemSettingRepository
@@ -161,6 +165,7 @@ class TestAppModule:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("startup_state_reset")
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_lifespan_persists_token_secret_and_reports_env_divergence(self, monkeypatch, caplog, tmp_path):
         """启动时签名密钥落到数据目录；挂载的 .env 与进程环境不一致时只告警键名。"""
         import server.auth as auth_module

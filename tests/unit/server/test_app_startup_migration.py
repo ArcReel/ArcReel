@@ -35,6 +35,7 @@ def _seed_stale_project(projects_root: Path) -> tuple[Path, Path]:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("app_lifespan_stubs")
 async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monkeypatch):
     data_root = tmp_path / "data"
     project_dir, stale_backup = _seed_stale_project(DataRootLayout(data_root).projects_dir)
@@ -58,6 +59,7 @@ async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monke
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("app_lifespan_stubs")
 async def test_data_root_layout_migration_runs_before_every_project_walk(tmp_path, monkeypatch):
     data_root = tmp_path / "data"
     staged_project, stale_backup = _seed_stale_project(tmp_path / "staged")

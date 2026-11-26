@@ -143,6 +143,7 @@ class TestGetCurrentUserKillSwitch:
 
 class TestLoginRouteKillSwitch:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("app_lifespan_stubs")
     async def test_disabled_login_succeeds_with_any_password(self):
         """端到端：AUTH_ENABLED=false 时 /auth/token 接受任意凭据。"""
         from fastapi.testclient import TestClient

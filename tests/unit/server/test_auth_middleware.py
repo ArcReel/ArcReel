@@ -32,7 +32,7 @@ def auth_env():
 
 
 @pytest.fixture
-def middleware_client():
+def middleware_client(app_lifespan_stubs):
     """创建使用真实 app 的测试客户端。"""
     from server.app import app
 
