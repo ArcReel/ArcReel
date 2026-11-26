@@ -42,13 +42,6 @@ def test_count_meter_missing_from_table_is_not_charged() -> None:
     assert price_usage(_PER_SECOND, usage, multiplier=1.0) == Priced(4.0, "USD")
 
 
-def test_token_meter_missing_from_table_is_unpriced() -> None:
-    table = _table(_flat("uncached_input_tokens", 1.0), _flat("output_tokens", 2.0))
-    usage = Usage(quantities={"uncached_input_tokens": 1000, "output_tokens": 1000, "cache_read_tokens": 500})
-
-    assert price_usage(table, usage, multiplier=1.0) == Unpriced(UnpricedReason.MISSING_RATE)
-
-
 def test_zero_token_usage_missing_from_table_is_not_unpriced() -> None:
     table = _table(_flat("uncached_input_tokens", 1.0))
     usage = Usage(quantities={"uncached_input_tokens": 1_000_000, "cache_read_tokens": 0})

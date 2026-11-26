@@ -400,13 +400,17 @@ source = { editable = "packages/arcreel-catalog-core" }
 
 [package.dev-dependencies]
 dev = [
+    { name = "hypothesis" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=9.0.2" }]
+dev = [
+    { name = "hypothesis", specifier = ">=6.170.17" },
+    { name = "pytest", specifier = ">=9.0.2" },
+]
 
 [[package]]
 name = "arcreel-market-core"

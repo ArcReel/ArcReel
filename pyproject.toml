@@ -87,7 +87,7 @@ build-backend = "hatchling.build"
 packages = ["lib", "server"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/arcreel-catalog-core/tests/unit/test_*_invariants.py"]
 addopts = "--strict-markers --durations=25"
 asyncio_mode = "auto"
 timeout = 120

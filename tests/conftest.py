@@ -797,12 +797,11 @@ CLASSIFICATION_MARKS = ("unit", "integration", "e2e")
 
 def _tier_from_path(item: pytest.Item) -> str | None:
     """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）。"""
-    try:
-        rel = Path(str(item.path)).relative_to(TESTS_ROOT)
-    except ValueError:
-        return None
-    head = rel.parts[0] if rel.parts else ""
-    return head if head in CLASSIFICATION_MARKS else None
+    for root in (TESTS_ROOT, TESTS_ROOT.parent / "packages/arcreel-catalog-core/tests"):
+        if item.path.is_relative_to(root):
+            tier = item.path.relative_to(root).parts[0]
+            return tier if tier in CLASSIFICATION_MARKS else None
+    return None
 
 
 def _validate_selection_args(config: pytest.Config) -> None:
