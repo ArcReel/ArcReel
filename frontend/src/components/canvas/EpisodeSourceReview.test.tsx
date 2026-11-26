@@ -334,4 +334,44 @@ describe("EpisodeSourceReview", () => {
     rerender(<EpisodeSourceReview projectName="demo" episode={2} episodes={episodes} />);
     expect(screen.getByRole("button", { name: /本集导览/ })).toHaveAttribute("aria-expanded", "true");
   });
+
+  it("guides non-blockingly at 15,001 unsaved episode source chars, never at 15,000 or from long instructions", async () => {
+    const exactLimit = "夜".repeat(15_000);
+    vi.spyOn(API, "getSourceContent").mockResolvedValue(exactLimit);
+    const save = vi.spyOn(API, "updateEpisodeSource").mockResolvedValue(written({ episode: 6 }));
+    const plan = vi
+      .spyOn(API, "planScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[OWN]} />);
+    const editor = await sourceBox();
+    expect(screen.queryByText(/超过 15,000 字/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "附加指令（可选）" }), {
+      target: { value: "指".repeat(4_000) },
+    });
+    expect(screen.queryByText(/超过 15,000 字/)).not.toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: `${exactLimit}色` } });
+    expect(screen.getByText(/本集原文约 15,001 字，超过 15,000 字/)).toBeInTheDocument();
+
+    const aiButton = screen.getByRole("button", { name: "AI 规划" });
+    expect(aiButton).toBeEnabled();
+    fireEvent.click(aiButton);
+
+    await waitFor(() => expect(plan).toHaveBeenCalledWith("demo", 6, { instructions: "指".repeat(4_000) }));
+    expect(save).toHaveBeenCalledWith("demo", 6, `${exactLimit}色`, undefined, false);
+
+    fireEvent.change(editor, { target: { value: exactLimit } });
+    expect(screen.queryByText(/超过 15,000 字/)).not.toBeInTheDocument();
+  });
+
+  it("shows non-blocking guidance for a read-only cut episode only when source exceeds 15,000 chars", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("风".repeat(15_001));
+
+    render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[makeEpisode()]} />);
+
+    expect(await screen.findByText(/本集原文约 15,001 字，超过 15,000 字/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 规划" })).toBeEnabled();
+  });
 });

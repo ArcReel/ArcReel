@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import aclosing, contextmanager, suppress
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 from grpc.aio import AioRpcError
@@ -17,6 +17,7 @@ from lib.backends.backend_runtime import is_retryable_http_status
 from lib.backends.grok_shared import grok_should_retry
 from lib.backends.http_status_errors import TextWaitTimeout as TextWaitTimeout
 from lib.backends.text_backends.base import (
+    StreamingBodyCounter,
     TextGenerationRequest,
     TextGenerationResult,
     TextOutputTruncatedError,
@@ -32,14 +33,19 @@ from lib.infra.retry import resolve_clock
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class TextTaskContext:
     task_id: str
     task_type: str
     on_progress: Callable[[TextProgress], None] | None = None
+    characters: int = 0
 
 
 _text_task: ContextVar[TextTaskContext | None] = ContextVar("text_task", default=None)
+
+
+def current_text_task() -> TextTaskContext | None:
+    return _text_task.get()
 
 
 @contextmanager
@@ -118,9 +124,10 @@ class _Execution:
         self.task = _text_task.get()
 
     def report(self, progress: TextProgress) -> None:
-        callback = self.request.on_progress or (self.task.on_progress if self.task else None)
-        if callback:
-            callback(progress)
+        if self.request.on_progress:
+            self.request.on_progress(progress)
+        if self.task and self.task.on_progress:
+            self.task.on_progress(replace(progress, characters=self.task.characters))
 
     def complete(self, result: TextGenerationResult) -> TextGenerationResult:
         if self.request.on_usage:
@@ -141,6 +148,7 @@ class _Execution:
 
     async def consume(self, wire: TextGenerationRequest, attempt: int) -> TextGenerationResult:
         self.received = False
+        counter = StreamingBodyCounter()
         self.report(TextProgress("waiting", self.model, self.characters, attempt=attempt))
         idle_deadline = self.clock.monotonic() + self.limits.idle
         async with asyncio.timeout(self.limits.idle) as watchdog, aclosing(self.driver(wire)) as events:
@@ -159,11 +167,15 @@ class _Execution:
                 self.last_delta = now
                 idle_deadline = now + self.limits.idle
                 watchdog.reschedule(asyncio.get_running_loop().time() + self.limits.idle)
-                if not event.thinking:
+                count, thinking = (0, True) if event.thinking else counter.consume(event.text)
+                if count:
                     if self.first_text is None:
                         self.first_text = now
-                    self.characters += len(event.text)
-                self.report(TextProgress("receiving", self.model, self.characters, event.thinking, attempt))
+                    self.characters += count
+                    if self.task:
+                        self.task.characters += count
+                if count or thinking:
+                    self.report(TextProgress("receiving", self.model, self.characters, thinking, attempt))
         raise RuntimeError("Text stream closed without a terminal event")
 
     async def once(self, wire: TextGenerationRequest) -> TextGenerationResult:

@@ -14,7 +14,7 @@ import {
 import type { TaskStatus } from "@/types";
 
 export function useTaskFailureNotifications(projectName?: string | null): void {
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "errors"]);
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;

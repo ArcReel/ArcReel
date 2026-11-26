@@ -22,7 +22,11 @@ from lib.project.project_migrations.v18_to_v19_item_id_high_water import migrate
 from lib.script.script_editor import new_item_id
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.fakes import failing_manifest_replace
-from tests.legacy_project_shapes import write_legacy_item_id_reuse_project, write_legacy_named_reference_bases_project
+from tests.legacy_project_shapes import (
+    read_version_history,
+    write_legacy_item_id_reuse_project,
+    write_legacy_named_reference_bases_project,
+)
 
 
 def _read_json(path: Path) -> Any:
@@ -33,7 +37,9 @@ def _structure_bytes(project_dir: Path) -> dict[str, bytes]:
     return {
         path.relative_to(project_dir).as_posix(): path.read_bytes()
         for path in sorted(project_dir.rglob("*"))
-        if path.is_file() and path.name != "project.json" and ".bak." not in path.name
+        if path.is_file()
+        and path.name not in {"project.json", "history.sqlite3", "versions.json"}
+        and ".bak." not in path.name
     }
 
 
@@ -42,6 +48,7 @@ async def test_schema_18_project_records_the_highest_number_without_renaming_any
     legacy = _read_json(project_dir / "project.json")
     assert legacy["schema_version"] == 18
     files_before = _structure_bytes(project_dir)
+    history_before = read_version_history(project_dir)
 
     assert migrate_project_dir(project_dir) is True
 
@@ -51,6 +58,7 @@ async def test_schema_18_project_records_the_highest_number_without_renaming_any
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     assert _structure_bytes(project_dir) == files_before
+    assert read_version_history(project_dir) == history_before
 
     pm = ProjectManager(tmp_path)
     with pm.locked_script(project_dir.name, "episode_1.json", validate=False) as script:
@@ -95,7 +103,7 @@ def _is_current_before_migration(project_dir: Path, key: ArtifactKey) -> bool:
 
 
 def _frozen_bases(project_dir: Path) -> dict[tuple[str, str, int], dict]:
-    versions = _read_json(project_dir / "versions" / "versions.json")
+    versions = read_version_history(project_dir)
     return {
         (bucket, resource_id, record["version"]): record[IMAGE_ARTIFACT_BASIS_FIELD]
         for bucket in ("storyboards", "grids")
@@ -129,7 +137,7 @@ def test_storyboards_and_grids_keep_their_currency_across_the_upgrade(tmp_path: 
     frozen = _frozen_bases(project_dir)
     assert "阿离" not in json.dumps(list(frozen.values()), ensure_ascii=False)
     for bucket, resource_id, key in (("grids", "grid_123456789abc", _GRID), ("storyboards", "E1S03", _STORYBOARD)):
-        record = _read_json(project_dir / "versions" / "versions.json")[bucket][resource_id]["versions"][0]
+        record = read_version_history(project_dir)[bucket][resource_id]["versions"][0]
         assert parse_image_version_basis(bucket, resource_id, record).digest == after[key].basis_digest
     assert frozen["storyboards", "E1S01", 1] == frozen["storyboards", "E1S01", 2]
 

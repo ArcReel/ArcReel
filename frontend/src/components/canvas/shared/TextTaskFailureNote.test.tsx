@@ -183,4 +183,25 @@ describe("TextTaskFailureNote", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("上一次编写提示词失败：模型超时");
   });
+
+  it.each(["text_drama_script_plan", "text_episode_script"])(
+    "renders honest wait-timeout copy for %s even when error_message is absent",
+    (taskType) => {
+      seedTaskState({
+        tasks: [
+          failed({
+            task_type: taskType,
+            resource_id: "episode-1",
+            error_code: "text_wait_timeout",
+            error_message: null,
+          }),
+        ],
+      });
+      renderNote();
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试",
+      );
+    },
+  );
 });

@@ -477,4 +477,26 @@ describe("UsageRecordsSection detail", () => {
     );
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
+
+  it("shows the honest wait-timeout copy for text_wait_timeout even when error_params is null", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({
+        id: 42,
+        media_type: "text",
+        purpose: "script_generation",
+        segment_id: null,
+        status: "failed",
+        error_code: "text_wait_timeout",
+        error_params: null,
+        error_message: null,
+      }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(
+      dialog.getByText("本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试"),
+    ).toBeInTheDocument();
+  });
 });

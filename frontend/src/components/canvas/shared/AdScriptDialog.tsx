@@ -6,6 +6,7 @@ import { Bot, CheckCircle2, Loader2, RotateCcw, Sparkles, X } from "lucide-react
 import { ApiRequestError } from "@/api";
 import { enqueueAdScript, promptAuthoringResourceId } from "@/actions/generation";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { TextTaskLongWaitHint, TextTaskProgress } from "@/components/shared/TextTaskProgress";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -218,14 +219,16 @@ export function AdScriptProgress({ projectName, episode, noScript, className = "
   if (busy) {
     return (
       <div
-        role="status"
-        className={cn(STATUS_CLS, "items-center", className)}
+        className={cn(STATUS_CLS, "flex-col gap-1", className)}
       >
-        <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
-        <span>
-          {latestTask.status === "running" ? t("ad_script_progress_running") : t("ad_script_progress_queued")}{" "}
-          <span className="text-muted-foreground">{t("ad_script_progress_hint")}</span>
-        </span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+          <span>
+            {latestTask.status === "running" ? t("ad_script_progress_running") : t("ad_script_progress_queued")}
+          </span>
+          <TextTaskProgress task={latestTask} showIcon={false} showLongWaitHint={false} />
+        </div>
+        <TextTaskLongWaitHint task={latestTask} />
       </div>
     );
   }

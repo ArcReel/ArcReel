@@ -1,0 +1,13 @@
+{
+  "method": "PUT",
+  "path": "/api/v1/projects/progress-demo/episodes/1/source",
+  "status": 200,
+  "body": {
+    "success": true,
+    "episode": 1,
+    "source_origin": "own",
+    "applied": true,
+    "needs_confirmation": false,
+    "affected_episodes": []
+  }
+}

@@ -1,7 +1,6 @@
 """从全局资产库应用到项目的资产图即成品：清单按图本身认领，时效不随描述与画风变化。"""
 
 import asyncio
-import json
 import unicodedata
 from pathlib import Path
 
@@ -36,6 +35,7 @@ from tests.integration.server.asset_library_support import (
 )
 from tests.integration.server.derivative_sheet_support import run_derivative_generation, solid_png_bytes
 from tests.integration.server.services.tasks.generation_tasks_support import SheetGenerator, fake_resolve_ctx
+from tests.legacy_project_shapes import read_version_history
 
 _KEY = ArtifactKey.asset_sheet("character", "Alice")
 
@@ -85,8 +85,8 @@ def test_sheet_applied_without_description_is_claimed_and_usable_as_a_reference(
     assert entry is not None
     assert entry.artifact_path == sheet_path
     assert _status(project_dir, _KEY, sheet_path) is ArtifactStatus.CURRENT
-    status = WorkflowStateService(pm).get_status("demo")
-    assert status.artifacts["asset_sheets"]["character"]["current_ids"] == ["Alice"]
+    summary = WorkflowStateService(pm).get_project_summary("demo")
+    assert summary.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
 
     script = {
         "episode": 1,
@@ -206,7 +206,7 @@ def test_a_failed_apply_rolls_back_files_metadata_versions_and_claims(library, m
         return {
             "project": pm.load_project("demo"),
             "sheet": (project_dir / "characters/王.png").read_bytes(),
-            "versions": (project_dir / "versions/versions.json").read_bytes(),
+            "versions": read_version_history(project_dir),
             "snapshots": sorted(path for path in (project_dir / "versions").rglob("*") if path.is_file()),
             "claim": adapter.get_entry(ArtifactKey.asset_sheet("character", "王")),
         }
@@ -261,7 +261,7 @@ def test_skip_leaves_the_existing_sheet_and_history_untouched(library):
     asset_id = store_character_with_derivatives(client, pm, owner_description="白衣少年")
     _project_character_with_uploaded_sheet(pm)
     project_dir = pm.get_project_path("demo")
-    versions_before = (project_dir / "versions/versions.json").read_bytes()
+    versions_before = read_version_history(project_dir)
     sheet_before = (project_dir / "characters/王.png").read_bytes()
 
     response = client.post(
@@ -271,7 +271,7 @@ def test_skip_leaves_the_existing_sheet_and_history_untouched(library):
 
     assert response.status_code == 200, response.text
     assert response.json()["skipped"] == [{"id": asset_id, "name": "王"}]
-    assert (project_dir / "versions/versions.json").read_bytes() == versions_before
+    assert read_version_history(project_dir) == versions_before
     assert (project_dir / "characters/王.png").read_bytes() == sheet_before
     assert not pm.load_project("demo")["characters"]["王"].get(DERIVATIVES_FIELD)
 
@@ -313,7 +313,7 @@ def test_overwrite_onto_an_nfd_key_records_the_history_under_the_existing_key(li
 
     _apply(client, stored.json()["asset"]["id"], policy="overwrite")
 
-    history = json.loads((pm.get_project_path("demo") / "versions/versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(pm.get_project_path("demo"))
     assert list(history["characters"]) == [owner_nfd]
     assert list(history[CHARACTER_DERIVATIVE_RESOURCE_TYPE]) == [f"{owner_nfd}/{derivative_nfd}"]
     pm.update_asset_entry("character", "demo", owner_nfd, _rewrite_descriptions)
@@ -363,7 +363,7 @@ def test_overwrite_folds_a_case_only_derivative_into_the_existing_one(library):
     }
     assert (project_dir / existing).read_bytes() == library_sheet
     assert sorted(path.name for path in (project_dir / existing).parent.iterdir()) == ["coat.png"]
-    history = json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(project_dir)
     assert list(history[CHARACTER_DERIVATIVE_RESOURCE_TYPE]) == ["王/coat"]
     entry = ProjectArtifactManifestAdapter(project_dir).get_entry(derivative_artifact_key("王", "coat"))
     assert entry is not None
@@ -398,7 +398,7 @@ def test_case_only_derivatives_from_the_library_land_as_one(library):
         "Coat": {"description": "绿大衣", "character_sheet": landed}
     }
     assert (project_dir / landed).read_bytes() == solid_png_bytes((0, 160, 0))
-    history = json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))
+    history = read_version_history(project_dir)
     assert list(history[CHARACTER_DERIVATIVE_RESOURCE_TYPE]) == ["王/Coat"]
 
 

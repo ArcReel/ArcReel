@@ -18,6 +18,7 @@ from mcp.server import Server
 
 from server.agent_toolset.declaration import (
     AgentToolDeclaration,
+    ToolDeclaration,
     UnscopedToolDeclaration,
     invoke_declaration,
     invoke_unscoped_declaration,
@@ -37,6 +38,9 @@ def embedded_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]
                 for image in envelope.images
             ),
         ],
+        structuredContent=(
+            envelope.structured if isinstance(declaration, ToolDeclaration) and declaration.output_model else None
+        ),
         isError=envelope.is_error,
     )
 
@@ -57,6 +61,11 @@ def embedded_server(
             name=declaration.name,
             description=tool_description(declaration),
             inputSchema=declaration.input_schema,
+            outputSchema=(
+                declaration.output_model.model_json_schema(mode="serialization")
+                if isinstance(declaration, ToolDeclaration) and declaration.output_model
+                else None
+            ),
         )
         for declaration in declared.values()
     ]

@@ -13,6 +13,7 @@ from lib.workflow.workflow_state import (
     WorkflowActionType,
     WorkflowNextAction,
     WorkflowProject,
+    WorkflowRead,
     WorkflowRequestError,
     WorkflowStatus,
     WorkflowTarget,
@@ -77,6 +78,9 @@ class _Planner:
     def __init__(self):
         self.calls: list[tuple[str, WorkflowPlanRequest, str]] = []
 
+    async def read_plan(self, *args, visibility="admin", **kwargs):
+        return WorkflowRead(await self.get_plan(*args, **kwargs), {})
+
     async def get_plan(
         self,
         project_name: str,
@@ -93,7 +97,7 @@ class _Planner:
 async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pm = _project(tmp_path)
     planner = _Planner()
-    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None, reads=None: planner)
     use_project_manager(monkeypatch, pm)
     payload = {
         "episode_id": 1,
@@ -109,6 +113,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
         response = client.post("/api/v1/projects/demo/workflow-plan", json=payload)
 
     assert response.status_code == 200
+    assert response.json()["schema_version"] == response.json()["status"]["schema_version"] == 3
     assert json_value(agent_plan.value) == response.json()
     assert planner.calls == [
         ("demo", WorkflowPlanRequest.model_validate(payload), "default"),
@@ -121,7 +126,7 @@ async def test_workflow_plan_rejects_the_retired_delivery_choice_before_service(
 ) -> None:
     pm = _project(tmp_path)
     planner = _Planner()
-    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None, reads=None: planner)
     use_project_manager(monkeypatch, pm)
     payload = {"narration_delivery": "post_production"}
 
@@ -139,7 +144,7 @@ async def test_workflow_plan_rejects_the_retired_delivery_choice_before_service(
     assert planner.calls == []
 
 
-class _FailingPlanner:
+class _FailingPlanner(_Planner):
     def __init__(self, error: Exception):
         self._error = error
 
@@ -169,7 +174,7 @@ async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
 ) -> None:
     pm = _project(tmp_path)
     planner = _FailingPlanner(WorkflowRequestError("ad workflow only has episode 1"))
-    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None, reads=None: planner)
 
     outcome = await _agent_plan(pm, tmp_path, {"episode_id": 2})
 
@@ -187,7 +192,7 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
 ) -> None:
     pm = _project(tmp_path)
     planner = _FailingPlanner(ValueError("segments must be an array of objects"))
-    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None, reads=None: planner)
 
     outcome = await _agent_plan(pm, tmp_path, {"episode_id": 1})
 

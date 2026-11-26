@@ -22,13 +22,26 @@ from lib.artifacts.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.artifact_planner import SharedVersionMetadata, TargetStatePlanner, episode_scope_for_key
+from lib.artifacts.artifact_planner import (
+    EpisodeScriptInputs,
+    RuntimePlanningContext,
+    TargetStatePlanner,
+    episode_scope_for_key,
+    inspect_registered_media,
+    normalize_script_binding,
+    selected_media_record,
+)
+from lib.artifacts.artifact_version_provenance import is_uploaded_video_version, parse_typed_media_version_target
+from lib.artifacts.input_gap import project_basis_records_gaps
+from lib.artifacts.sqlite_history import SQLiteHistory
+from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
     parse_project_schema_version,
     project_schema_is_current,
 )
+from lib.project.resource_paths import resource_relative_path
 
 
 def read_artifact_content_digest(
@@ -126,58 +139,156 @@ class ArtifactCurrencyResolver:
     does not change this request's answers.
     """
 
-    def __init__(self, project_dir: Path) -> None:
-        self._project_dir = Path(project_dir)
-        self._shared_versions = SharedVersionMetadata()
-        root_planner = TargetStatePlanner(project_dir, shared_versions=self._shared_versions)
-        if not project_schema_is_current(root_planner.project):
+    def __init__(self, project_dir: Path, *, project: dict[str, Any] | None = None) -> None:
+        self._runtime = RuntimePlanningContext()
+        self._project_dir = project_dir.resolve(strict=True)
+        self._root: TargetStatePlanner | None = None
+        if project is None:
+            self._root = TargetStatePlanner(self._project_dir, runtime=self._runtime)
+            project = self._root.project
+        if not project_schema_is_current(project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
-        self.manifest_snapshot = root_planner.adapter.read_snapshot()
-        root_planner.manifest_snapshot = self.manifest_snapshot
-        self._observations: dict[str, ArtifactObservation] = {}
-        root_planner.shared_observations = self._observations
-        self._project_bytes = root_planner.project_bytes
-        self._planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
-        self._adapter = root_planner.adapter
+        self._availability_inputs: EpisodeScriptInputs | None = None
+        self._fallback_script: ArtifactObservation | None = None
+        self._record_gaps = project_basis_records_gaps(project)
+        self._project = project
+        self._runtime.index_asset_names(project)
+        self._adapter = ProjectArtifactManifestAdapter(self._project_dir, legacy_history=self._runtime.history)
+        self.manifest_snapshot = self._adapter.read_snapshot()
+        if self._root is not None:
+            self._root.manifest_snapshot = self.manifest_snapshot
+            self._root.shared_observations = {}
+        self._active: TargetStatePlanner | None = None
+        history = SQLiteHistory(self._project_dir)
+        self._history = history if history.path.is_file() else None
         self._manifest = ArtifactManifest(self._adapter)
 
+    def script_snapshot(self, path: str) -> ArtifactObservation:
+        snapshot = self._runtime.script_snapshot
+        if snapshot is None or snapshot.artifact_path != path:
+            snapshot = self._fallback_script
+            if snapshot is None or snapshot.artifact_path != path:
+                snapshot = self._adapter.inspect_artifact_snapshot(path)
+            self._runtime.script_snapshot = snapshot
+        return snapshot
+
+    def retain_fallback_script(self, path: str | None) -> None:
+        """Keep just the auto-selection fallback while the ledger scan advances."""
+        current = self._runtime.script_snapshot
+        self._fallback_script = current if current is not None and current.artifact_path == path else None
+
+    def _registered_script(self, key: ArtifactKey, path: str) -> bool:
+        entry = self.manifest_snapshot.entries.get(key)
+        return key.kind.value == "episode-script" and entry is not None and entry.artifact_path == path
+
+    def compare_availability(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        observation = (
+            self.script_snapshot(artifact_path)
+            if self._registered_script(key, artifact_path)
+            else self._adapter.inspect_artifact(artifact_path)
+        )
+        entries = self.manifest_snapshot.entries
+        admission = self._manifest.compare_observed_entry(key, observation=observation, expected=None, entries=entries)
+        if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
+            return admission
+        episode = int(key.components[0])
+        binding = self._runtime.episode_bindings(self._project).get(episode)
+        if binding is None:
+            return admission
+        inputs = self._availability_inputs
+        if inputs is None or inputs.episode != episode:
+            source = self.script_snapshot(binding.script_file)
+            if source.blocker is not None:
+                raise ArtifactManifestError(source.blocker.detail)
+            if source.content_bytes is None:
+                return admission
+            inputs = self._availability_inputs = EpisodeScriptInputs.parse(
+                self._project_dir, binding, source.content_bytes
+            )
+        if key.kind.value == "episode-video" and self._video_reads_registered_content(key, artifact_path, inputs):
+            observed, _ = inspect_registered_media(
+                self._adapter, self.manifest_snapshot, key, artifact_path, observation
+            )
+            return self._manifest.compare_observed_entry(key, observation=observed, expected=None, entries=entries)
+        return admission
+
+    def _video_reads_registered_content(self, key: ArtifactKey, path: str, inputs: EpisodeScriptInputs) -> bool:
+        resource_id = str(key.components[1])
+        video = inputs.video_input(resource_id, record_gaps=self._record_gaps)
+        if video is None:
+            return False
+        resource_type, formal = video
+        if formal != resource_relative_path(resource_type, resource_id):
+            return False
+        history = self._runtime.selected_history(
+            self._project_dir, self._adapter, self._history, [(resource_type, resource_id)]
+        )
+        resource = history.get(resource_type, {}).get(resource_id, {})
+        record = selected_media_record(resource)
+        if record is None:
+            return False
+        if is_uploaded_video_version(resource_type, record):
+            return formal == path and selected_manual_upload_snapshot(resource, resource_type) is not None
+        try:
+            target = parse_typed_media_version_target(resource_type, record)
+        except (TypeError, ValueError):
+            return False
+        return (
+            target.episode == key.components[0]
+            and normalize_script_binding(target.script_file) == inputs.script_file
+            and formal == path
+            and VersionManager.is_managed_snapshot_path(resource_type, record.get("file"))
+        )
+
+    def release_episode(self) -> None:
+        self._active = None
+
     def _planner_for(self, key: ArtifactKey) -> TargetStatePlanner:
+        self._availability_inputs = None
         scope = episode_scope_for_key(key)
-        planner = self._planners.get(scope)
-        if planner is None:
-            planner = TargetStatePlanner(
+        if scope is None:
+            if self._root is None:
+                self._root = TargetStatePlanner(
+                    self._project_dir,
+                    parsed_project=self._project,
+                    project_bytes=b"",
+                    runtime=self._runtime,
+                    manifest_snapshot=self.manifest_snapshot,
+                    shared_observations={},
+                )
+            return self._root
+        if self._active is None or self._active.episode_scope != scope:
+            self.release_episode()
+            self._active = TargetStatePlanner(
                 self._project_dir,
                 episode_scope=scope,
-                project_bytes=self._project_bytes,
-                shared_versions=self._shared_versions,
+                project_bytes=b"",
+                parsed_project=self._project,
+                runtime=self._runtime,
                 manifest_snapshot=self.manifest_snapshot,
-                shared_observations=self._observations,
+                shared_observations={},
             )
-            self._planners[scope] = planner
-        return planner
+        return self._active
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        planner = self._planner_for(key)
+        if self._registered_script(key, artifact_path):
+            self.script_snapshot(artifact_path)
         entries = self.manifest_snapshot.entries
         admission = self._manifest.compare_observed_entry(
-            key, observation=self._observe(artifact_path), expected=None, entries=entries
+            key, observation=planner.observe(artifact_path), expected=None, entries=entries
         )
         if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
             return admission
-        expected = self._planner_for(key).resolve_key(key)
+        expected = planner.resolve_key(key)
         return self._manifest.compare_observed_entry(
-            key, observation=self._observe(artifact_path), expected=expected, entries=entries
+            key, observation=planner.observe(artifact_path), expected=expected, entries=entries
         )
 
     def resolve_basis(self, key: ArtifactKey) -> ArtifactBasis | None:
         """Canonical basis of *key* from this resolver's planners; ``None`` when none is derivable."""
 
         return self._planner_for(key).resolve_basis(key)
-
-    def _observe(self, artifact_path: str) -> ArtifactObservation:
-        observation = self._observations.get(artifact_path)
-        if observation is None:
-            observation = self._observations[artifact_path] = self._adapter.inspect_artifact(artifact_path)
-        return observation
 
     def resolve_usable_entry(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactManifestEntry | None:
         """Return the exact registered entry selected through canonical admission."""
@@ -223,7 +334,7 @@ def active_artifact_currency_resolver(
             f"project schema v{parse_project_schema_version(project)} did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}",
             file="project.json",
         )
-    return ArtifactCurrencyResolver(project_dir)
+    return ArtifactCurrencyResolver(project_dir, project=project if isinstance(project, dict) else dict(project))
 
 
 def resolve_artifact_episode(

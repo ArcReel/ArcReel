@@ -340,6 +340,7 @@ def delete_episode(
             content.files,
             snapshot=True,
             before={"project.json": committed["before"]},
+            histories=content.versions,
         )
         try:
             sync_source_snapshots(project_dir, committed["project"], {})
@@ -381,6 +382,15 @@ def _remove_empty_dirs(directory: Path) -> None:
 
 def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str]) -> list[tuple[str, str]]:
     """版本历史里属于这一集的资源：条目 ID 带这一集的前缀，或是这一集的宫格。"""
+    store = VersionManager(project_dir).sqlite
+    if store.path.is_file():
+        grids = set(grid_ids)
+        return [
+            (kind, name)
+            for kind, name in store.resource_keys()
+            if kind in VersionManager.RESOURCE_TYPES
+            and (item_id_episode(name) == episode or (kind == "grids" and name in grids))
+        ]
     try:
         data = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):

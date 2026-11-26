@@ -153,7 +153,9 @@ def _record(
     histories = _histories(project_dir, resources)
     snapshots = _history_files(project_dir, histories)
     VersionManager(project_dir).detach_resources(_ids(histories))
-    record = project_trash.record_deletion(project_dir, obj, [*files, *snapshots], snapshot=True, before=before)
+    record = project_trash.record_deletion(
+        project_dir, obj, [*files, *snapshots], snapshot=True, before=before, histories=histories
+    )
     for directory in (derivative_sheet_dir(owner), derivative_version_dir(owner)):
         with contextlib.suppress(OSError):
             (project_dir / directory).rmdir()  # hard-delete: infra -- 衍生图移进回收站后的空目录
@@ -368,6 +370,9 @@ def _lift(
 
 def _history_keys(project_dir: Path, resource_type: str) -> set[str]:
     """当前项目里该资源类型已有版本记录的资源 ID（按资产名归一规则），包括早先删除资产时留下的历史。"""
+    store = VersionManager(project_dir).sqlite
+    if store.path.is_file():
+        return {asset_name_namespace_key(name) for _, name in store.resource_keys(resource_type)}
     bucket = _read_json(project_dir / _VERSIONS_FILE).get(resource_type)
     return (
         {asset_name_namespace_key(key) for key in bucket if isinstance(key, str)} if isinstance(bucket, dict) else set()
@@ -384,6 +389,14 @@ def _derivative_sheets(root: Path, owner: str, derivatives: Sequence[str]) -> li
 
 def _histories(root: Path, resources: Sequence[tuple[str, str]]) -> dict[str, dict[str, Any]]:
     """这些资源的版本记录；资源 ID 按 NFC 解析到落盘的真实 key（存量记录可能是 NFD）。"""
+    store = VersionManager(root).sqlite
+    if store.path.is_file():
+        resolved = []
+        for kind, name in resources:
+            matches = list(store.equivalent_keys(kind, name))
+            if matches:
+                resolved.append(matches[-1])
+        return store.resources(resolved)
     data = _read_json(root / _VERSIONS_FILE)
     resolved = [
         (resource_type, key)

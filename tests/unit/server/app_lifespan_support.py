@@ -13,6 +13,9 @@ async def _noop_async(*args, **kwargs):
 
 class _FakeWorker:
     def __init__(self):
+        from lib.generation.text_progress import TaskProgressTable
+
+        self.text_progress = TaskProgressTable()
         self.started = False
         self.stopped = False
 

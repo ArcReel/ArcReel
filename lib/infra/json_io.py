@@ -10,6 +10,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
+from lib.infra.project_write_journal import track_write
+
 
 def load_json(path: Path) -> Any:
     """严格加载 JSON。异常直接抛出，调用方按业务需要做 try/except。"""
@@ -67,6 +69,7 @@ def atomic_write_json(path: Path, data: Any) -> None:
             json.dump(data, tmp, ensure_ascii=False, indent=2)
             tmp.flush()
             os.fsync(tmp.fileno())
+        track_write(path)
         os.replace(tmp_path, path)
         tmp_path = None
     finally:
@@ -75,7 +78,7 @@ def atomic_write_json(path: Path, data: Any) -> None:
                 tmp_path.unlink()  # hard-delete: temp -- 原子写的临时文件
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
+def atomic_write_bytes(path: Path, data: bytes, *, journal: bool = True) -> None:
     """同目录 tempfile + ``os.replace`` 原子恢复文件字节。
 
     多文件补偿事务在后续写入失败时需要逐字恢复已经替换的旧文件；重新序列化 JSON 会改变
@@ -94,6 +97,8 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
             tmp.write(data)
             tmp.flush()
             os.fsync(tmp.fileno())
+        if journal:
+            track_write(path)
         os.replace(tmp_path, path)
         tmp_path = None
     finally:

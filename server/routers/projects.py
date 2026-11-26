@@ -93,16 +93,15 @@ from lib.speech.narration_config import (
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import (
-    EpisodeNextStep,
+    EpisodeNextSteps,
     ProjectSummary,
     WorkflowRequestError,
     WorkflowStateService,
     WorkflowStatus,
 )
 from server.auth import CurrentUser, create_download_token, reject_embedded_agent, verify_download_token
-from server.dependencies import require_project_migration_ok
-from server.i18n import DisplayNamesCatalog, Locale, Translator
-from server.routers._coalesce import RequestCoalescer
+from server.dependencies import ProjectReads, require_project_migration_ok
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -134,12 +133,6 @@ from server.tool_runtime import truncation_problem
 router = APIRouter()
 
 self_auth_router = APIRouter()
-
-_project_detail_coalescer = RequestCoalescer()
-
-
-def get_project_detail_coalescer() -> RequestCoalescer:
-    return _project_detail_coalescer
 
 
 def get_workflow_state_service() -> WorkflowStateService:
@@ -779,55 +772,72 @@ async def get_video_capabilities(
 async def get_workflow_status(
     name: str,
     _t: Translator,
+    current_user: CurrentUser,
+    reads: ProjectReads,
     episode: Annotated[int | None, Query(ge=1)] = None,
 ):
     """Return the authenticated, server-authoritative project workflow status."""
 
     try:
         manager = get_project_manager()
-        status = await asyncio.to_thread(WorkflowStateService(manager).get_status, name, episode)
-        project = await asyncio.to_thread(manager.load_project, name)
-        return WorkflowStatus.model_validate(present_episode_diagnostics(status.model_dump(mode="json"), project, _t))
+        read = await reads.run(
+            ("workflow-status-v3", id(manager), name, current_user.id, current_user.role, episode),
+            lambda: asyncio.to_thread(WorkflowStateService(manager).read_status, name, episode),
+        )
+        return present_episode_diagnostics(read.value, read.require_project(), _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
         raise BadRequestError("request_invalid") from exc
 
 
-class EpisodeNextSteps(BaseModel):
-    episodes: list[EpisodeNextStep]
-
-
 @router.get("/projects/{name}/workflow-status/episodes", response_model=EpisodeNextSteps)
-async def get_episode_next_steps(name: str, _t: Translator):
-    """账本顺序中每一集建议的下一步，供项目层的逐集清单使用。"""
+async def get_episode_next_steps(
+    name: str,
+    _t: Translator,
+    reads: ProjectReads,
+    current_user: CurrentUser,
+    episodes: Annotated[list[int] | None, Query()] = None,
+    cursor: str | None = None,
+):
+    """按账本顺序返回最多 32 集。可重复传 episodes 指定集号，或传上一页的 next_cursor 续读。已完成集的 next_action 为 null。"""
 
     try:
         manager = get_project_manager()
-        steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
-        if not steps:
-            return EpisodeNextSteps(episodes=[])
-        project = await asyncio.to_thread(manager.load_project, name)
+        read = await reads.run(
+            (
+                "workflow-episodes-v3",
+                id(manager),
+                name,
+                current_user.id,
+                current_user.role,
+                tuple(sorted(episodes)) if episodes is not None else None,
+                cursor,
+            ),
+            lambda: asyncio.to_thread(WorkflowStateService(manager).read_episode_next_steps, name, episodes, cursor),
+        )
+        return present_episode_diagnostics(read.value, read.require_project(), _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
-    return EpisodeNextSteps.model_validate(
-        present_episode_diagnostics(EpisodeNextSteps(episodes=steps).model_dump(mode="json"), project, _t)
-    )
+    except WorkflowRequestError as exc:
+        raise BadRequestError("request_invalid") from exc
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
-async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser, _t: Translator):
+async def get_workflow_plan(
+    name: str, request: WorkflowPlanRequest, current_user: CurrentUser, _t: Translator, reads: ProjectReads
+):
     """Return the side-effect-free plan for one transient workflow request."""
 
     try:
         manager = get_project_manager()
-        plan = await workflow_plan_service.get_workflow_planner(manager).get_plan(
+        read = await workflow_plan_service.get_workflow_planner(manager, reads).read_plan(
             name,
             request,
             user_id=current_user.id,
+            visibility=current_user.role,
         )
-        project = await asyncio.to_thread(manager.load_project, name)
-        return WorkflowPlan.model_validate(present_episode_diagnostics(plan.model_dump(mode="json"), project, _t))
+        return present_episode_diagnostics(read.value, read.require_project(), _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
@@ -838,23 +848,22 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_use
 async def get_project(
     name: str,
     _t: Translator,
-    locale: Locale,
     summaries: WorkflowStateServiceDep,
-    coalescer: Annotated[RequestCoalescer, Depends(get_project_detail_coalescer)],
+    current_user: CurrentUser,
+    coalescer: ProjectReads,
 ):
-    """获取项目详情（含实时计算字段）。同一项目、同一语言的并发请求合流计算。"""
+    """获取项目详情（含实时计算字段）。"""
     try:
+        manager = get_project_manager()
 
         def _sync():
-            manager = get_project_manager()
             if not manager.project_exists(name):
-                raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+                raise NotFoundError("project_not_found", name=name)
 
             project = manager.load_project(name)
 
             summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
-            project["status"] = _project_status_payload(summary, project, _t)
 
             scripts = {}
             for ep in project.get("episodes", []):
@@ -876,13 +885,25 @@ async def get_project(
             project_path = manager.get_project_path(name)
             fingerprints = compute_asset_fingerprints(project_path)
 
-            return {
+            return summary, {
                 "project": project,
                 "scripts": scripts,
                 "asset_fingerprints": fingerprints,
             }
 
-        return await coalescer.run((name, locale), lambda: run_sync_transaction(_sync))
+        summary, result = await coalescer.run(
+            (
+                "project-detail-verified",
+                id(manager),
+                name,
+                current_user.id,
+                current_user.role,
+                id(summaries.pm if type(summaries) is WorkflowStateService else summaries),
+            ),
+            lambda: run_sync_transaction(_sync),
+        )
+        project = result["project"]
+        return {**result, "project": {**project, "status": _project_status_payload(summary, project, _t)}}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):

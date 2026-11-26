@@ -51,6 +51,7 @@ const FAILURE_PHRASE_KEYS: Record<string, string> = {
   rate_limited: "usage_error_rate_limited",
   content_policy: "usage_error_content_policy",
   timeout: "usage_error_timeout",
+  text_wait_timeout: "usage_error_wait_timeout",
   download_failed: "usage_error_download_failed",
   interrupted: "usage_error_interrupted",
 };

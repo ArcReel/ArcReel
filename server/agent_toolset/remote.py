@@ -158,6 +158,8 @@ def remote_tool(
         raise RuntimeError("declared remote tools override run")
 
     metadata = FastMCPTool.from_function(unused, structured_output=False)
+    if isinstance(declaration, ToolDeclaration) and declaration.output_model:
+        metadata.fn_metadata.output_schema = declaration.output_model.model_json_schema(mode="serialization")
     return _DeclaredRemoteTool(
         fn=unused,
         name=declaration.name,

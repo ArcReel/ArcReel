@@ -1,0 +1,37 @@
+{
+  "method": "POST",
+  "path": "/api/v1/projects/progress-demo/episodes/1/script-plan",
+  "status": 200,
+  "body": {
+    "batch": {
+      "batch_id": "00000000000040008000000000000004",
+      "project": "progress-demo",
+      "operation": "generate_script_plan",
+      "created_at": "2026-01-01T08:00:00.000Z",
+      "members": [
+        {
+          "unit_id": "episode-1",
+          "task_id": "00000000000040008000000000000005",
+          "task_type": "text_narration_script_plan",
+          "status": "queued",
+          "deduped": false,
+          "problem": null,
+          "admission": {}
+        }
+      ],
+      "skipped": [],
+      "counts": {
+        "queued": 1,
+        "running": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "blocked": 0,
+        "total": 1
+      },
+      "done": false,
+      "poll_after_seconds": 3,
+      "generation_result": null
+    }
+  }
+}

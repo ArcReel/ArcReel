@@ -1,11 +1,15 @@
-import { Loader2, X } from "lucide-react";
+import { Loader2, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 
 import type { TaskItem } from "@/types";
+import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
+import { TextTaskLongWaitHint, TextTaskPhaseLabel } from "@/components/shared/TextTaskProgress";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
+import { useTasksStore } from "@/stores/tasks-store";
+import { isTextTask } from "@/utils/text-task-progress";
 import { TargetLabel } from "./RecordRow";
 import { MEDIA_META, elapsedSince } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
@@ -35,11 +39,13 @@ export function UsageActiveRow({
 }: UsageActiveRowProps) {
   const { t } = useTranslation("dashboard");
   const now = useNowTick();
+  const progress = useTasksStore((s) => (task ? s.progressById.get(task.task_id) : undefined));
 
   const media = MEDIA_META[view.mediaType];
   const MediaIcon = media.Icon;
   const running = task?.status === "running";
   const cancellable = task?.status === "queued";
+  const textTask = task !== null && isTextTask(task);
   const statusText = task
     ? (task.error_message ?? t(TASK_STATUS_KEYS[task.status]))
     : t("usage_status_pending");
@@ -50,11 +56,19 @@ export function UsageActiveRow({
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-center gap-1.5 text-sm">
           <TargetLabel record={view} />
-          <span
-            aria-hidden="true"
-            className={cn("ml-auto size-1.5 shrink-0 rounded-full bg-primary", running && "animate-breath")}
-          />
-          <span className="num shrink-0 text-xs text-muted-foreground">{elapsedSince(view.startedAt, now, t)}</span>
+          {textTask ? (
+            <LoaderCircle aria-hidden="true" className="ml-auto size-3.5 shrink-0 animate-spin text-primary" />
+          ) : (
+            <span
+              aria-hidden="true"
+              className={cn("ml-auto size-1.5 shrink-0 rounded-full bg-primary", running && "animate-breath")}
+            />
+          )}
+          {task ? (
+            <TaskElapsedReadout task={task} className="shrink-0 text-xs text-muted-foreground" />
+          ) : (
+            <span className="num shrink-0 text-xs text-muted-foreground">{elapsedSince(view.startedAt, now, t)}</span>
+          )}
           {task && cancellable && onCancel && (
             <Button
               variant="ghost"
@@ -69,8 +83,18 @@ export function UsageActiveRow({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <TruncatedText text={`${providerLabel(view.provider)} · ${view.model ?? t("usage_model_unresolved")}`} />
-          <span className="ml-auto max-w-1/2 shrink-0 truncate">{statusText}</span>
+          {!textTask && <span className="ml-auto max-w-1/2 shrink-0 truncate">{statusText}</span>}
         </div>
+        {textTask && (
+          <>
+            <TextTaskPhaseLabel
+              progress={running && task.error_message == null ? progress : undefined}
+              fallback={statusText}
+              className="text-xs wrap-break-word text-subtle-foreground"
+            />
+            <TextTaskLongWaitHint task={task} />
+          </>
+        )}
       </div>
     </div>
   );

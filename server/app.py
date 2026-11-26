@@ -67,7 +67,7 @@ from lib.project.project_migrations import cleanup_stale_backups, run_project_mi
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
 from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
-from server.dependencies import require_project_migration_ok, require_valid_project_name
+from server.dependencies import project_reads, require_project_migration_ok, require_valid_project_name
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import mount_remote_mcp, remote_mcp_host
 from server.routers import (
@@ -124,6 +124,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+from server.services.project.coalesce import RequestCoalescer, application_reads
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
 from server.services.tasks.generation_context import invalidate_backend_cache
@@ -354,9 +355,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """应用生命周期管理"""
     shutdown = ShutdownController()
     app.state.shutdown_controller = shutdown
-    with shutdown.capture_signals():
-        async with _running_app(app, shutdown):
-            yield
+    reads = RequestCoalescer(asyncio.get_running_loop())
+    app.state.project_reads = reads
+    token = application_reads.set(reads)
+    try:
+        with shutdown.capture_signals():
+            async with _running_app(app, shutdown):
+                try:
+                    yield
+                finally:
+                    await reads.close()
+    finally:
+        application_reads.reset(token)
+        del app.state.project_reads
 
 
 @asynccontextmanager
@@ -519,6 +530,7 @@ async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGener
     project_event_service = ProjectEventService(PROJECT_ROOT, data_root=layout.root)
     app.state.project_event_service = project_event_service
     shutdown.on_shutdown(project_event_service.stop_streams)
+    worker.text_progress.publish = project_event_service.publish_task_progress
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(
@@ -619,6 +631,7 @@ _QUIET_SLOW_THRESHOLD_MS = 500.0
 async def request_logging_middleware(
     request: Request, call_next, *, quiet_slow_threshold_ms: float = _QUIET_SLOW_THRESHOLD_MS
 ):
+    token = application_reads.set(await project_reads(request))
     start = time.perf_counter()
     path = request.url.path
     _skip_log = path.startswith("/assets") or path == "/health"
@@ -634,6 +647,8 @@ async def request_logging_middleware(
                 elapsed_ms,
             )
         raise
+    finally:
+        application_reads.reset(token)
     if not _skip_log:
         elapsed_ms = (time.perf_counter() - start) * 1000
         is_quiet = (

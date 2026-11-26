@@ -3,49 +3,44 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.infra.api_errors import NotFoundError
+from lib.infra.api_errors import ApiError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.project_manager import get_project_manager
-from server.i18n import Locale, Translator
-from server.routers._coalesce import RequestCoalescer
+from lib.project.project_manager import ProjectManager, get_project_manager
+from server.auth import CurrentUser
+from server.dependencies import ProjectReads
 from server.routers._validators import reject_retired_query_params
 from server.services.admission.cost_estimation import CostEstimationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_coalescer = RequestCoalescer()
-
-
-def get_cost_estimate_coalescer() -> RequestCoalescer:
-    return _coalescer
-
 
 @router.get("/projects/{project_name}/cost-estimate")
 async def get_cost_estimate(
     project_name: str,
     request: Request,
-    _t: Translator,
-    locale: Locale,
-    coalescer: Annotated[RequestCoalescer, Depends(get_cost_estimate_coalescer)],
+    current_user: CurrentUser,
+    coalescer: ProjectReads,
 ):
-    """获取项目费用估算（预估 + 实际）。同一项目、同一语言的并发请求合流计算。"""
+    """获取项目费用估算（预估 + 实际）。"""
 
     reject_retired_query_params(request, "narration_delivery", "reference_unit_id")
-    return await coalescer.run((project_name, locale), lambda: _estimate(project_name, _t))
+    pm = get_project_manager()
+    return await coalescer.run(
+        ("cost-estimate", id(pm), project_name, current_user.id, current_user.role, id(async_session_factory)),
+        lambda: _estimate(pm, project_name),
+    )
 
 
-async def _estimate(project_name: str, _t: Translator):
+async def _estimate(pm: ProjectManager, project_name: str):
     def _sync():
-        pm = get_project_manager()
         if not pm.project_exists(project_name):
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+            raise NotFoundError("project_not_found", name=project_name)
 
         try:
             project_data = pm.load_project(project_name)
@@ -80,4 +75,4 @@ async def _estimate(project_name: str, _t: Translator):
         )
     except Exception as exc:
         logger.exception("费用估算失败")
-        raise HTTPException(status_code=500, detail=_t("cost_estimation_failed")) from exc
+        raise ApiError("cost_estimation_failed", status_code=500) from exc

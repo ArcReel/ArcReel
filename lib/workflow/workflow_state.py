@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import unicodedata
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -17,7 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.artifacts.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
-from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
@@ -44,11 +45,12 @@ from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
     MigrationFailureRecord,
+    load_migration_failure,
     load_migration_verdict,
 )
 from lib.project.project_migration_report import MigrationReport, visible_migration_report
 from lib.project.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
-from lib.references.reference_admission import admit_references, admit_storyboard_items
+from lib.references.reference_admission import SHEET_REQUIRED_ASSET_TYPES, admit_references, admit_storyboard_items
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script import script_review
 from lib.script.reference_video.text_parser import derive_references_from_text
@@ -72,6 +74,23 @@ from lib.workflow.operation_admission import (
 from lib.workflow.workflow_rules import workflow_rule
 
 logger = logging.getLogger(__name__)
+
+
+EPISODE_NEXT_STEPS_PAGE_SIZE = 32
+
+
+def _encode_episode_cursor(revision: str, offset: int) -> str:
+    return f"{revision}.{offset}"
+
+
+def _decode_episode_cursor(cursor: str, revision: str, total: int) -> int:
+    digest, _, offset = cursor.rpartition(".")
+    if digest != revision or not offset.isascii() or not offset.isdecimal() or len(offset) > 10:
+        raise WorkflowRequestError("invalid or expired episode cursor")
+    start = int(offset)
+    if not 0 < start < total or start % EPISODE_NEXT_STEPS_PAGE_SIZE:
+        raise WorkflowRequestError("invalid episode cursor offset")
+    return start
 
 
 class WorkflowRequestError(ValueError):
@@ -216,7 +235,7 @@ class WorkflowStatus(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     project_revision: str
     source_revision: str | None
     project: WorkflowProject
@@ -226,7 +245,9 @@ class WorkflowStatus(BaseModel):
     content: WorkflowContent | None
     operations: dict[str, WorkflowOperation] = Field(default_factory=dict)
     gates: dict[str, dict[str, Any]]
-    artifacts: dict[str, dict[str, Any]]
+    artifacts: dict[str, dict[str, Any]] = Field(
+        description="asset_sheets contains only assets referenced by the target episode."
+    )
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
     migration_report: MigrationReport | None = None
@@ -342,13 +363,77 @@ class ProjectSummary(BaseModel):
 
 
 class EpisodeNextStep(BaseModel):
-    """账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。"""
+    """逐集清单中的完成事实，以及未完成集的下一步。"""
 
     model_config = ConfigDict(extra="forbid")
 
     episode: int
     plan_stale: bool
-    next_action: WorkflowNextAction
+    episode_complete: bool
+    next_action: WorkflowNextAction | None
+
+
+class EpisodeNextSteps(BaseModel):
+    episodes: list[EpisodeNextStep]
+    next_cursor: str | None = None
+
+
+@dataclass(frozen=True)
+class _Availability:
+    currency: ArtifactCurrencyResolver
+
+    def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
+        return self.currency.compare_availability(key, artifact_path=artifact_path)
+
+
+@dataclass
+class _EpisodeFacts:
+    target: WorkflowTarget | None
+    stale: bool
+    revision: str | None
+    script: dict[str, Any]
+    items: list[dict[str, Any]]
+    kind: str | None
+    videos: dict[str, Any]
+    timelines: list[str] | None
+    complete: bool
+    script_issues: list[WorkflowBlocker] = field(default_factory=list)
+    video_issues: list[WorkflowBlocker] = field(default_factory=list)
+    timeline_issues: list[WorkflowBlocker] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class WorkflowRead[T]:
+    """One computation's facts. Consumers treat nested project data and response models as read-only."""
+
+    value: T
+    project: dict[str, Any]
+    load_error: OSError | ValueError | None = None
+
+    def require_project(self) -> dict[str, Any]:
+        if self.load_error is not None:
+            raise self.load_error
+        return self.project
+
+
+@dataclass(frozen=True)
+class WorkflowStatusRead(WorkflowRead[WorkflowStatus]):
+    script: dict[str, Any] | None = None
+    currency: ArtifactCurrencyResolver | None = None
+
+
+@dataclass
+class _ActiveScript:
+    currency: ArtifactCurrencyResolver | None
+    path: str | None = None
+    payload: dict[str, Any] | None = None
+
+    def read(self, manager: ProjectManager, project_name: str, path: str) -> dict[str, Any]:
+        if path != self.path or self.payload is None:
+            snapshot = self.currency.script_snapshot(path).content_bytes if self.currency is not None else None
+            self.payload = manager.load_script_readonly(project_name, path, snapshot=snapshot)
+            self.path = path
+        return self.payload
 
 
 @dataclass(frozen=True)
@@ -356,12 +441,12 @@ class _SharedWorkflowFacts:
     source: SourceRevisionResult | None
     planning_sources: tuple[SourceDoc, ...]
     source_remaining: bool
-    sheets: dict[str, dict[str, Any]]
     episodes: list[tuple[int, dict[str, Any]]]
     currency: ArtifactCurrencyResolver | None
     blockers: tuple[WorkflowBlocker, ...]
     issues: tuple[WorkflowBlocker, ...]
     whole_source: bool
+    active_script: _ActiveScript
 
 
 def _project_revision(project: Mapping[str, Any]) -> str:
@@ -458,7 +543,7 @@ class WorkflowStateService:
     ) -> str:
         try:
             comparison = resolver.compare(key, artifact_path=artifact_path)
-        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        except (ArtifactManifestError, OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
             issues.append(
                 WorkflowBlocker(
                     code="artifact_currency_unavailable",
@@ -606,7 +691,8 @@ class WorkflowStateService:
         project: dict[str, Any],
         target: WorkflowTarget,
         issues: list[WorkflowBlocker],
-        resolver: ArtifactCurrencyResolver | None,
+        resolver: ArtifactComparer | None,
+        active_script: _ActiveScript,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
         path = target.script
         state = ArtifactStatus.CURRENT.value
@@ -615,7 +701,7 @@ class WorkflowStateService:
             if state not in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                 return {"state": state, "path": path}, [], None
         try:
-            script: Any = self.pm.load_script_readonly(project_name, path)
+            script: Any = active_script.read(self.pm, project_name, path)
         except FileNotFoundError:
             return {"state": "missing", "path": path}, [], None
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -719,9 +805,8 @@ class WorkflowStateService:
         return {"state": state, "path": path}, raw_items, kind
 
     @classmethod
-    def _media_collection(
+    def _media_states(
         cls,
-        project_path: Path,
         items: list[dict[str, Any]],
         kind: str | None,
         field: str,
@@ -729,17 +814,16 @@ class WorkflowStateService:
         episode: int,
         resolver: ArtifactComparer | None,
         issues: list[WorkflowBlocker],
-    ) -> dict[str, Any]:
-        collection: dict[str, Any] = _empty_collection()
+    ) -> Iterator[tuple[str, str]]:
         if kind is None:
-            return collection
+            return
         id_field = SKELETONS[kind].id_field
         for item in items:
             resource_id = item.get(id_field)
             if not isinstance(resource_id, str) or not resource_id:
                 continue
             if kind == "video_units" and item.get("needs_replan") is True:
-                collection["stale_ids"].append(resource_id)
+                yield resource_id, "stale"
                 continue
             artifact_path = get_generated_assets(item).get(field)
             if resolver is not None and isinstance(artifact_path, str) and artifact_path:
@@ -750,29 +834,49 @@ class WorkflowStateService:
                     if field == "video_clip"
                     else ArtifactKey.episode_audio(episode, resource_id)
                 )
-                cls._classify_artifact(
-                    collection,
-                    resolver=resolver,
-                    key=key,
-                    artifact_path=artifact_path,
-                    resource_id=resource_id,
-                    issues=issues,
-                )
+                yield resource_id, cls._artifact_state(resolver, key, artifact_path, issues)
             else:
-                collection["missing_ids"].append(resource_id)
+                yield resource_id, "missing"
+
+    @staticmethod
+    def _collect_media(states: Iterator[tuple[str, str]]) -> dict[str, Any]:
+        collection: dict[str, Any] = _empty_collection()
+        for resource_id, state in states:
+            if state == "blocked":
+                collection["state"] = "blocked"
+            else:
+                collection[f"{state}_ids"].append(resource_id)
         return collection
 
+    @classmethod
+    def _media_collection(
+        cls,
+        items: list[dict[str, Any]],
+        kind: str | None,
+        field: str,
+        *,
+        episode: int,
+        resolver: ArtifactComparer | None,
+        issues: list[WorkflowBlocker],
+    ) -> dict[str, Any]:
+        return cls._collect_media(
+            cls._media_states(items, kind, field, episode=episode, resolver=resolver, issues=issues)
+        )
+
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
+        return self.read_status(project_name, episode).value
+
+    def read_status(self, project_name: str, episode: int | None = None) -> WorkflowStatusRead:
         project_path = self.pm.get_project_path(project_name)
         try:
             project: Any = self.pm.load_project(project_name)
             if not isinstance(project, dict):
                 raise ValueError("project.json must be an object")
         except (OSError, ValueError) as exc:
-            failure = load_migration_verdict(project_path)
+            failure = load_migration_failure(project_path)
             if failure is not None:
-                return self._migration_blocked_status({}, failure)
-            return WorkflowStatus(
+                return WorkflowStatusRead(self._migration_blocked_status({}, failure), {}, load_error=exc)
+            status = WorkflowStatus(
                 project_revision="",
                 source_revision=None,
                 project=WorkflowProject(content_mode="unknown", generation_mode="unknown", grid_storyboard=False),
@@ -783,44 +887,74 @@ class WorkflowStateService:
                 artifacts={},
                 next_action=_action(WorkflowActionType.NONE, "project data cannot be read"),
             )
-        failure = load_migration_verdict(project_path)
+            return WorkflowStatusRead(status, {}, load_error=exc)
+        failure = load_migration_verdict(project_path, project=project)
         if failure is not None:
-            return self._migration_blocked_status(project, failure)
+            return WorkflowStatusRead(self._migration_blocked_status(project, failure), project)
         shared = self._shared_facts(project_path, project)
         status = self._get_status(project_name, project, project_path, episode, shared)
         status.migration_report = visible_migration_report(project_path)
-        return status
+        active = shared.active_script
+        script = active.payload if status.target and status.target.script == active.path else None
+        return WorkflowStatusRead(status, project, script=script, currency=shared.currency)
 
-    def get_episode_next_steps(self, project_name: str) -> list[EpisodeNextStep]:
-        """按账本顺序给出每一集的下一步。
+    def get_episode_next_steps(
+        self, project_name: str, episodes: list[int] | None = None, cursor: str | None = None
+    ) -> EpisodeNextSteps:
+        return self.read_episode_next_steps(project_name, episodes, cursor).value
 
-        项目整体不可用（迁移失败、项目数据读不出、存在 blockers）时没有集层的下一步，返回空列表；
-        此时项目层的制作状态会说明原因。
-        """
-
+    def read_episode_next_steps(
+        self, project_name: str, episodes: list[int] | None = None, cursor: str | None = None
+    ) -> WorkflowRead[EpisodeNextSteps]:
         project_path = self.pm.get_project_path(project_name)
         try:
             project: Any = self.pm.load_project(project_name)
         except FileNotFoundError:
             raise
         except (OSError, ValueError):
-            return []
-        if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
-            return []
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
+        if not isinstance(project, dict) or load_migration_verdict(project_path, project=project) is not None:
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
         shared = self._shared_facts(project_path, project)
         if shared.blockers:
-            return []
-        steps: list[EpisodeNextStep] = []
-        for pair in shared.episodes:
-            status = self._episode_status(project_name, project, project_path, shared, pair)
+            return WorkflowRead(EpisodeNextSteps(episodes=[]), {})
+        ledger = shared.episodes
+        next_cursor = None
+        if episodes is not None:
+            requested = set(episodes)
+            if (
+                cursor is not None
+                or not 1 <= len(episodes) <= EPISODE_NEXT_STEPS_PAGE_SIZE
+                or len(requested) != len(episodes)
+                or min(requested) < 1
+            ):
+                raise WorkflowRequestError(
+                    f"request up to {EPISODE_NEXT_STEPS_PAGE_SIZE} distinct positive episode numbers without a cursor"
+                )
+            window = [pair for pair in ledger if pair[0] in requested]
+            if len(window) != len(requested):
+                raise WorkflowRequestError("unknown episode number")
+        else:
+            revision = prefixed_canonical_json_digest(project.get("episodes", []))
+            start = _decode_episode_cursor(cursor, revision, len(ledger)) if cursor is not None else 0
+            window = ledger[start : start + EPISODE_NEXT_STEPS_PAGE_SIZE]
+            if start + EPISODE_NEXT_STEPS_PAGE_SIZE < len(ledger):
+                next_cursor = _encode_episode_cursor(revision, start + EPISODE_NEXT_STEPS_PAGE_SIZE)
+        steps = []
+        for pair in window:
+            facts = self._scan_episode(project_name, project, project_path, shared, pair)
+            action = None
+            if not facts.complete:
+                if facts.stale:
+                    action = self._stale_action()
+                else:
+                    action = self._episode_status(project_name, project, project_path, shared, pair).next_action
             steps.append(
                 EpisodeNextStep(
-                    episode=pair[0],
-                    plan_stale=status.content is not None and status.content.episode_plan_stale,
-                    next_action=status.next_action,
+                    episode=pair[0], plan_stale=facts.stale, episode_complete=facts.complete, next_action=action
                 )
             )
-        return steps
+        return WorkflowRead(EpisodeNextSteps(episodes=steps, next_cursor=next_cursor), project)
 
     def get_project_summary(
         self,
@@ -841,7 +975,7 @@ class WorkflowStateService:
 
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
-        failure = load_migration_verdict(project_path)
+        failure = load_migration_verdict(project_path, project=project)
         if failure is not None:
             return self._migration_blocked_summary(project, self._episodes(project, []), failure)
         episodes = self._episodes(project, [])
@@ -849,23 +983,26 @@ class WorkflowStateService:
             resolver: ArtifactComparer | None = (
                 RegisteredArtifactResolver(project_path, project)
                 if currency == "registered"
-                else ArtifactCurrencyResolver(project_path)
+                else ArtifactCurrencyResolver(project_path, project=project)
             )
-        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
+        except (ArtifactManifestError, OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             resolver = None
         assets = self._asset_counts(project_path, project, resolver)
-        episode_summaries = [
-            self._episode_summary(
-                project_name,
-                project,
-                project_path,
-                number,
-                entry,
-                resolver=resolver,
-                preloaded_scripts=preloaded_scripts,
+        episode_summaries = []
+        for number, entry in episodes:
+            episode_summaries.append(
+                self._episode_summary(
+                    project_name,
+                    project,
+                    project_path,
+                    number,
+                    entry,
+                    resolver=resolver,
+                    preloaded_scripts=preloaded_scripts,
+                )
             )
-            for number, entry in episodes
-        ]
+            if isinstance(resolver, ArtifactCurrencyResolver):
+                resolver.release_episode()
         return ProjectSummary(
             needs_repair=False,
             repair_reason=None,
@@ -919,7 +1056,6 @@ class WorkflowStateService:
         storyboards = (
             ArtifactCount.of(
                 self._media_collection(
-                    project_path,
                     items,
                     kind,
                     "storyboard_image",
@@ -934,7 +1070,6 @@ class WorkflowStateService:
         )
         videos = ArtifactCount.of(
             self._media_collection(
-                project_path,
                 items,
                 kind,
                 "video_clip",
@@ -1093,8 +1228,8 @@ class WorkflowStateService:
                 )
         currency: ArtifactCurrencyResolver | None = None
         try:
-            currency = ArtifactCurrencyResolver(project_path)
-        except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            currency = ArtifactCurrencyResolver(project_path, project=project)
+        except (ArtifactManifestError, OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
             blockers.append(
                 WorkflowBlocker(
                     code="artifact_currency_unavailable",
@@ -1113,13 +1248,12 @@ class WorkflowStateService:
             )
         source = self._source_revision(project_path, project, str(mode), issues)
         planning_sources = planning_docs(project, source) if mode != "ad" else ()
-        sheets = self._asset_sheets(project_path, project, issues, currency)
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
+            active_script=_ActiveScript(currency),
             source=source,
             planning_sources=planning_sources,
             source_remaining=source_remaining(project, list(planning_sources)),
-            sheets=sheets,
             episodes=episodes,
             currency=currency,
             blockers=tuple(blockers),
@@ -1148,7 +1282,7 @@ class WorkflowStateService:
                 content=None,
                 operations={},
                 gates={},
-                artifacts=self._base_artifacts(project, shared),
+                artifacts=self._base_artifacts(project),
                 next_action=_action(WorkflowActionType.NONE, "workflow is blocked"),
             )
         if mode == "ad":
@@ -1183,24 +1317,28 @@ class WorkflowStateService:
         """
         if not shared.episodes:
             return self._project_status(project, shared)
-        first: WorkflowStatus | None = None
-        first_stale: WorkflowStatus | None = None
+        first_stale = None
         any_complete = False
-        for pair in shared.episodes:
-            status = self._episode_status(project_name, project, project_path, shared, pair)
-            first = first or status
-            if status.content is not None and status.content.episode_plan_stale:
-                first_stale = first_stale or status
-                continue
-            if status.content is None or not status.content.episode_complete:
-                return status
-            any_complete = True
-        assert first is not None
+        assert shared.currency is not None
+        for index, pair in enumerate(shared.episodes):
+            facts = self._scan_episode(project_name, project, project_path, shared, pair)
+            if index == 0 or (facts.stale and first_stale is None and not shared.source_remaining):
+                shared.currency.retain_fallback_script(facts.target.script if facts.target else None)
+            if facts.stale:
+                first_stale = first_stale or pair
+            elif not facts.complete:
+                shared.currency.retain_fallback_script(None)
+                return self._episode_status(project_name, project, project_path, shared, pair)
+            else:
+                any_complete = True
+        selected = first_stale if first_stale and not shared.source_remaining else shared.episodes[0]
+        first = self._episode_status(project_name, project, project_path, shared, selected)
+        shared.currency.retain_fallback_script(None)
         if shared.source_remaining:
             next_action = self._planning_action(project, shared, "source text remains unplanned")
         elif first_stale is not None:
             reason = "remaining episodes await replanning" if any_complete else "every episode awaits replanning"
-            return first_stale.model_copy(
+            return first.model_copy(
                 update={"next_action": _action(WorkflowActionType.NONE, reason), "next_alternatives": []}
             )
         else:
@@ -1251,10 +1389,10 @@ class WorkflowStateService:
         )
 
     @staticmethod
-    def _base_artifacts(project: Mapping[str, Any], shared: _SharedWorkflowFacts) -> dict[str, dict[str, Any]]:
+    def _base_artifacts(project: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         is_ad = project.get("content_mode") == "ad"
         return {
-            "asset_sheets": shared.sheets,
+            "asset_sheets": {kind: _empty_collection() for kind in ASSET_SPECS},
             "script_plan": {"state": "not_applicable" if is_ad else "missing"},
             "script": {"state": "missing"},
             "storyboards": _empty_collection(),
@@ -1281,7 +1419,7 @@ class WorkflowStateService:
                 )
             },
             gates={},
-            artifacts=self._base_artifacts(project, shared),
+            artifacts=self._base_artifacts(project),
             next_action=next_action,
             next_alternatives=[_action(WorkflowActionType.CREATE_EPISODE, "an episode can also be created by hand")],
         )
@@ -1290,10 +1428,9 @@ class WorkflowStateService:
         self,
         project_name: str,
         episode: int,
-        artifacts: dict[str, dict[str, Any]],
         issues: list[WorkflowBlocker],
     ) -> list[str] | None:
-        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。结果同时写进 ``artifacts``。
+        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。
 
         目录读取失败或有时间线文件无法解析时记一条 issue 并返回 None。
         """
@@ -1306,11 +1443,8 @@ class WorkflowStateService:
                     code=INVALID_EDIT_TIMELINES_CODE, path=f"edit_timelines/episode_{episode}", reason=str(exc)
                 )
             )
-            artifacts["edit_timelines"] = {"timeline_ids": []}
             return None
-        ids = [document.id for document in documents]
-        artifacts["edit_timelines"] = {"timeline_ids": ids}
-        return ids
+        return [document.id for document in documents]
 
     @staticmethod
     def _episode_target(number: int, entry: Mapping[str, Any], issues: list[WorkflowBlocker]) -> WorkflowTarget | None:
@@ -1408,18 +1542,18 @@ class WorkflowStateService:
         items: list[dict[str, Any]],
         kind: str | None,
         shared: _SharedWorkflowFacts,
+        content: WorkflowContent,
+        sheets: dict[str, Any],
         issues: list[WorkflowBlocker],
-    ) -> tuple[list[str], list[str], list[str]]:
-        """本集引用的资产图现状：(待生成且可生成, 过期, 缺描述)。
+    ) -> list[str]:
+        """记录本集引用的资产图现状，返回待生成且可生成的资产。
 
         待生成与资产图批量的集范围同一判定：缺描述的不算；衍生的本体没有可用资产图、也不在同批时不算。
         """
         missing: list[str] = []
-        stale: list[str] = []
-        without_description: list[str] = []
         accepted_sheets: set[tuple[str, str]] = set()
         for asset in sorted(
-            episode_referenced_assets(project, ({kind: items} if kind else None)),
+            episode_referenced_assets(project, ({kind: items} if kind else None), include_derivative_owners=False),
             key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
         ):
             spec = ASSET_SPECS[asset.asset_type]
@@ -1429,11 +1563,9 @@ class WorkflowStateService:
                 if asset.owner is not None
                 else owner
             )
-            description = entry.get("description")
-            if not isinstance(description, str) or not description.strip():
-                without_description.append(asset.name)
-                continue
             path = entry.get(spec.sheet_field)
+            if asset.asset_type in SHEET_REQUIRED_ASSET_TYPES and not (isinstance(path, str) and path):
+                content.referenced_assets_without_sheet.append(asset.name)
             sheet_state = (
                 self._artifact_state(
                     shared.currency,
@@ -1450,19 +1582,108 @@ class WorkflowStateService:
                 if shared.currency is not None and isinstance(path, str) and path
                 else ArtifactStatus.MISSING.value
             )
+            collection = sheets[asset.asset_type]
+            if sheet_state == ArtifactStatus.BLOCKED.value:
+                collection["state"] = "blocked"
+            else:
+                collection[f"{sheet_state}_ids"].append(asset.name)
+            description = entry.get("description")
+            if not isinstance(description, str) or not description.strip():
+                content.referenced_assets_without_description.append(asset.name)
+                continue
             if sheet_state == ArtifactStatus.STALE.value:
-                stale.append(asset.name)
+                content.referenced_asset_sheets_stale.append(asset.name)
             if sheet_state != ArtifactStatus.MISSING.value:
                 continue
-            if asset.owner is not None:
-                owner_sheets = shared.sheets[asset.asset_type]
-                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
-                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
-                ):
+            if asset.owner is not None and (asset.asset_type, asset.owner) not in accepted_sheets:
+                owner_path = owner.get(spec.sheet_field)
+                if isinstance(owner_path, str) and owner_path:
+                    if shared.currency is None:
+                        continue
+                    key = ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.owner))
+                    owner_state = self._artifact_state(shared.currency, key, owner_path, issues)
+                else:
+                    owner_state = ArtifactStatus.MISSING.value
+                if owner_state == ArtifactStatus.MISSING.value:
+                    owner_description = owner.get("description")
+                    if not isinstance(owner_description, str) or not owner_description.strip():
+                        continue
+                    missing.append(asset.owner)
+                    accepted_sheets.add((asset.asset_type, asset.owner))
+                elif owner_state not in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}:
                     continue
             missing.append(asset.name)
             accepted_sheets.add((asset.asset_type, asset.name))
-        return missing, stale, without_description
+        return missing
+
+    @staticmethod
+    def _stale_action() -> WorkflowNextAction:
+        return _action(WorkflowActionType.NONE, "the episode plan is stale; its script plan awaits a rebuild")
+
+    def _scan_episode(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        shared: _SharedWorkflowFacts,
+        pair: tuple[int, dict[str, Any]],
+    ) -> _EpisodeFacts:
+        assert shared.currency is not None
+        return self._episode_facts(
+            project_name, project, project_path, pair, _Availability(shared.currency), shared.active_script
+        )
+
+    def _episode_facts(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        project_path: Path,
+        selected: tuple[int, dict[str, Any]],
+        resolver: ArtifactComparer | None,
+        active_script: _ActiveScript,
+        *,
+        details: bool = False,
+    ) -> _EpisodeFacts:
+        number, entry = selected
+        script_issues: list[WorkflowBlocker] = []
+        target = self._episode_target(number, entry, script_issues)
+        if target is None:
+            return _EpisodeFacts(None, False, None, {}, [], None, _empty_collection(), [], False, script_issues)
+        stale, revision = (
+            (False, None)
+            if project.get("content_mode") == "ad"
+            else self._stale_episode_plan(project_path, project, number, entry)
+        )
+        script, items, kind = self._load_script_artifacts(
+            project_path, project_name, project, target, script_issues, resolver, active_script
+        )
+        video_issues: list[WorkflowBlocker] = []
+        states = self._media_states(items, kind, "video_clip", episode=number, resolver=resolver, issues=video_issues)
+        videos = {}
+        if details:
+            videos = self._collect_media(states)
+            counts = ArtifactCount.of(videos, total=len(items))
+        else:
+            available = sum(state in {"current", "stale"} for _, state in states)
+            counts = ArtifactCount(total=len(items), available=available, stale=0)
+        present = script["state"] in {"current", "stale"}
+        timeline_issues: list[WorkflowBlocker] = []
+        timelines = self._edit_timeline_ids(project_name, number, timeline_issues) if present else []
+        complete = present and not video_issues and is_episode_complete(counts, has_edit_timeline=bool(timelines))
+        return _EpisodeFacts(
+            target,
+            stale,
+            revision,
+            script,
+            items,
+            kind,
+            videos,
+            timelines,
+            complete,
+            script_issues,
+            video_issues,
+            timeline_issues,
+        )
 
     def _episode_status(
         self,
@@ -1479,7 +1700,7 @@ class WorkflowStateService:
         generation_mode = project.get("generation_mode")
         grid = project.get("grid_storyboard") is True and generation_mode == "storyboard"
         issues = list(shared.issues)
-        artifacts = self._base_artifacts(project, shared)
+        artifacts = self._base_artifacts(project)
         gates: dict[str, dict[str, Any]] = {
             "script_plan_review": {"state": "not_applicable" if is_ad else "pending", "revision": None}
         }
@@ -1508,15 +1729,17 @@ class WorkflowStateService:
                 issues=issues,
             )
 
-        target = self._episode_target(number, entry, issues)
+        facts = self._episode_facts(
+            project_name, project, project_path, selected, shared.currency, shared.active_script, details=True
+        )
+        target = facts.target
         if target is None:
+            issues.extend(facts.script_issues)
             return respond(None, _action(WorkflowActionType.NONE, "episode script binding is invalid"))
 
         episode_source = not is_ad and episode_source_present(project_path, number, entry)
         content.episode_source = "not_applicable" if is_ad else ("present" if episode_source else "absent")
-        stale, stale_revision = (
-            (False, None) if is_ad else self._stale_episode_plan(project_path, project, number, entry)
-        )
+        stale, stale_revision = facts.stale, facts.revision
         content.episode_plan_stale = stale
         content.expected_stale_script_plan_revision = stale_revision
 
@@ -1543,9 +1766,8 @@ class WorkflowStateService:
                 and not formal_in_use
             )
 
-        script_artifact, items, kind = self._load_script_artifacts(
-            project_path, project_name, project, target, issues, shared.currency
-        )
+        script_artifact, items, kind = facts.script, facts.items, facts.kind
+        issues.extend(facts.script_issues)
         artifacts["script"] = script_artifact
         formal_present = script_artifact["state"] in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value}
         content.formal_script = (
@@ -1553,7 +1775,6 @@ class WorkflowStateService:
         )
         pending_ids: list[str] = []
         replan_ids: list[str] = []
-        without_sheet: list[str] = []
         missing_sheets: list[str] = []
         if formal_present:
             content.script_item_count = len(items)
@@ -1565,15 +1786,12 @@ class WorkflowStateService:
                 if kind == "video_units" and id_field is not None and item.get("needs_replan") is True
             ]
             admission = self._reference_admission(project, items, kind)
-            without_sheet = [name for _asset_type, name in admission.without_sheet]
-            content.referenced_assets_without_sheet = without_sheet
             content.unregistered_references = list(admission.unregistered)
-            missing_sheets, content.referenced_asset_sheets_stale, content.referenced_assets_without_description = (
-                self._referenced_sheet_facts(project, items, kind, shared, issues)
+            missing_sheets = self._referenced_sheet_facts(
+                project, items, kind, shared, content, artifacts["asset_sheets"], issues
             )
             artifacts["storyboards"] = (
                 self._media_collection(
-                    project_path,
                     items,
                     kind,
                     "storyboard_image",
@@ -1584,18 +1802,10 @@ class WorkflowStateService:
                 if generation_mode == "storyboard"
                 else _not_applicable_collection()
             )
-            artifacts["videos"] = self._media_collection(
-                project_path,
-                items,
-                kind,
-                "video_clip",
-                episode=number,
-                resolver=shared.currency,
-                issues=issues,
-            )
+            issues.extend(facts.video_issues)
+            artifacts["videos"] = facts.videos
             artifacts["audio"] = (
                 self._media_collection(
-                    project_path,
                     items,
                     kind,
                     "narration_audio",
@@ -1614,16 +1824,15 @@ class WorkflowStateService:
             )
         content.pending_authoring_ids = pending_ids
         content.needs_replan_ids = replan_ids
-        timeline_ids = self._edit_timeline_ids(project_name, number, artifacts, issues) if formal_present else []
+        issues.extend(facts.timeline_issues)
+        timeline_ids = facts.timelines
+        if formal_present:
+            artifacts["edit_timelines"] = {"timeline_ids": timeline_ids or []}
         videos = artifacts["videos"]
         operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(
             available_videos=len(videos.get("current_ids", [])) + len(videos.get("stale_ids", []))
         )
-        content.episode_complete = (
-            formal_present
-            and videos.get("state") != "blocked"
-            and is_episode_complete(ArtifactCount.of(videos, total=len(items)), has_edit_timeline=bool(timeline_ids))
-        )
+        content.episode_complete = facts.complete
 
         operations[WorkflowActionType.PREPARE_SCRIPT_PLAN] = admit_script_plan(mode, episode_source=episode_source)
         operations[WorkflowActionType.GENERATE_SCRIPT] = admit_ad_script(
@@ -1641,7 +1850,7 @@ class WorkflowStateService:
         if stale:
             return respond(
                 target,
-                _action(WorkflowActionType.NONE, "the episode plan is stale; its script plan awaits a rebuild"),
+                self._stale_action(),
             )
         if content.formal_script == "invalid":
             return respond(target, _action(WorkflowActionType.NONE, "the formal script is invalid"))
@@ -1867,6 +2076,7 @@ __all__ = [
     "INVALID_EDIT_TIMELINES_CODE",
     "ArtifactCount",
     "EpisodeNextStep",
+    "EpisodeNextSteps",
     "EpisodeSummary",
     "EpisodesSummary",
     "ProjectSummary",

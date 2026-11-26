@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useScriptPlanSubmit } from "@/hooks/useScriptPlanSubmit";
 import { useScriptPlanStore, type ScriptPlanOpenRequest } from "@/stores/script-plan-store";
 
+import { SavedEpisodeSourceLengthHint } from "./EpisodeSourceLengthHint";
+
 interface HostProps {
   projectName: string;
   episode: number;
@@ -94,6 +96,7 @@ function ScriptPlanDialog({ request, savedInstructions, onClose }: DialogProps) 
                 disabled={submitting}
               />
             </div>
+            <SavedEpisodeSourceLengthHint projectName={projectName} episode={episode} />
           </div>
         </DialogBody>
         <DialogFooter>

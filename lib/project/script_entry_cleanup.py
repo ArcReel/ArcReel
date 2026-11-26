@@ -113,7 +113,11 @@ def trash_entries(
                     "item_kind": item_kind,
                     **position_snapshot(script_before, entry_id),
                 }
-                records.append(project_trash.record_deletion(project_dir, obj, files, snapshot=True, before=before))
+                records.append(
+                    project_trash.record_deletion(
+                        project_dir, obj, files, snapshot=True, before=before, histories=history
+                    )
+                )
                 versions.detach_resources(_resources(history))
             if then is not None:
                 then()

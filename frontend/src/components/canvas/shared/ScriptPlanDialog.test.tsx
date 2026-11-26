@@ -29,7 +29,8 @@ describe("ScriptPlanHost", () => {
     expect(input).toContain("附加指令：多保留对白");
   });
 
-  it("re-plans with AI and closes once the request is accepted", async () => {
+  it("allows re-planning a long saved source after showing the split guidance", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("界".repeat(15_001));
     const plan = vi
       .spyOn(API, "planScript")
       .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.planScript>>);
@@ -37,6 +38,7 @@ describe("ScriptPlanHost", () => {
     act(() => useScriptPlanStore.getState().open({ projectName: "p", episode: 1, replaces: "confirmed_plan" }));
 
     const dialog = await screen.findByRole("dialog", { name: "重新规划脚本" });
+    expect(await within(dialog).findByText(/本集原文约 15,001 字/)).toBeInTheDocument();
     fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "压缩到三场" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "AI 重新规划" }));
 

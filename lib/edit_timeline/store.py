@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,9 +31,9 @@ def document_relpath(episode: int, timeline_id: str) -> str:
     return f"{EDIT_TIMELINES_DIRNAME}/episode_{episode}/{timeline_id}.json"
 
 
-def _parse_document(path: Path) -> EditTimelineDocument:
+def _parse_document(path: Path, read_bytes: Callable[[Path], bytes] = Path.read_bytes) -> EditTimelineDocument:
     try:
-        document = EditTimelineDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        document = EditTimelineDocument.model_validate(json.loads(read_bytes(path).decode("utf-8")))
     except (OSError, ValueError, ValidationError) as exc:
         raise EditTimelineError("timeline_invalid", f"剪辑时间线文件无法解析：{path.name}", file=path.name) from exc
     if document.id != path.stem:
@@ -141,7 +141,9 @@ class EditTimelineStore:
         )
 
 
-def read_timeline_document(project_dir: Path, episode: int, timeline_id: str) -> EditTimelineDocument | None:
+def read_timeline_document(
+    project_dir: Path, episode: int, timeline_id: str, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes
+) -> EditTimelineDocument | None:
     """按集与 ID 直接读一条剪辑时间线；文件不存在、无法解析或与所在集不一致时返回 None。
 
     供只持有项目目录的读方（产物时效判定）使用，不取集锁。
@@ -152,7 +154,7 @@ def read_timeline_document(project_dir: Path, episode: int, timeline_id: str) ->
     if not path.is_file():
         return None
     try:
-        document = _parse_document(path)
+        document = _parse_document(path, read_bytes)
     except EditTimelineError:
         return None
     return document if document.episode == episode else None

@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
 
 from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
     ArtifactKey,
     ArtifactManifestEntry,
     ArtifactManifestError,
@@ -602,13 +604,19 @@ class _WriteThenFailManifestAdapter(_FailingManifestAdapter):
 class _ConcurrentItemClaimAdapter(_FailingManifestAdapter):
     def __init__(self, project_dir: Path):
         super().__init__(project_dir)
+        self._manifest = project_dir / MANIFEST_FILENAME
         self._injected = False
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
         if not self._injected:
             self._injected = True
             claim = _item_claims("E1S02")[ArtifactKey.episode_audio(1, "E1S02")]
-            self._delegate.put_entry(ArtifactKey.episode_audio(1, "E1S02"), claim)
+            with TemporaryDirectory() as scratch:
+                outside_manifest = Path(scratch) / MANIFEST_FILENAME
+                if self._manifest.exists():
+                    outside_manifest.write_bytes(self._manifest.read_bytes())
+                ProjectArtifactManifestAdapter(Path(scratch)).put_entry(ArtifactKey.episode_audio(1, "E1S02"), claim)
+                self._manifest.write_bytes(outside_manifest.read_bytes())
         return self._delegate.inspect_artifact(artifact_path)
 
     def replace_entries_if_matches_atomically(self, *, expected, replacements) -> bool:

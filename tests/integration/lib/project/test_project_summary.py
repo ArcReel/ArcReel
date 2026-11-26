@@ -91,20 +91,28 @@ def _add_character_with_sheet(pm: ProjectManager, project_path: Path, name: str 
 
 
 def _episode_with_media(
-    pm: ProjectManager, project_path: Path, source_text: str = "完整原文", *, edit_timeline: bool = True
+    pm: ProjectManager,
+    project_path: Path,
+    source_text: str = "完整原文",
+    *,
+    edit_timeline: bool = True,
+    characters: list[str] | None = None,
 ) -> None:
     """把项目推到「一集脚本已生成、分镜与视频齐备」的状态；``edit_timeline`` 时再按脚本新建一条剪辑时间线。"""
 
     _plan_one_episode(pm, project_path, source_text)
     _write_script_plan(project_path)
     generated_assets = _complete_episode_media(project_path)
+    segment = _valid_narration_segment(generated_assets=generated_assets)
+    if characters is not None:
+        segment["characters_in_segment"] = characters
     _write_registered_script(
         project_path,
         {
             "episode": 1,
             "title": "第一集",
             "content_mode": "narration",
-            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+            "segments": [segment],
         },
     )
     _register_produced_artifacts(project_path)
@@ -337,7 +345,7 @@ def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tm
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
     sheet = _add_character_with_sheet(pm, project_path)
-    _episode_with_media(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text, characters=["小明"])
     service = WorkflowStateService(pm)
 
     before = service.get_project_summary("demo")
@@ -790,7 +798,7 @@ def test_verified_versions_parses_do_not_grow_with_the_episode_count(
         assert [(episode.videos.total, episode.videos.available) for episode in summary.episodes] == [(1, 1)] * count
         parses[count] = versions_parses["parses"]
 
-    assert parses[3] == parses[1] == 1
+    assert parses[3] == parses[1] == 0
 
 
 def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path) -> None:
@@ -936,13 +944,13 @@ def _without_artifact_envelope(archive_path: Path, rewritten: Path) -> Path:
 def _drop_selected_video_record_digest(project_path: Path) -> None:
     """把选中的视频版本记录改成没有内容指纹的旧记录（早于版本记录指纹的版本被切回选中）。"""
 
-    path = project_path / "versions" / "versions.json"
-    versions = json.loads(path.read_text(encoding="utf-8"))
+    store = VersionManager(project_path).sqlite
+    versions = store.resources([("videos", "E1S01")])
     history = versions["videos"]["E1S01"]
     for record in history["versions"]:
         if record["version"] == history["current_version"]:
             del record["content_digest"]
-    atomic_write_json(path, versions)
+    store.save(versions)
 
 
 @pytest.mark.parametrize(

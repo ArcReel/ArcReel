@@ -29,6 +29,7 @@ import type {
   ProjectChangeBatchPayload,
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
+  TaskProgress,
   AssistantSessionResumedPayload,
   AutoBackendsResponse,
   RecommendationChange,
@@ -1797,9 +1798,13 @@ class API {
 
   static async getEpisodeNextSteps(
     projectName: string,
-    options: { signal?: AbortSignal } = {}
-  ): Promise<{ episodes: EpisodeNextStep[] }> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
+    options: { signal?: AbortSignal; episodes?: number[]; cursor?: string } = {}
+  ): Promise<{ episodes: EpisodeNextStep[]; next_cursor: string | null }> {
+    const params = new URLSearchParams();
+    for (const episode of options.episodes ?? []) params.append("episodes", String(episode));
+    if (options.cursor !== undefined) params.set("cursor", options.cursor);
+    const query = params.size ? `?${params}` : "";
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes${query}`, {
       signal: options.signal,
     });
   }
@@ -2547,6 +2552,9 @@ class API {
             break;
           case "project_deleted":
             options.onProjectDeleted?.(payload as unknown as ProjectDeletedPayload);
+            break;
+          case "task_progress":
+            options.onTaskProgress?.(payload as unknown as TaskProgress);
             break;
           case "assistant_session_resumed":
             options.onAssistantSessionResumed?.(payload as unknown as AssistantSessionResumedPayload);

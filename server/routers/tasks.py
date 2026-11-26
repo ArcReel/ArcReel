@@ -206,9 +206,16 @@ async def list_project_tasks(
 
 
 @router.get("/tasks/active")
-async def get_active_tasks(_t: Translator, names: DisplayNamesCatalog, project_name: str | None = None):
-    queue = get_task_queue()
+async def get_active_tasks(
+    request: Request, _t: Translator, names: DisplayNamesCatalog, project_name: str | None = None
+):
+    worker = getattr(request.app.state, "generation_worker", None)
+    queue = worker.queue if worker is not None else get_task_queue()
     items, truncated = await queue.get_active_snapshot(project_name=project_name)
+    if worker is not None:
+        for row in items:
+            if row["status"] == "running" and (progress := worker.text_progress.get(row["task_id"])):
+                row["progress"] = progress
     return {
         "items": await _with_resource_refs([_localize_task(item, _t, names) for item in items], _t),
         "truncated": truncated,
@@ -216,8 +223,8 @@ async def get_active_tasks(_t: Translator, names: DisplayNamesCatalog, project_n
 
 
 @router.get("/projects/{project_name}/tasks/active")
-async def get_project_active_tasks(project_name: str, _t: Translator, names: DisplayNamesCatalog):
-    return await get_active_tasks(_t, names, project_name)
+async def get_project_active_tasks(project_name: str, request: Request, _t: Translator, names: DisplayNamesCatalog):
+    return await get_active_tasks(request, _t, names, project_name)
 
 
 @router.post("/tasks/lookup")
