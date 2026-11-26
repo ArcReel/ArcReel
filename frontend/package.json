@@ -23,6 +23,7 @@
     "e2e": "playwright test",
     "e2e:live": "E2E_LIVE=1 playwright test",
     "e2e:record": "node e2e/record-fixtures.ts",
+    "e2e:record:freshness": "node e2e/record-fixtures.ts --freshness",
     "e2e:record:check": "node e2e/record-fixtures.ts --check",
     "doctor": "react-doctor"
   },

@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { clearAgentOverlay } from "../support/region-helpers.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { recordedDemoEpisode, recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
@@ -12,16 +10,12 @@ const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-function recorded<T>(file: string): T {
-  return (JSON.parse(readFileSync(join(RECORDED_DIR, `${file}.json`), "utf8")) as RecordedResponse).body as T;
-}
-
 interface RecordedProjects {
   projects: ({ name: string; title: string } & Record<string, unknown>)[];
 }
 
 const LONG_TITLE = "雾港来信：一座海边小城里，邮差在三十年后收到了寄给自己的信，于是沿着信里的地址一路找回童年";
-const [firstProject] = recorded<RecordedProjects>("projects").projects;
+const [firstProject] = recorded<RecordedProjects>("projects.json").projects;
 const firstEpisode = recordedDemoEpisode();
 const recordedScript = recordedDemoScript().script;
 

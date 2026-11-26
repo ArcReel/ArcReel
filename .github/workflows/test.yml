@@ -26,6 +26,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      recording: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.recording || 'false' }}
       workflow: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.workflow || 'false' }}
       backend: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.backend || 'false' }}
       frontend: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.frontend || 'false' }}
@@ -478,9 +479,9 @@ jobs:
           retention-days: 7
 
   e2e-record-drift:
-    name: E2E fixture recording drift
+    name: E2E fixture freshness and determinism
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -508,7 +509,12 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      - name: Compare committed fixtures with current backend
+        working-directory: frontend
+        run: node e2e/record-fixtures.ts --freshness
+
       - name: Record twice and compare
+        if: needs.changes.outputs.recording == 'true'
         working-directory: frontend
         run: node e2e/record-fixtures.ts --check
 

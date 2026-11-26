@@ -78,7 +78,9 @@ pnpm e2e
 
 - **新增场景**：在 `frontend/e2e/regions/` 下用 `defineRegionScenarios` 登记，写明打开的路由、就绪条件和要探测的状态；需同时覆盖紧凑视口时设 `viewports: "both"`，需运行无障碍扫描时设 `a11y: true`（双视口都扫设 `a11y: "all-viewports"`）。固定视口或宽矮屏特例契约用 `defineViewportContracts` 登记。场景以会改变可用高度的状态为主，例如展开面板、打开弹层。
 - **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto`，探针按这个类名识别，不需要另加豁免。
-- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。录制后端（`scripts/e2e_record_backend.py`）只读仓库内的输入：目录数据取后端测试共用的 `tests/fixtures/catalog.json`，生命周期判定的「今天」固定为它的数据集日期，应用版本固定，不做线上目录同步，也不读 `.env`。改动后端接口结构或这份测试目录数据的 PR 需同步重录，变更会体现在替身文件的 diff 中。`pnpm e2e:record:check` 再起一个前移系统时钟、换掉出厂快照与版本号的后端，两边各录一次，替身不同即失败；CI 选中后端或前端域时，会运行 `e2e-record-drift` 检查录制结果。本地闸门在录制器、种子、归一化或录制环境输入变化时运行 `e2e-record`。长文本、多条目等压力变体写在场景的 `api` 字段里。
+- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。录制后端（`scripts/e2e_record_backend.py`）只读仓库内的输入：目录数据取后端测试共用的 `tests/fixtures/catalog.json`，生命周期判定的「今天」固定为它的数据集日期，应用版本固定，不做线上目录同步，也不读 `.env`。改动后端接口结构或这份测试目录数据的 PR 需同步重录，变更会体现在替身文件的 diff 中。长文本、多条目等压力变体写在场景的 `api` 字段里。
+- **录制校验**：CI 的 `e2e-record-drift` 每次运行 `pnpm e2e:record:freshness`，单录到临时目录，校验已提交文件的内容与完整集合。本地可运行 `uv run python scripts/gate.py e2e-freshness`。录制器、种子、归一化或环境输入变化时，本地和 CI 还会运行 `pnpm e2e:record:check`，扰动系统时钟、出厂快照和版本号后比对两次录制。全量 CI 也会执行双录。
+- **盘点消费者**：设置 `E2E_RECORDING_TRACE` 为新的绝对文件路径，再运行完整的 `pnpm e2e`。日志以制表符分隔文件名和命中类别，`route` 表示回放录制，`direct` 表示场景直接读取，`override` 表示请求命中同一路由的场景覆写。
 - **人工视觉验收**：检查界面外观时可按需调用 `page.screenshot()`，并在 PR 中附上截图或录屏。
 
 ## 代码质量

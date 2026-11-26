@@ -1,7 +1,7 @@
 // `pnpm e2e:record:check`：再起一个换掉系统时钟、出厂快照与版本号真实来源的后端，两边各录一次，替身不同即失败，不写文件。
 import { COMFYUI_AUDIO_ASPECT } from "./fixtures/comfyui.ts";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,7 +46,6 @@ const RECORDINGS: Recording[] = [
   { file: "onboarding-status", method: "GET", path: "/api/v1/onboarding/status" },
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "deleted-projects", method: "GET", path: "/api/v1/deleted-projects" },
-  { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
   { file: "project-demo-workspace", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workspace` },
   { file: "project-demo-script-episode-1", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/scripts/episode_1.json` },
   { file: "project-demo-item-locations", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/item-locations`, json: { item_ids: [] } },
@@ -55,7 +54,6 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-tasks", method: "GET", path: `/api/v1/tasks?page_size=200&project_name=${DEMO_PROJECT}` },
   { file: "tasks-active", method: "GET", path: "/api/v1/tasks/active" },
   { file: "project-demo-tasks-active", method: "GET", path: `/api/v1/tasks/active?project_name=${DEMO_PROJECT}` },
-  { file: "project-demo-tasks-active-route", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/tasks/active` },
   { file: "tasks-lookup", method: "POST", path: "/api/v1/tasks/lookup", json: { task_ids: [] } },
   { file: "tasks-stats", method: "GET", path: "/api/v1/tasks/stats" },
   { file: "project-demo-tasks-stats", method: "GET", path: `/api/v1/tasks/stats?project_name=${DEMO_PROJECT}` },
@@ -127,7 +125,6 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-file-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=` },
   { file: "project-demo-file-view-scripts", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=scripts` },
   { file: "project-demo-trash", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/trash` },
-  { file: "project-demo-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability` },
   { file: "project-demo-episode-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability?episode=1&script_file=episode_1.json` },
   { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },
   { file: "project-demo-edit-timelines", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/edit-timelines?episode=1` },
@@ -176,9 +173,6 @@ function createNormalizer(dataDir: string): (value: unknown) => unknown {
     if (value && typeof value === "object") {
       return Object.fromEntries(
         Object.entries(value).map(([key, item]) => {
-          if (parentKey === "script_overwrite" && key === "revision" && typeof item === "string") {
-            return [key, "sha256-v1:<script-overwrite-revision>"];
-          }
           if (parentKey === undefined && key === "revision" && typeof item === "string" && item.startsWith("sha256-v1:")) {
             return [key, "sha256-v1:<script-revision>"];
           }
@@ -317,21 +311,6 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
       files.set(`${recording.file}.json`, `${JSON.stringify(recorded, null, 2)}\n`);
     }
     for (const recording of RECORDINGS) await recordResponse(recording);
-    await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "内容确认", source_text: "山雨初歇。" });
-    const review = `/api/v1/projects/${DEMO_PROJECT}/episodes/2/script-review`;
-    const content = {
-      segments: [{
-        segment_id: "E2S01", novel_text: "山雨初歇。", duration_seconds: 4,
-        segment_break: false, characters_in_segment: [], scenes: [], props: [],
-      }],
-    };
-    await recordResponse({ file: "script-review-content", method: "PUT", path: `${review}/content`, json: content });
-    await recordResponse({ file: "script-review", method: "GET", path: review });
-    await request(baseUrl, token, { method: "PATCH", path: "/api/v1/providers/ark/config",
-      json: { api_key: "recording-only" } });
-    await request(baseUrl, token, { method: "PATCH", path: "/api/v1/system/config",
-      json: { default_video_backend_i2v: "ark/doubao-seedance-2-0-260128" } });
-    await recordResponse({ file: "script-review-confirm", method: "POST", path: `${review}/confirm` });
     await postJson(baseUrl, token, "/api/v1/projects", { name: "progress-demo", title: "文本进展", generation_mode: "storyboard" });
     await postJson(baseUrl, token, "/__record/start-progress", {});
     await recordResponse({ file: "running-text-task", method: "GET", path: "/api/v1/projects/progress-demo/tasks/active" });
@@ -351,8 +330,13 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
 
 function describeDrift(baseline: Map<string, string>, perturbed: Map<string, string>): string[] {
   const report: string[] = [];
-  for (const [file, expected] of baseline) {
-    const actual = perturbed.get(file) ?? "";
+  for (const file of new Set([...baseline.keys(), ...perturbed.keys()])) {
+    const expected = baseline.get(file);
+    const actual = perturbed.get(file);
+    if (expected === undefined || actual === undefined) {
+      report.push(`${file}：${expected === undefined ? "仅出现在第二份录制" : "仅出现在第一份录制"}`);
+      continue;
+    }
     if (actual === expected) continue;
     const left = expected.split("\n");
     const right = actual.split("\n");
@@ -366,6 +350,14 @@ function describeDrift(baseline: Map<string, string>, perturbed: Map<string, str
     );
   }
   return report;
+}
+
+function readFiles(dir: string): Map<string, string> {
+  return new Map(readdirSync(dir).map((name) => [name, readFileSync(join(dir, name), "utf8")]));
+}
+
+function writeFiles(dir: string, files: Map<string, string>) {
+  for (const [file, content] of files) writeFileSync(join(dir, file), content);
 }
 
 async function main() {
@@ -386,9 +378,21 @@ async function main() {
     return;
   }
   const files = await record(false);
+  if (process.argv.includes("--freshness")) {
+    const dir = mkdtempSync(join(tmpdir(), "arcreel-recordings-"));
+    try {
+      writeFiles(dir, files);
+      const drift = describeDrift(readFiles(RECORDED_DIR), readFiles(dir));
+      if (drift.length) throw new Error(`录制与当前后端不一致（第一份为已提交录制）：\n${drift.join("\n")}`);
+      console.log(`已核对 ${files.size} 份录制的文件集合与内容`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    return;
+  }
   rmSync(RECORDED_DIR, { recursive: true, force: true });
   mkdirSync(RECORDED_DIR, { recursive: true });
-  for (const [file, content] of files) writeFileSync(join(RECORDED_DIR, file), content);
+  writeFiles(RECORDED_DIR, files);
   console.log(`已录制 ${files.size} 个接口到 ${RECORDED_DIR}`);
 }
 

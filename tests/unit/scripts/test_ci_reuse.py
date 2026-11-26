@@ -47,11 +47,11 @@ def _build_pr_jobs_from_workflow(
 
 
 def _pr_job_should_run(job_id: str, enabled: set[str]) -> bool:
-    if job_id in {"changes", "conventions", "ci-required"}:
+    if job_id in {"changes", "conventions", "e2e-record-drift", "ci-required"}:
         return True
     if job_id == "release-integrity":
         return False
-    if job_id in {"frontend-static", "test-lint", "e2e-live", "e2e-record-drift"}:
+    if job_id in {"frontend-static", "test-lint", "e2e-live"}:
         return bool(enabled & {"backend", "frontend"})
     if job_id in {"backend-static", "backend-tests", "postgres-compat"}:
         return "backend" in enabled
@@ -97,6 +97,8 @@ def _pr_step_conclusion(job_id: str, step_def: dict[str, Any], enabled: set[str]
         return "success" if "frontend" in enabled else "skipped"
     if job_id == "frontend-e2e" and cond == "matrix.shard == 1":
         return "success" if matrix_ctx.get("shard") == 1 else "skipped"
+    if job_id == "e2e-record-drift" and cond == "needs.changes.outputs.recording == 'true'":
+        return "success" if "recording" in enabled else "skipped"
     raise AssertionError(f"Unhandled step condition in {job_id}: {step_def.get('name')!r} -> {cond!r}")
 
 
@@ -173,11 +175,12 @@ def test_ci_reuse_matches_real_workflows() -> None:
 
     domain_combinations = [
         {"backend"},
+        {"backend", "recording"},
         {"frontend"},
         {"backend", "frontend"},
         {"website"},
         {"docker"},
-        {"workflow", "backend", "frontend", "docker", "website"},
+        {"recording", "workflow", "backend", "frontend", "docker", "website"},
     ]
     for enabled in domain_combinations:
         domains = {d: "true" if d in enabled else "false" for d in ci_reuse.DOMAINS}

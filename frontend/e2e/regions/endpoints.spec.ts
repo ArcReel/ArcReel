@@ -1,15 +1,11 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 
 const ENDPOINTS_PATH = "/app/settings?section=endpoints";
-const recordedCatalog = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "custom-providers-endpoints.json"), "utf8")) as RecordedResponse
-).body as { endpoints: unknown[] };
+const recordedCatalog = recorded<{ endpoints: unknown[] }>("custom-providers-endpoints.json");
 
 const LONG_NAME = "华东二区备用线路 · 可灵 2.1 Master 图生视频（按量计费，月底结算）";
 
@@ -217,9 +213,7 @@ defineRegionScenarios("调用端点", [
   },
 ]);
 
-const comfyuiRecord = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "comfyui-audio-aspect-create.json"), "utf8")) as RecordedResponse
-).body;
+const comfyuiRecord = recorded("comfyui-audio-aspect-create.json");
 
 defineRegionScenarios("ComfyUI 节点绑定", [{
   name: "参考音频排序与画幅对应值展开后仍可编辑，分辨率保持固定",

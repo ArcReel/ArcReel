@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 
@@ -14,9 +12,7 @@ interface RecordedProvider {
   status: "ready" | "unconfigured";
 }
 
-const recordedProviders = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "providers.json"), "utf8")) as RecordedResponse
-).body as { providers: RecordedProvider[] };
+const recordedProviders = recorded<{ providers: RecordedProvider[] }>("providers.json");
 
 const PROVIDERS_WITH_KEYS: ApiOverrides = {
   "GET /api/v1/providers": {
@@ -34,9 +30,7 @@ const PROVIDERS_WITH_KEYS: ApiOverrides = {
   },
 };
 
-const recordedAiStudioConfig = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-config.json"), "utf8")) as RecordedResponse
-).body as Record<string, unknown>;
+const recordedAiStudioConfig = recorded<Record<string, unknown>>("provider-gemini-aistudio-config.json");
 
 const MANY_CREDENTIALS: ApiOverrides = {
   "GET /api/v1/providers/gemini-aistudio/config": {
@@ -60,9 +54,7 @@ const MANY_CREDENTIALS: ApiOverrides = {
   },
 };
 
-const recordedAiStudioModels = (
-  JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-models.json"), "utf8")) as RecordedResponse
-).body as { models: Record<string, unknown>[] };
+const recordedAiStudioModels = recorded<{ models: Record<string, unknown>[] }>("provider-gemini-aistudio-models.json");
 
 const MODEL_LIST_STATES: ApiOverrides = {
   "GET /api/v1/providers/gemini-aistudio/models": {
