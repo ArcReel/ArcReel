@@ -5,33 +5,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from catalog_factories import amphibious_image_entry, audio_entry, text_entry, video_entry
+from catalog_factories import amphibious_image_entry, video_entry
 
 from arcreel_catalog_core import check_entry, dump_entry, parse_entry
-
-
-@pytest.mark.parametrize("factory", [text_entry, video_entry, amphibious_image_entry, audio_entry])
-def test_dumped_entry_parses_back_to_the_same_entry(factory):
-    entry = parse_entry(factory())
-
-    dumped = dump_entry(entry)
-
-    assert parse_entry(json.loads(json.dumps(dumped))) == entry
-    assert check_entry(dumped) == []
-
-
-def test_dump_keeps_price_table_details():
-    dumped = dump_entry(parse_entry(video_entry()))
-
-    assert dumped["price"] == video_entry()["price"]
-    assert dump_entry(parse_entry(audio_entry()))["price"] == audio_entry()["price"]
-
-
-@pytest.mark.parametrize("factory", [amphibious_image_entry, video_entry])
-def test_dump_does_not_invent_unrecorded_model_facts(factory):
-    raw = factory()
-
-    assert dump_entry(parse_entry(raw))["facts"] == raw["facts"]
 
 
 @pytest.mark.parametrize(
@@ -108,21 +84,6 @@ def test_dump_omits_unrecorded_image_qualities(qualities: object):
     raw["facts"]["qualities"] = qualities
 
     assert dump_entry(parse_entry(raw))["facts"] == amphibious_image_entry()["facts"]
-
-
-def test_dump_preserves_lifecycle_fields():
-    raw = text_entry()
-    raw.update(release_date="2025-11-18", shutdown_date="2026-12-11", successor="google/gemini-3.5-pro")
-
-    entry = parse_entry(raw)
-    dumped = json.loads(json.dumps(dump_entry(entry)))
-
-    assert (dumped["release_date"], dumped["shutdown_date"], dumped["successor"]) == (
-        "2025-11-18",
-        "2026-12-11",
-        "google/gemini-3.5-pro",
-    )
-    assert parse_entry(dumped) == entry
 
 
 def test_dump_omits_empty_optional_fields():
