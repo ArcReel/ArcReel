@@ -1204,16 +1204,16 @@ class TestQueuedMessages:
         client = FakeSDKClient()
         try:
             with _scripted_client(service.session_manager, client):
-                responses = [
-                    await service.send_or_create(
-                        "demo", f"message {index}", session_id=SDK_ID, client_key=f"key-{index}"
-                    )
-                    for index in range(501)
-                ]
-            first = responses[0]["queued_message"]
+                response = await service.send_or_create("demo", "message 0", session_id=SDK_ID, client_key="key-0")
+                first = response["queued_message"]
+                managed = service.session_manager.sessions[SDK_ID]
+                historical_window = 500
+                managed.sent_client_keys.update({f"key-{i}": f"entry-{i}" for i in range(1, historical_window)})
+                managed.sent_message_entries.update({f"cli-{i}": f"entry-{i}" for i in range(1, historical_window)})
+                await service.send_or_create("demo", "message 500", session_id=SDK_ID, client_key="key-500")
             retry = await service.send_or_create("demo", "message 0", session_id=SDK_ID, client_key="key-0")
             assert retry["queued_message"] == first
-            assert len(client.sent_messages) == 501
+            assert len(client.sent_messages) == 2
 
             client.push_frame(replay_frame(0, session_id=SDK_ID))
             client.push_frame(started_frame(0, session_id=SDK_ID))

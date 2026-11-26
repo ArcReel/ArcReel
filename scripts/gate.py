@@ -64,6 +64,7 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step((*UV, "basedpyright", "--warnings")),
         Step((*UV, "lint-imports")),
         Step((*UV, "deptry", "lib", "server", "alembic", "scripts", "tests")),
+        Step((*UV, "python", "-m", "scripts.audit_capability_codes")),
         BACKEND_SUITE,
     ),
     "market-core": (
