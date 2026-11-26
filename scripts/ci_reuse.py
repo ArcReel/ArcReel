@@ -5,10 +5,22 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 DOMAINS = {"backend", "frontend", "workflow", "website", "docker"}
 SUITES = ("unit", "integration", "market-core", "catalog-core")
+PR_CHECKOUT_STEP_PREFIX = "PR checkout"
+FAILURE_ONLY_OPTIONAL_STEPS = frozenset(
+    {"Hang and crash diagnostics", "Upload Playwright report", "Upload live diagnostics"}
+)
+
+
+def _enabled_domains(domains: dict[str, str]) -> set[str]:
+    if domains.keys() != DOMAINS or not set(domains.values()) <= {"true", "false"}:
+        raise ValueError("incomplete domain selection")
+    return {domain for domain, value in domains.items() if value == "true"}
 
 
 def product_paths_only(paths: list[str]) -> bool:
@@ -23,10 +35,8 @@ def product_paths_only(paths: list[str]) -> bool:
 
 
 def required_jobs(domains: dict[str, str]) -> set[str]:
-    if domains.keys() != DOMAINS or not set(domains.values()) <= {"true", "false"}:
-        raise ValueError("incomplete domain selection")
+    enabled = _enabled_domains(domains)
     jobs = {"changes", "conventions", "ci-required"}
-    enabled = {d for d in domains if domains[d] == "true"}
     if enabled & {"backend", "frontend"}:
         jobs.update({"frontend-static", "test-lint", "e2e-live", "E2E fixture recording drift"})
     if "backend" in enabled:
@@ -39,16 +49,31 @@ def required_jobs(domains: dict[str, str]) -> set[str]:
     return jobs
 
 
-def successful_attempt(jobs: list[dict], domains: dict) -> bool:
+def optional_steps_for_job(job_name: str, domains: dict[str, str]) -> set[str]:
+    enabled = _enabled_domains(domains)
+    optional = set(FAILURE_ONLY_OPTIONAL_STEPS)
+    if job_name == "changes":
+        optional.add("Verify equivalent PR checks")
+    if job_name.startswith("Backend tests (") and job_name != "Backend tests (integration)":
+        optional.add("Install system dependencies")
+    if job_name == "frontend-static" and "frontend" not in enabled:
+        optional.update({"Lint", "Knip"})
+    if job_name == "frontend-e2e (2/2)":
+        optional.add("Run single-worker viewport contracts")
+    return optional
+
+
+def successful_attempt(jobs: list[dict[str, Any]], domains: dict[str, str]) -> bool:
+    enabled = _enabled_domains(domains)
     by_name = {job["name"]: job for job in jobs}
     expected = required_jobs(domains)
     if len(jobs) != len(by_name) or not expected <= by_name.keys():
         return False
     allowed_skips = required_jobs(dict.fromkeys(DOMAINS, "true")) - expected
     allowed_skips.add("release-integrity")
-    if domains["backend"] == "false":
+    if "backend" not in enabled:
         allowed_skips.update({"Backend tests (${{ matrix.suite }})", "postgres-compat (${{ matrix.postgres }})"})
-    if domains["frontend"] == "false":
+    if "frontend" not in enabled:
         allowed_skips.add("frontend-e2e (${{ matrix.shard }}/2)")
     for name in by_name.keys() - expected:
         conclusion = by_name[name]["conclusion"]
@@ -61,15 +86,7 @@ def successful_attempt(jobs: list[dict], domains: dict) -> bool:
             return False
         if steps[0]["name"] != "Set up job" or steps[-1]["name"] != "Complete job":
             return False
-        optional = {"Hang and crash diagnostics", "Upload Playwright report", "Upload live diagnostics"}
-        if name == "changes":
-            optional.add("Verify equivalent PR checks")
-        if name.startswith("Backend tests (") and name != "Backend tests (integration)":
-            optional.add("Install system dependencies")
-        if name == "frontend-static" and domains["frontend"] == "false":
-            optional.update({"Lint", "Knip"})
-        if name == "frontend-e2e (2/2)":
-            optional.add("Run single-worker viewport contracts")
+        optional = optional_steps_for_job(name, domains)
         for step in steps:
             if step["conclusion"] == "skipped" and step["name"] in optional:
                 continue
@@ -89,38 +106,43 @@ def git(*args: str) -> str:
     return subprocess.check_output([executable("git"), *args], text=True).rstrip("\n")
 
 
-def api(endpoint: str):
+def api(endpoint: str) -> Any:
     repo = os.environ["GITHUB_REPOSITORY"]
     return json.loads(subprocess.check_output([executable("gh"), "api", f"repos/{repo}/{endpoint}"], timeout=20))
 
 
-def verified_run(before: str, sha: str, domains: dict) -> int | None:
-    if git("rev-parse", f"{sha}^1") != before:
+def verified_run(
+    before: str,
+    sha: str,
+    domains: dict[str, str],
+    *,
+    run_git: Callable[..., str] = git,
+    fetch_api: Callable[[str], Any] = api,
+    repo: str | None = None,
+) -> int | None:
+    target_repo = os.environ["GITHUB_REPOSITORY"] if repo is None else repo
+    if run_git("rev-parse", f"{sha}^1") != before:
         return None
-    paths = git("diff", "--no-renames", "--name-only", "-z", before, sha).rstrip("\0").split("\0")
+    paths = run_git("diff", "--no-renames", "--name-only", "-z", before, sha).rstrip("\0").split("\0")
     if not product_paths_only(paths):
         return None
     pulls = [
         pr
-        for pr in api(f"commits/{sha}/pulls")
+        for pr in fetch_api(f"commits/{sha}/pulls")
         if pr["merged_at"]
         and pr["merge_commit_sha"] == sha
         and pr["base"]["ref"] == "main"
-        and pr["base"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"]
+        and pr["base"]["repo"]["full_name"] == target_repo
     ]
     if len(pulls) != 1:
         return None
     pr = pulls[0]
     head = pr["head"]["sha"]
-    runs = api(f"actions/workflows/test.yml/runs?event=pull_request&head_sha={head}&per_page=1")["workflow_runs"]
-    if not runs:
+    runs = fetch_api(f"actions/workflows/test.yml/runs?event=pull_request&head_sha={head}&per_page=10")["workflow_runs"]
+    run = next((candidate for candidate in runs if candidate["conclusion"] != "cancelled"), None)
+    if run is None or run["conclusion"] != "success" or run["head_sha"] != head or run["event"] != "pull_request":
         return None
-    run = runs[0]
-    if run["conclusion"] != "success" or run["head_sha"] != head or run["event"] != "pull_request":
-        return None
-    if not any(link["number"] == pr["number"] and link["base"]["ref"] == "main" for link in run["pull_requests"]):
-        return None
-    page = api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
+    page = fetch_api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")
     jobs = page["jobs"]
     if page["total_count"] != len(jobs) or not successful_attempt(jobs, domains):
         return None
@@ -128,13 +150,13 @@ def verified_run(before: str, sha: str, domains: dict) -> int | None:
     markers = [
         match[1]
         for step in changes["steps"]
-        if (match := re.fullmatch(rf"PR checkout {pr['number']} ([0-9a-f]{{40}})", step["name"]))
+        if (match := re.fullmatch(rf"{PR_CHECKOUT_STEP_PREFIX} {pr['number']} ([0-9a-f]{{40}})", step["name"]))
         and step["conclusion"] == "success"
     ]
     if len(markers) != 1:
         return None
-    tested = api(f"git/commits/{markers[0]}")
-    if [p["sha"] for p in tested["parents"]] == [before, head] and tested["tree"]["sha"] == git(
+    tested = fetch_api(f"git/commits/{markers[0]}")
+    if [p["sha"] for p in tested["parents"]] == [before, head] and tested["tree"]["sha"] == run_git(
         "rev-parse", f"{sha}^{{tree}}"
     ):
         return run["id"]
