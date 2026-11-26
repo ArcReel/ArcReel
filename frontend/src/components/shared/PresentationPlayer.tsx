@@ -35,8 +35,14 @@ interface PresentationPlayerProps {
 
 /** 起始位置离可播放范围末尾至少留出这么多，免得一播放就撞上边界停住。 */
 const START_END_MARGIN_SECONDS = 0.05;
-/** 播放头离呈现边界这么近就算已经停在边界上，点播放按从头重播处理。 */
+/** 播放头在有效终点的容差范围内时，点播放从呈现起点重播。 */
 const BOUNDARY_EPSILON_SECONDS = 0.001;
+
+function getEffectiveEndSeconds(presentationEnd: number, mediaDuration: number): number {
+  return Number.isFinite(mediaDuration) && mediaDuration > 0
+    ? Math.min(presentationEnd, mediaDuration)
+    : presentationEnd;
+}
 
 interface PresentationLoadState {
   resourceKey: string;
@@ -267,12 +273,7 @@ export function PresentationPlayer({
   const stopAtPresentationBoundary = useCallback(
     (video: HTMLVideoElement) => {
       if (!presentationBounds) return false;
-      // 呈现边界由服务端探测得出，常与浏览器解码出的时长差一帧左右。边界若落在媒体结尾之后，
-      // 停在边界会让播放头留在已播完的状态，再点播放不出来，界面看起来毫无反应。
-      const endSeconds =
-        Number.isFinite(video.duration) && video.duration > 0
-          ? Math.min(presentationBounds.end, video.duration)
-          : presentationBounds.end;
+      const endSeconds = getEffectiveEndSeconds(presentationBounds.end, video.duration);
       if (video.currentTime < endSeconds) return false;
       if (video.currentTime !== endSeconds) video.currentTime = endSeconds;
       video.pause();
@@ -283,14 +284,11 @@ export function PresentationPlayer({
     [presentationBounds],
   );
 
-  /**
-   * 播放头已经停在呈现边界上时，点播放键是从头重播，不是又一次撞上边界。
-   * 不区分这一点，`play` 事件里会立刻被判为越界并暂停，播放键看起来毫无反应。
-   */
   const restartWhenParkedAtBoundary = useCallback(
     (video: HTMLVideoElement) => {
       if (!presentationBounds) return false;
-      if (video.currentTime < presentationBounds.end - BOUNDARY_EPSILON_SECONDS) return false;
+      const endSeconds = getEffectiveEndSeconds(presentationBounds.end, video.duration);
+      if (video.currentTime < endSeconds - BOUNDARY_EPSILON_SECONDS) return false;
       if (video.currentTime <= presentationBounds.start) return false;
       video.currentTime = presentationBounds.start;
       return true;
