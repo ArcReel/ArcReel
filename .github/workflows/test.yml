@@ -117,6 +117,9 @@ jobs:
       - name: Lint & format check
         run: uv run ruff check . && uv run ruff format --check .
 
+      - name: Capability error codes and template parameters
+        run: uv run python -m scripts.audit_capability_codes
+
       - name: Type check (basedpyright)
         run: uv run basedpyright --warnings
 

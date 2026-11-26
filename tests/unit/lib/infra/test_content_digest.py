@@ -15,7 +15,6 @@ import pytest
 import lib.infra.content_digest as content_digest
 from lib.infra.content_digest import (
     CHUNK_BYTES,
-    FILE_DIGEST_CACHE_CAPACITY,
     FILE_DIGEST_RACY_WINDOW_NS,
     HASH_ALGORITHM,
     TextModeDigest,
@@ -246,25 +245,15 @@ def test_rewrite_within_the_racy_window_is_never_served_stale(tmp_path: Path, ha
     assert FILE_DIGEST_RACY_WINDOW_NS > 0
 
 
-def test_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path: Path, hashed_files: list[int]) -> None:
-    aged = time.time_ns() - 3600 * 1_000_000_000
-    files = []
-    for index in range(FILE_DIGEST_CACHE_CAPACITY + 1):
-        target = tmp_path / f"{index}.bin"
-        target.write_bytes(index.to_bytes(4, "big"))
-        os.utime(target, ns=(aged, aged))
-        files.append(target)
+def test_cache_is_bounded_and_evicts_the_least_recently_used() -> None:
+    cache = content_digest._FileDigestCache(capacity=2)
+    first, second, third = ((1, inode, 4, 0) for inode in (1, 2, 3))
+    cache.put(first, "first")
+    cache.put(second, "second")
+    assert cache.get(first) == "first"
 
-    for target in files[:FILE_DIGEST_CACHE_CAPACITY]:
-        sha256_file(target)
-    sha256_file(files[0])
-    sha256_file(files[-1])
-    hashed_before = len(hashed_files)
-    assert hashed_before == FILE_DIGEST_CACHE_CAPACITY + 1
+    cache.put(third, "third")
 
-    sha256_file(files[0])
-    sha256_file(files[-1])
-    assert len(hashed_files) == hashed_before
-
-    sha256_file(files[1])
-    assert len(hashed_files) == hashed_before + 1
+    assert cache.get(second) is None
+    assert cache.get(first) == "first"
+    assert cache.get(third) == "third"

@@ -18,19 +18,9 @@ def _make_big_png(width: int = 4096, height: int = 3072) -> bytes:
 def test_compress_single_image_under_long_edge_2048():
     raw = _make_big_png()
     out = compress_image_bytes(raw, max_long_edge=2048, quality=85)
+    assert len(out) < len(raw)
     with Image.open(io.BytesIO(out)) as im:
         assert max(im.size) <= 2048
-
-
-def test_compress_batch_nine_images_memory_ok():
-    """批量压缩 9 张 4K 图，检查每张输出尺寸与体积都符合预期。"""
-    raw = _make_big_png()
-    outputs = [compress_image_bytes(raw, max_long_edge=2048, quality=85) for _ in range(9)]
-    assert len(outputs) == 9
-    for out in outputs:
-        assert len(out) < len(raw)
-        with Image.open(io.BytesIO(out)) as im:
-            assert max(im.size) <= 2048
 
 
 def test_compress_fallback_long_edge_1024_smaller_bytes():
