@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import zipfile
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver, read_artifact_content_digest
 from lib.artifacts.artifact_manifest import (
@@ -22,6 +25,8 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.path_safety import try_safe_join
+from lib.infra.project_write_journal import is_history_database_name
+from lib.project import project_trash
 from lib.project.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -33,7 +38,17 @@ from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
-from tests.legacy_project_shapes import LEGACY_PROJECT_SHAPES
+from tests.invariant_profiles import is_nightly_profile
+from tests.legacy_project_shapes import (
+    LEGACY_PROJECT_SHAPES,
+    cross_bind_episode_scripts,
+    read_version_history,
+    share_a_sheet_with_a_missing_reference_and_occupied_target,
+    write_legacy_storyboard_project,
+)
+
+_RELEASE = Path(__file__).resolve().parents[4] / "fixtures/released_archives/v0.37.0-tts.zip"
+_project_examples = settings(max_examples=40 if is_nightly_profile() else 8)
 
 _SCRIPT_MEDIA_DIRS = {
     "storyboard_image": "storyboards",
@@ -144,8 +159,11 @@ def _write_enveloped_archive(project_dir: Path, archive_path: Path, *, full_mani
 @pytest.mark.parametrize(
     ("shape", "root_is_alias"),
     [
-        *(pytest.param(shape, False, id=shape) for shape in LEGACY_PROJECT_SHAPES),
-        pytest.param("crossed-script-bindings", True, id="crossed-script-bindings-root-alias"),
+        *(
+            pytest.param(shape, False, id=shape)
+            for shape in LEGACY_PROJECT_SHAPES
+            if shape != "missing-original-occupied-target"
+        ),
         pytest.param("shared-item-id", True, id="shared-item-id-root-alias"),
         pytest.param("ad-duplicate-ids", True, id="ad-duplicate-ids-root-alias"),
     ],
@@ -174,12 +192,6 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
             assert expected.pop(f"episodes[2].segments[{index}].generated_assets.{field}") is not None
     if shape == "ad-duplicate-ids":
         assert expected.pop("episodes[1].video_units[1].generated_assets.video_clip") is not None
-    if shape == "missing-original-occupied-target":
-        location = "characters[Bob].reference_image"
-        assert expected[location] is None
-        if entry_point == "archive_import":
-            expected[location] = (project_dir / "characters/refs/Bob.png").read_bytes()
-
     if entry_point == "in_place":
         if root_is_alias:
             alias = tmp_path / "project-alias"
@@ -388,3 +400,177 @@ def test_partial_project_group_preserves_provable_historical_presentation(tmp_pa
         .status
         is ArtifactStatus.STALE
     )
+
+
+def _assert_second_upgrade_stable(root: Path) -> None:
+    def business_state():
+        return (
+            {p.relative_to(root): p.read_bytes() for p in root.rglob("*.json")},
+            read_version_history(root),
+            _media_snapshot(root),
+        )
+
+    before = business_state()
+    assert not migrate_project_dir(root)
+    assert business_state() == before
+
+
+@pytest.mark.invariant
+def test_released_v037_full_archive_upgrades(tmp_path: Path) -> None:
+    assert (
+        hashlib.sha256(_RELEASE.read_bytes()).hexdigest()
+        == "7999e89300124e6747672ffd6b291ce0aef009c24e6234577e12f1025c715836"
+    )
+    with zipfile.ZipFile(_RELEASE) as archive:
+        assert json.loads(archive.read("tts/project.json"))["schema_version"] == 20
+        media = {
+            name.removeprefix("tts/"): archive.read(name)
+            for name in archive.namelist()
+            if name.endswith((".wav", ".mp4", ".png"))
+        }
+    manager = ProjectManager(tmp_path)
+    imported = ProjectArchiveService(manager).import_project_archive(_RELEASE, confirm_report=True)
+    root = manager.get_project_path(imported.project_name)
+    assert _read_json(root / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    assert {name: (root / name).read_bytes() for name in media} == media
+    _assert_released_tts_delivery(root, has_timeline_exports=False)
+    _assert_second_upgrade_stable(root)
+
+
+@pytest.mark.invariant
+@_project_examples
+@given(
+    tree=st.sampled_from(("one-unit", "two-units", "frozen-v1")),
+    crossed=st.booleans(),
+    missing=st.booleans(),
+    salt=st.binary(max_size=8),
+)
+@example(tree="one-unit", crossed=True, missing=False, salt=b"")
+@example(tree="two-units", crossed=True, missing=False, salt=b"")
+@example(tree="two-units", crossed=False, missing=True, salt=b"")
+@example(tree="frozen-v1", crossed=True, missing=False, salt=b"")
+def test_upgrade_preserves_field_owners(tree: str, crossed: bool, missing: bool, salt: bytes) -> None:
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+        base = Path(directory).resolve()
+        if tree == "frozen-v1":
+            root = base / "source/legacy-storyboard"
+            with zipfile.ZipFile(_RELEASE.parents[1] / "perf_before/legacy-v1.zip") as snapshot:
+                snapshot.extractall(root)
+        else:
+            units = ("E1S1",) if tree == "one-unit" else ("E1S1", "E1S2")
+            root = write_legacy_storyboard_project(base / "source", unit_ids=units)
+        if crossed:
+            cross_bind_episode_scripts(root, {1: "episode_2.json", 2: "episode_1.json"}, ledger_order=[2, 1])
+        if missing:
+            share_a_sheet_with_a_missing_reference_and_occupied_target(root)
+        for path in root.glob("storyboards/*.png"):
+            path.write_bytes(path.read_bytes() + salt)
+        expected = _media_snapshot(root)
+        package = base / "old.zip"
+        _write_enveloped_archive(root, package)
+        alias = base / "alias"
+        alias.symlink_to(root.parent, target_is_directory=True)
+        assert migrate_project_dir(alias / root.name)
+        assert _media_snapshot(root) == expected
+        _assert_second_upgrade_stable(root)
+        patch.setattr(tempfile, "tempdir", str(alias))
+        manager = ProjectManager(base / "target")
+        imported = ProjectArchiveService(manager).import_project_archive(package, confirm_report=True)
+        target = manager.get_project_path(imported.project_name)
+        assert _read_json(target / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        if missing:
+            location = "characters[Bob].reference_image"
+            assert expected[location] is None
+            expected[location] = b"orphan-reference"
+        assert _media_snapshot(target) == expected
+        if crossed:
+            for project in (root, target):
+                for entry in _read_json(project / "project.json")["episodes"]:
+                    number = entry["episode"]
+                    assert entry["script_file"] == f"scripts/episode_{number}.json"
+                    assert _read_json(project / entry["script_file"])["episode"] == number
+
+
+@pytest.mark.invariant
+@_project_examples
+@given(contents=st.lists(st.binary(max_size=64), min_size=1, max_size=3))
+@example(contents=[b""])
+def test_upgrade_restores_only_quarantined_draft(contents: list[bytes]) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = write_legacy_storyboard_project(Path(directory), schema_version=5, unit_ids=("E1S1",))
+        drafts = root / "drafts/episode_1"
+        names = ("segments", "normalized_script", "reference_units")
+        expected = {}
+        for name, content in zip(names, contents, strict=False):
+            (drafts / f"step1_{name}.invalid.json").write_bytes(content)
+            expected[f"drafts/episode_1/script_plan_{name}.invalid.json"] = content
+        assert migrate_project_dir(root)
+        records = project_trash.list_records(root)
+        assert sorted(r.files for r in records) == sorted((name,) for name in expected)
+
+        def active_files():
+            return {
+                p.relative_to(root).as_posix(): p.read_bytes()
+                for p in root.rglob("*")
+                if p.is_file()
+                and not is_history_database_name(p.name)
+                and not any(part.startswith(".") for part in p.relative_to(root).parts)
+            }
+
+        history = read_version_history(root)
+        before = active_files()
+        assert expected.keys().isdisjoint(before)
+        for record in records:
+            [relative] = record.files
+            restored = project_trash.restore(root, record.id)
+            assert [file.path for file in restored.restored] == [relative]
+            before[relative] = expected[relative]
+            assert active_files() == before
+            assert read_version_history(root) == history
+        assert project_trash.list_records(root) == []
+
+
+@pytest.mark.invariant
+@_project_examples
+@given(uploads=st.lists(st.booleans(), min_size=1, max_size=4), later=st.lists(st.booleans(), max_size=2))
+@example(uploads=[True], later=[])
+def test_current_export_keeps_selected_storyboard(uploads: list[bool], later: list[bool]) -> None:
+    with tempfile.TemporaryDirectory() as directory, pytest.MonkeyPatch.context() as patch:
+        base = Path(directory)
+        patch.setattr(tempfile, "tempdir", str(base))
+        manager = ProjectManager(base / "source")
+        manager.create_project("demo")
+        manager.create_project_metadata("demo", "Demo", "Anime", "narration")
+        root = manager.get_project_path("demo")
+        with zipfile.ZipFile(_RELEASE) as archive:
+            script = json.loads(archive.read("tts/scripts/episode_1.json"))
+        script["segments"] = script["segments"][:1]
+        [segment] = script["segments"]
+        relative = segment["generated_assets"]["storyboard_image"]
+        segment["generated_assets"] = {"storyboard_image": relative}
+        manager.save_script("demo", script, "episode_1.json", validate=False)
+        current = root / relative
+        versions = VersionManager(root)
+        for index, upload in enumerate(uploads + later, 1):
+            current.write_bytes(f"frame-{index}".encode())
+            versions.add_version(
+                "storyboards",
+                segment["segment_id"],
+                "",
+                source_file=current,
+                **({"source": "manual_upload"} if upload else {}),
+            )
+        if later:
+            versions.restore_version("storyboards", segment["segment_id"], len(uploads), current)
+        expected_bytes = f"frame-{len(uploads)}".encode()
+        archive_path, _ = ProjectArchiveService(manager).export_project("demo", scope="current")
+        with zipfile.ZipFile(archive_path) as packed:
+            history = json.loads(packed.read("demo/versions/versions.json"))
+            selected = history.get("storyboards", {}).get(segment["segment_id"], {}).get("versions", [])
+            assert [record["version"] for record in selected] == ([len(uploads)] if uploads[-1] else [])
+            assert {
+                p for p in packed.namelist() if p.startswith("demo/versions/storyboards/") and not p.endswith("/")
+            } == {"demo/" + record["file"] for record in selected}
+            assert packed.read("demo/" + relative) == expected_bytes
+            if selected:
+                assert packed.read("demo/" + selected[0]["file"]) == expected_bytes
