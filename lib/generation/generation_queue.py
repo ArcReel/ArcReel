@@ -252,6 +252,10 @@ async def resolve_video_execution_for_queued_task(
 ) -> tuple[ProviderModel, VideoGenerationType | None]:
     """解析队列视频任务的当前身份与任务类型桶，供入队 advisory 和 worker 限流共用。"""
 
+    from lib.config.generation_options import apply_generation_options
+
+    if project is not None:
+        project = apply_generation_options(project, payload, "video")
     projection = (
         await reference_projection_for_queued_task(
             project=project,
@@ -321,6 +325,9 @@ async def _derive_execution_model_for_enqueue(
         project: dict | None = None
         if project_name:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+            from lib.config.generation_options import apply_generation_options
+
+            project = apply_generation_options(project, payload, media_type)
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:

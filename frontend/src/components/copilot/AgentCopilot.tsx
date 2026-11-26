@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { History, PanelRightClose, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { RunSettings } from "@/components/shared/RunSettings";
 import { Button } from "@/components/ui/button";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useAssistantSession } from "@/hooks/useAssistantSession";
@@ -170,6 +171,7 @@ export function AgentCopilot() {
         />
       )}
 
+      {currentProjectName && !pendingQuestion && <div className="px-3"><RunSettings projectName={currentProjectName} kind="chat" disabled={isRunning || sending} /></div>}
       <AgentComposer
         ref={composerRef}
         hidden={Boolean(pendingQuestion)}

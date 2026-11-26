@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
+import { generationOptions } from "@/stores/run-settings-store";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,7 +53,8 @@ export function ReferenceBatchPreviewDialog({
 
   useEffect(() => {
     const controller = new AbortController();
-    API.previewReferenceVideoBatch(projectName, episode, { unit_ids: unitIds }, { signal: controller.signal })
+    const selected = generationOptions(projectName, "video");
+    API.previewReferenceVideoBatch(projectName, episode, { unit_ids: unitIds, ...(selected ? { generation_options: selected } : {}) }, { signal: controller.signal })
       .then((res) => {
         if (!controller.signal.aborted) setPreview(res);
       })

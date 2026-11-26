@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactManifestError
+from lib.config.generation_options import GenerationOptions, apply_generation_options
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.generation_queue import get_generation_queue
@@ -59,6 +60,7 @@ class AssetSheetBatchRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    generation_options: GenerationOptions | None = None
     asset_type: AssetType | None = None
     episode_id: int | None = Field(default=None, ge=1)
 
@@ -127,6 +129,13 @@ async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchR
     """规划一批但不建任务：要生成的名单、跳过项与已定价部分的预估费用及未定价项数。"""
 
     project, plan = await _plan(project_name, request, user.id)
+    project = apply_generation_options(
+        project,
+        {"generation_options": request.generation_options.model_dump(exclude_unset=True)}
+        if request.generation_options
+        else None,
+        "image",
+    )
     new_ids = plan.new_task_ids
     skipped = [
         {**_unit_view(plan, unit_id), "reason": "generating"}
@@ -162,6 +171,11 @@ async def submit_asset_sheet_batch_route(project_name: str, request: AssetSheetB
         queue=get_generation_queue(),
         source="webui",
         user_id=user.id,
+        **(
+            {"generation_options": request.generation_options.model_dump(exclude_unset=True)}
+            if request.generation_options
+            else {}
+        ),
     )
     task_by_unit = {task.unit_id: task for task in enqueued if task.unit_id is not None}
     return {

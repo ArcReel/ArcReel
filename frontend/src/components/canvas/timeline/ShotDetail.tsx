@@ -18,6 +18,7 @@ import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import { TruncatedText } from "@/components/shared/TruncatedText";
+import { RunSettings } from "@/components/shared/RunSettings";
 import { ShotDetailLayout, ShotGroup, ShotMediaGrid, ShotSection, ShotSourceCollapsible } from "./ShotDetailLayout";
 import { ShotDetailHeader } from "./ShotDetailHeader";
 import { Badge } from "@/components/ui/badge";
@@ -930,6 +931,8 @@ export function ShotDetail({
   const savingHint = saving ? t("common:save_status_saving") : undefined;
 
   const storyboardMedia = (
+    <>
+    {!readOnly && <RunSettings projectName={projectName} kind="image" disabled={Boolean(generatingStoryboard) || editBusy} />}
     <MediaCard
       kind="storyboard"
       projectName={projectName}
@@ -953,10 +956,12 @@ export function ShotDetail({
       generateDisabled={editBusy || refreshPending}
       generateDisabledHint={savingHint}
     />
+    </>
   );
 
   const videoMedia = (
     <>
+      {!readOnly && <RunSettings projectName={projectName} kind="video" disabled={Boolean(generatingVideo) || editBusy} />}
       {scriptFile && onGenerateVideo && (
         <EndFrameRow
           projectName={projectName}

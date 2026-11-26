@@ -237,6 +237,18 @@ defineRegionScenarios("资产详情 Sheet", [
     },
   },
   {
+    name: "资产生成可展开模型参数，固定画布不提供无效比例控件",
+    path: CHARACTERS_PATH,
+    api: BASE,
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      await sheet.locator("summary").filter({ hasText: "模型与参数" }).click();
+      await expect(sheet.getByRole("combobox", { name: "执行模型" })).toBeVisible();
+      await expect(sheet.getByRole("combobox", { name: "画面比例" })).toHaveCount(0);
+    },
+  },
+  {
     name: "打开角色详情：资产图、原图、描述、声音、别名与衍生",
     path: CHARACTERS_PATH,
     api: BASE,

@@ -121,6 +121,18 @@ class _FakeDeny:
 
 
 class TestSessionManager:
+    @pytest.mark.asyncio
+    async def test_selected_model_and_effort_reach_resumed_sdk(self, session_manager, meta_store, monkeypatch):
+        (session_manager.layout.projects_dir / "demo").mkdir(parents=True)
+        meta = await meta_store.create("demo", "sdk-selected-model")
+        selected = {"model": "configured-model", "effort": "high"}
+        async with _cold_revival_clients(session_manager, monkeypatch) as clients:
+            managed = await session_manager.get_or_connect(meta.id, chat_options=selected)
+            await asyncio.sleep(0)
+            assert clients[0].options.model == "configured-model"
+            assert clients[0].options.effort == "high"
+            assert managed.chat_options == selected
+
     def test_managed_session_broadcast_and_queue_overflow(self):
         managed = ManagedSession(session_id="s1", actor=None)
 

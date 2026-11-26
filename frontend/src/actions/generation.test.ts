@@ -31,6 +31,7 @@ import {
   enqueueVideo,
 } from "@/actions/generation";
 import { makeTask } from "@/test/factories";
+import { useRunSettingsStore } from "@/stores/run-settings-store";
 
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
@@ -59,11 +60,25 @@ function markCounts(): { resource: number; scriptFile: number } {
 }
 
 beforeEach(() => {
+  useRunSettingsStore.setState({ projects: {} });
   seedTaskState({
     tasks: [],
     optimisticMarks: new Map(),
   });
   useAppStore.setState({ toast: null });
+});
+
+it("sends selected image and video parameters with their generation requests", async () => {
+  const image = { backend: "openai/image", resolution: "1K" };
+  const video = { backend: "vidu/video", aspect_ratio: "9:16" as const, generate_audio: false };
+  useRunSettingsStore.getState().set("demo", "image", image);
+  useRunSettingsStore.getState().set("demo", "video", video);
+  const imageSpy = vi.spyOn(API, "generateCharacter").mockResolvedValue(SINGLE_OK);
+  const videoSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockResolvedValue(SINGLE_OK);
+  await enqueueCharacter("demo", "角色");
+  await enqueueReferenceVideoUnit("demo", 1, "E1U1");
+  expect(imageSpy).toHaveBeenCalledWith("demo", "角色", image);
+  expect(videoSpy).toHaveBeenCalledWith("demo", 1, "E1U1", { generation_options: video });
 });
 
 describe("enqueueStoryboard", () => {

@@ -1071,11 +1071,12 @@ class API {
   static async generateCharacterDerivative(
     projectName: string,
     charName: string,
-    derivativeName: string
+    derivativeName: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
-      { method: "POST" }
+      { method: "POST", body: generationOptions ? JSON.stringify({ generation_options: generationOptions }) : undefined }
     );
   }
 
@@ -2145,13 +2146,14 @@ class API {
     projectName: string,
     segmentId: string,
     prompt: string | Record<string, unknown>,
-    scriptFile: string
+    scriptFile: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/storyboard/${encodeURIComponent(segmentId)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt, script_file: scriptFile }),
+        body: JSON.stringify({ prompt, script_file: scriptFile, generation_options: generationOptions }),
       }
     );
   }
@@ -2171,6 +2173,7 @@ class API {
     prompt: string | Record<string, unknown>,
     scriptFile: string,
     durationSeconds: number = 4,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions,
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/video/${encodeURIComponent(segmentId)}`,
@@ -2180,6 +2183,7 @@ class API {
           prompt,
           script_file: scriptFile,
           duration_seconds: durationSeconds,
+          generation_options: generationOptions,
         }),
       }
     );
@@ -2292,7 +2296,8 @@ class API {
    */
   static async generateCharacter(
     projectName: string,
-    charName: string
+    charName: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2303,6 +2308,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
+        body: generationOptions ? JSON.stringify({ generation_options: generationOptions }) : undefined,
       }
     );
   }
@@ -2317,7 +2323,8 @@ class API {
    */
   static async generateProjectScene(
     projectName: string,
-    sceneName: string
+    sceneName: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2328,6 +2335,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
+        body: generationOptions ? JSON.stringify({ generation_options: generationOptions }) : undefined,
       }
     );
   }
@@ -2342,7 +2350,8 @@ class API {
    */
   static async generateProjectProp(
     projectName: string,
-    propName: string
+    propName: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2353,6 +2362,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
+        body: generationOptions ? JSON.stringify({ generation_options: generationOptions }) : undefined,
       }
     );
   }
@@ -2367,7 +2377,8 @@ class API {
    */
   static async generateProjectProduct(
     projectName: string,
-    productName: string
+    productName: string,
+    generationOptions?: import("@/stores/run-settings-store").GenerationOptions
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2378,6 +2389,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
+        body: generationOptions ? JSON.stringify({ generation_options: generationOptions }) : undefined,
       }
     );
   }
@@ -2666,12 +2678,17 @@ class API {
     );
   }
 
+  static async getAssistantModelOptions(projectName: string, options: { signal?: AbortSignal } = {}): Promise<{ models: string[] }> {
+    return this.request(`${this.assistantBase(projectName)}/model-options`, options);
+  }
+
   static async sendAssistantMessage(
     projectName: string,
     content: string,
     sessionId?: string | null,
     images?: ImagePayload[],
-    clientKey?: string
+    clientKey?: string,
+    chatOptions?: import("@/stores/run-settings-store").ChatOptions
   ): Promise<AcceptedMessageResponse> {
     return this.request(`${this.assistantBase(projectName)}/sessions/send`, {
       method: "POST",
@@ -2680,6 +2697,7 @@ class API {
         session_id: sessionId || undefined,
         images: images || [],
         client_key: clientKey || undefined,
+        chat_options: chatOptions,
       }),
     });
   }
@@ -3852,10 +3870,11 @@ class API {
     projectName: string,
     episode: number,
     unitId: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; generationOptions?: import("@/stores/run-settings-store").GenerationOptions },
   ): Promise<ReferenceDurationPrecheck> {
+    const query = options?.generationOptions ? `?generation_options=${encodeURIComponent(JSON.stringify(options.generationOptions))}` : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck${query}`,
       { signal: options?.signal },
     );
   }

@@ -126,7 +126,13 @@ class ImageRequest(BaseModel):
         return value
 
 
+class ChatOptions(BaseModel):
+    model: str | None = Field(default=None, min_length=1, max_length=256, pattern=r"^\S+$")
+    effort: Literal["low", "medium", "high"] | None = None
+
+
 class SendRequest(ImageRequest):
+    chat_options: ChatOptions | None = None
     content: str = ""
     session_id: str | None = None
     client_key: str | None = Field(default=None, max_length=128)
@@ -140,6 +146,24 @@ class RewriteRequest(ImageRequest):
 
 class AnswerQuestionRequest(BaseModel):
     answers: dict[str, str] = Field(default_factory=dict)
+
+
+@router.get("/model-options")
+async def get_model_options(project_name: str):
+    """只返回内嵌 Agent 当前凭证绑定的模型，不返回凭证或服务地址。"""
+    from server.agent_runtime.options_assembler import load_provider_env_overrides
+
+    env = await load_provider_env_overrides()
+    models = [
+        env.get(key)
+        for key in (
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        )
+    ]
+    return {"models": list(dict.fromkeys(model for model in models if model)) or ["sonnet", "opus", "haiku"]}
 
 
 @router.post("/sessions/send")
@@ -158,6 +182,9 @@ async def send_message(
             images=req.images,
             locale=get_locale(request),
             client_key=req.client_key,
+            **(
+                {"chat_options": req.chat_options.model_dump(exclude_none=True)} if req.chat_options is not None else {}
+            ),
         )
     except SessionSupersededError as exc:
         raise ConflictError("session_already_superseded") from exc

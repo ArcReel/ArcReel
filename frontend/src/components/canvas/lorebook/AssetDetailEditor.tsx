@@ -2,6 +2,7 @@ import { useCallback, useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { API } from "@/api";
+import { RunSettings } from "@/components/shared/RunSettings";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
@@ -234,6 +235,7 @@ export function AssetDetailEditor({
             </div>
             {readOnly ? null : (
               <div className="flex flex-col gap-1.5">
+                <RunSettings projectName={projectName} kind="image" disabled={imageBusy} fixedAspectRatio />
                 <GenerateButton
                   onClick={generate}
                   loading={generating}

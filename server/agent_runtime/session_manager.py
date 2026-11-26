@@ -297,6 +297,7 @@ class ManagedSession:
 
     session_id: str
     actor: "SessionActor"
+    chat_options: dict[str, str] = field(default_factory=dict)
     status: SessionStatus = "idle"
     project_name: str = ""
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -800,6 +801,7 @@ class SessionManager:
         content: str | list[dict[str, Any]],
         *,
         locale: str = DEFAULT_LOCALE,
+        chat_options: dict[str, str] | None = None,
         user_entry: dict[str, Any] | None = None,
         client_key: str | None = None,
     ) -> str:
@@ -836,6 +838,9 @@ class SessionManager:
                 session_id=None,
                 sdk_stderr=sdk_stderr,
             ) from exc
+        if chat_options is not None:
+            options.model = chat_options.get("model")
+            options.effort = chat_options.get("effort")
         actor = SessionActor(
             client_factory=lambda: ClaudeSDKClient(options=options),
             on_message=self._make_actor_message_callback(managed_ref),
@@ -848,6 +853,7 @@ class SessionManager:
             status="running",
             project_name=project_name,
             agent_pricing=agent_pricing_of(options),
+            chat_options=chat_options or {},
         )
         if user_entry is not None:
             managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
@@ -1083,6 +1089,7 @@ class SessionManager:
         *,
         meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
+        chat_options: dict[str, str] | None = None,
         resumable: bool = True,
     ) -> ManagedSession:
         """Get existing managed session or spin up an actor for resumed session.
@@ -1111,7 +1118,11 @@ class SessionManager:
                     return cached
                 try:
                     managed = await self._connect_resumed_session(
-                        session_id, meta=meta, locale=locale, resumable=resumable
+                        session_id,
+                        meta=meta,
+                        locale=locale,
+                        resumable=resumable,
+                        **({"chat_options": chat_options} if chat_options is not None else {}),
                     )
                 except BaseException:
                     channel = self._channels.get(session_id)
@@ -1146,7 +1157,13 @@ class SessionManager:
         return None, detached
 
     async def _connect_resumed_session(
-        self, session_id: str, *, meta: SessionMeta | None, locale: str, resumable: bool
+        self,
+        session_id: str,
+        *,
+        meta: SessionMeta | None,
+        locale: str,
+        resumable: bool,
+        chat_options: dict[str, str] | None = None,
     ) -> ManagedSession:
         """按冷会话路径启动 actor 并登记会话，调用方持有连接锁。"""
         if meta is None:
@@ -1181,6 +1198,9 @@ class SessionManager:
                 session_id=session_id,
                 sdk_stderr=sdk_stderr,
             ) from exc
+        if chat_options is not None:
+            options.model = chat_options.get("model")
+            options.effort = chat_options.get("effort")
         actor = SessionActor(
             client_factory=lambda: ClaudeSDKClient(options=options),
             on_message=self._make_actor_message_callback(managed_ref),
@@ -1196,6 +1216,7 @@ class SessionManager:
             status=resumed_status,
             project_name=meta.project_name,
             agent_pricing=agent_pricing_of(options),
+            chat_options=chat_options or {},
             usage_meter=TurnUsageMeter(resumed=resumable),
             resolved_sdk_id=meta.id,
             channel=self._session_channel(meta.id),
@@ -1237,6 +1258,7 @@ class SessionManager:
         *,
         meta: SessionMeta | None = None,
         locale: str = DEFAULT_LOCALE,
+        chat_options: dict[str, str] | None = None,
         user_entry: dict[str, Any] | None = None,
         client_key: str | None = None,
         resumable: bool = True,
@@ -1259,7 +1281,18 @@ class SessionManager:
             if accepted is not None:
                 return accepted
 
-        managed = await self.get_or_connect(session_id, meta=meta, locale=locale, resumable=resumable)
+        cached = self.sessions.get(session_id)
+        if cached is not None and chat_options is not None and cached.chat_options != chat_options:
+            if cached.status == "running" or cached.queued_messages:
+                raise ValueError("Cannot change model settings while the agent is running")
+            await self.close_session(session_id, reason="model settings changed")
+        managed = await self.get_or_connect(
+            session_id,
+            meta=meta,
+            locale=locale,
+            resumable=resumable,
+            **({"chat_options": chat_options} if chat_options is not None else {}),
+        )
         managed.last_activity = time.monotonic()
 
         async with managed.send_lock:

@@ -26,6 +26,7 @@ from lib.artifacts.visual_artifact_provenance import (
 from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource, reference_image_sources
 from lib.backends.backend_runtime import read_video_image_slots
 from lib.backends.provider_assets import ProviderInputImageRejectedError
+from lib.config.generation_options import apply_generation_options
 from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -306,7 +307,7 @@ async def execute_reference_video_task(
 
     def _load():
         pm = get_project_manager()
-        project = pm.load_project(project_name)
+        project = apply_generation_options(pm.load_project(project_name), payload, "video")
         project_path = pm.get_project_path(project_name)
         script = pm.load_script(project_name, script_file)
         script_input = resolve_usable_episode_script_input(

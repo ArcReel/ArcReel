@@ -1,6 +1,19 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
+  'run_settings': 'Mô hình và tham số',
+  'run_model': 'Mô hình',
+  'run_default': 'Theo mặc định',
+  'run_resolution': 'Độ phân giải',
+  'run_aspect_ratio': 'Tỷ lệ khung hình',
+  'run_audio': 'Tạo âm thanh video',
+  'run_effort_low': 'Thấp',
+  'run_effort_medium': 'Trung bình',
+  'run_effort_high': 'Cao',
+  'run_effort': 'Mức suy luận',
+  'run_load_failed': 'Không tải được mô hình',
+  'run_settings_hint': 'Áp dụng cho yêu cầu tiếp theo trong dự án, không đổi mặc định.',
+  'run_duration': 'Thời lượng video (giây)',
   episode_externally_removed: "Tập này đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
   episode_script_removed: "Kịch bản của tập đã bị xóa. Việc lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.",
   shot_externally_removed: 'Phân cảnh này đã bị xóa. Lưu sẽ thất bại; hãy sao chép nội dung trước khi bỏ thay đổi.',

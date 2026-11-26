@@ -49,6 +49,7 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_records_asset_names,
     project_basis_style_description,
 )
+from lib.config.generation_options import apply_generation_options
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -436,7 +437,7 @@ async def execute_storyboard_task(
         raise ValueError("prompt is required for storyboard task")
 
     def _load() -> _StoryboardImageInputs:
-        _project = get_project_manager().load_project(project_name)
+        _project = apply_generation_options(get_project_manager().load_project(project_name), payload, "image")
         _project_path = get_project_manager().get_project_path(project_name)
         _script = get_project_manager().load_script(project_name, script_file)
         _script_input = resolve_usable_episode_script_input(
@@ -990,7 +991,7 @@ async def execute_video_task(
 
     def _load():
         _pm = get_project_manager()
-        _project = _pm.load_project(project_name)
+        _project = apply_generation_options(_pm.load_project(project_name), payload, "video")
         _project_path = _pm.get_project_path(project_name)
         _script = _pm.load_script(project_name, script_file)
         _script_input = resolve_usable_episode_script_input(
@@ -1408,7 +1409,7 @@ async def execute_asset_sheet_task(
     """资产图（角色、场景、道具、商品）：描述取自存储的条目，参考图与依据取自生成输入。"""
 
     def _load() -> tuple[dict[str, Any], Path, AssetSheetInput]:
-        _project = get_project_manager().load_project(project_name)
+        _project = apply_generation_options(get_project_manager().load_project(project_name), payload, "image")
         _project_path = get_project_manager().get_project_path(project_name)
         _generation_input = asset_sheet_input(
             _project,

@@ -1,6 +1,19 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  'run_settings': '模型与参数',
+  'run_model': '执行模型',
+  'run_default': '跟随默认设置',
+  'run_resolution': '分辨率',
+  'run_aspect_ratio': '画面比例',
+  'run_audio': '生成视频音轨',
+  'run_effort_low': '低',
+  'run_effort_medium': '中',
+  'run_effort_high': '高',
+  'run_effort': '推理强度',
+  'run_load_failed': '加载模型失败',
+  'run_settings_hint': '仅用于本项目后续提交的任务，不修改项目默认。',
+  'run_duration': '视频时长（秒）',
   episode_externally_removed: "本集已被删除，保存会失败；可以复制内容后放弃修改。",
   episode_script_removed: "本集脚本已被移除，保存会失败；可以复制内容后放弃修改。",
   shot_externally_removed: '这个分镜已被删除，保存会失败；可以复制内容后放弃修改。',

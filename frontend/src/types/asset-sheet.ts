@@ -18,7 +18,10 @@ export interface AssetSheetStatusRow extends AssetSheetRef {
   image_to_image: boolean;
 }
 
-export type AssetSheetBatchScope = { asset_type: AssetSheetType } | { episode_id: number };
+/** 批量生成的范围：画廊类型页或集层，二选一。 */
+export type AssetSheetBatchScope = ({ asset_type: AssetSheetType } | { episode_id: number }) & {
+  generation_options?: import("@/stores/run-settings-store").GenerationOptions;
+};
 
 export type AssetSheetSkipReason = "generating" | "missing_description" | "owner_sheet_missing" | "unavailable";
 

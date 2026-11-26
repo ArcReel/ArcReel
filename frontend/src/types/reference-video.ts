@@ -70,6 +70,8 @@ export interface ReferenceUnitCapability {
 export type ReferenceUnitCapabilityMap = Record<string, ReferenceUnitCapability>;
 
 export interface ReferenceGenerationRequestOptions {
+  generation_options?: import("@/stores/run-settings-store").GenerationOptions;
+  /** Exact video tier accepted for this request; omitted when no cross-tier confirmation is needed. */
   confirmed_request_duration_seconds?: number | null;
 }
 
@@ -129,6 +131,7 @@ export interface ReferenceBatchPreview extends WorkflowAdmission {
 }
 
 export interface ReferenceBatchGenerateRequest {
+  generation_options?: import("@/stores/run-settings-store").GenerationOptions;
   unit_ids?: string[];
   confirmed_request_durations?: Record<string, number>;
 }
