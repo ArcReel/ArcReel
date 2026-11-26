@@ -115,6 +115,7 @@ class ReferenceExpansionCache:
 
     def __init__(self, project: dict, project_path: Path) -> None:
         self.catalog = build_reference_catalog(project)
+        self.assets_by_text: dict[str, tuple[ResolvedReferenceAsset, ...]] = {}
         self._project_path = project_path
         self._paths: dict[str, Path | None] = {}
 
@@ -162,6 +163,9 @@ def resolve_reference_assets(
 
     if expansion is None:
         expansion = ReferenceExpansionCache(project, project_path)
+    text = unit_text(unit)
+    if text in expansion.assets_by_text:
+        return expansion.assets_by_text[text]
     catalog = expansion.catalog
     result: list[ResolvedReferenceAsset] = []
     for reference in unit_reference_declarations(project, unit, catalog=catalog):
@@ -182,7 +186,9 @@ def resolve_reference_assets(
             original = expansion.candidate_path(raw_path)
             if original is not None:
                 result.append(ResolvedReferenceAsset(path=original, reference=reference, kind="original"))
-    return tuple(result)
+    assets = tuple(result)
+    expansion.assets_by_text[text] = assets
+    return assets
 
 
 def clamp_reference_assets(

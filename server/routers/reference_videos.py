@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
-from lib.artifacts.artifact_activation import resolve_artifact_episode
+from lib.artifacts.artifact_activation import active_artifact_currency_resolver, resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -641,6 +641,8 @@ async def _admit_units_batch(
 
     project_path = await _project_path(project_name)
 
+    currency = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
+
     def _resolve_targets() -> tuple[list[dict[str, Any]], GenerationSelection]:
         artifact_episode = (
             resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
@@ -651,6 +653,7 @@ async def _admit_units_batch(
             project=project,
             project_path=project_path,
             episode=artifact_episode,
+            resolver=currency,
         )
         return targets, selection
 
@@ -671,6 +674,7 @@ async def _admit_units_batch(
         script=script,
         script_file=script_file,
         units=targets,
+        currency_resolver=currency,
         request_options=ReferenceRequestOptions(),
         operation="generate_reference_videos_batch",
         selection=(
@@ -742,9 +746,10 @@ async def generate_units_batch(
         payload["deduped"] = False
         return payload
 
-    admitted_ids = {ticket.unit_id for ticket in admission.tickets if ticket.admitted}
-    specs = [reference_unit_task_spec(unit, script_file) for unit in targets if unit["unit_id"] in admitted_ids]
+    admitted = {ticket.unit_id: ticket for ticket in admission.tickets if ticket.admitted}
+    specs = [reference_unit_task_spec(unit, script_file) for unit in targets if unit["unit_id"] in admitted]
     for spec in specs:
+        spec.advisory_provider_id = admitted[spec.resource_id].advisory_provider_id
         spec.source = "webui"
         options = request_options_for_unit(
             ReferenceRequestOptions(),

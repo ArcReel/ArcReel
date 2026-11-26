@@ -6,7 +6,7 @@ import os
 import shutil
 import sqlite3
 import threading
-from collections.abc import Generator
+from collections.abc import Collection, Generator
 from contextlib import closing, contextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -103,22 +103,46 @@ class ProjectJournal:
             raise ValueError("cannot journal a live SQLite database")
         return target
 
-    def track(self, path: Path) -> None:
-        resolved = path.parent.resolve(strict=False) / path.name
-        if not resolved.is_relative_to(self.root):
+    def track(self, *paths: Path) -> None:
+        candidates = {}
+        for path in paths:
+            resolved = path.parent.resolve(strict=False) / path.name
+            if resolved.is_relative_to(self.root):
+                rel = resolved.relative_to(self.root).as_posix()
+                candidates[rel] = self._target(rel)
+        with self.connection() as db:
+            missing = [
+                (rel, path)
+                for rel, path in candidates.items()
+                if not db.execute("SELECT 1 FROM undo_file WHERE path=?", (rel,)).fetchone()
+            ]
+        if not missing:
             return
-        rel = resolved.relative_to(self.root).as_posix()
-        self._target(rel)
-        with self.connection() as db:
-            if db.execute("SELECT 1 FROM undo_file WHERE path=?", (rel,)).fetchone():
-                return
         self.begin()
-        backup = None
-        if resolved.exists():
-            backup = uuid4().hex
-            _copy_durable(resolved, self.stage / backup)
+        backups = []
+        for rel, resolved in missing:
+            backup = None
+            if resolved.exists():
+                backup = uuid4().hex
+                _copy_durable(resolved, self.stage / backup)
+            backups.append((rel, backup))
         with self.connection() as db:
-            db.execute("INSERT INTO undo_file VALUES (?,?)", (rel, backup))
+            db.executemany("INSERT INTO undo_file VALUES (?,?)", backups)
+
+    def track_new_files(self, directory: Path, names: Collection[str]) -> None:
+        """Record absent before-images together, before a new snapshot directory is populated."""
+        resolved = directory.parent.resolve() / directory.name
+        prefix = resolved.relative_to(self.root).as_posix()
+        target = self._target(prefix)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(target)
+        if any(not name or Path(name).anchor or name == "." or ".." in Path(name).parts for name in names):
+            raise ValueError("invalid new snapshot path")
+        self.begin()
+        with self.connection() as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO undo_file VALUES (?, NULL)", ((f"{prefix}/{name}",) for name in names)
+            )
 
     def discard_staged(self, path: Path) -> None:
         resolved = path.parent.resolve(strict=False) / path.name
@@ -174,8 +198,7 @@ def scratch_directory(path: Path) -> Path:
 
 def track_write(*paths: Path) -> None:
     for journal in getattr(_local, "projects", {}).values():
-        for path in paths:
-            journal.track(path)
+        journal.track(*paths)
 
 
 @contextmanager

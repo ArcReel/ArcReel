@@ -24,9 +24,11 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
 from typing import BinaryIO, NamedTuple, Protocol, Self, cast
+from weakref import WeakValueDictionary
 
 import portalocker
 
@@ -708,19 +710,23 @@ class _ManifestFileIdentity(NamedTuple):
 class _ParsedManifest:
     """Immutable raw bytes and validated entries of one Manifest version."""
 
-    __slots__ = ("_decoded", "entries", "raw")
+    __slots__ = ("_decoded", "_lock", "entries", "raw")
 
     def __init__(self, raw: bytes, entries: dict[str, ArtifactManifestEntry]) -> None:
+        self._lock = threading.Lock()
         self.raw = raw
         self.entries: Mapping[str, ArtifactManifestEntry] = MappingProxyType(entries)
         self._decoded: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None
 
     def decoded(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
-        decoded = self._decoded
-        if decoded is None:
-            decoded = MappingProxyType({ArtifactKey.decode(encoded): entry for encoded, entry in self.entries.items()})
-            self._decoded = decoded
-        return decoded
+        with self._lock:
+            decoded = self._decoded
+            if decoded is None:
+                decoded = MappingProxyType(
+                    {ArtifactKey.decode(encoded): entry for encoded, entry in self.entries.items()}
+                )
+                self._decoded = decoded
+            return decoded
 
 
 @dataclass(frozen=True, slots=True)
@@ -734,9 +740,14 @@ class _ManifestReadCache:
     """Thread-safe LRU of the latest parsed Manifest per project directory identity."""
 
     def __init__(self, limit: int) -> None:
+        self._read_locks: WeakValueDictionary[_ManifestFileIdentity, threading.Lock] = WeakValueDictionary()
         self._limit = limit
         self._slots: OrderedDict[tuple[int, int], _ManifestCacheSlot] = OrderedDict()
         self._lock = threading.Lock()
+
+    def read_lock(self, identity: _ManifestFileIdentity) -> threading.Lock:
+        with self._lock:
+            return self._read_locks.setdefault(identity, threading.Lock())
 
     def get(self, project: tuple[int, int]) -> _ManifestCacheSlot | None:
         with self._lock:
@@ -1680,6 +1691,9 @@ class ProjectArtifactManifestAdapter:
             return {}, None
         with handle:
             raw = self._read_open_manifest(handle)
+        slot = _MANIFEST_READ_CACHE.get(self._project_identity)
+        if slot is not None and slot.parsed.raw == raw:
+            return dict(slot.parsed.entries), raw
         return _parse_manifest(raw, validate_path_ownership=validate_path_ownership), raw
 
     def _load_cached(self, root_fd: int | None) -> tuple[_ParsedManifest, os.stat_result] | None:
@@ -1696,15 +1710,20 @@ class ProjectArtifactManifestAdapter:
             _MANIFEST_READ_CACHE.discard(self._project_identity)
             return None
         with handle:
-            file_stat = self._fstat_open_manifest(handle)
-            identity = _ManifestFileIdentity.of(file_stat)
-            slot = None if identity is None else _MANIFEST_READ_CACHE.get(self._project_identity)
-            if slot is not None and slot.settled and slot.identity == identity:
-                return slot.parsed, file_stat
-            raw = self._read_open_manifest(handle)
-            file_stat = self._fstat_open_manifest(handle)
-            if identity is not None and _ManifestFileIdentity.of(file_stat) != identity:
-                identity = None
+            identity = _ManifestFileIdentity.of(self._fstat_open_manifest(handle))
+            with _MANIFEST_READ_CACHE.read_lock(identity) if identity is not None else contextlib.nullcontext():
+                return self._read_cached_handle(handle)
+
+    def _read_cached_handle(self, handle: BinaryIO) -> tuple[_ParsedManifest, os.stat_result]:
+        file_stat = self._fstat_open_manifest(handle)
+        identity = _ManifestFileIdentity.of(file_stat)
+        slot = None if identity is None else _MANIFEST_READ_CACHE.get(self._project_identity)
+        if slot is not None and slot.settled and slot.identity == identity:
+            return slot.parsed, file_stat
+        raw = self._read_open_manifest(handle)
+        file_stat = self._fstat_open_manifest(handle)
+        if identity is not None and _ManifestFileIdentity.of(file_stat) != identity:
+            identity = None
         if slot is not None and slot.parsed.raw == raw:
             parsed = slot.parsed
         else:
@@ -2147,6 +2166,7 @@ class ArtifactKey:
         return encode_artifact_key_parts(self.kind.value, self.components)
 
     @classmethod
+    @lru_cache(maxsize=32768)
     def decode(cls, value: str) -> Self:
         if not value.startswith(_KEY_PREFIX):
             raise ValueError("artifact key has an unsupported encoding")
@@ -2220,6 +2240,11 @@ def normalize_artifact_path(value: object) -> str:
 
     if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         raise ValueError(f"artifact path must be a non-empty project-relative POSIX path: {value!r}")
+    return _normalize_artifact_path(value)
+
+
+@lru_cache(maxsize=32768)
+def _normalize_artifact_path(value: str) -> str:
     try:
         value.encode("utf-8")
     except UnicodeEncodeError as exc:

@@ -68,6 +68,11 @@ class UnitAdmissionTicket:
         return not self.problems
 
     @property
+    def advisory_provider_id(self) -> str | None:
+        provider = self.projection.get("provider_id") if self.projection else None
+        return provider if isinstance(provider, str) and provider else None
+
+    @property
     def reference_limit_exceeded(self) -> bool:
         """This unit is withdrawn from the request on its own and never runs in it."""
 

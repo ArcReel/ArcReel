@@ -660,6 +660,9 @@ def _trash_uses(project_path: Path, uses: _Uses) -> None:
     from lib.project import project_trash
 
     for record in project_trash.list_records(project_path):
+        if record.object.get("kind") == "script_overwrite" and _VERSIONS_FILE in record.files:
+            with project_trash.open_record_file(project_path, record.id, _VERSIONS_FILE)[0] as handle:
+                _add_uses(uses, json.load(handle), REF_TRASHED)
         if record.download_only:
             continue
         if record.object.get("kind") == "version":

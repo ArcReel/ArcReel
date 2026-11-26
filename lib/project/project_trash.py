@@ -29,7 +29,7 @@ from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.infra.api_errors import ConflictError, NotFoundError
-from lib.infra.json_io import atomic_write_json
+from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.project_write_journal import active_journal, track_write
 from lib.project.project_change_hints import (
     emit_project_change_batch,
@@ -184,6 +184,38 @@ def structure_files(project_dir: Path) -> list[str]:
     return found
 
 
+def _store_snapshot(
+    project_dir: Path,
+    destination: Path,
+    deleted: Sequence[str],
+    before: Mapping[str, bytes],
+    shared: dict[str, Path] | None,
+) -> int:
+    """A script replacement can link the immutable copies made for the first removed entry."""
+    names = shared.keys() if shared else structure_files(project_dir)
+    members = sorted(rel for rel in set(names).union(before).difference(deleted) if is_structure_file(rel))
+    journal = active_journal(project_dir)
+    if journal:
+        journal.track_new_files(destination, members)
+    size = 0
+    for rel in members:
+        target = destination / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if rel in before:
+            target.write_bytes(before[rel])
+        elif shared is not None and rel in shared:
+            try:
+                os.link(shared[rel], target)
+            except OSError:
+                shutil.copy2(shared[rel], target)
+        else:
+            shutil.copy2(project_dir / rel, target)
+            if shared is not None:
+                shared[rel] = target
+        size += target.stat().st_size
+    return size
+
+
 def record_deletion(
     project_dir: Path,
     obj: Mapping[str, Any],
@@ -195,6 +227,9 @@ def record_deletion(
     sources: Mapping[str, Path] | None = None,
     before: Mapping[str, bytes] | None = None,
     histories: Mapping | None = None,
+    archived_bytes: Mapping[str, bytes] | None = None,
+    remote_files: Sequence[str] = (),
+    shared_snapshot: dict[str, Path] | None = None,
 ) -> TrashRecord:
     """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
 
@@ -205,7 +240,7 @@ def record_deletion(
     结构删除的对象可以没有被删文件（它只存在于结构文件里）。
     任一文件移动失败时已移走的文件搬回原处，不留下半条记录；记录建立后提交失败时用 :func:`withdraw` 撤回。
     """
-    if "kind" not in obj or not (files or snapshot):
+    if "kind" not in obj or not (files or snapshot or archived_bytes):
         raise ValueError("删除记录需要对象类型与至少一个被删文件")
     record_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
     record_dir = trash_dir(project_dir) / record_id
@@ -219,31 +254,32 @@ def record_deletion(
             if store.path.is_file():
                 before = dict(before or {})
                 before["versions/versions.json"] = json.dumps(histories or {}).encode()
-            deleted = set(files)
-            for rel in sorted(set(structure_files(project_dir)).union(before or ())):
-                if rel not in deleted and is_structure_file(rel):
-                    target = record_dir / SNAPSHOT_DIRNAME / rel
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    track_write(target)
-                    if before is not None and rel in before:
-                        target.write_bytes(before[rel])
-                    else:
-                        shutil.copy2(project_dir / rel, target)
-                    size += target.stat().st_size
+            size += _store_snapshot(project_dir, record_dir / SNAPSHOT_DIRNAME, files, before or {}, shared_snapshot)
+        moves: list[tuple[Path, Path]] = []
         for rel in files:
-            source = (sources or {}).get(rel) or project_dir / _checked_rel(rel)
+            rel = _checked_rel(rel)
+            source = (sources or {}).get(rel) or project_dir / rel
             if source.is_symlink() or not source.is_file():
                 raise FileNotFoundError(rel)
             target = stored / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             size += source.stat().st_size
-            track_write(source, target)
+            moves.append((source, target))
+        if moves:
+            track_write(*(path for move in moves for path in move))
+        for source, target in moves:
             os.replace(source, target)
             moved.append((target, source))
+        for rel, data in (archived_bytes or {}).items():
+            target = stored / _checked_rel(rel)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_bytes(target, data)
+            size += len(data)
         record = TrashRecord(
             id=record_id,
             object=dict(obj),
-            files=tuple(files),
+            files=tuple(dict.fromkeys([*files, *(archived_bytes or {}), *remote_files])),
+            download_only=archived_bytes is not None,
             schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
             deleted_at=datetime.now(UTC),
             origin=origin or ("user" if get_project_change_source() == "webui" else "agent"),
@@ -270,11 +306,11 @@ def _track_tree(project_dir: Path, directory: Path) -> None:
             track_write(path)
 
 
-def withdraw(project_dir: Path, record_id: str) -> None:
+def withdraw(project_dir: Path, record_id: str, *, moved_files: Sequence[str] | None = None) -> None:
     """撤回同一临界区里刚建立的删除记录：被删文件搬回原处，记录消失。删除提交失败时补偿用；调用方持有项目锁。"""
     record = require_record(project_dir, record_id)
     record_dir = trash_dir(project_dir) / record.id
-    for rel in record.files:
+    for rel in record.files if moved_files is None else moved_files:
         source = record_dir / FILES_DIRNAME / rel
         target = project_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)

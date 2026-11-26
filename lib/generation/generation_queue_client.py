@@ -211,6 +211,7 @@ async def enqueue_task_only(
     batch_id: str | None = None,
     batch_unit_id: str | None = None,
     batch_unit_ids: tuple[str, ...] = (),
+    advisory_provider_id: str | None = None,
     queue: GenerationQueue | None = None,
 ) -> dict[str, Any]:
     queue = queue or get_generation_queue()
@@ -237,6 +238,7 @@ async def enqueue_task_only(
         batch_id=batch_id,
         batch_unit_id=batch_unit_id,
         batch_unit_ids=batch_unit_ids,
+        provider_id=advisory_provider_id,
     )
 
 
@@ -396,7 +398,7 @@ class TaskSpec:
     """Specification for a single enqueue request (single-task or batch member).
 
     Construct via :meth:`from_request`, the single guard point that owns a request's
-    structural validity. Validation is provider-agnostic (no provider fields here):
+    structural validity. Validation is provider-agnostic:
     capability checks such as ``duration ↔ supported_durations`` live in each route's
     provider-aware request projection and are rechecked when execution materializes the request.
     """
@@ -412,6 +414,7 @@ class TaskSpec:
     dependency_index: int | None = None
     unit_id: str | None = None
     batch_unit_ids: tuple[str, ...] = ()
+    advisory_provider_id: str | None = None
 
     @classmethod
     def from_request(
@@ -590,6 +593,7 @@ async def _enqueue_sequentially(
                 payload=spec.payload,
                 script_file=spec.script_file,
                 source=spec.source,
+                advisory_provider_id=spec.advisory_provider_id,
                 dependency_task_id=dep_task_id,
                 dependency_group=spec.dependency_group,
                 dependency_index=spec.dependency_index,

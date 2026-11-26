@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import VersionManager
 from lib.project import project_trash
@@ -126,3 +128,21 @@ def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path) -> None:
     assert "E1S02" not in ids
     assert "E1S04" not in ids
     assert "E1S03" not in ids
+
+
+def test_landing_initialization_retries_old_history_and_observes_later_timeline(tmp_path: Path) -> None:
+    pm = _narration_project(tmp_path, ["E1S01"])
+    project = pm.get_project_path("demo")
+    rel = project_trash.trash_dir(project) / "old/snapshot/scripts/episode_1.json"
+    rel.parent.mkdir(parents=True)
+    rel.write_text("{")
+    script = pm.load_script("demo", "episode_1.json")
+    with pytest.raises(json.JSONDecodeError):
+        pm.save_script("demo", script, "episode_1.json", new_script_version=True)
+    assert not (project / ".arcreel/item-id-floors.json").exists()
+    _write_json(rel, {"segments": [{"segment_id": "E1S99"}]})
+    pm.save_script("demo", script, "episode_1.json", new_script_version=True)
+    assert script["segments"][0]["segment_id"] == "E1S100"
+    _write_json(project / "edit_timelines/episode_1/t.json", {"clips": [{"unit_id": "E1S105"}]})
+    pm.save_script("demo", script, "episode_1.json", new_script_version=True)
+    assert script["segments"][0]["segment_id"] == "E1S106"

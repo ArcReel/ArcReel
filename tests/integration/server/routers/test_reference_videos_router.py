@@ -1270,6 +1270,9 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     assert [item["unit_id"] for item in body["units"]] == [first, second]
     assert all(item["admitted"] for item in body["units"])
     assert [call["resource_id"] for call in enqueued] == [first, second]
+    assert [call["advisory_provider_id"] for call in enqueued] == [
+        unit["projection"]["provider_id"] for unit in body["units"]
+    ]
     assert enqueued[0]["payload"] == {
         "script_file": "scripts/episode_1.json",
         "reference_request_options": {},

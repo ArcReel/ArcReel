@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unicodedata
 from datetime import timedelta
@@ -371,3 +372,52 @@ def test_history_version_moves_to_trash_and_restores_into_version_history(trash_
     assert back["content_digest"] == old["content_digest"]
     assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"
     assert current.read_bytes() == b"in-use v2"
+
+
+def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_project_dir, monkeypatch):
+    from lib.material import formal_objects, work_files
+    from lib.material.storage import ObjectLocator
+    from lib.project.script_entry_cleanup import archive_script_overwrite
+
+    root = trash_project_dir
+    rel = "scripts/episode_1.json"
+    image = "storyboards/scene_E1S01.png"
+    content = (root / image).read_bytes()
+    versions = VersionManager(root)
+    versions.add_version("storyboards", "E1S01", "old", source_file=root / image)
+    history = versions.resource_records([("storyboards", "E1S01")])
+    version = history["storyboards"]["E1S01"]["versions"][0]
+    locator = ObjectLocator(connection_id=7, bucket="media", key="original")
+    version.update(
+        storage=locator.to_record(),
+        content_version_id="test-version",
+        content_digest=hashlib.sha256(content).hexdigest(),
+    )
+    versions.detach_resources([("storyboards", "E1S01")])
+    versions.attach_resources(history)
+    (root / image).unlink()
+    (root / version["file"]).unlink()
+
+    with project_metadata_lock(root):
+        archive_script_overwrite(root, 1, "episode_1.json", ["E1S01"], {rel: (root / rel).read_bytes()}, None)
+    [record] = _records(trash_client)
+    endpoint = f"{TRASH}/{record['id']}"
+    assert record["download_only"]
+    assert trash_client.post(endpoint + "/restore").status_code == 409
+    uses = {}
+    formal_objects._trash_uses(root, uses)
+    assert uses == {(7, "media", "original"): {("test-version", "trashed")}}
+
+    async def fetch(stored):
+        assert stored == locator
+        return content
+
+    monkeypatch.setattr(work_files, "fetch_object_content", fetch)
+    for path in (image, version["file"]):
+        response = trash_client.get(endpoint + "/files", params={"path": path})
+        assert response.status_code == 200
+        assert response.content == content
+    project_trash.purge(root, record["id"])
+    uses = {}
+    formal_objects._trash_uses(root, uses)
+    assert not uses

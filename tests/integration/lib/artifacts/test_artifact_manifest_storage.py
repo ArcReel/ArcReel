@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -319,6 +320,24 @@ def test_project_adapter_reads_parse_each_manifest_version_once(
     assert entry.basis_digest == second_basis.digest
     assert set(readers[1].snapshot_entries()) == {first_key, second_key}
     assert parses["parses"] == parses_before_reads + 1
+
+
+def test_concurrent_readers_share_decoded_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    project, _ = _registered_script_project(tmp_path)
+    reset_manifest_read_cache_for_tests()
+    parses = count_manifest_parses(monkeypatch)
+    ready = threading.Barrier(4)
+
+    def read():
+        adapter = ProjectArtifactManifestAdapter(project)
+        ready.wait(timeout=5)
+        return adapter.read_snapshot().entries
+
+    with ThreadPoolExecutor(max_workers=4) as threads:
+        futures = [threads.submit(read) for _ in range(4)]
+        snapshots = [future.result() for future in futures]
+    assert parses["parses"] == 1
+    assert all(entries is snapshots[0] for entries in snapshots)
 
 
 @_READ_CLOCKS

@@ -451,12 +451,15 @@ class ReferenceUnitRequestProjector:
         script: dict,
         unit: dict,
         resolved_assets: Sequence[ResolvedReferenceAsset],
+        catalog: ReferenceCatalog | None = None,
         options: ReferenceRequestOptions | None = None,
     ) -> ReferenceUnitRequestProjection:
         """投影调用瞬间状态；``script`` 显式入参锁定公共缝的完整上下文契约。"""
 
         del script
-        hydration = await asyncio.to_thread(hydrate_unit_references, project, unit, resolved_assets, self._assets)
+        hydration = await asyncio.to_thread(
+            hydrate_unit_references, project, unit, resolved_assets, self._assets, catalog=catalog
+        )
         return await self.project_hydrated(project=project, unit=unit, hydration=hydration, options=options)
 
     async def project_hydrated(
@@ -625,6 +628,7 @@ async def project_reference_unit_request(
     options: ReferenceRequestOptions | None = None,
     resolver: ConfigResolver | None = None,
     request_facts_lookup: ReferenceRequestFactsLookup | None = None,
+    expansion: ReferenceExpansionCache | None = None,
     shared_assets: Callable[[], ReferenceAssetAvailability] | None = None,
     asset_links: ReferenceAssetLinkCheck | None = None,
     check_asset_links: bool = True,
@@ -657,7 +661,7 @@ async def project_reference_unit_request(
 
     def current_assets() -> tuple[ReferenceAssetAvailability, tuple[ResolvedReferenceAsset, ...]]:
         availability = CurrentReferenceAssets(project_path, project) if shared_assets is None else shared_assets()
-        return availability, resolve_reference_assets(project, project_path, unit)
+        return availability, resolve_reference_assets(project, project_path, unit, expansion=expansion)
 
     availability, resolved_assets = await asyncio.to_thread(current_assets)
     projector = ReferenceUnitRequestProjector(request_facts_lookup, availability, asset_links)
@@ -666,5 +670,6 @@ async def project_reference_unit_request(
         script=script,
         unit=unit,
         resolved_assets=resolved_assets,
+        catalog=expansion.catalog if expansion else None,
         options=options or ReferenceRequestOptions(),
     )

@@ -83,6 +83,7 @@ function objectTitle(
   if (object.kind === "source_file" && typeof object.path === "string") {
     return t("trash_object_source_file", { name: object.path.split("/").pop() });
   }
+  if (object.kind === "script_overwrite") return t("trash_object_script_overwrite", { episode: object.episode });
   if (object.kind === "planning_draft") return t("trash_object_planning_draft", { episode: object.episode });
   if (object.kind === "script_entry") {
     const unit = object.item_kind === "video_units";
@@ -347,7 +348,7 @@ function DownloadOnlyFiles({ projectName, record }: { projectName: string; recor
 
   return (
     <div className="mt-1 flex min-w-0 flex-col items-start gap-1">
-      <p className="text-xs text-warn">{t("trash_download_only_hint")}</p>
+      <p className="text-xs text-warn">{t(record.object.kind === "script_overwrite" ? "trash_script_overwrite_hint" : "trash_download_only_hint")}</p>
       <ul className="flex min-w-0 max-w-full flex-col items-start">
         {record.files.map((path) => (
           <li key={path} className="max-w-full">

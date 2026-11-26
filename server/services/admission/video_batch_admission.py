@@ -12,6 +12,7 @@ so the two cannot reach different conclusions about the same project.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -45,7 +46,7 @@ from lib.generation.generation_result import (
     GenerationTargetState,
     artifact_state_problem,
     observe_artifact_status,
-    select_generation_targets,
+    select_observed_targets,
 )
 from lib.generation.video_request_facts import (
     VideoRequestCostFacts,
@@ -63,11 +64,14 @@ from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.provider_asset_links import configured_asset_link_check
 from lib.script.reference_video.request_projection import (
+    MemoizedReferenceAssets,
     ProjectionProblem,
+    ReferenceExpansionCache,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
     configured_reference_request_facts,
     project_reference_unit_request,
+    resolve_reference_assets,
 )
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import StoryboardImageUnavailable
@@ -382,11 +386,7 @@ def resolve_reference_batch_targets(
     if resolver is None:
         resolver = active_artifact_currency_resolver(project_path, project)
     states = video_target_states(units, "unit_id", episode=episode, resolver=resolver)
-    selection = select_generation_targets(
-        candidates=[state.candidate for state in states.values()],
-        requested_ids=requested_ids,
-        resolver=resolver,
-    )
+    selection = select_observed_targets(states.values(), requested_ids)
     target_ids = set(selection.target_ids)
     targets = [unit for unit in units if isinstance(unit, dict) and str(unit.get("unit_id") or "") in target_ids]
     return targets, selection, states
@@ -561,6 +561,7 @@ async def admit_reference_video_batch(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
+    currency_resolver: ArtifactCurrencyResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
 
@@ -589,7 +590,14 @@ async def admit_reference_video_batch(
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     seen_ids: set[str] = set()
-    shared_assets = functools.cache(lambda: CurrentReferenceAssets(project_path, project))
+    expansion = None
+
+    @functools.cache
+    def shared_assets() -> MemoizedReferenceAssets:
+        current = CurrentReferenceAssets(project_path, project, resolver=currency_resolver)
+        current.preload([resolve_reference_assets(project, project_path, unit, expansion=expansion) for unit in units])
+        return MemoizedReferenceAssets(current)
+
     for index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or "")
         if not unit_id:
@@ -633,6 +641,8 @@ async def admit_reference_video_batch(
             tickets.append(UnitAdmissionTicket(unit_id=unit_id, problems=tuple(problems)))
             continue
 
+        if expansion is None:
+            expansion = await asyncio.to_thread(ReferenceExpansionCache, project, project_path)
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
         try:
             projection = await project_reference_unit_request(
@@ -643,6 +653,7 @@ async def admit_reference_video_batch(
                 project_path=project_path,
                 options=unit_options,
                 resolver=resolver,
+                expansion=expansion,
                 shared_assets=shared_assets,
                 asset_links=asset_links,
             )

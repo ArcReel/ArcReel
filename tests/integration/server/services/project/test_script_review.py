@@ -733,9 +733,19 @@ class TestConfirmMaterializesScript:
             for resource_type in ("storyboards", "end_frames", "videos", "audio"):
                 assert not versions.has_versions(resource_type, entry_id)
                 assert not (project_path / resource_relative_path(resource_type, entry_id)).exists()
-        records = {record.object["id"]: record for record in project_trash.list_records(project_path)}
-        assert set(records) == {"E1S01", "E1S09"}
-        assert "storyboards/scene_E1S09.png" in records["E1S09"].files
+        [record] = project_trash.list_records(project_path)
+        assert record.object["kind"] == "script_overwrite"
+        assert record.download_only
+        assert not record.has_snapshot
+        for entry_id in ("E1S01", "E1S09"):
+            for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+                rel = resource_relative_path(resource_type, entry_id)
+                with project_trash.open_record_file(project_path, record.id, rel)[0] as handle:
+                    assert handle.read() == b"old-" + resource_type.encode()
+        with project_trash.open_record_file(project_path, record.id, "versions/versions.json")[0] as metadata:
+            history = json.load(metadata)
+        assert set(history["storyboards"]) == {"E1S01", "E1S09"}
+        assert set(versions.snapshot_files(history)).issubset(record.files)
 
     async def test_acknowledged_overwrite_keeps_old_entries_without_media_recoverable(
         self, tmp_path, video_request_facts
@@ -746,11 +756,14 @@ class TestConfirmMaterializesScript:
         _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
         project_path = pm.get_project_path("demo")
 
+        rel = "scripts/episode_1.json"
+        old = (project_path / rel).read_bytes()
         await _confirm_over_existing_script(pm)
 
-        records = {record.object["id"]: record for record in project_trash.list_records(project_path)}
-        assert set(records) == {"E1S01", "E1S09"}
-        assert all(record.has_snapshot for record in records.values())
+        [record] = project_trash.list_records(project_path)
+        assert record.files == (rel,)
+        with project_trash.open_record_file(project_path, record.id, rel)[0] as handle:
+            assert handle.read() == old
 
     async def test_overwrite_is_refused_untouched_when_version_history_is_unreadable(
         self, tmp_path, video_request_facts

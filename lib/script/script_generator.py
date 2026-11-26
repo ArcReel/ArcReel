@@ -58,7 +58,6 @@ from lib.infra.async_thread import run_noninterruptible_async, run_noninterrupti
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
-from lib.project.item_id_history import issue_landing_item_ids
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.prompts.prompt_builders_ad import (
     build_ad_prompt,
@@ -386,11 +385,6 @@ class ScriptGenerator:
         """该集正式剧本的文件名与写入基线指纹（文件不存在时指纹为 None）。"""
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
         return filename, content_fingerprint(self.project_path / "scripts" / filename)
-
-    def _issue_landing_item_ids(self, script_data: dict[str, Any]) -> None:
-        """落盘前由服务端给生成产出的条目发号（见 ``item_id_history.issue_landing_item_ids``）；须在线程里调用。"""
-        pm = ProjectManager.for_project_dir(self.project_path)
-        issue_landing_item_ids(self.project_path, pm.load_project(self.project_path.name), script_data)
 
     def _save_script(self, script_data: dict[str, Any], filename: str, **kwargs: Any) -> Path:
         """经写盘统一入口保存剧本；ProjectManager 构造时会建目录，须在线程里调用。"""
@@ -790,11 +784,11 @@ class ScriptGenerator:
                     )
                 if claim is not None:
                     assert_current_artifact_input_claims_usable(self.project_path, (claim,))
-                self._issue_landing_item_ids(script_data)
                 self._save_script(
                     script_data,
                     filename,
                     validate=True,
+                    new_script_version=True,
                     expected_fingerprint=expected_script_fingerprint,
                     project_update=update_project,
                 )
@@ -916,13 +910,13 @@ class ScriptGenerator:
         self._freeze_ad_artifact_basis(episode, registered_project)
 
         def _issue_and_save() -> Path:
-            self._issue_landing_item_ids(script_data)
             return self._save_script(
                 script_data,
                 filename,
                 validate=True,
                 artifact_basis=self._artifact_basis,
                 expected_fingerprint=formal_baseline,
+                new_script_version=True,
                 project_update=new_assets.apply_to_project,
             )
 

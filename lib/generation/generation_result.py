@@ -563,10 +563,7 @@ def select_generation_targets(
     single gate every entry point feeds this through.
     """
 
-    if requested_ids is not None and not requested_ids:
-        raise ValueError("显式 ID 集合不能为空：省略该参数表示只补缺失项")
-
-    states = [
+    states = (
         GenerationTargetState(candidate=candidate, status=status, blocker=blocker)
         for candidate in candidates
         for status, blocker in [
@@ -576,8 +573,16 @@ def select_generation_targets(
                 artifact_path=candidate.artifact_path,
             )
         ]
-    ]
+    )
+    return select_observed_targets(states, requested_ids)
 
+
+def select_observed_targets(
+    states: Iterable[GenerationTargetState], requested_ids: Sequence[str] | None
+) -> GenerationSelection:
+    """Select targets without observing the same batch a second time."""
+    if requested_ids is not None and not requested_ids:
+        raise ValueError("显式 ID 集合不能为空：省略该参数表示只补缺失项")
     if requested_ids is not None:
         wanted = list(dict.fromkeys(str(value) for value in requested_ids))
         by_id = {state.unit_id: state for state in states if state.unit_id}
@@ -1159,4 +1164,5 @@ __all__ = [
     "record_batch_outcomes",
     "render_generation_result",
     "select_generation_targets",
+    "select_observed_targets",
 ]

@@ -282,6 +282,14 @@ class SQLiteHistory:
             else:
                 yield from db.execute("SELECT kind,name FROM resource WHERE kind=? ORDER BY id", (kind,))
 
+    def episode_resource_names(self, episode: int, kinds: Iterable[str]) -> Iterator[str]:
+        with self._read_connection() as db:
+            for kind in kinds:
+                for (name,) in db.execute(
+                    "SELECT name FROM resource WHERE kind=? AND name GLOB ?", (kind, f"E{episode}[SU]*")
+                ):
+                    yield name
+
     def equivalent_keys(self, kind: str, *names: str) -> Iterator[Identity]:
         with self._read_connection() as db:
             for name in dict.fromkeys(map(normalize_asset_name, names)):
@@ -332,6 +340,24 @@ class SQLiteHistory:
                     continue
                 data.setdefault(kind, {})[name] = attrs
         return ResourceBatch(data)
+
+    def selected_equivalents(self, keys: Iterable[Identity]) -> dict[Identity, History]:
+        wanted = {(kind, normalize_asset_name(name)) for kind, name in keys}
+        result: dict[Identity, History] = {key: {} for key in wanted}
+        with self._read_connection() as db:
+            rows = db.execute(
+                "WITH wanted(kind,name) AS (SELECT value->>0,value->>1 FROM json_each(?)) "
+                "SELECT r.kind,r.normalized,r.name,r.current_version,v.payload FROM wanted w "
+                "JOIN resource r ON r.kind=w.kind AND r.normalized=w.name "
+                "LEFT JOIN version_record v ON v.resource=r.id AND v.number=r.current_version ORDER BY r.id",
+                (json.dumps(list(wanted)),),
+            )
+            for kind, normalized, name, current, payload in rows:
+                result[kind, normalized].setdefault(kind, {})[name] = {
+                    "current_version": current,
+                    "versions": [json.loads(payload)] if payload is not None else [],
+                }
+        return result
 
     def selected_resources(self, keys: Iterable[Identity], *, proof_version: int | None = None) -> History:
         result: History = {}
