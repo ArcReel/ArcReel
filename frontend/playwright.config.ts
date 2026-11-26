@@ -72,6 +72,7 @@ export default defineConfig({
   ],
   webServer: {
     command: prebuilt ? startServer : `pnpm exec vite build && ${startServer}`,
+    stdout: live && isCI ? "pipe" : "ignore",
     url: live ? `${BASE_URL}/health` : BASE_URL,
     reuseExistingServer: !prebuilt && !live && !isCI,
     gracefulShutdown: live ? { signal: "SIGTERM", timeout: 10_000 } : undefined,

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import signal
 import tempfile
 import wave
 from collections import deque
@@ -13,7 +14,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from types import FrameType
+from typing import Any, Literal, Never
 
 import uvicorn
 from pydantic import BaseModel
@@ -39,6 +41,12 @@ def main() -> None:
     for key in ("DATABASE_URL", "AI_ANIME_PROJECTS"):
         os.environ.pop(key, None)
 
+    def terminate(signum: int, _frame: FrameType | None) -> Never:
+        """Let the temporary directory unwind when Uvicorn replays SIGTERM after shutdown."""
+        signal.signal(signum, signal.SIG_IGN)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, terminate)
     with tempfile.TemporaryDirectory(prefix="arcreel-playwright-live-") as data_dir:
         os.environ.update(
             ARCREEL_DATA_DIR=data_dir,

@@ -23,6 +23,12 @@ testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执�
 
 本地运行 `pnpm e2e` 或 `pnpm e2e:live` 时，Playwright 会在启动服务前构建前端。CI 浏览器作业复用 `frontend-static` 的构建产物：检出同一提交后由 [restore-browser-build](../../.github/actions/restore-browser-build/action.yml) 校验产物来源与构建输入，恢复 `dist` 及运行依赖并设置 `E2E_PREBUILT=1`。
 
+### 全栈实机 E2E
+
+在仓库根目录运行 `uv run python scripts/gate.py e2e-live`。首次运行前先在 `frontend/` 安装依赖，再执行 `pnpm exec playwright install chromium`。可与其他域组合运行，例如 `uv run python scripts/gate.py workflows e2e-live`。门禁每次构建一次前端，再用本次生成的 `dist` 运行实机用例。并行使用多个 worktree 时，用 `E2E_PORT` 指定空闲端口，默认端口为 4174。
+
+实机套件使用桌面视口和单个 worker，后端通过 `/health` 检查后运行用例。每次启动使用临时 SQLite 数据库、真实生成 worker 和 SSE，关闭认证，外部付费服务使用本地替身。用例失败时，在 `frontend/test-results/` 查找 `trace.zip`。CI 的 `e2e-live-diagnostics` 产物还包含后端与测试运行日志及 Playwright HTML 报告。
+
 ## 前端属性测试与反例重放
 
 在仓库根目录运行 `pnpm --dir frontend exec vitest run .property.test`。默认 `ci` 档使用固定种子 4161，每项属性运行 25 个样例、每条序列最多 16 步；`nightly` 深度探索使用随机种子，每项属性运行 200 个样例、每条序列最多 80 步：

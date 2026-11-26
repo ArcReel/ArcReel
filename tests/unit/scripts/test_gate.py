@@ -41,6 +41,7 @@ def test_triggers_only_name_known_domains() -> None:
         ("packages/arcreel-catalog-core/src/x.py", ["backend", "catalog-core", "tests", "conventions"]),
         ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend"]),
         ("frontend/e2e/record-fixtures.ts", ["tests", "conventions", "frontend", "e2e-record"]),
+        ("frontend/e2e/live/backend.py", ["tests", "conventions", "frontend", "e2e-live"]),
         ("frontend/src/a.tsx", ["tests", "conventions", "frontend"]),
         (".github/workflows/test.yml", ["tests", "conventions", "workflows"]),
         ("CONTRIBUTING.md", ["tests", "conventions", "website"]),
@@ -293,3 +294,12 @@ def test_quick_checks_skip_machine_lock_while_full_suites_acquire_it(tmp_path, m
     assert not lock_file.exists()
     assert gate.run_domains(["frontend"], ["frontend/src/theme.ts"], {"frontend"}) == 0
     assert lock_file.exists()
+
+
+@pytest.mark.parametrize("domains", [["e2e-live"], ["frontend", "e2e-live"]])
+def test_live_gate_builds_once_then_uses_current_dist(domains, commands):
+    assert gate.main(domains) == 0
+    build = ("pnpm", "exec", "vite", "build")
+    live = ("env", "E2E_PREBUILT=1", "pnpm", "e2e:live")
+    assert commands.count(build) == commands.count(live) == 1
+    assert commands.index(build) < commands.index(live)
