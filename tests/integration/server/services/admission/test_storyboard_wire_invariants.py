@@ -8,9 +8,10 @@ from hypothesis import strategies as st
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, InMemoryArtifactManifestAdapter
 from lib.artifacts.generation_input import ManifestInputObservation, storyboard_image_input
-from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.image_errors import ImageCapabilityError
+from lib.billing.ledger import Ledger
+from lib.generation.media_generator import MediaGenerator
 from server.services.admission.image_references import check_storyboard_image_limit
 from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
@@ -20,7 +21,9 @@ from tests.http_capture import capture_http, only_request, request_json
 @given(count=st.integers(0, 5), limit=st.integers(0, 6), pending=st.booleans(), segment_break=st.booleans())
 @example(count=0, limit=0, pending=True, segment_break=False)
 @example(count=1, limit=0, pending=True, segment_break=False)
-async def test_storyboard_admission_reserves_every_image_in_the_later_submit(count, limit, pending, segment_break):
+async def test_storyboard_admission_reserves_every_image_in_the_later_submit(
+    example_database, count, limit, pending, segment_break
+):
     with TemporaryDirectory() as directory:
         root = Path(directory)
         previous_path = "storyboards/scene_E1S01.png"
@@ -69,16 +72,27 @@ async def test_storyboard_admission_reserves_every_image_in_the_later_submit(cou
         )
         assert not assembled.gaps
         backend = ViduImageBackend(api_key="test", base_url="https://api.vidu.com")
-        request = ImageGenerationRequest(
-            "P",
-            root / "out.png",
-            reference_images=[ReferenceImage(str(ref.visual.path)) for ref in assembled.references],
-        )
-        with capture_http() as router:
-            submit = router.post("https://api.vidu.com/reference2image").mock(return_value=httpx.Response(200, json={}))
-            with pytest.raises(RuntimeError, match="task_id"):
-                await backend.generate(request)
-            sent = len(request_json(only_request(submit)).get("images", []))
+        generator = MediaGenerator(root, image_backend=backend, image_provider_id="vidu")
+        async with example_database(root / "ledger.sqlite3") as session_factory:
+            generator.ledger = Ledger(session_factory=session_factory)
+            with (
+                assembled.freeze(
+                    max_reference_images=None, model=backend.model, bind_claims=lambda claims, _: claims
+                ) as frozen,
+                capture_http() as router,
+            ):
+                submit = router.post("https://api.vidu.com/reference2image").mock(
+                    return_value=httpx.Response(200, json={})
+                )
+                with pytest.raises(RuntimeError, match="task_id"):
+                    await generator.generate_image_async(
+                        frozen.prompt,
+                        "storyboards",
+                        "E1S02",
+                        reference_images=frozen.references.reference_images,
+                        reference_sources=frozen.references.source_paths,
+                    )
+                sent = len(request_json(only_request(submit)).get("images", []))
         assert sent == count + int(pending and not segment_break)
         assert (failure is not None) == (sent > limit)
         if failure is not None:

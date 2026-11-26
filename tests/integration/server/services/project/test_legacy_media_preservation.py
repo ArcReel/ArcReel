@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import example, given, settings
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver, read_artifact_content_digest
@@ -38,7 +38,7 @@ from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
-from tests.invariant_profiles import is_nightly_profile
+from tests.invariant_profiles import io_property_settings
 from tests.legacy_project_shapes import (
     LEGACY_PROJECT_SHAPES,
     cross_bind_episode_scripts,
@@ -48,7 +48,7 @@ from tests.legacy_project_shapes import (
 )
 
 _RELEASE = Path(__file__).resolve().parents[4] / "fixtures/released_archives/v0.37.0-tts.zip"
-_project_examples = settings(max_examples=40 if is_nightly_profile() else 8)
+_project_examples = io_property_settings()
 
 _SCRIPT_MEDIA_DIRS = {
     "storyboard_image": "storyboards",
@@ -483,6 +483,7 @@ def test_upgrade_preserves_field_owners(tree: str, crossed: bool, missing: bool,
             assert expected[location] is None
             expected[location] = b"orphan-reference"
         assert _media_snapshot(target) == expected
+        _assert_second_upgrade_stable(target)
         if crossed:
             for project in (root, target):
                 for entry in _read_json(project / "project.json")["episodes"]:

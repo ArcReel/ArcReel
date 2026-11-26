@@ -627,7 +627,9 @@ def _register_models() -> None:
 
 
 @asynccontextmanager
-async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncGenerator[AsyncEngine]:
+async def make_test_engine(
+    *, dialect_aware: bool = True, file_path: Path | None = None, sqlite_template: Path | None = None
+) -> AsyncGenerator[AsyncEngine]:
     """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PostgreSQL 分支。
 
     那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层
@@ -642,6 +644,10 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     多个任务同时写库时用例失败，提示改用对应的文件库夹具。``dialect_aware=False`` 固定走 SQLite，
     postgres-compat job 里也不改道——unit 档用例不该被拉去跑 PG。
     """
+    if sqlite_template is not None:
+        if dialect_aware or file_path is None:
+            raise ValueError("a SQLite template requires an isolated SQLite file")
+        await asyncio.to_thread(shutil.copyfile, sqlite_template, file_path)
     pg_url = _pg_url_from_env() if dialect_aware else None
     if pg_url:
         schema = f"test_{_uuid.uuid4().hex[:12]}"
@@ -681,15 +687,31 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.close()
 
-    async with engine.begin() as conn:
-        _register_models()
-        await conn.run_sync(Base.metadata.create_all)
+    if sqlite_template is None:
+        async with engine.begin() as conn:
+            _register_models()
+            await conn.run_sync(Base.metadata.create_all)
     try:
         yield engine
     finally:
         await engine.dispose()
     if write_guard is not None:
         write_guard.raise_if_violated()
+
+
+@pytest.fixture(scope="module")
+async def example_database(tmp_path_factory: pytest.TempPathFactory):
+    """每个生成样例复制一份空库，避免每次重新建表。"""
+    template = tmp_path_factory.mktemp("example-schema") / "schema.sqlite3"
+    async with make_test_engine(dialect_aware=False, file_path=template):
+        pass
+
+    @asynccontextmanager
+    async def open_database(path: Path):
+        async with make_test_engine(dialect_aware=False, file_path=path, sqlite_template=template) as engine:
+            yield async_sessionmaker(engine, expire_on_commit=False)
+
+    return open_database
 
 
 @pytest.fixture
@@ -807,11 +829,12 @@ CLASSIFICATION_MARKS = ("unit", "integration", "e2e")
 
 
 def _tier_from_path(item: pytest.Item) -> str | None:
-    """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）。"""
-    for root in (TESTS_ROOT, TESTS_ROOT.parent / "packages/arcreel-catalog-core/tests"):
-        if item.path.is_relative_to(root):
-            tier = item.path.relative_to(root).parts[0]
-            return tier if tier in CLASSIFICATION_MARKS else None
+    """用例所在的档位目录名（`tests/unit|integration|e2e/…` 的第一段）；子包测试归入 `unit`。"""
+    if item.path.is_relative_to(TESTS_ROOT.parent / "packages/arcreel-catalog-core/tests"):
+        return "unit"
+    if item.path.is_relative_to(TESTS_ROOT):
+        tier = item.path.relative_to(TESTS_ROOT).parts[0]
+        return tier if tier in CLASSIFICATION_MARKS else None
     return None
 
 

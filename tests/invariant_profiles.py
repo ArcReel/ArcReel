@@ -33,3 +33,7 @@ def is_nightly_profile() -> bool:
 
 def state_machine_settings() -> settings:
     return settings(max_examples=40 if is_nightly_profile() else 8)
+
+
+def io_property_settings() -> settings:
+    return settings(max_examples=40 if is_nightly_profile() else 12)
