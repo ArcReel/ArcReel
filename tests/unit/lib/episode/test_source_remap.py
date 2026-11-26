@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
+
 from lib.episode.episode_ledger import SourceDoc, SourceSpan
 from lib.episode.source_remap import (
     align_texts,
@@ -55,66 +59,50 @@ class TestAlignTexts:
         )
 
 
+@st.composite
+def _source_edits(draw):
+    lengths = draw(st.lists(st.integers(1, 5), min_size=2, max_size=4))
+    gaps = draw(st.lists(st.integers(0, 2), min_size=len(lengths) + 1, max_size=len(lengths) + 1))
+    size = sum(lengths) + sum(gaps)
+    start = draw(st.integers(0, size))
+    removed = draw(st.integers(0, size - start))
+    inserted = draw(st.text(alphabet="新🌱", min_size=1 if removed == 0 else 0, max_size=4))
+    return lengths, gaps, start, removed, inserted
+
+
+@pytest.mark.invariant
+@example(edit=([1, 1], [0, 0, 0], 1, 0, "新"))
+@given(edit=_source_edits())
+def test_known_edit_preserves_episode_character_ownership(edit):
+    lengths, gaps, start, removed, inserted = edit
+    owners: list[int | None] = [None] * gaps[0]
+    spans = {}
+    for episode, length in enumerate(lengths, 1):
+        spans[episode] = _span(len(owners), len(owners) + length)
+        owners.extend([episode] * length)
+        owners.extend([None] * gaps[episode])
+    old = "".join(chr(0x4E00 + i) for i in range(len(owners)))
+    end = start + removed
+    new = old[:start] + inserted + old[end:]
+    if removed:
+        replacement = [owners[start + ((j + 1) * removed - 1) // len(inserted)] for j in range(len(inserted))]
+    else:
+        owner = owners[start - 1] if 0 < start < len(owners) and owners[start] is not None else None
+        replacement = [owner] * len(inserted)
+    expected = owners[:start] + replacement + owners[end:]
+
+    result = _by_episode(remap_for_edit([SourceDoc(A, old)], spans, rel=A, new_text=new))
+
+    assert result.keys() == spans.keys()
+    for episode, before in spans.items():
+        positions = [i for i, owner in enumerate(expected) if owner == episode]
+        after = _span(positions[0], positions[-1] + 1) if positions else None
+        content = "".join(new[i] for i in positions)
+        assert result[episode].after == after
+        assert result[episode].text_changed == (content != old[before.start : before.end])
+
+
 class TestRemapForEdit:
-    def test_a_typo_only_changes_the_episode_that_contains_it(self):
-        text = ONE + TWO + THREE
-        docs = [SourceDoc(A, text)]
-        b1, b2 = len(ONE), len(ONE + TWO)
-        spans = {1: _span(0, b1), 2: _span(b1, b2), 3: _span(b2, len(text))}
-        new_text = text.replace("夏日炎炎", "夏日很炎炎")
-
-        result = _by_episode(remap_for_edit(docs, spans, rel=A, new_text=new_text))
-
-        assert (result[1].after, result[1].text_changed) == (spans[1], False)
-        assert result[2].text_changed is True
-        assert result[2].after == _span(b1, b2 + 1)
-        assert result[3].text_changed is False
-        assert result[3].after == _span(b2 + 1, len(new_text))
-
-    def test_text_inserted_on_a_boundary_between_two_episodes_goes_to_the_earlier_one(self):
-        text = ONE + TWO
-        docs = [SourceDoc(A, text)]
-        b1 = len(ONE)
-        spans = {1: _span(0, b1), 2: _span(b1, len(text))}
-        new_text = ONE + "插叙。\n" + TWO
-
-        result = _by_episode(remap_for_edit(docs, spans, rel=A, new_text=new_text))
-
-        assert result[1].after == _span(0, b1 + len("插叙。\n"))
-        assert result[1].text_changed is True
-        assert result[2].after == _span(b1 + len("插叙。\n"), len(new_text))
-        assert result[2].text_changed is False
-
-    def test_text_appended_after_the_last_episode_stays_unsplit(self):
-        docs = [SourceDoc(A, ONE)]
-        spans = {1: _span(0, len(ONE))}
-
-        result = _by_episode(remap_for_edit(docs, spans, rel=A, new_text=ONE + TWO))
-
-        assert (result[1].after, result[1].text_changed) == (spans[1], False)
-
-    def test_text_inserted_before_the_first_episode_stays_unsplit(self):
-        docs = [SourceDoc(A, ONE + TWO)]
-        spans = {1: _span(len(ONE), len(ONE + TWO))}
-
-        result = _by_episode(remap_for_edit(docs, spans, rel=A, new_text="序。\n" + ONE + TWO))
-
-        assert result[1].after == _span(len("序。\n" + ONE), len("序。\n" + ONE + TWO))
-        assert result[1].text_changed is False
-
-    def test_an_episode_whose_whole_text_was_deleted_has_no_range(self):
-        text = ONE + TWO + THREE
-        docs = [SourceDoc(A, text)]
-        b1, b2 = len(ONE), len(ONE + TWO)
-        spans = {1: _span(0, b1), 2: _span(b1, b2), 3: _span(b2, len(text))}
-
-        result = _by_episode(remap_for_edit(docs, spans, rel=A, new_text=ONE + THREE))
-
-        assert result[2].after is None
-        assert result[2].text_changed is True
-        assert result[3].after == _span(b1, len(ONE + THREE))
-        assert result[3].text_changed is False
-
     def test_edit_inside_a_file_crossed_by_an_episode_changes_that_episode(self):
         docs = [SourceDoc(A, ONE), SourceDoc(B, TWO), SourceDoc(C, THREE)]
         spans = {1: _span(3, 4, A, C)}
