@@ -7,7 +7,11 @@
 1. 用[已知旧形态](#已知旧形态)定位相关规则，收集所有最早仍受影响的版本及其变体。用[旧项目样本](../../tests/legacy_project_shapes.py)构造复现，并登记到 `LEGACY_PROJECT_SHAPES`。媒体内容要能区分不同字段，缺失路径要能探测误绑到其他文件的情况。
 2. 比较当前 `CURRENT_PROJECT_SCHEMA_VERSION` 与最近的 `v*` 发版 tag 中的值。每个发行版最多加一步迁移，已有未发版的迁移步时合并进去。版本化备份用 [backups.py](../../lib/project/project_migrations/backups.py)，自行备份的步骤登记到 runner。存在内容冲突时，以保留副本保存被替下的文件，并把路径写进调整记录。
 3. 用[迁移集成测试](../../tests/integration/lib/project/project_migrations/)从已发版的样本跑完整的 `migrate_project_dir` 迁移链。至少有一条用例通过 `WorkflowStateService` 或相应读模型验证用户看到的计数、状态或预览。[媒体字段保真用例](../../tests/integration/server/services/project/test_legacy_media_preservation.py)对登记的样本同时跑完整原地迁移和带信封的 ZIP 导入。
-4. 用户可见的迁移行为变了，同步更新[部署指南](../../website/docs/ops/deployment.md#project-schema-migrations)及译文。
+4. 新增或修改迁移步时，同步维护[迁移与归档不变量](../../tests/integration/server/services/project/test_legacy_media_preservation.py)和[旧发行版导出包](../../tests/fixtures/released_archives/README.md)。
+   - 核对旧包是否覆盖受影响的已发版输入。补充旧包时记录发行标签、源码提交、原始项目和可读媒体字节。真实导出包单独保存，派生项目树和当前代码指定旧 schema 的样本注明构造方式。
+   - 每条生成样例重建项目目录与历史数据库，按字段归属比较迁移前后的媒体字节。分别验证归档补位、原地保留悬空和二次迁移后的业务状态。
+   - 旧包升级用例和属性测试均标记 `pytest.mark.invariant`，随[双档测试](../standards/testing.md#高危域的不变量)运行。
+5. 用户可见的迁移行为变了，同步更新[部署指南](../../website/docs/ops/deployment.md#project-schema-migrations)及译文。
 
 ## 已知旧形态
 
