@@ -10,14 +10,6 @@ on:
         description: 忽略路径裁剪，全量运行所有 job
         type: boolean
         default: false
-      coverage:
-        description: 采集并上传后端、PostgreSQL 与前端覆盖率
-        type: boolean
-        default: false
-    secrets:
-      CODECOV_TOKEN:
-        description: Codecov 上传令牌；缺失时覆盖率上传步骤不阻断
-        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,16 +22,17 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
-      workflow: ${{ steps.domains.outputs.workflow }}
-      backend: ${{ steps.domains.outputs.backend }}
-      frontend: ${{ steps.domains.outputs.frontend }}
-      docker: ${{ steps.domains.outputs.docker }}
-      website: ${{ steps.domains.outputs.website }}
+      workflow: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.workflow || 'false' }}
+      backend: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.backend || 'false' }}
+      frontend: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.frontend || 'false' }}
+      docker: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.docker || 'false' }}
+      website: ${{ steps.reuse.outputs.reused != 'true' && steps.domains.outputs.website || 'false' }}
       full: ${{ steps.scope.outputs.full }}
-      coverage: ${{ steps.scope.outputs.coverage }}
+      reused: ${{ steps.reuse.outputs.reused }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,16 +42,22 @@ jobs:
         id: scope
         env:
           FULL: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
-          COVERAGE: ${{ inputs.coverage == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
-        run: |
-          {
-            echo "full=$FULL"
-            echo "coverage=$COVERAGE"
-          } >> "$GITHUB_OUTPUT"
+        run: echo "full=$FULL" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/domain-filter
         id: domains
         with:
           full: ${{ steps.scope.outputs.full }}
+      - name: PR checkout ${{ github.event.number }} ${{ github.sha }}
+        if: github.event_name == 'pull_request'
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify equivalent PR checks
+        id: reuse
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.forced && steps.scope.outputs.full != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          DOMAINS: ${{ toJSON(steps.domains.outputs) }}
+        run: python3 scripts/ci_reuse.py || echo "reused=false" >> "$GITHUB_OUTPUT"
       - name: Observe static gate changes
         if: github.event_name == 'pull_request'
         continue-on-error: true
@@ -141,6 +140,8 @@ jobs:
         run: uv run python scripts/lint_agent_runtime_profile.py
 
   conventions:
+    needs: changes
+    if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -241,55 +242,29 @@ jobs:
         timeout-minutes: 20
         env:
           ARCREEL_TEST_HANG_DUMP_DIR: ${{ runner.temp }}/pytest-hang
-          COVERAGE: ${{ needs.changes.outputs.coverage }}
-          SUITE: ${{ matrix.suite }}
         run: |
-          coverage_args=()
-          if [[ "$COVERAGE" == "true" ]]; then
-            coverage_args=(
-              --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core
-              --cov-report=term-missing "--cov-report=xml:coverage-${SUITE}.xml"
-            )
-          fi
           uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} \
-            -n 4 --dist loadfile --max-worker-restart=0 "${coverage_args[@]}"
+            -n 4 --dist loadfile --max-worker-restart=0
 
       - name: Hang and crash diagnostics
         if: failure() || cancelled()
         env:
           DUMP_DIR: ${{ runner.temp }}/pytest-hang
-        run: |
-          shopt -s nullglob
-          for f in "$DUMP_DIR"/*.progress; do
-            echo "::group::$(basename "$f") 最后的进展"
-            tail -n 5 "$f"
-            echo "::endgroup::"
-          done
-          for f in "$DUMP_DIR"/*.stacks "$DUMP_DIR"/*.SIG*; do
-            [ -s "$f" ] || continue
-            echo "===== $(basename "$f")"
-            cat "$f"
-          done
-          sudo dmesg --ctime | grep -iE 'out of memory|oom|killed process|segfault' || echo "内核日志里没有 OOM 或段错误记录"
-
-      - name: Upload backend coverage
-        # unit/integration 使用同一 flag；Codecov 按 commit 合并，无需本地聚合作业。
-        if: needs.changes.outputs.coverage == 'true'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage-${{ matrix.suite }}.xml
-          flags: backend
-          fail_ci_if_error: false
+        run: bash .github/scripts/pytest-diagnostics.sh
 
   postgres-compat:
+    name: postgres-compat (${{ matrix.postgres }})
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ${{ fromJSON(needs.changes.outputs.full == 'true' && '[16,17,18]' || '[16]') }}
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: arcreel
           POSTGRES_PASSWORD: arcreel
@@ -328,25 +303,7 @@ jobs:
           uv run alembic upgrade head
 
       - name: Run dialect-sensitive tests against Postgres
-        env:
-          COVERAGE: ${{ needs.changes.outputs.coverage }}
-        run: |
-          coverage_args=()
-          if [[ "$COVERAGE" == "true" ]]; then
-            coverage_args=(--cov=lib --cov=server --cov-report=xml:coverage-pg.xml)
-          fi
-          uv run python -m pytest -v \
-            -m "uses_db and not sqlite_only" \
-            -n 4 --dist loadfile --max-worker-restart=0 "${coverage_args[@]}"
-
-      - name: Upload PG coverage
-        if: needs.changes.outputs.coverage == 'true'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage-pg.xml
-          flags: postgres
-          fail_ci_if_error: false
+        run: uv run python -m pytest -v -m "uses_db and not sqlite_only" -n 4 --dist loadfile --max-worker-restart=0
 
   frontend-static:
     needs: changes
@@ -424,23 +381,7 @@ jobs:
 
       - name: Run tests
         working-directory: frontend
-        env:
-          COVERAGE: ${{ needs.changes.outputs.coverage }}
-        run: |
-          if [[ "$COVERAGE" == "true" ]]; then
-            pnpm test:coverage
-          else
-            pnpm test
-          fi
-
-      - name: Upload frontend coverage
-        if: needs.changes.outputs.coverage == 'true'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: frontend/coverage/lcov.info
-          flags: frontend
-          fail_ci_if_error: false
+        run: pnpm test
 
   frontend-e2e:
     name: frontend-e2e (${{ matrix.shard }}/2)
@@ -665,7 +606,8 @@ jobs:
           exit-code: "0"
 
   release-integrity:
-    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

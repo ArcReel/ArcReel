@@ -45,6 +45,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.generation.generation_queue import GenerationQueue
 from lib.infra.async_thread import run_sync_transaction
+from lib.infra.logging_config import _install_httpx_url_redaction
 from lib.material.formal_objects import MATERIAL_STORAGE_TARGET_SETTING, formal_object_key
 from lib.material.work_files import cleanup_work_cache
 from lib.project.asset_types import DERIVATIVES_FIELD
@@ -940,9 +941,12 @@ async def _all_links(sessions) -> list[ProviderAssetLink]:
 
 @pytest.mark.parametrize("large_original", [False, True])
 async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
-    api, sessions, project, public_dns, caplog, large_original
+    api, sessions, project, public_dns, caplog, monkeypatch, large_original
 ):
     """导入闭环：取回素材原图保存为成品新版本，关联属于这个版本且可用；切回旧版本不继承关联。"""
+    httpx_logger = logging.getLogger("httpx")
+    monkeypatch.setattr(httpx_logger, "filters", httpx_logger.filters.copy())
+    _install_httpx_url_redaction()
     caplog.set_level(logging.INFO)
     account_id = await _configure(sessions, object_storage=False)
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))

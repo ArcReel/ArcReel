@@ -69,6 +69,8 @@ Site search is available in the built site. Run `pnpm serve` after building to p
 
 Run `uv run python scripts/gate.py --changed` during development. Add `--full` before pushing to run the complete checks for each affected domain. For domain and test selection, see "工具链与校验" (Toolchain and checks) in [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) and [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md).
 
+Pull requests and pushes to `main` run CI checks for the affected domains. Nightly collects coverage and reports the results of deep checks. Weekly and release-candidate runs cover all domains, including container health and database compatibility. After changing shared configuration, run **Weekly and release verification** manually in GitHub Actions to check it before the next scheduled run.
+
 ### Frontend Page-Level Tests {#frontend-page-tests}
 
 `frontend/e2e/` is a page-level Playwright suite. Its permanent viewports are `1440×900` (standard desktop) and `1024×600` (compact lower bound): responsive, overflow, and reachability scenarios run at both viewports, remaining scenarios run at standard desktop, and wide, short, or fixed-viewport contracts run once via dedicated assertions. The suite checks that the document itself does not scroll, that clipped content remains reachable by scrolling, and that vertical scroll areas, including modal bodies, do not gain horizontal overflow. It also runs axe against WCAG 2.2 AA on demand by page structure, theme, or overlay state. The `frontend-e2e` CI job runs in the official Playwright image. Update the image version when upgrading `@playwright/test`. To run the suite locally:

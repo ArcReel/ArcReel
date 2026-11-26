@@ -70,6 +70,7 @@ dev = [
     "tree-sitter-language-pack==0.13.0",
     "tree-sitter>=0.25,<0.27",
     "hypothesis>=6.170.17",
+    "coverage>=7.15.4",
 ]
 
 [tool.uv.workspace]
@@ -283,6 +284,7 @@ DEP002 = [
 DEP004 = [
     "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
     "pytest",
+    "coverage",
     "hypothesis",
     "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
