@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 import { DEFAULT_E2E_PORT } from "./e2e/support/origin.ts";
 import { projectName, selectedViewports } from "./e2e/support/viewports.ts";
@@ -9,6 +10,14 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const OUTPUT_DIR = process.env.E2E_OUTPUT_DIR ?? "./test-results";
 
 const isCI = Boolean(process.env.CI);
+
+const prebuilt = process.env.E2E_PREBUILT === "1";
+if (prebuilt && !existsSync(new URL("./dist/index.html", import.meta.url))) {
+  throw new Error("Shared browser build is missing frontend/dist/index.html");
+}
+const startServer = live
+  ? `cd .. && uv run --frozen python -m frontend.e2e.live.backend --port ${PORT}`
+  : `node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port ${PORT} --strictPort`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -48,11 +57,9 @@ export default defineConfig({
     })),
   ],
   webServer: {
-    command: live
-      ? `pnpm exec vite build && cd .. && uv run --frozen python -m frontend.e2e.live.backend --port ${PORT}`
-      : `pnpm exec vite build && pnpm exec vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
+    command: prebuilt ? startServer : `pnpm exec vite build && ${startServer}`,
     url: live ? `${BASE_URL}/health` : BASE_URL,
-    reuseExistingServer: !live && !isCI,
+    reuseExistingServer: !prebuilt && !live && !isCI,
     gracefulShutdown: live ? { signal: "SIGTERM", timeout: 10_000 } : undefined,
     timeout: 180_000,
   },
