@@ -7,12 +7,12 @@
 | Reviewer | 快照 login | REST login | 自动审查 | 手动触发 |
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened、后续 push | `@coderabbitai resume` / `@coderabbitai review` |
-| Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened；后续 push 不保证 | `@codex review`，每个 HEAD 至多一次 |
+| Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened；后续 push 不保证 | `@codex review`，按下文条件定向触发 |
 | CodeQL | — | `github-advanced-security[bot]` | 每次 push 后分析 | 无 |
 
 同一 HEAD 的同种触发命令只发送一次，且命令须单独置于评论开头；发送前用 `own_trigger_comments` 与 `last_push_at` 核对。各家的具体触发时机见下文各节。纯指标类 bot（如 Codecov）不参与本循环。
 
-每次 push 后按各家的完成信号核对当前 HEAD，追加 commit 与改写历史后的 force push 同样处理。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
+每次 push 后核对 CodeRabbit 对当前 HEAD 的覆盖，按下文 Codex 条件判断是否需要复审，追加 commit 与改写历史后的 force push 同样处理。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
 
 ## 读取
 
@@ -26,7 +26,7 @@
 
 ## CodeRabbit
 
-**触发。** `walkthrough.is_paused == true` 且其 `updated_at` 后尚未发送 resume 时，发送 `@coderabbitai resume`。`walkthrough.is_review_skipped == true`（draft、bot 作者等跳过审查的通知）且其 `updated_at` 后尚未发送 review 时，发送 `@coderabbitai review`。其他时候等待自动审查。暂停、限流和跳过后的静默都不是完成。
+**触发。** `walkthrough.is_paused == true` 且其 `updated_at` 后尚未发送 resume 时，发送 `@coderabbitai resume`。跳过或限流时按下文 Codex 规则判断覆盖缺口；其余情况等待自动审查。
 
 **覆盖完成。** `reviewed_current_head == true`，且 `is_in_progress == false`、`is_paused == false`。限流与跳过审查时的 walkthrough 更新时间不算审查，脚本已通过 `is_rate_limited`、`is_review_skipped` 排除。
 
@@ -36,9 +36,21 @@
 
 ## Codex
 
-**触发。** 每个 HEAD 同一条规则，PR 的首个 HEAD 也一样：`last_push_at` 起满 5 分钟，`codex.started_current_head == false`，且 `own_trigger_comments` 中没有晚于 `last_push_at` 的 `@codex review`，就发送一次。Codex 在 PR 创建时自动审查，force push 之后大多不会自行续审，所以不能等它。窗口在等待期间到期时，`wait.sh` 以 `codex_silent` 返回。`codex.failed_current_head == true` 表示 Codex 报告该 HEAD 的审查失败，它不会自行重试：尚未对该 HEAD 触发过就立即发送，不等 5 分钟；触发过仍失败按 [faults.md](faults.md) 处理。触发后迟迟没有结果同样按 faults.md 处理；该家已在本 PR 停用时不再触发。
+**定向触发。** 普通 PR 默认只等 CodeRabbit。以下任一条件成立时，将 Codex 纳入本轮必要审查：
 
-**覆盖完成。** 当前 HEAD 上出现以下任一完成信号：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；`has_pass_marker` 且 `reviewed_current_head == true` 的顶层通过评论；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。`last_push_at` 是 commit 时间，早于实际 push：只有 reaction、没有带 `Reviewed commit` 的回执时，确认它晚于 push 再采信。
+- CodeRabbit 对当前变更明确回执跳过或限流。核对 walkthrough 的 `is_review_skipped`、`is_rate_limited` 或 CodeRabbit 的 `quota_alerts`，确认回执属于当前变更，其后仍缺少成功审查。按回执中的未审范围提问；文件数、静默时长和 Codex 自身报错均不能证明主审遗漏。
+- diff 改变下表任一行为。把实际入口、跨边界的操作和预期结果写成端到端问题，合并到一次请求中。
+
+| 行为 | 定向问题示例 |
+|---|---|
+| 付费生成与重试 | 供应商已受理后客户端超时，再试会创建或计费几次？ |
+| 结构化错误跨队列传递 | worker 返回的可重试错误到达界面后，用户还能执行原定的恢复动作吗？ |
+| 未保存编辑触发生成 | 改完提示词立即点生成，最终发给供应商的是哪一版？ |
+| 真实 SDK 或 E2E 替身边界 | 替身通过的请求参数和返回事件，在真实 SDK 上也能完成同一次生成吗？ |
+
+在顶层评论首行写 `@codex review`，下一行写 HEAD 和具体问题。先核对 `own_trigger_comments` 和已有处置记录；同一前提只请求一次，只有相关修复改变问题前提时才重审。接力或无关 push 沿用已确认的结论。请求后用 `wait.sh --repo-root <repo-root> <PR_NUMBER> --wait-codex` 等待；`codex_result` 提醒重新 poll 核实覆盖。所有 PR 均读取并处置 Codex 自发提交的实质发现。
+
+**覆盖完成。** 核实定向请求之后、对应 HEAD 的完成信号，并读取结果确认问题已覆盖。完成信号包括：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；`has_pass_marker` 且 `reviewed_current_head == true` 的顶层通过评论；标记本 HEAD 的已完成 review summary；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。`last_push_at` 是 commit 时间，早于实际 push：只有 reaction、没有带 `Reviewed commit` 的回执时，确认它晚于 push 再采信。
 
 **发现入口。** 读取非 ack inline，以及 `has_body_finding == true` 的 review body。P0/P1 优先处理。
 

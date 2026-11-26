@@ -49,5 +49,5 @@ def codex_summary_commit:
 def codex_summary_failed:
   (. // "") | test("\"code_review\":\\{[^}]*\"status\":\"failed\"");
 
-def is_trigger_command($command):
-  (. // "") | test("^[ \\t]*" + $command + "(\\s|$)"; "i");
+def codex_summary_completed:
+  (. // "") | test("\"code_review\":\\{[^}]*\"status\":\"completed\"");

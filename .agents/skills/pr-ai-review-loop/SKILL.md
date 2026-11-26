@@ -35,10 +35,10 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 循环由三步组成，每次从第 1 步开始：
 
 1. **拉取状态。** 运行 `poll.sh`。索引用于定位，正文经 `query.sh` 按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。
-2. **处理已经成立的事项。** 该发的触发命令按 reviewers.md 发出，故障按 [faults.md](references/faults.md) 处理。有新发现、失败的检查或新安全告警时，按下文处置这一批。
-3. **没有可执行的动作时等待。** 前台运行 `wait.sh`，等 CI 与等 reviewer 都用它。它在出现入口时还没有的可行动事项时返回 `WAIT_READY: <原因>`，届时回到第 1 步；`WAIT_TIMEOUT` 同样回到第 1 步，仍缺结果按 faults.md 处理。入口时已经成立的事项不会让它返回，所以第 2 步要先做完。
+2. **处理已经成立的事项。** 按 reviewers.md 核对各家的触发条件，命中时发送对应请求，故障按 [faults.md](references/faults.md) 处理。有新发现、失败的检查或新安全告警时，按下文处置这一批。
+3. **没有可执行的动作时等待。** 先核对下文完成条件，满足即退出。仍缺必要结果时前台运行 `wait.sh`，定向等待 Codex 时加 `--wait-codex`。它在出现入口时还没有的可行动事项时返回 `WAIT_READY: <原因>`，届时回到第 1 步；`codex_fallback` 表示收到主审缺口候选回执，按 reviewers.md 核实；`WAIT_TIMEOUT` 同样回到第 1 步，仍缺结果按 faults.md 处理。入口时已经成立的事项不会让它返回，所以第 2 步要先做完。
 
-**处置一批。** 索引带 `triage_hint` 时回到「工程判断」。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复，运行相关测试与闸门。每次 push 都让 CI 和各家审查重跑，所以同一 HEAD 上的事项攒成一批：先到的先定性、先修，等该 HEAD 的 required checks 结束、各家本轮审查到齐后一次 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
+**处置一批。** 索引带 `triage_hint` 时回到「工程判断」。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复，运行相关测试与闸门。每次 push 都会重启 CI，同一 HEAD 上的事项攒成一批：先到的先定性、先修，等该 HEAD 的 required checks 结束、本轮必要审查到齐后一次 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
 
 **记轮。** 每处置完一批即用 `round.sh ... mark` 记为一轮，包括全部通过回复结案、未产生 push 的批次。`--pushback` 计入以回复结案的发现数。单纯的 CI 修复、同步主线以及发送触发命令本身不计入轮数。
 
@@ -46,7 +46,7 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 
 宣布收敛前，须确认当前 HEAD 同时满足以下三项条件：
 
-- **覆盖有效**：每家参审 reviewer 的审查已完成，覆盖当前变更；允许沿用的情形见 reviewers.md「身份与触发」。故障停用单独报告，不能记作通过。
+- **覆盖有效**：CodeRabbit 已覆盖当前变更；有明确覆盖缺口时由定向 Codex 审查覆盖未审范围，并在汇报中列明。涉及定向问题时按 reviewers.md「Codex」核实结果或沿用结论。故障停用单独报告，不能记作通过。
 - **发现已处置**：本循环的每条实质发现，包括历史 inline、review body 和 summary，都已定性；缺陷已修复，其余已在案回复，不存在未裁决的重要风险。在案即可，无需等待 bot 同意或撤回。
 - **检查通过**：相关测试、闸门与当前 HEAD 的 required checks 通过，CodeQL 分析和新增安全告警满足 reviewers.md「CodeQL 安全退出门槛」。`checks_failing` 为空不代表所有检查已完成。
 
