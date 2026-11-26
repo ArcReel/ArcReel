@@ -3,7 +3,6 @@
 from tempfile import TemporaryDirectory
 
 import pytest
-from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, rule
 
@@ -12,7 +11,7 @@ from lib.episode.episode_management import create_episode, move_episode
 from lib.project.project_manager import ProjectManager
 from lib.project.project_trash import restore
 from lib.script.script_editor import move_segment, remove_segment
-from tests.invariant_profiles import state_machine_settings
+from tests.invariant_profiles import is_nightly_profile, state_machine_settings
 
 pytestmark = pytest.mark.invariant
 
@@ -128,7 +127,7 @@ class EpisodeHistory(RuleBasedStateMachine):
 
 TestEpisodeHistory = EpisodeHistory.TestCase
 TestEpisodeHistory.settings = state_machine_settings()
-if settings.get_current_profile_name() == "nightly":
+if is_nightly_profile():
     TestEpisodeHistory = pytest.mark.timeout(600)(TestEpisodeHistory)
 
 
