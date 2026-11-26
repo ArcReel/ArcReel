@@ -660,6 +660,7 @@ jobs:
         frontend-static,
         frontend-tests,
         frontend-e2e,
+        e2e-live,
         e2e-record-drift,
         docker-verify,
         website-checks,
@@ -667,10 +668,11 @@ jobs:
       ]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Verify required jobs
-        run: |
-          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs failed"
-            exit 1
-          fi
-          echo "All required jobs passed or were skipped (domain not affected)"
+        env:
+          JOBS: ${{ toJSON(needs) }}
+        run: python3 -m scripts.ci_required

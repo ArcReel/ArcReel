@@ -271,8 +271,97 @@ jobs:
           overwrite: true
           if-no-files-found: warn
 
+  browser-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: frontend
+        run: |
+          pnpm build
+          node e2e/build-artifact.ts pack "$RUNNER_TEMP/browser-build"
+
+      - name: Upload shared browser build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-build-${{ github.run_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/browser-build/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+          retention-days: 7
+
+  e2e-live:
+    needs: browser-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_NO_DEV: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - uses: ./.github/actions/restore-browser-build
+
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install browser and backend dependencies
+        working-directory: frontend
+        run: |
+          node node_modules/@playwright/test/cli.js install --with-deps --only-shell chromium
+          sudo apt-get install -y bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          uv sync --frozen
+
+      - name: Run live business flows
+        timeout-minutes: 10
+        working-directory: frontend
+        shell: bash
+        env:
+          E2E_LIVE: "1"
+        run: |
+          set -o pipefail
+          node node_modules/@playwright/test/cli.js test --project=live 2>&1 | tee "$RUNNER_TEMP/e2e-live.log"
+
+      - name: Upload live diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-live-diagnostics
+          path: |
+            ${{ runner.temp }}/e2e-live.log
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7
+
   report:
-    needs: [backend-coverage, backend-report, postgres-coverage, frontend-coverage, backend-exploration, frontend-exploration]
+    needs: [backend-coverage, backend-report, postgres-coverage, frontend-coverage, backend-exploration, frontend-exploration, browser-build, e2e-live]
     if: always()
     runs-on: ubuntu-latest
     permissions:
