@@ -11,11 +11,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
 from lib.artifacts.artifact_activation import resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
+from lib.config.generation_options import GenerationOptions, apply_generation_options
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
@@ -108,12 +109,18 @@ class AddUnitRequest(BaseModel):
 
 
 class GenerateUnitRequest(BaseModel):
+    generation_options: GenerationOptions | None = None
+
+    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
     model_config = ConfigDict(extra="forbid")
 
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
     def projection_options(self) -> ReferenceRequestOptions:
-        return ReferenceRequestOptions(confirmed_request_duration_seconds=self.confirmed_request_duration_seconds)
+        duration = self.generation_options.duration_seconds if self.generation_options else None
+        return ReferenceRequestOptions(
+            confirmed_request_duration_seconds=duration or self.confirmed_request_duration_seconds
+        )
 
 
 class GenerateUnitsBatchRequest(BaseModel):
@@ -126,6 +133,7 @@ class GenerateUnitsBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     unit_ids: list[str] | None = None
+    generation_options: GenerationOptions | None = None
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
 
@@ -452,6 +460,7 @@ async def precheck_unit_duration(
     request: Request,
     _t: Translator,
     names: DisplayNamesCatalog,
+    generation_options: str | None = Query(default=None, max_length=4096),
 ) -> dict[str, Any]:
     """入队前的时长取档预检：申请秒数与剧本计划时长不一致时前端需先向用户确认。
 
@@ -460,6 +469,12 @@ async def precheck_unit_duration(
     """
     reject_retired_query_params(request, "narration_delivery")
     project, script, _script_file = await _read_episode_script(project_name, episode, _t)
+    try:
+        selected = GenerationOptions.model_validate_json(generation_options) if generation_options else None
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="Invalid generation options") from exc
+    overrides = {"generation_options": selected.model_dump(exclude_unset=True)} if selected else {}
+    project = apply_generation_options(project, overrides, "video")
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
     projection = await project_reference_unit_request(
@@ -468,6 +483,9 @@ async def precheck_unit_duration(
         script=script,
         unit=unit,
         project_path=await _project_path(project_name),
+        options=ReferenceRequestOptions(
+            confirmed_request_duration_seconds=selected.duration_seconds if selected else None
+        ),
     )
     _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=True)
     slot = projection.request_duration
@@ -576,6 +594,12 @@ async def generate_unit(
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
     guard_prompt = str(unit.get("text") or "")
+    options_payload = (
+        {"generation_options": req.generation_options.model_dump(exclude_unset=True)}
+        if req and req.generation_options
+        else {}
+    )
+    project = apply_generation_options(project, options_payload, "video")
     request_options = (req or GenerateUnitRequest()).projection_options()
     projection = await project_reference_unit_request(
         request_facts_lookup=configured_reference_request_facts(project, ConfigResolver(async_session_factory)),
@@ -594,7 +618,7 @@ async def generate_unit(
             resource_id=unit_id,
             prompt=guard_prompt,
             script_file=script_file,
-            extra_payload={"reference_request_options": request_options.to_payload()},
+            extra_payload={"reference_request_options": request_options.to_payload(), **options_payload},
         )
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
@@ -631,6 +655,13 @@ async def _admit_units_batch(
 
     project, script, script_file = await asyncio.to_thread(
         _load_episode_script, project_name, episode, _t, readonly=True
+    )
+    project = apply_generation_options(
+        project,
+        {"generation_options": body.generation_options.model_dump(exclude_unset=True)}
+        if body.generation_options
+        else None,
+        "video",
     )
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
@@ -671,7 +702,11 @@ async def _admit_units_batch(
         script=script,
         script_file=script_file,
         units=targets,
-        request_options=ReferenceRequestOptions(),
+        request_options=ReferenceRequestOptions(
+            confirmed_request_duration_seconds=body.generation_options.duration_seconds
+            if body.generation_options
+            else None
+        ),
         operation="generate_reference_videos_batch",
         selection=(
             GenerationSelectionMode.EXPLICIT if requested_ids is not None else GenerationSelectionMode.MISSING_ONLY
@@ -747,13 +782,22 @@ async def generate_units_batch(
     for spec in specs:
         spec.source = "webui"
         options = request_options_for_unit(
-            ReferenceRequestOptions(),
+            ReferenceRequestOptions(
+                confirmed_request_duration_seconds=req.generation_options.duration_seconds
+                if req.generation_options
+                else None
+            ),
             spec.resource_id,
             req.confirmed_request_durations,
         )
         spec.payload = {
             **(spec.payload or {}),
             "reference_request_options": options.to_payload(),
+            **(
+                {"generation_options": req.generation_options.model_dump(exclude_unset=True)}
+                if req.generation_options
+                else {}
+            ),
         }
     enqueued, enqueue_failures = await batch_enqueue_only(
         project_name=project_name,

@@ -1,5 +1,18 @@
 
 export default {
+  'run_settings': 'Model and parameters',
+  'run_model': 'Model',
+  'run_default': 'Follow defaults',
+  'run_resolution': 'Resolution',
+  'run_aspect_ratio': 'Aspect ratio',
+  'run_audio': 'Generate video audio',
+  'run_effort_low': 'Low',
+  'run_effort_medium': 'Medium',
+  'run_effort_high': 'High',
+  'run_effort': 'Reasoning effort',
+  'run_load_failed': 'Failed to load models',
+  'run_settings_hint': 'Applies to subsequent requests in this project without changing project defaults.',
+  'run_duration': 'Video duration (seconds)',
   episode_externally_removed: "This episode was deleted. Saving will fail; copy your content before discarding changes.",
   episode_script_removed: "The episode script was removed. Saving will fail; copy your content before discarding changes.",
   shot_externally_removed: 'This shot was deleted. Saving will fail; copy your changes before discarding them.',

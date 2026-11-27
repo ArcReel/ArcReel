@@ -16,6 +16,7 @@ from lib.backends.image_capabilities import (
     effective_image_quality,
     resolved_image_reference_limit,
 )
+from lib.config.generation_options import apply_generation_options
 from lib.config.resolver import (
     ConfigResolver,
     ImageBucketCapabilityError,
@@ -313,6 +314,7 @@ async def resolve_generation_context(
         if project_path is not None
         else await asyncio.to_thread(get_project_manager().get_project_path, project_name)
     )
+    project = apply_generation_options(project, payload, "image" if image is not None else "video")
     resolver = ConfigResolver(async_session_factory)
 
     image_result: ImageLaneResult | None = None

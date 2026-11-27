@@ -1,4 +1,5 @@
 import { API, derivativeResourceId } from "@/api";
+import { generationOptions, generationArgs } from "@/stores/run-settings-store";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
@@ -123,7 +124,7 @@ export async function enqueueStoryboard(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "storyboard", segmentId, "storyboard")],
-    () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
+    () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyItemEnqueued(projectName, segmentId, res.deduped, "dashboard:storyboard_task_submitted_toast");
@@ -139,7 +140,7 @@ export async function enqueueVideo(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "video", segmentId, "video")],
-    () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
+    () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds, ...generationArgs(projectName, "video")),
     oneTaskId,
   );
   notifyItemEnqueued(projectName, segmentId, res.deduped, "dashboard:video_task_submitted_toast");
@@ -181,7 +182,7 @@ export async function enqueueCharacter(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "character", name, "character")],
-    () => API.generateCharacter(projectName, name),
+    () => API.generateCharacter(projectName, name, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
@@ -196,7 +197,7 @@ export async function enqueueCharacterDerivative(
   const resourceId = derivativeResourceId(characterName, derivativeName);
   const res = await submit(
     [markResource(projectName, "character_derivative", resourceId, "character_derivative")],
-    () => API.generateCharacterDerivative(projectName, characterName, derivativeName),
+    () => API.generateCharacterDerivative(projectName, characterName, derivativeName, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, res.message);
@@ -224,7 +225,7 @@ export async function enqueueScene(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "scene", name, "scene")],
-    () => API.generateProjectScene(projectName, name),
+    () => API.generateProjectScene(projectName, name, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
@@ -237,7 +238,7 @@ export async function enqueueProp(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "prop", name, "prop")],
-    () => API.generateProjectProp(projectName, name),
+    () => API.generateProjectProp(projectName, name, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
@@ -250,7 +251,7 @@ export async function enqueueProduct(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "product", name, "product")],
-    () => API.generateProjectProduct(projectName, name),
+    () => API.generateProjectProduct(projectName, name, ...generationArgs(projectName, "image")),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));
@@ -317,7 +318,7 @@ export async function enqueueReferenceVideoUnit(
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "reference_video", unitId, "reference_video")],
-    () => API.generateReferenceVideoUnit(projectName, episode, unitId, options),
+    () => API.generateReferenceVideoUnit(projectName, episode, unitId, generationOptions(projectName, "video") ? { ...options, generation_options: generationOptions(projectName, "video") } : options),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");
@@ -335,7 +336,7 @@ export async function enqueueReferenceVideoBatch(
   );
   const res = await submit(
     marks,
-    () => API.generateReferenceVideoBatch(projectName, episode, payload),
+    () => API.generateReferenceVideoBatch(projectName, episode, generationOptions(projectName, "video") ? { ...payload, generation_options: generationOptions(projectName, "video") } : payload),
     (admission, index) => {
       if (admission.decision !== "admitted") return [];
       const taskId = admission.task_ids_by_unit[unitIds[index]];
@@ -397,7 +398,7 @@ export async function enqueueAssetSheetBatch(
   projectName: string,
   scope: AssetSheetBatchScope,
 ): Promise<AssetSheetBatchSubmitted> {
-  const res = await API.submitAssetSheetBatch(projectName, scope);
+  const res = await API.submitAssetSheetBatch(projectName, generationOptions(projectName, "image") ? { ...scope, generation_options: generationOptions(projectName, "image") } : scope);
   const members = res.members.filter((member) => member.status !== "blocked");
   if (members.length > 0) {
     useAssetSheetBatchStore.getState().track({ batchId: res.batch_id, projectName, members });

@@ -37,6 +37,7 @@ import { UnitList } from "./UnitList";
 import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
+import { RunSettings } from "@/components/shared/RunSettings";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { STATUS_CONF, deriveUnitStatus } from "./unit-status";
 import { tierProblemText } from "./unit-tier-problem";
@@ -1102,6 +1103,7 @@ export function ReferenceVideoCanvas({
           data-inactive={stackTab !== "preview" || undefined}
           className="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col border-border data-inactive:hidden @4xl/canvas:col-start-3 @4xl/canvas:row-start-1 @4xl/canvas:row-end-3 @4xl/canvas:border-l @4xl/canvas:data-inactive:flex"
         >
+          <div className="px-3"><RunSettings projectName={projectName} kind="video" disabled={selectedBusy || durationGate.dialogProps.open} /></div>
           {renderPreview(edit)}
         </div>
       </>
