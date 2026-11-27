@@ -25,7 +25,7 @@ disable-model-invocation: true
 1. 运行 `scripts/batch-poll.sh --repo-root <repo-root>`，范围参数按上表。随后逐个通读 issue 正文与评论，得到真实的验收边界、canonical dependency graph、triage 与认领状态。`--ready` 只做机械筛选，调研、评估等不产出代码的 issue 由你剔除。
 2. 确定 frontier。只接手开放、未被他人认领、且阻塞项已完成的 issue。已分流的 issue 须带 `ready-for-agent`。Spec 或点名批次中的无标签 issue，由 team-lead 按内容判断是否可交给 Agent。`--ready` 只选带 `ready-for-agent` 的 issue，筛选和人工剔除后为空就说明原因并结束。`ready-for-human` issue 及其被阻塞的下游不进入 frontier。PR 的 `Closes` 只列本 stage 实际处理的开放 issue。
 3. 将本批范围与 `.afk/` 中未 `closed` 账本的 scope、用户告知的并行批次对照。范围相同时暂停并让用户选择接管或重开，两者均先读 [recovery.md](references/recovery.md)；部分重叠时列入第 5 步的展示。
-4. 按上表将依赖图划成交付 stage。各角色启动前按 [model-routing](../model-routing/SKILL.md) 选模型与 effort，记录 Category 或路由与一句理由：stage-reviewer 走 Review 路由，qa-verifier 选 `deep-low`，两者都使用未参与本 stage 任何实现的干净上下文。
+4. 按上表将依赖图划成交付 stage。各角色启动前按 [model-routing](../model-routing/SKILL.md) 选模型与 effort，记录 Category 或路由与一句理由：stage-reviewer 与 review-looper 选 `complex`，qa-verifier 选 `standard`，fixer 选 `debug-fix`；stage-reviewer 与 qa-verifier 均使用未参与本 stage 任何实现的干净上下文。
 5. 向用户展示 stage、依赖、模型理由、跳过项及下游影响；`--ready` 批次另列入选与剔除两份清单，由用户确认或删减。同时请求两项授权：全部 stage PR 的 rebase merge，以及部署冒烟中真实生成的费用预算。
 6. `--ready` 批次经用户删减后没有入选 issue，在会话中说明原因并结束。其余情况使用 `scripts/ledger.sh --new` 创建薄账本，记录 scope、计划裁决与授权信息；该脚本会生成并输出本批次的 `batch-id`。账本仅记录 Git / GitHub 无法重新推导的事实。
 
@@ -52,14 +52,14 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 
 ### 集成审查
 
-全部 issues 集成后，由 stage-reviewer 按 [stage-reviewer.md](references/stage-reviewer.md) 审查整个 stage diff 并交付 **green HEAD**；委派消息中明确授权其按 `code-review` 启动双轴并行子代理。
+全部 issues 集成后，由 stage-reviewer 按 [stage-reviewer.md](references/stage-reviewer.md) 审查整个 stage diff 并交付 **green HEAD**；委派消息中附各 issue 实际实现 Harness，并明确授权其按 `code-review` 以 Review 路由启动双轴并行子代理、按需委派 `debug-fix` 修复子代理。
 
 ### PR
 
 1. 收到 green HEAD 后同时做三件事，让 CI、AI 审查与验收一起开始：
    - 创建非 draft 的 stage PR：按第 1 节的表用 `Closes #<N>` 列出本 stage 全部 issues；本 stage 各 handoff 中自行裁决的事项及一行理由写进正文；教训候选发成 `lesson-candidate` 评论，格式见 [lessons.md](../../../docs/agents/lessons.md)。
    - 另建一个检出 green HEAD 的 QA worktree，在其中启动 qa-verifier，按 [qa-verifier.md](references/qa-verifier.md) 以全量模式验收。该 stage 的复验沿用同一个 qa-verifier。
-   - 启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查。
+   - 启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查；委派消息中明确授权其按 `pr-ai-review-loop` 委派 `debug-fix` 修复子代理。
 2. qa-verifier 交付后，把 QA 结论以一条文字评论发在 PR 上，写明全量验收的 commit；此后每次复验都更新这条评论，并写明复验的 commit。再把结论通知 review-looper：
    - 没有失败项：告知 review-looper 本轮 QA 没有待并入的修复。
    - 有失败项：把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 处理。

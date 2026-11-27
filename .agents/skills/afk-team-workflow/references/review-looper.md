@@ -11,7 +11,7 @@
 ## 循环
 
 1. 确认 stage worktree、branch 与远端最新提交一致：首次启动时该提交为最新交付的 **green HEAD**，接力时为前任硬停汇报的 HEAD。通读本 stage 内所有 issue 及其 handoff，以 stage handoff 中已有各段作为已裁决的起点。git 命令一律使用 `git -C <stage worktree 绝对路径>`。
-2. 按 [pr-ai-review-loop](../../pr-ai-review-loop/SKILL.md)推进。委派方为 team-lead，轮次采用输入的 `rounds`，省略时采用默认值。修复按上文约定 push。
+2. 按 [pr-ai-review-loop](../../pr-ai-review-loop/SKILL.md) 推进。委派方为 team-lead，轮次采用输入的 `rounds`，省略时采用默认值。按该 skill 委派 `debug-fix` 修复子代理时，其当前 checkout 为 `stage worktree`；修复的合并提交与 push 按上文约定执行。
 3. 首次 push 前需等以下三项到齐，合为一批统一处置：各参审 reviewer 对当前 HEAD 的首轮结果、required checks 的结果，以及 team-lead 转达的 QA 结论。QA 与 CI、AI 审查并行推进；等待期间先完成已到达发现的定性与本地修复。若三项均无需要改代码的事项，则不 push。
 4. team-lead 转交 fixer 的 commit 时，把它 cherry-pick 进 stage worktree 并入 integration-fix commit，与手头其他修复同批 push，再向 team-lead 回报新 HEAD 供 QA 复验。cherry-pick 冲突时由你解决：冲突的另一方是你手头的修复或已改写的 integration-fix commit，只有你的 worktree 同时有两边。按两处修复各自的意图合并，读 stage handoff 的「QA 修复」段取 fixer 的意图；无法判断时请示 team-lead。
 5. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑完整闸门后 push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。

@@ -1,21 +1,20 @@
 # 模型映射
 
-委派出现异常时，按同 category 下的 fallback 链依次重试。
+委派出现异常时，按同 Category 或同行的 fallback 链依次重试。
 
 ## Category
 
 | Category | 模型 | Effort | Fallback |
 |---|---|---|---|
-| `quick` | `gpt-6.1-terra` | low | `gemini-4-hydrogen` · low → `claude-haiku-5-5` · medium |
-| `unspecified-low` | `gemini-4-neon` | low | `claude-sonnet-5-5` · medium → `gpt-6.2-sol` · low |
-| `unspecified-high` | `gemini-4-neon` | high | `claude-opus-5-5` · high → `gpt-6.2-sol` · high |
-| `deep-low` | `gpt-6.2-sol` | medium | `gemini-4-neon` · medium → `claude-opus-5-5` · medium |
-| `deep-high` | `gpt-6.2-astra` | high | `gemini-4-neon` · high → `claude-fable-5-2` · high |
-| `ultrabrain` | `gpt-6.2-astra` | max | `claude-fable-5-2` · xhigh → `gemini-4-carbon` · high |
-| `architect` | `claude-fable-5-2` | xhigh | `gpt-6.2-astra` · xhigh → `gemini-4-neon` · xhigh |
-| `visual-engineering` | `gemini-4-neon` | high | `claude-opus-5-5` · high → `gpt-6.2-sol` · high |
-| `artistry` | `claude-fable-5-2` | xhigh | `gemini-4-carbon` · high → `gpt-6.2-astra` · high |
-| `writing` | `gemini-4-argon` | medium | `claude-opus-5-5` · medium → `gpt-6.2-sol` · medium |
+| `quick` | `gemini-4-hydrogen` | low | `gpt-6.1-terra` · low → `claude-sonnet-5-5` · low |
+| `standard` | `gemini-4-neon` | medium | `gpt-6.2-astra` · medium → `claude-opus-5-5` · medium |
+| `complex` | `gemini-4-neon` | high | `gpt-6.2-astra` · high → `claude-opus-5-5` · high |
+| `debug-fix` | `gpt-6.2-astra` | medium | `gemini-4-neon` · high → `claude-opus-5-5` · high |
+| `visual` | `gemini-4-neon` | high | `claude-opus-5-5` · high → `gpt-6.2-astra` · high |
+| `writing` | `gemini-4-neon` | medium | `claude-opus-5-5` · medium → `gemini-4-hydrogen` · medium |
+| `architect` | `claude-opus-5-5` | xhigh | `gemini-4-carbon` · high → `gpt-6.2-astra` · xhigh |
+
+`debug-fix` 明确命中极难算法、底层性能或复杂并发死锁攻坚时，手动将首选升至 `gpt-6.2-astra` · xhigh（fallback 为 `gemini-4-carbon` · high → `claude-opus-5-5` · xhigh）。
 
 ## Review
 
