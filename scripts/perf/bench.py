@@ -344,10 +344,26 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 task.add_done_callback(tasks.discard)
 
             def on_video_done(self, episode: int) -> None:
-                for name in ("project", "units", "wf_status", "wf_plan"):
+                for name in (
+                    "workspace",
+                    "project",
+                    "units",
+                    "wf_status",
+                    "wf_ep_status",
+                    "wf_plan",
+                    "wf_ep_plan",
+                    "wf_episodes",
+                ):
                     if name in names:
                         self.fire(name, episode)
-                for name in ("units", "wf_status", "wf_plan"):
+                for name in (
+                    "units",
+                    "wf_status",
+                    "wf_ep_status",
+                    "wf_plan",
+                    "wf_ep_plan",
+                    "wf_episodes",
+                ):
                     if name in names:
                         self.fire(name, episode)
                 if "cost" in names:
@@ -553,11 +569,12 @@ def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
     lines.append(f"- 停止写入后的排空时间：{drain}")
     for name, p in peak["probes"].items():
         lines.append(f"- 轻量请求 {name} 高峰 p95：{p['p95'] * 1000:.0f}ms（max {p['max'] * 1000:.0f}ms）")
-    if "project" in idle:
-        lines.append(
-            f"- 热态打开项目详情读取媒体内容（次数与字节）：{idle['project']['warm_media']}；"
-            f"重启后首开：{idle['project']['first_open_media']}"
-        )
+    for detail_name, label in (("workspace", "工作台"), ("project", "项目详情")):
+        if detail_name in idle:
+            lines.append(
+                f"- 热态打开{label}读取媒体内容（次数与字节）：{idle[detail_name]['warm_media']}；"
+                f"重启后首开：{idle[detail_name]['first_open_media']}"
+            )
     migration = h.data_root() / "migration.json"
     if migration.exists():
         m = json.loads(migration.read_text())

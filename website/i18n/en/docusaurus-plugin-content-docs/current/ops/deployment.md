@@ -18,7 +18,15 @@ This document covers ArcReel's default deployment, PostgreSQL production deploym
 
 Regardless of the method you choose, project images, videos, and other generated assets must be stored persistently.
 
-ArcReel is currently designed for a single trusted operator and does not support sharing an instance among mutually untrusted users. A PostgreSQL production deployment does not add tenant isolation, role-based permissions, or per-user project authorization.
+ArcReel is currently designed as a self-hosted single-user system for a single trusted operator and does not support sharing an instance among mutually untrusted users. A PostgreSQL production deployment does not add tenant isolation, role-based permissions, or per-user project authorization.
+
+### Single-Process Runtime and Project Scale {#scale-and-runtime}
+
+Official images run as a single application process. Generation queue scheduling, project write locks, and Agent sessions are coordinated in-process; running multiple worker processes (such as `uvicorn --workers`) is not supported.
+
+Benchmarks and stress tests cover two project scale tiers: regular projects (up to 100 episodes, tested with a 90-episode project of 28 video units per episode) and large projects (300–700 episodes, around 400 project assets, and 28–30 MB of version history, tested with a 686-episode project). The large-project container stress test runs a single-process Docker container under an 8 GiB cgroup memory limit for 30 minutes of mixed load: on the 686-episode sample, cgroup peak memory reached 1.33 GiB (process VmHWM about 680 MiB) with zero OOM kills, the container stayed healthy, and all in-flight work drained in 76.5 s after load stopped; however, full-project workspace refreshes and episode-omitted auto-selection still hit client timeouts under sustained heavy write-back (14/14 and 3/14 requests each at a 120 s timeout), and several large-project read and synchronous write endpoints still exceeded 3 s at p95.
+
+Content confirmation, full formal-script overwrites, and reference-to-video batch previews and batch submissions complete synchronously so that batch admission checks, revision validation, and version writes finish before the response returns. In the `#4054` concurrent benchmark scenario with 242 background video write-back tasks, routine workspace reads and full-episode overwrite confirmation on the 90-episode project completed within 1 second; on the 686-episode project, five-round p95 response times for 18-unit reference-to-video batch preview, batch submission, and full-episode overwrite confirmation were approximately 5.3 s, 3.3 s, and 10.9 s respectively, while concurrent canvas and script reads remained responsive. Actual timings vary with host disk performance, database load, and concurrent activity.
 
 ## 1. Default Deployment: SQLite {#sqlite-deployment}
 
@@ -342,7 +350,7 @@ After confirming that the Vertex credentials work in Settings, delete `deploy/lo
 
 ### 5.5 Project Schema Migrations {#project-schema-migrations}
 
-Version 21 moves version history from `versions/versions.json` into the project’s `versions/history.sqlite3` and keeps a versioned backup beside the original file. If migration stops on corrupt history, repair the history and retry. ZIP archives continue to exchange version records as JSON.
+Version 21 moves each project’s version history from `versions/versions.json` into a per-project SQLite database at `versions/history.sqlite3` (in WAL mode), independent of the instance-level SQLite or PostgreSQL database, and keeps a versioned backup beside the original file. If conflicting local version-database files already exist under `versions/` before the upgrade, ArcReel sets them aside under `.kept.v<starting-version>-<timestamp>` and lists them in the migration report. If migration stops on corrupt history, it preserves the original files and backups so you can repair the history and restart to retry. Project ZIP archives continue to exchange version records as logical `versions/versions.json` payloads: exports generate JSON from a consistent snapshot of the project version database without packaging the live `history.sqlite3`, `-wal`, or `-shm` files, and imports validate and rebuild `versions/history.sqlite3` in a staging directory.
 
 ArcReel upgrades project data automatically at startup. [Back up the data root and database](#backup-and-restore) before upgrading, and leave space for the migration. A large project may need a full directory copy, and the first startup can take longer.
 
@@ -414,7 +422,7 @@ tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
   -C "${data_dir}" .
 ```
 
-Archiving the entire `data_dir` after the service has stopped keeps `arcreel.db` and project assets at the same point in time. The configuration and data archives must use the same timestamp and be stored together. `umask 077` and backup directory mode `0700` restrict access to the credentials and project assets they contain. Do not copy only `arcreel.db` while ArcReel is writing to it. In WAL mode, committed transactions may still reside in `arcreel.db-wal`; losing or mismatching the WAL can cause data loss or corruption. If downtime is not possible, use the SQLite Online Backup API, such as the `sqlite3` `.backup` command, or `VACUUM INTO` to create a consistent snapshot instead of copying the main database file directly with `cp`.
+Archiving the entire `data_dir` after the service has stopped keeps the instance database `arcreel.db`, every project's version database `projects/<project-name>/versions/history.sqlite3`, and project media files at the same point in time. The configuration and data archives must use the same timestamp and be stored together. `umask 077` and backup directory mode `0700` restrict access to the credentials and project assets they contain. Both `arcreel.db` and each project's `versions/history.sqlite3` run in WAL mode; do not copy an individual `.db` or `.sqlite3` main file while ArcReel is writing to it. Committed transactions may still reside in the corresponding `-wal` file, and losing or mismatching `-wal` or `-shm` files can cause data loss or corruption. If downtime is not possible, use the SQLite Online Backup API (such as the `sqlite3` `.backup` command) or `VACUUM INTO` to create a consistent snapshot, or export a project ZIP archive for a single project instead of copying live database files directly with `cp`.
 
 Restart the service:
 
@@ -432,7 +440,7 @@ To restore:
 
 These database commands apply only when ArcReel connects to the `postgres` service in the same Compose project. For any other PostgreSQL deployment, see [Back Up and Restore External PostgreSQL](#external-postgresql-backup-restore). The examples use `arcreel` as both the database name and user, and read the password from `POSTGRES_PASSWORD` in the PostgreSQL container. If you changed the database name or user, adjust `-d`, `-U`, and authentication in the backup and restore commands to match.
 
-Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time. Archive the data root actually mounted by Compose. For a custom mount, set `data_dir` to the absolute host path.
+Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Even when the instance uses PostgreSQL, each project's version history still lives in the data root at `projects/<project-name>/versions/history.sqlite3` (SQLite WAL mode) and is not included in `pg_dump`. Stop ArcReel while leaving PostgreSQL running before you run `pg_dump` and archive the data root so PostgreSQL, every project's SQLite version database, and media files represent the same point in time, and to avoid archiving a live `history.sqlite3` with mismatched `-wal` state. Archive the data root actually mounted by Compose. For a custom mount, set `data_dir` to the absolute host path.
 
 ```bash
 data_dir="$(pwd -P)/projects"

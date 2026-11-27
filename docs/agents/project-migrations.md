@@ -29,6 +29,7 @@
 | 条目删后重用编号、分镜或宫格依据仍含资产名 | [条目编号与依据迁移](../../lib/project/project_migrations/v18_to_v19_item_id_high_water.py)。 |
 | 旁白配音版本与依赖配音的字幕、呈现及导出登记 | [旁白交付迁移](../../lib/project/project_migrations/audio_delivery.py) 在 v20→v21 按正文重算依据，仅更新改前时新的登记。 |
 | 各集遗留的隔离草稿 | [v20→v21](../../lib/project/project_migrations/v20_to_v21_retired_drafts.py) 将文件原样移入项目回收站。恢复删除记录时，暂存树保留这些文件供恢复入口取回。 |
+| 项目单体版本历史 `versions/versions.json` | [v20→v21](../../lib/project/project_migrations/v20_to_v21_retired_drafts.py) 将版本历史迁入项目内 SQLite 版本库 `versions/history.sqlite3`（WAL 模式），保留原文件版本化备份；若已存在冲突数据库文件则按 `.kept.v20-*` 另存并记入迁移报告；ZIP 归档仍通过逻辑 `versions/versions.json` 交换。 |
 | 不可读的媒体、宫格或草稿、无法计算依据、导入引用未定义资产 | [规划器激活模式](../../lib/artifacts/artifact_planner.py)、[迁移报告](../../lib/project/project_migration_report.py)、[归档导入](../../server/services/project/project_archive.py)。 |
 
 ## 当前约定
