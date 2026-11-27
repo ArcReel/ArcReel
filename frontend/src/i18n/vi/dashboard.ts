@@ -2915,7 +2915,7 @@ export default {
   'trash_restored_degraded': "Không thể khôi phục {{name}} theo cấu trúc ban đầu. Đã lấy lại {{count}} tệp; các tệp cấu trúc vẫn ở trong thùng rác dự án và chỉ có thể tải xuống",
   'trash_restored_degraded_files': "Không thể khôi phục {{name}} theo cấu trúc ban đầu. Đã lấy lại {{count}} tệp",
   'trash_download_only_hint': "Không thể khôi phục theo cấu trúc ban đầu. Các tệp cấu trúc dưới đây chỉ có thể tải xuống",
-  'trash_script_overwrite_hint': "Các tệp dưới đây được liệt kê theo đường dẫn gốc để tải xuống từng tệp. Các tệp tư liệu sau khi tải xuống có thể tải lên thủ công vào mục tiêu đã chọn trong không gian làm việc, còn kịch bản chính thức chỉ dùng để tải xuống; các mục và quan hệ cũ không được tự động đặt lại",
+  'trash_script_overwrite_hint': "Các tệp dưới đây được liệt kê theo đường dẫn gốc để tải xuống từng tệp. Ảnh phân cảnh và video sau khi tải xuống có thể tải lên thủ công vào mục tiêu đã chọn trong không gian làm việc, còn kịch bản chính thức chỉ dùng để tải xuống; các mục và quan hệ cũ không được tự động đặt lại",
   'trash_download_file': "Tải xuống {{path}}",
   'trash_purge': "Xóa vĩnh viễn",
   'trash_purge_title': "Xóa vĩnh viễn bản ghi xóa này?",

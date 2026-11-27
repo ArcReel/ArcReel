@@ -253,12 +253,17 @@ describe("AppRoutes", () => {
       summary: { ...ws.summary, episodes_summary: null, episodes: ws.summary.episodes.filter((row) => row.episode === episode) },
     });
     const broad = createDeferred<typeof ws>();
-    vi.spyOn(API, "getWorkspace").mockImplementation((_name, options) => {
-      if (options?.episodes?.[0] === 1) return Promise.resolve(projection(1));
-      if (options?.episodes?.[0] === 2) return Promise.resolve(projection(2));
-      return broad.promise;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, options) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
+      switch (String(input)) {
+        case "/api/v1/projects/demo/workspace?episodes=1": return Response.json(projection(1));
+        case "/api/v1/projects/demo/workspace?episodes=2": return Response.json(projection(2));
+        case "/api/v1/projects/demo/workspace": return Response.json(await broad.promise);
+        case "/api/v1/projects/demo/scripts/episode_1.json":
+          return Response.json({ script: { episode: 1, segments: [] }, revision: "r1" });
+        default: throw new Error(`Unexpected request ${input}`);
+      }
     });
-    vi.spyOn(API, "getScript").mockResolvedValue({ script: { episode: 1, segments: [] }, revision: "r1" } as never);
 
     const { hook, navigate } = memoryLocation({ path: "/app/projects/demo/episodes/1" });
     render(<Router hook={hook}><AppRoutes /></Router>);
@@ -269,9 +274,9 @@ describe("AppRoutes", () => {
     });
 
     if (switchFirst) await act(async () => navigate("/app/projects/demo/episodes/2"));
-    const episodeTwoRequests = vi.mocked(API.getWorkspace).mock.calls.filter(([, options]) => options?.episodes?.[0] === 2);
+    const episodeTwoRequests = fetchSpy.mock.calls.filter(([url]) => url === "/api/v1/projects/demo/workspace?episodes=2");
     expect(episodeTwoRequests).toHaveLength(switchFirst ? 1 : 0);
-    expect(useProjectsStore.getState().currentProjectData?.episodes[1].script_status).toBeUndefined();
+    expect(useProjectsStore.getState().currentProjectData?.episodes[1].script_status).toBe(switchFirst ? "segmented" : undefined);
     await act(async () => broad.reject(new Error("timeout")));
     await waitFor(() => expect(useProjectsStore.getState().projectDetailLoading).toBe(false));
     if (!switchFirst) act(() => navigate("/app/projects/demo/episodes/2"));
@@ -294,10 +299,16 @@ describe("AppRoutes", () => {
     });
     const partial = createDeferred<typeof ws>();
     const broad = createDeferred<typeof ws>();
-    vi.spyOn(API, "getWorkspace").mockImplementation((_name, options) => (
-      options?.episodes ? partial.promise : broad.promise
-    ));
-    vi.spyOn(API, "getScript").mockResolvedValue({ script: { episode: 1, segments: [] }, revision: "r1" } as never);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, options) => {
+      expect(options?.signal).toBeInstanceOf(AbortSignal);
+      switch (String(input)) {
+        case "/api/v1/projects/demo/workspace?episodes=1": return Response.json(await partial.promise);
+        case "/api/v1/projects/demo/workspace": return Response.json(await broad.promise);
+        case "/api/v1/projects/demo/scripts/episode_1.json":
+          return Response.json({ script: { episode: 1, segments: [] }, revision: "r1" });
+        default: throw new Error(`Unexpected request ${input}`);
+      }
+    });
 
     const { hook } = memoryLocation({ path: "/app/projects/demo/episodes/1" });
     render(<Router hook={hook}><AppRoutes /></Router>);

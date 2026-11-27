@@ -1,3 +1,4 @@
+import { hasEpisodeDraft } from "@/utils/episode-display";
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
@@ -11,7 +12,7 @@ import {
   WORKSPACE_ROUTE_FILES,
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
-import { normalizeScriptFile, useProjectsStore } from "@/stores/projects-store";
+import { canPreviewEpisode, normalizeScriptFile, useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
@@ -392,10 +393,8 @@ export function StudioCanvasRouter() {
     void handleGenerateProduct(...args).catch(console.error);
   }, [handleGenerateProduct]);
 
-  const episodeReady = episodeParams && activeEpisodeScript.status === "ready" &&
-    activeEpisodeScript.episode === Number(episodeParams.episodeId) &&
-    currentProjectData?.episodes.some((ep) => ep.episode === activeEpisodeScript.episode &&
-      ep.script_status === "generated" && normalizeScriptFile(ep.script_file) === activeEpisodeScript.scriptFile);
+  const targetEpisode = currentProjectData?.episodes.find((ep) => ep.episode === Number(episodeParams?.episodeId));
+  const episodeReady = canPreviewEpisode(targetEpisode, activeEpisodeScript);
   if (!currentProjectName || (projectDetailLoading && !episodeReady)) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -499,8 +498,7 @@ export function StudioCanvasRouter() {
           const durationWarningReason = (seconds: number) =>
             durationOutOfRangeReason(seconds, capabilities);
           const durationEndpointFixed = capabilities.durationEndpointFixed;
-          const hasDraft =
-            episode?.script_status === "segmented" || episode?.script_status === "generated";
+          const hasDraft = hasEpisodeDraft(episode);
           const isAd = currentProjectData?.content_mode === "ad";
           return (
             <EpisodePage

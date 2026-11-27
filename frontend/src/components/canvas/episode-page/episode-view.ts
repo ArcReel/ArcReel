@@ -1,3 +1,4 @@
+import { hasEpisodeDraft } from "@/utils/episode-display";
 import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
 import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
@@ -19,10 +20,6 @@ export interface EpisodeViewFacts {
 
 export function episodeViewTabId(view: EpisodeView): string {
   return `episode-view-tab-${view}`;
-}
-
-export function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
-  return meta?.script_status === "segmented" || meta?.script_status === "generated";
 }
 
 export function showsEpisodeSource(

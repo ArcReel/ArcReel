@@ -140,7 +140,27 @@ test("drama script review loads blocking issues inline, unlocks confirm after sa
   await health.assertClean();
 
   const sourceEditor = page.getByRole("textbox", { name: "原文锚（仅供追溯，不朗读）" });
-  await sourceEditor.fill(sourceText);
+  const workspaceUrl = `**/projects/${project}/workspace`;
+  let releaseWorkspace!: () => void;
+  const held = new Promise<void>((resolve) => { releaseWorkspace = resolve; });
+  const fullWorkspaceTitle = "第一集 · 完整工作区";
+  await page.route(workspaceUrl, async (route) => {
+    const response = await route.fetch();
+    const workspace = await response.json() as { project: { episodes: { title: string }[] } };
+    workspace.project.episodes[0].title = fullWorkspaceTitle;
+    await held;
+    await route.fulfill({ response, json: workspace });
+  }, { times: 1 });
+  const fullWorkspaceHeading = page.getByRole("heading", { name: fullWorkspaceTitle, exact: true });
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await sourceEditor.fill(sourceText);
+    await expect(fullWorkspaceHeading).toHaveCount(0);
+  } finally {
+    releaseWorkspace();
+  }
+  await expect(fullWorkspaceHeading).toBeVisible();
+  await expect(sourceEditor).toHaveValue(sourceText);
   const saveResponse = page.waitForResponse(
     (reply) =>
       reply.request().method() === "PUT" &&
