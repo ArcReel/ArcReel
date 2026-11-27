@@ -9,6 +9,7 @@ paths:
   - "frontend/playwright.config.ts"
   - "frontend/vitest.config.ts"
   - "scripts/e2e_record_backend.py"
+  - "scripts/local_instance.py"
 ---
 
 # 测试
@@ -58,6 +59,10 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 `frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里；写入是否真正持久化生效由全栈实机 E2E（`frontend/e2e/live/`）验证。
 
 放行条件：没有改动接口形状的 PR 不必重录。录制文件只要有改动，仍须来自 `pnpm e2e:record`。
+
+### 本地验证与 E2E 启动器隔离环境变量、数据目录与进程身份
+
+启动本地真实后端用于实机 E2E、接口录制或实例核验（如 `frontend/e2e/live/backend.py`、`scripts/local_instance.py`、`scripts/e2e_record_backend.py`）时，必须在导入 `lib` 或拉起子进程前构造白名单或干净环境：设置独立临时 `ARCREEL_DATA_DIR`、关闭 `.env` 加载（`PYTHON_DOTENV_DISABLED=1`）与旧日志迁移（`ARCREEL_SKIP_LEGACY_LOG_MIGRATION=1`）、剥离父进程的数据库与供应商密钥，并在应用启动后校验实际解析的数据根目录与临时目录一致。持久化状态目录须带专属哨兵并拒绝在运行中目录重复启动；回收进程前核对进程身份（如 PID 与启动时间），避免误杀 PID 复用后的无关进程或污染本机真实项目（#4090、#4188）。
 
 ## 断言价值
 

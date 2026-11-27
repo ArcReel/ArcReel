@@ -18,5 +18,5 @@ knowledge_base:
       - files: "docs/standards/providers.md"
         applyTo: "lib/backends/**,lib/custom_provider/**,lib/config/**,lib/billing/**,lib/agent/agent_provider_catalog.py,lib/prompts/prompt_builders*.py,agent_runtime_profile/**,docs/api-docs/**"
       - files: "docs/standards/testing.md"
-        applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**,frontend/e2e/**,frontend/playwright.config.ts,frontend/vitest.config.ts,scripts/e2e_record_backend.py"
+        applyTo: "tests/**,packages/*/tests/**,frontend/src/**/*.test.*,frontend/src/test/**,frontend/src/__mocks__/**,frontend/e2e/**,frontend/playwright.config.ts,frontend/vitest.config.ts,scripts/e2e_record_backend.py,scripts/local_instance.py"
       # standards:end
