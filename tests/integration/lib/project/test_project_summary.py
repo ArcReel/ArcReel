@@ -993,8 +993,10 @@ def test_workspace_reuses_script_for_strict_completion(tmp_path, monkeypatch):
         return summary.episodes[0]
 
     assert summarize().status == "completed"
-    timeline = next((project_path / "edit_timelines" / "episode_1").glob("*.json"))
-    timeline.write_text("{")
+    directory = project_path / "edit_timelines" / "episode_1"
+    padded = directory.rename(directory.with_name("episode_01"))
+    assert summarize().status == "completed"
+    next(padded.glob("*.json")).write_text("{")
     row = summarize()
     assert row.videos.available == 1
     assert row.status == "in_production"

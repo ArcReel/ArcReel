@@ -2,6 +2,7 @@ import { box, viewport, waitForEntrance, clearAgentOverlay } from "../support/re
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios, defineViewportContracts } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
+import { RECORDED_ACCESS_TOKEN } from "../support/recorded.ts";
 import { recordedDemoScript, workspaceOverride } from "../support/workspace-override.ts";
 
 const BOARD_PATH = "/app/projects/demo/episodes/1";
@@ -150,6 +151,30 @@ async function boardReady(page: Page) {
   await shotList(page).waitFor();
   await page.getByRole("heading", { name: "引用" }).waitFor();
 }
+
+test("全项目摘要晚到仍保留当前分镜的提示词草稿", async ({ page, api }) => {
+  api.override(API);
+  let release = () => {};
+  const delayed = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/v1/projects/demo/workspace", async (route) => {
+    await delayed;
+    await route.fallback();
+  });
+  await page.addInitScript((token) => localStorage.setItem("arcreel_auth_token", token), RECORDED_ACCESS_TOKEN);
+  await page.goto(BOARD_PATH);
+  const prompt = page.getByRole("textbox", { name: "分镜图提示词" });
+  try {
+    await boardReady(page);
+    await prompt.fill("保留这次修改");
+    const cost = page.waitForResponse("**/api/v1/projects/demo/cost-estimate");
+    release();
+    await cost;
+    await expect(prompt).toHaveValue("保留这次修改");
+    await expect(page.getByRole("button", { name: /^保存并生成/ }).first()).toBeAttached();
+  } finally {
+    release();
+  }
+});
 
 defineRegionScenarios("分镜详情", [
   {

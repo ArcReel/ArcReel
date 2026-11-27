@@ -92,10 +92,12 @@ export function EpisodeCard({
           className={cn("text-sm", active ? "font-medium text-foreground" : "text-subtle-foreground")}
         />
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <span aria-hidden className={cn("size-1.5 rounded-full", STATUS_DOT[status] ?? STATUS_DOT.draft)} />
-            {statusLabel}
-          </span>
+          {ep.status && (
+            <span className="inline-flex items-center gap-1">
+              <span aria-hidden className={cn("size-1.5 rounded-full", STATUS_DOT[status] ?? STATUS_DOT.draft)} />
+              {statusLabel}
+            </span>
+          )}
           {totalShots > 0 && (
             <span className="num">
               {videoTotal > 0 ? (

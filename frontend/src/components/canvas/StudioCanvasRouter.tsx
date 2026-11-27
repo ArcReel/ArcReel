@@ -1,7 +1,7 @@
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useRoute } from "wouter";
 import {
   WORKSPACE_ROUTE_CHARACTERS,
   WORKSPACE_ROUTE_SCENES,
@@ -100,6 +100,7 @@ export function StudioCanvasRouter() {
     activeEpisodeScript,
     projectDetailLoading,
   } = useProjectsStore();
+  const [, episodeParams] = useRoute(EPISODE_ROUTE_PATH);
   const demoMode = useDemoWorkbench();
 
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
@@ -391,7 +392,11 @@ export function StudioCanvasRouter() {
     void handleGenerateProduct(...args).catch(console.error);
   }, [handleGenerateProduct]);
 
-  if (!currentProjectName || projectDetailLoading) {
+  const episodeReady = episodeParams && activeEpisodeScript.status === "ready" &&
+    activeEpisodeScript.episode === Number(episodeParams.episodeId) &&
+    currentProjectData?.episodes.some((ep) => ep.episode === activeEpisodeScript.episode &&
+      ep.script_status === "generated" && normalizeScriptFile(ep.script_file) === activeEpisodeScript.scriptFile);
+  if (!currentProjectName || (projectDetailLoading && !episodeReady)) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         {t("loading_placeholder")}
