@@ -374,8 +374,11 @@ def test_history_version_moves_to_trash_and_restores_into_version_history(trash_
     assert current.read_bytes() == b"in-use v2"
 
 
-def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_project_dir, monkeypatch):
-    from lib.material import formal_objects, work_files
+async def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_project_dir, db_engine, monkeypatch):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+    from lib.material import formal_objects
     from lib.material.storage import ObjectLocator
     from lib.project.script_entry_cleanup import archive_script_overwrite
 
@@ -387,7 +390,18 @@ def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_project
     versions.add_version("storyboards", "E1S01", "old", source_file=root / image)
     history = versions.resource_records([("storyboards", "E1S01")])
     version = history["storyboards"]["E1S01"]["versions"][0]
-    locator = ObjectLocator(connection_id=7, bucket="media", key="original")
+    from tests.fakes import bind_session_factory, use_object_storage_sdk
+    from tests.integration.server.routers.test_remote_material_storage import CONNECTION, MemoryBucket
+
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    bind_session_factory(monkeypatch, factory)
+    async with factory() as session:
+        connection = await ObjectStorageConnectionRepository(session).save(kind="tos", **CONNECTION)
+        await session.commit()
+    locator = ObjectLocator(connection_id=connection.id, bucket=connection.bucket, key="original")
+    bucket = MemoryBucket()
+    bucket.objects[(locator.bucket, locator.key)] = content
+    use_object_storage_sdk(monkeypatch, lambda config: bucket)
     version.update(
         storage=locator.to_record(),
         content_version_id="test-version",
@@ -406,13 +420,8 @@ def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_project
     assert trash_client.post(endpoint + "/restore").status_code == 409
     uses = {}
     formal_objects._trash_uses(root, uses)
-    assert uses == {(7, "media", "original"): {("test-version", "trashed")}}
+    assert uses == {(locator.connection_id, locator.bucket, locator.key): {("test-version", "trashed")}}
 
-    async def fetch(stored):
-        assert stored == locator
-        return content
-
-    monkeypatch.setattr(work_files, "fetch_object_content", fetch)
     for path in (image, version["file"]):
         response = trash_client.get(endpoint + "/files", params={"path": path})
         assert response.status_code == 200

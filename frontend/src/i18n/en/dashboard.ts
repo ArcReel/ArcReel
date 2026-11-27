@@ -2800,7 +2800,7 @@ export default {
   'trash_restored_degraded': "{{name}} can't be restored with its original structure. Files recovered: {{count}}. Its structure files stay in the project trash and can only be downloaded",
   'trash_restored_degraded_files': "{{name}} can't be restored with its original structure. Files recovered: {{count}}",
   'trash_download_only_hint': "Can't be restored with its original structure. These structure files can only be downloaded",
-  'trash_script_overwrite_hint': "Files below are listed by original path for individual download. After downloading, pick a target in the workspace to reuse them manually; old shots and relationships are not put back automatically",
+  'trash_script_overwrite_hint': "Files below are listed by original path for individual download. Downloaded media files can be uploaded manually to a chosen target in the workspace, while the formal script is download-only; old entries and relationships are not put back automatically",
   'trash_download_file': "Download {{path}}",
   'trash_purge': "Delete permanently",
   'trash_purge_title': "Permanently delete this deletion record?",

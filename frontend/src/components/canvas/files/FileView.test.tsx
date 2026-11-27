@@ -603,7 +603,7 @@ it("downloads individual files from a script overwrite without restoring entries
   render(<FileView projectName="demo" />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "项目回收站" }));
-  expect(await screen.findByText("第 2 集覆盖前的正式剧本与素材")).toBeInTheDocument();
+  expect(await screen.findByText("第 2 集覆盖前的正式脚本与素材")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "恢复" })).not.toBeInTheDocument();
   for (const path of files) {
     await user.click(screen.getByRole("button", { name: `下载 ${path}` }));

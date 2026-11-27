@@ -242,7 +242,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "配音 {count} 段",
     "script_overwrite_loss_end_frame": "尾帧 {count} 张",
     "script_overwrite_loss_grid": "宫格归属 {count} 处（涉及 {grids} 张联合图，联合图随之失去登记）",
-    "script_overwrite_history": "覆盖前的正式剧本与实际移除的当前、历史素材会存入项目回收站（保留 30 天），可在「文件」视图按原路径逐个下载，再到创作界面选定目标手动复用；新脚本不会接上旧历史，也不会自动装回旧镜头或原有关系。",
+    "script_overwrite_history": "覆盖前的正式脚本与实际移除的当前、历史素材会存入项目回收站（保留 30 天），可在「文件」视图按原路径逐个下载，其中素材可到创作界面选定目标手动上传复用；新脚本不会接上旧历史，也不会自动装回旧条目或原有关系。",
     "script_overwrite_entries": "将被移除的脚本条目：{entries}",
     "script_overwrite_entry": "{id}（{kinds}）",
     "script_overwrite_kind_storyboard": "分镜图",

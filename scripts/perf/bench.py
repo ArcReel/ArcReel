@@ -344,26 +344,18 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 task.add_done_callback(tasks.discard)
 
             def on_video_done(self, episode: int) -> None:
-                for name in (
-                    "workspace",
-                    "project",
+                workflow_endpoints = (
                     "units",
                     "wf_status",
                     "wf_ep_status",
                     "wf_plan",
                     "wf_ep_plan",
                     "wf_episodes",
-                ):
+                )
+                for name in ("workspace", "project", *workflow_endpoints):
                     if name in names:
                         self.fire(name, episode)
-                for name in (
-                    "units",
-                    "wf_status",
-                    "wf_ep_status",
-                    "wf_plan",
-                    "wf_ep_plan",
-                    "wf_episodes",
-                ):
+                for name in workflow_endpoints:
                     if name in names:
                         self.fire(name, episode)
                 if "cost" in names:

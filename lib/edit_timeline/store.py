@@ -32,6 +32,22 @@ def document_relpath(episode: int, timeline_id: str) -> str:
     return f"{EDIT_TIMELINES_DIRNAME}/episode_{episode}/{timeline_id}.json"
 
 
+def episode_timeline_dirs(project_dir: Path, episode: int | None = None) -> list[tuple[int, Path]]:
+    root = project_dir / EDIT_TIMELINES_DIRNAME
+    if not root.is_dir():
+        return []
+    found: list[tuple[int, Path]] = []
+    with os.scandir(root) as entries:
+        for entry in entries:
+            prefix, _, number = entry.name.partition("_")
+            if prefix != "episode" or not number.isdecimal():
+                continue
+            value = int(number)
+            if value >= 1 and (episode is None or value == episode) and entry.is_dir():
+                found.append((value, Path(entry.path)))
+    return sorted(found)
+
+
 def _parse_document(path: Path, read_bytes: Callable[[Path], bytes] = Path.read_bytes) -> EditTimelineDocument:
     try:
         document = EditTimelineDocument.model_validate(json.loads(read_bytes(path).decode("utf-8")))
@@ -53,18 +69,7 @@ class EditTimelineStore:
         return self._root / f"episode_{episode}"
 
     def _episode_dirs(self, episode: int | None = None) -> list[tuple[int, Path]]:
-        if not self._root.is_dir():
-            return []
-        found: list[tuple[int, Path]] = []
-        with os.scandir(self._root) as entries:
-            for entry in entries:
-                prefix, _, number = entry.name.partition("_")
-                if prefix != "episode" or not number.isdecimal():
-                    continue
-                value = int(number)
-                if value >= 1 and (episode is None or value == episode) and entry.is_dir():
-                    found.append((value, Path(entry.path)))
-        return sorted(found)
+        return episode_timeline_dirs(self._project_dir, episode)
 
     @staticmethod
     def _parse(path: Path) -> EditTimelineDocument:
@@ -163,4 +168,10 @@ def read_timeline_document(
     return document if document.episode == episode else None
 
 
-__all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore", "document_relpath", "read_timeline_document"]
+__all__ = [
+    "EDIT_TIMELINES_DIRNAME",
+    "EditTimelineStore",
+    "document_relpath",
+    "episode_timeline_dirs",
+    "read_timeline_document",
+]

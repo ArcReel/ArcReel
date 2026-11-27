@@ -42,12 +42,15 @@ from lib.project.resource_paths import resource_of_path, resource_relative_path
 __all__ = [
     "FILES_DIRNAME",
     "RETENTION",
+    "SCRIPT_ENTRY_KIND",
+    "SCRIPT_OVERWRITE_KIND",
     "SNAPSHOT_DIRNAME",
     "TRASH_DIRNAME",
     "TRASH_ENTITY_TYPE",
     "RestoreResult",
     "RestoredFile",
     "TrashRecord",
+    "archived_remote_file",
     "empty",
     "is_structure_file",
     "keep_for_download",
@@ -70,6 +73,8 @@ RECORD_FORMAT = 1
 _RECORD_FILE = "record.json"
 FILES_DIRNAME = "files"
 SNAPSHOT_DIRNAME = "snapshot"
+SCRIPT_ENTRY_KIND = "script_entry"
+SCRIPT_OVERWRITE_KIND = "script_overwrite"
 _RECORD_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 Origin = Literal["user", "agent", "migration"]
@@ -229,6 +234,7 @@ def record_deletion(
     histories: Mapping | None = None,
     archived_bytes: Mapping[str, bytes] | None = None,
     remote_files: Sequence[str] = (),
+    download_only: bool = False,
     shared_snapshot: dict[str, Path] | None = None,
 ) -> TrashRecord:
     """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
@@ -279,7 +285,7 @@ def record_deletion(
             id=record_id,
             object=dict(obj),
             files=tuple(dict.fromkeys([*files, *(archived_bytes or {}), *remote_files])),
-            download_only=archived_bytes is not None,
+            download_only=download_only,
             schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
             deleted_at=datetime.now(UTC),
             origin=origin or ("user" if get_project_change_source() == "webui" else "agent"),
@@ -414,6 +420,17 @@ def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[Binar
         return open_project_file(trash_dir(project_dir) / record.id / FILES_DIRNAME, rel)
     except (FileNotFoundError, NotADirectoryError) as exc:
         raise NotFoundError("file_not_found", path=rel) from exc
+
+
+def archived_remote_file(project_dir: Path, record_id: str, rel: str):
+    """覆盖剧本记录里的远端素材在本地缓存已逐出时，返回其归档版本记录里的远端定位。"""
+    record = require_record(project_dir, record_id)
+    if record.object.get("kind") != SCRIPT_OVERWRITE_KIND or rel not in record.files:
+        return None
+    with open_record_file(project_dir, record_id, "versions/versions.json")[0] as history:
+        from lib.material.work_files import archived_remote_files
+
+        return archived_remote_files(json.load(history)).get(rel)
 
 
 def consume(project_dir: Path, record_id: str) -> None:

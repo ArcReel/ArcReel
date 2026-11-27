@@ -250,7 +250,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "{count} đoạn lồng tiếng",
     "script_overwrite_loss_end_frame": "{count} khung hình cuối",
     "script_overwrite_loss_grid": "{count} phân cảnh thuộc lưới (liên quan {grids} ảnh ghép, các ảnh ghép này mất đăng ký)",
-    "script_overwrite_history": "Kịch bản chính thức trước khi ghi đè cùng các tệp tư liệu hiện tại và lịch sử thực tế bị xóa sẽ được lưu trong thùng rác dự án (giữ 30 ngày). Bạn có thể tải xuống từng tệp theo đường dẫn gốc trong chế độ xem «Tệp», rồi chọn mục tiêu trong không gian làm việc để dùng lại thủ công; kịch bản mới không kế thừa lịch sử phiên bản cũ, cũng không tự động đặt lại các phân cảnh hay quan hệ cũ.",
+    "script_overwrite_history": "Kịch bản chính thức trước khi ghi đè cùng các tệp tư liệu hiện tại và lịch sử thực tế bị xóa sẽ được lưu trong thùng rác dự án (giữ 30 ngày). Bạn có thể tải xuống từng tệp theo đường dẫn gốc trong chế độ xem «Tệp», rồi tải các tệp tư liệu lên mục tiêu đã chọn trong không gian làm việc để dùng lại thủ công; kịch bản mới không kế thừa lịch sử phiên bản cũ, cũng không tự động đặt lại các mục hay quan hệ cũ.",
     "script_overwrite_entries": "Các mục kịch bản sẽ bị xóa: {entries}",
     "script_overwrite_entry": "{id} ({kinds})",
     "script_overwrite_kind_storyboard": "ảnh phân cảnh",

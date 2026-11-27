@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import json
 import logging
 from pathlib import Path
 
@@ -13,7 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.material.formal_objects import reconcile_and_collect
-from lib.material.work_files import archived_remote_files, fetch_archived_file
+from lib.material.work_files import fetch_archived_file
 from lib.project import project_trash
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
@@ -78,11 +77,7 @@ async def download_trash_record_file(project_name: str, record_id: str, path: st
         try:
             handle, info = project_trash.open_record_file(directory, record_id, path)
         except NotFoundError:
-            record = project_trash.require_record(directory, record_id)
-            if record.object.get("kind") != "script_overwrite" or path not in record.files:
-                raise
-            with project_trash.open_record_file(directory, record_id, "versions/versions.json")[0] as history:
-                remote = archived_remote_files(json.load(history)).get(path)
+            remote = project_trash.archived_remote_file(directory, record_id, path)
             if remote is None:
                 raise
             return None, 0, remote, media_type
