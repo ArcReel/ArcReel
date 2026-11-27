@@ -52,11 +52,15 @@ flowchart TB
 | 设置页深链和返回目标 | `frontend/src/app-routes.ts` 与 `components/shared/page-shell/return-to.ts` |
 | 项目刷新和配置问题 | `frontend/src/stores/projects-store.ts` 负责合并刷新，写入操作后通过 `components/canvas/shared/refreshAfterWrite.ts` 触发刷新；`frontend/src/stores/config-status-store.ts` 按设置分区提供配置问题状态。 |
 
-工作台首屏接口 `GET /api/v1/projects/{name}/workspace` 返回项目账本、逐集摘要和资产指纹。摘要按清单登记与文件在场统计可用产物，单独报告待重新规划的视频单元数。单集脚本与资产图新鲜度由相应详情接口读取。直接打开分集页时，工作台并行读取项目账本和该集的默认脚本。脚本请求携带 `X-ArcReel-Optional-Read: 1` 时，文件缺失返回 HTTP 200 和 JSON `null`；普通读取缺失文件返回 404。为避免订阅建立前的跨会话写入遗漏，首屏请求可用 `X-ArcReel-Script-Version: include` 同时获取文件标识；同时携带可选读取头且文件缺失时，标识为 `missing`。事件流请求携带 `X-ArcReel-Active-Episode` 时，首个 `snapshot.episode_script` 返回对应集号、绑定文件名和文件标识。工作台核对标识后才使用推测读取的正文。订阅迟到时，`X-ArcReel-Script-Version: only` 只查询目标文件标识。确认脚本规划成功后，工作台重新读取该集摘要，并按最新状态加载正式脚本。资产页可用 `asset-sheets/status?include=derivative_references` 查询衍生引用，读取不完整且未找到引用时返回 `referenced: null`。
+工作台首屏接口 `GET /api/v1/projects/{name}/workspace` 返回项目账本、逐集摘要和资产指纹。摘要采用 `currency: "registered"` 口径，按产物清单登记与文件在场统计可用产物，单独报告待重新规划的视频单元数，不返回各集脚本正文，也不做全项目产物时效比对或全项目脚本衍生引用扫描；单集脚本与资产图时效由相应详情接口按需读取。旧项目详情接口 `GET /api/v1/projects/{name}` 在过渡期保留兼容，仍返回全项目脚本正文、按生成依据逐件核验（`verified`）的摘要计数与全项目衍生引用标注；在大项目上开销显著高于 `/workspace`，新调用方应优先使用 `/workspace` 配合单集与资产按需接口。直接打开分集页时，工作台并行读取项目账本和该集的默认脚本。脚本请求携带 `X-ArcReel-Optional-Read: 1` 时，文件缺失返回 HTTP 200 和 JSON `null`；普通读取缺失文件返回 404。为避免订阅建立前的跨会话写入遗漏，首屏请求可用 `X-ArcReel-Script-Version: include` 同时获取文件标识；同时携带可选读取头且文件缺失时，标识为 `missing`。事件流请求携带 `X-ArcReel-Active-Episode` 时，首个 `snapshot.episode_script` 返回对应集号、绑定文件名和文件标识。工作台核对标识后才使用推测读取的正文。订阅迟到时，`X-ArcReel-Script-Version: only` 只查询目标文件标识。确认脚本规划成功后，工作台重新读取该集摘要，并按最新状态加载正式脚本。资产页可用 `asset-sheets/status?include=derivative_references` 查询衍生引用，读取不完整且未找到引用时返回 `referenced: null`。
 
 单集变更时，客户端通过可重复的 `episodes` 查询参数读取指定集。响应中的 `project.episodes` 仍是完整分集清单，`summary.episodes` 与 `asset_fingerprints` 仅覆盖指定集，`summary.episodes_summary` 为 `null`，客户端合并摘要行后重新统计全项目进度。
 
 可见条目通过 `POST /api/v1/projects/{name}/item-locations` 批量定位。请求体 `{"item_ids":["E2S01","S01"]}` 最多含 200 个 ID。响应的 `items` 按请求顺序返回。仅 `found` 返回从 1 开始的 `position`，`deleted`、`ambiguous` 和 `unloaded` 的 `position` 均为 `null`。索引尚未加载时，已存在条目也可能返回 `unloaded` 且 `position` 为 `null`；该接口只查询现有索引，重复调用不会建立索引，客户端待项目事件快照就绪后重新查询仍可见的条目。
+
+制作状态 `GET /api/v1/projects/{name}/workflow-status`、制作计划 `POST /api/v1/projects/{name}/workflow-plan` 及内嵌 Agent 与远程 MCP 共用的 `get_workflow_plan` 工具均使用 `schema_version: 3`。其中 `artifacts.asset_sheets`、引用资产计数、资产步骤与活跃资产任务仅覆盖目标集正式脚本直接引用的项目资产（无目标集、无可用脚本或无已登记引用时为空；仅为衍生准入读取但未被脚本直接引用的角色本体不并入 `artifacts.asset_sheets`）；全项目资产图状态由 `GET /api/v1/projects/{name}/asset-sheets/status` 提供。逐集下一步接口 `GET /api/v1/projects/{name}/workflow-status/episodes` 支持游标分页与按集查询：省略参数时按分集账本顺序每页最多返回 32 集，可取响应中的 `next_cursor` 传入 `cursor` 续读（末页为 `null`）；也可通过可重复的 `episodes` 查询参数一次指定 1～32 个互异正整数集号。未知集号、过期或非法游标，或同时传入 `episodes` 与 `cursor` 时返回 HTTP 400。已完成集跳过详细下一步规划，`episode_complete` 为 `true` 且 `next_action` 为 `null`。
+
+`workflow-status`、`workflow-status/episodes`、`workflow-plan`、`workspace`、旧 `GET /api/v1/projects/{name}`、`cost-estimate` 与 Agent 工具 `get_workflow_plan` 在服务层共用 `RequestCoalescer` 合并在途只读请求：同一键同时最多保持 1 个执行位和 1 个等待位，并发请求共享未本地化的领域快照，仅在 HTTP 边界按请求语言渲染，不做跨请求结果缓存。
 
 ### 编辑单元与离开拦截 {#edit-unit-and-leave-guard}
 
@@ -85,7 +89,7 @@ flowchart TB
 
 `lib/db/` 基于 SQLAlchemy 异步 ORM 保存运行时状态（如账号、凭证与任务），服务启动时会通过 Alembic 自动执行数据库升级。配置与迁移指引见[部署与运维](../ops/deployment.md)和[数据库迁移指南](../ops/migrate-to-postgres.md)。
 
-`lib/artifacts/` 管理版本记录、当前版本和产物登记。生成或导入的新版本可与历史版本比较，重新选择历史版本会更新当前内容。产物时效根据登记的生成依据判定。参见 [ADR 0062](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0062-artifact-lifecycle-and-currency.md)。
+`lib/artifacts/` 管理版本记录、当前版本和产物登记。自项目结构 v21 起，各项目的版本历史保存在项目目录内的 `versions/history.sqlite3`（SQLite WAL 模式）中，与实例级 SQLite 或 PostgreSQL 数据库隔离；项目 ZIP 归档仍通过逻辑 `versions/versions.json` 交换版本记录，导出时从版本库一致快照生成 JSON，导入时在暂存区重建版本库，不打包活动数据库或 `-wal`、`-shm` 文件。生成或导入的新版本可与历史版本比较，重新选择历史版本会更新当前内容。产物时效根据登记的生成依据判定。参见 [ADR 0062](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0062-artifact-lifecycle-and-currency.md)。
 
 ## 请求、任务与费用 {#generation-queue}
 

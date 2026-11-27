@@ -31,10 +31,26 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "demo"
 API = "/api/v1"
 ASSET_MIX = (12, 10, 8)
-ENDPOINTS = ("project", "cost", "wf_status", "wf_plan", "units")
+ENDPOINTS = (
+    "workspace",
+    "project",
+    "cost",
+    "wf_status",
+    "wf_ep_status",
+    "wf_plan",
+    "wf_ep_plan",
+    "wf_episodes",
+    "units",
+)
 COMPUTE_MARKERS = {
+    "workspace": ("lib.workflow.workflow_state", "WorkflowStateService", "get_project_summary"),
     "project": ("lib.workflow.workflow_state", "WorkflowStateService", "get_project_summary"),
     "cost": ("server.services.admission.cost_estimation", "CostEstimationService", "compute"),
+    "wf_status": ("lib.workflow.workflow_state", "WorkflowStateService", "read_status"),
+    "wf_ep_status": ("lib.workflow.workflow_state", "WorkflowStateService", "read_status"),
+    "wf_plan": ("server.services.project.workflow_planner", "WorkflowPlanner", "_compute"),
+    "wf_ep_plan": ("server.services.project.workflow_planner", "WorkflowPlanner", "_compute"),
+    "wf_episodes": ("lib.workflow.workflow_state", "WorkflowStateService", "read_episode_next_steps"),
 }
 # 与 lib.infra.content_digest.FILE_DIGEST_RACY_WINDOW_NS 对齐，多留半秒余量。
 FILE_DIGEST_RACY_WINDOW_S = 3.5
@@ -493,10 +509,14 @@ def auth_headers() -> dict[str, str]:
 def endpoint(name: str, episode: int) -> tuple[str, str, dict[str, Any] | None]:
     base = f"{API}/projects/{PROJECT}"
     return {
+        "workspace": ("GET", f"{base}/workspace", None),
         "project": ("GET", base, None),
         "cost": ("GET", f"{base}/cost-estimate", None),
         "wf_status": ("GET", f"{base}/workflow-status", None),
+        "wf_ep_status": ("GET", f"{base}/workflow-status?episode={episode}", None),
         "wf_plan": ("POST", f"{base}/workflow-plan", {}),
+        "wf_ep_plan": ("POST", f"{base}/workflow-plan", {"episode_id": episode}),
+        "wf_episodes": ("GET", f"{base}/workflow-status/episodes", None),
         "units": ("GET", f"{base}/reference-videos/episodes/{episode}/units", None),
     }[name]
 
@@ -645,10 +665,17 @@ class Probe:
         with self.lock:
             self.computing[name] -= 1
 
-    def _wrap_compute(self, name: str, orig):
+    def _wrap_compute(self, names: tuple[str, ...], orig):
+        def target() -> str:
+            req = REQ.get()
+            if req is not None and req["ep"] in names:
+                return req["ep"]
+            return names[0]
+
         if inspect.iscoroutinefunction(orig):
 
             async def awrapped(*args, **kwargs):
+                name = target()
                 self._enter(name)
                 try:
                     return await orig(*args, **kwargs)
@@ -658,6 +685,7 @@ class Probe:
             return functools.wraps(orig)(awrapped)
 
         def wrapped(*args, **kwargs):
+            name = target()
             self._enter(name)
             try:
                 return orig(*args, **kwargs)
@@ -667,9 +695,12 @@ class Probe:
         return functools.wraps(orig)(wrapped)
 
     def _install_compute_markers(self) -> None:
-        for name, (module, cls_name, attr) in COMPUTE_MARKERS.items():
+        grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+        for name, target in COMPUTE_MARKERS.items():
+            grouped[target].append(name)
+        for (module, cls_name, attr), names in grouped.items():
             cls = getattr(importlib.import_module(module), cls_name)
-            setattr(cls, attr, self._wrap_compute(name, getattr(cls, attr)))
+            setattr(cls, attr, self._wrap_compute(tuple(names), getattr(cls, attr)))
 
     def _install_media_reads(self) -> None:
         """统计媒体文件被读出的字节：覆盖 ``os.open``/``os.read`` 与 ``open``/``io.open`` 两条读取途径。"""

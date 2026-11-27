@@ -1,7 +1,7 @@
 {
   "CONTRIBUTING.md": "aeb7cd236194cc9e79eb1a9904e1db77805296d4b44442e8204a8007654a3fe8",
   "README.md": "dd33c721af9b0c00ba47e9b6089041b13b5b995d68fce6bc0593c6cb1a03d52a",
-  "website/docs/dev/architecture.md": "6abbac53ce7f8a1e267708f963b888b4817f27577200ad87d311bd460c7cf26e",
+  "website/docs/dev/architecture.md": "493624ae53f938eed594ba38675e1396f0b5022b6cdb3ae83af9b46914e6fe84",
   "website/docs/guide/asset-storage.md": "95096cffbcad3e4bac1dce972c87795e7e6f8e4bff66236814346570b29793a5",
   "website/docs/guide/comfyui.md": "cb64abdda9005aaa4b1b8173f4329e6755bb01f8cba30147140d4326356b5600",
   "website/docs/guide/faq.md": "8739ebc3063d87cc0917c80507e360b519b66192abf8d6613bc1086549c3dfb6",
@@ -12,6 +12,6 @@
   "website/docs/guide/providers.md": "facb9841288e7fefac5a8a2148ca42b26b65ad6261a1e5953b35db151c0cba48",
   "website/docs/guide/workflows.md": "210976e5e569df6c428d000c9423e144c56cf440235dcb370fb9f31c588e3804",
   "website/docs/index.mdx": "b298cbf2a05c3ac79f003d34d523569a7424ab6391abf363eeb6d462a25aaf99",
-  "website/docs/ops/deployment.md": "95a073973d5e68436c8e775502ba8c216d4afda42e5d5c49fa0ed7f169665568",
+  "website/docs/ops/deployment.md": "9eaed0dbfd236d3210a8ebc92c08f1cc2047425a68f272874aceb8bc08715d2a",
   "website/docs/ops/migrate-to-postgres.md": "56d54aeef441439856a7e976d46158099671c8d919380fe6d63bd6f71c0f2356"
 }

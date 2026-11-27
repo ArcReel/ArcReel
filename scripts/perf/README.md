@@ -17,7 +17,7 @@ uv run python -m scripts.perf.bench all --help
 
 ## 测量与输出
 
-[命令入口](bench.py)中的 `all` 子命令会依次完成项目构建、空闲请求测量和高峰模拟，并将结果写入数据目录下的 `out/`。覆盖接口包括项目详情（`project`）、费用估算（`cost`）、制作状态（`wf_status`）、工作流规划（`wf_plan`）和参考单元列表（`units`）。
+[命令入口](bench.py)中的 `all` 子命令会依次完成项目构建、空闲请求测量和高峰模拟，并将结果写入数据目录下的 `out/`。覆盖接口包括工作台摘要（`workspace`）、旧项目详情（`project`）、费用估算（`cost`）、无参制作状态（`wf_status`）、指定集制作状态（`wf_ep_status`）、无参工作流规划（`wf_plan`）、指定集工作流规划（`wf_ep_plan`）、逐集下一步首窗（`wf_episodes`）和参考单元列表（`units`）。可通过 `--only` 选择子集以对照历史 5 接口基线或单独测量工作流 v3 与工作台入口。
 
 | 指标 | 口径 |
 |---|---|

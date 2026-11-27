@@ -18,7 +18,15 @@ sidebar_position: 1
 
 无论选择哪种方式，项目图片、视频和其他生成资产都需要持久化保存。
 
-ArcReel 当前按单一可信操作员设计，不支持互不信任的用户共享实例。PostgreSQL 生产部署不会增加租户隔离、角色权限或按用户划分的项目授权。
+ArcReel 当前按自部署单用户（单一可信操作员）设计，不支持互不信任的用户共享实例。PostgreSQL 生产部署不会增加租户隔离、角色权限或按用户划分的项目授权。
+
+### 单进程运行与项目规模 {#scale-and-runtime}
+
+官方镜像以单个应用进程运行；生成队列调度、项目写锁与 Agent 会话均在进程内协调，不支持开启多工作进程（如 `uvicorn --workers`）。
+
+基准与压力测试按两档项目规模验证：常规项目（100 集以内，测试样本为 90 集、每集 28 个视频单元）与大型项目（300～700 集、约 400 项项目资产、28～30 MB 版本历史，测试样本为 686 集）。大型项目容器压力测试采用单进程 Docker 容器、8 GiB 内存上限（cgroup 限额）与 30 分钟混合负载配置：686 集样本下实测 cgroup 内存峰值 1.33 GiB（进程常驻内存峰值约 680 MiB），零 OOM、容器保持健康且停压后 76.5 秒内全部排空，但全量工作台刷新与无参自动选集在持续高并发回写期间仍会出现超时（分别 14/14 与各 3/14 次触发 120 秒客户端超时），且部分大项目读取与同步写接口尾延迟仍高于 3 秒。
+
+内容确认、整份重写正式脚本以及参考生视频的批量预览与批量提交均采用同步完成方式，在响应返回前完成整批准入判定、修订校验与版本写入。在 `#4054` 携带 242 个后台视频回写任务的并发实测场景中，90 集样本的日常工作台读取与整集覆盖确认耗时在 1 秒以内；686 集样本的 18 个视频单元参考生视频批量预览、批量提交和整集覆盖确认五轮 p95 耗时分别约为 5.3 秒、3.3 秒和 10.9 秒，同期画布与脚本读取保持响应。实际耗时随宿主机磁盘、数据库与并发负载变化。
 
 ## 1. 默认部署：SQLite {#sqlite-deployment}
 
@@ -342,7 +350,7 @@ docker compose start arcreel
 
 ### 5.5 项目结构迁移 {#project-schema-migrations}
 
-v21 将版本历史从 `versions/versions.json` 迁入项目内的 `versions/history.sqlite3`，并在原文件旁保留版本化备份。历史损坏时迁移会停止，修复后可重试。ZIP 归档继续使用 JSON 交换版本记录。
+v21 将项目的版本历史从 `versions/versions.json` 迁入各项目目录内的 SQLite 版本库 `versions/history.sqlite3`（WAL 模式），与实例级 SQLite 或 PostgreSQL 数据库相互独立，并在原文件旁保留版本化备份。升级时若 `versions/` 下已存在冲突的本地版本库文件，系统会按 `.kept.v<起点版本>-<时间戳>` 另存并在迁移报告中列出；历史数据损坏时迁移会停止并保留原文件与备份，修复后重启即可重试。项目 ZIP 归档继续以逻辑 `versions/versions.json` 交换版本记录：导出时从项目版本库的一致快照生成 JSON，不打包活动 `history.sqlite3` 或 `-wal`、`-shm` 文件；导入时在暂存区校验并重建为项目内的 `versions/history.sqlite3`。
 
 启动服务时，ArcReel 会自动升级项目数据。请在升级前[备份数据根与数据库](#backup-and-restore)，并为迁移预留足够磁盘空间。大型项目可能需要复制整个项目目录，首次启动耗时可能较长。
 
@@ -414,7 +422,7 @@ tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
   -C "${data_dir}" .
 ```
 
-服务停止后再归档整个 `data_dir`，可以让 `arcreel.db` 与项目资产保持在同一时点。配置归档与数据归档必须使用相同时间标签并配套保存；`umask 077` 与备份目录模式 `0700` 会限制其中凭据和项目资产的读取权限。不要在 ArcReel 写入时只复制 `arcreel.db`：WAL 模式下，已提交事务可能仍留在 `arcreel.db-wal` 中，丢失或错配 WAL 文件会造成数据丢失甚至损坏。如果无法停服，应使用 SQLite Online Backup API（例如 `sqlite3` 的 `.backup`）或 `VACUUM INTO` 生成一致快照，而不是直接 `cp` 主数据库文件。
+服务停止后再归档整个 `data_dir`，可以让实例数据库 `arcreel.db`、各项目目录下的版本库 `projects/<项目名>/versions/history.sqlite3` 与项目媒体文件保持在同一时点。配置归档与数据归档必须使用相同时间标签并配套保存；`umask 077` 与备份目录模式 `0700` 会限制其中凭据和项目资产的读取权限。`arcreel.db` 与各项目的 `versions/history.sqlite3` 均运行在 WAL 模式下，不要在 ArcReel 写入时直接复制单个 `.db` 或 `.sqlite3` 主文件：已提交事务可能仍留在对应的 `-wal` 文件中，丢失或错配 `-wal`、`-shm` 文件会造成数据丢失甚至损坏。如果无法停服，应使用 SQLite Online Backup API（例如 `sqlite3` 的 `.backup`）或 `VACUUM INTO` 生成一致快照，或通过项目 ZIP 导出获取单个项目的一致归档，而不是直接 `cp` 活动数据库文件。
 
 恢复服务：
 
@@ -432,7 +440,7 @@ docker compose start arcreel
 
 下面的数据库命令仅适用于 ArcReel 连接到同一套 Compose 的 `postgres` 服务。连接其他 PostgreSQL 时，按[外部 PostgreSQL 的备份与恢复](#external-postgresql-backup-restore)操作。示例的数据库名和用户均为 `arcreel`，密码取 PostgreSQL 容器的 `POSTGRES_PASSWORD`。若修改了库名或用户，请按实际连接调整备份和恢复命令的 `-d`、`-U` 与认证配置。
 
-在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。先停止 ArcReel 应用，同时保持 PostgreSQL 运行，以确保数据库和项目文件处于同一备份时间点。归档 Compose 配置中实际挂载的数据根。若使用自定义挂载，先将 `data_dir` 改成对应的宿主机绝对路径。
+在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。即使实例数据库使用 PostgreSQL，各项目的版本历史仍保存在数据根下的 `projects/<项目名>/versions/history.sqlite3`（SQLite WAL 模式）中，`pg_dump` 不包含项目版本历史。备份时先停止 ArcReel 应用并保持 PostgreSQL 运行，再执行 `pg_dump` 与数据根归档，以确保 PostgreSQL、各项目版本库与媒体文件处于同一备份时间点，并避免在写入期间打包活动 `history.sqlite3` 造成 `-wal` 错配或损坏。归档 Compose 配置中实际挂载的数据根；若使用自定义挂载，先将 `data_dir` 改成对应的宿主机绝对路径。
 
 ```bash
 data_dir="$(pwd -P)/projects"
