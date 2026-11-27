@@ -566,7 +566,8 @@ class MediaGenerator:
 
         见 :mod:`lib.generation.deleted_target`。没有任务身份或暂存文件的直接调用不复核。
         """
-        if task_id is None or staged_file is None:
+        # A free image creates a draft; it has no pre-existing asset target to recheck.
+        if task_id is None or staged_file is None or resource_type == "drafts":
             return
         await run_noninterruptible_sync(
             trash_result_if_target_deleted,

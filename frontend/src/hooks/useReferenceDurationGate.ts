@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { generationOptions } from "@/stores/run-settings-store";
 import { errMsg } from "@/utils/async";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
 
@@ -60,7 +61,7 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
               projectName,
               episode,
               unitId,
-              { signal },
+              { signal, generationOptions: generationOptions(projectName, "video") },
             );
             return { unitId, precheck };
           } catch (e) {

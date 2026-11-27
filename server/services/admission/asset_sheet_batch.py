@@ -540,6 +540,7 @@ async def submit_asset_sheet_batch(
     queue: GenerationQueue,
     source: str,
     user_id: str,
+    generation_options: dict[str, Any] | None = None,
 ) -> tuple[GenerationBatchReadModel, list[EnqueuedTask]]:
     """把一次规划作为一个持久批次提交，不等待结果；Web 入口据返回的成员任务跟踪整批终态。"""
 
@@ -549,12 +550,16 @@ async def submit_asset_sheet_batch(
         states=plan.states,
         dependencies=plan.dependencies,
     )
+    specs = plan.task_specs(source=source)
+    if generation_options is not None:
+        for spec in specs:
+            spec.payload = {**(spec.payload or {}), "generation_options": generation_options}
     batch, enqueued, _failures = await submit_generation_batch(
         project_name=project_name,
         operation=ASSET_BATCH_OPERATION,
         requested=requested,
         blocked=blocked,
-        specs=plan.task_specs(source=source),
+        specs=specs,
         source=source,
         user_id=user_id,
         queue=queue,

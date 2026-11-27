@@ -6,6 +6,7 @@ import { uid } from "@/utils/id";
 import type { AttachedImage } from "@/hooks/useImageAttachments";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useRunSettingsStore } from "@/stores/run-settings-store";
 import type { SseStreamHandle } from "@/utils/sse-stream";
 import type {
   DraftDeltaPayload,
@@ -398,7 +399,8 @@ export function useAssistantSession(projectName: string | null) {
         media_type: img.mimeType,
       }));
 
-      const signature = JSON.stringify([projectName, sessionId, content.trim(), imagePayload ?? []]);
+      const chatOptions = useRunSettingsStore.getState().projects[projectName]?.chat;
+      const signature = JSON.stringify([projectName, sessionId, content.trim(), imagePayload ?? [], chatOptions]);
       const clientKey =
         failedSendRef.current?.signature === signature
           ? failedSendRef.current.clientKey
@@ -411,6 +413,7 @@ export function useAssistantSession(projectName: string | null) {
           sessionId,
           imagePayload,
           clientKey,
+          ...(chatOptions ? [chatOptions] as const : []),
         );
 
         if (!operation.isCurrent(sessionId)) return false;

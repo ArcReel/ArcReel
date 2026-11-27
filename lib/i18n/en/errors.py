@@ -1,4 +1,5 @@
 MESSAGES = {
+    "image_draft_not_found": "Image draft not found",
     "asset_resource_busy": "This asset has a queued or running task. Try again when it finishes.",
     "apply_failed_resource_busy": "The project asset has a queued or running task and cannot be overwritten. Try again when the task finishes.",
     "episode_position_name": "Episode {position}",

@@ -24,6 +24,7 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.generation_options import GenerationOptions, apply_generation_options
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
 from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.generation.generation_queue import get_generation_queue
@@ -91,12 +92,20 @@ def _resolve_request_artifact_episode(
         )
 
 
-class GenerateStoryboardRequest(BaseModel):
+# ==================== 请求模型 ====================
+
+
+class GenerationRequest(BaseModel):
+    generation_options: GenerationOptions | None = None
+
+
+class GenerateStoryboardRequest(GenerationRequest):
     prompt: str | dict
     script_file: str
 
 
-class GenerateVideoRequest(BaseModel):
+class GenerateVideoRequest(GenerationRequest):
+    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
     model_config = ConfigDict(extra="forbid")
 
     prompt: str | dict
@@ -194,6 +203,9 @@ async def generate_storyboard(
         resource_id=segment_id,
         prompt=req.prompt,
         script_file=req.script_file,
+        extra_payload={"generation_options": req.generation_options.model_dump(exclude_unset=True)}
+        if req.generation_options
+        else None,
     )
 
     result = await queue.enqueue_task(
@@ -268,6 +280,10 @@ async def generate_video(
         return project, resolved[0]
 
     project, item = await run_sync_transaction(_sync)
+    request_overrides = (
+        {"generation_options": req.generation_options.model_dump(exclude_unset=True)} if req.generation_options else {}
+    )
+    project = apply_generation_options(project, request_overrides, "video")
 
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
@@ -291,8 +307,10 @@ async def generate_video(
             raise UnprocessableError(failure.code, **failure.parameters())
 
     extra_payload: dict[str, object] = {
+        **request_overrides,
         "seed": req.seed,
-        "duration_seconds": req.duration_seconds,
+        "duration_seconds": (req.generation_options.duration_seconds if req.generation_options else None)
+        or req.duration_seconds,
     }
     spec = TaskSpec.from_request(
         task_type="video",
@@ -706,6 +724,7 @@ async def _enqueue_asset_generation(
     *,
     asset_type: str,
     project_name: str,
+    req: GenerationRequest | None = None,
     resource_name: str,
     user_id: str,
     _t: Translator,
@@ -736,6 +755,9 @@ async def _enqueue_asset_generation(
         task_type=asset_type,
         media_type="image",
         resource_id=resource_key,
+        extra_payload={"generation_options": req.generation_options.model_dump(exclude_unset=True)}
+        if req and req.generation_options
+        else None,
     )
 
     queue = get_generation_queue()
@@ -763,11 +785,13 @@ async def generate_character(
     char_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerationRequest | None = None,
 ):
     """提交角色资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="character",
         project_name=project_name,
+        req=req,
         resource_name=char_name,
         user_id=user.id,
         _t=_t,
@@ -781,6 +805,7 @@ async def generate_character_derivative(
     derivative_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerationRequest | None = None,
 ):
     """提交角色衍生资产图生成任务到队列，立即返回 task_id。
 
@@ -799,6 +824,12 @@ async def generate_character_derivative(
         raise NotFoundError("character_not_found", name=char_name) from exc
 
     await _check_asset_limit(project_name, project, "character", source.derivative_key, source.owner_key)
+    overrides = (
+        {"generation_options": req.generation_options.model_dump(exclude_unset=True)}
+        if req and req.generation_options
+        else {}
+    )
+    project = apply_generation_options(project, overrides, "image")
     provider_id = await _require_i2i_image_provider_configured(project)
 
     spec = TaskSpec.from_request(
@@ -806,6 +837,7 @@ async def generate_character_derivative(
         media_type="image",
         resource_id=source.target.artifact_id,
         prompt=build_derivative_sheet_instruction(source.description),
+        extra_payload=overrides,
     )
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,
@@ -831,11 +863,13 @@ async def generate_scene(
     scene_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerationRequest | None = None,
 ):
     """提交场景资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="scene",
         project_name=project_name,
+        req=req,
         resource_name=scene_name,
         user_id=user.id,
         _t=_t,
@@ -848,11 +882,13 @@ async def generate_prop(
     prop_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerationRequest | None = None,
 ):
     """提交道具资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="prop",
         project_name=project_name,
+        req=req,
         resource_name=prop_name,
         user_id=user.id,
         _t=_t,
@@ -865,11 +901,13 @@ async def generate_product(
     product_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerationRequest | None = None,
 ):
     """提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
         asset_type="product",
         project_name=project_name,
+        req=req,
         resource_name=product_name,
         user_id=user.id,
         _t=_t,

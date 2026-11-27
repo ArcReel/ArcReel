@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { generationOptions } from "@/stores/run-settings-store";
 import { enqueueAssetSheetBatch } from "@/actions/generation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,9 @@ export function AssetSheetBatchDialog({
 
   useEffect(() => {
     const controller = new AbortController();
-    API.previewAssetSheetBatch(projectName, JSON.parse(scopeKey) as AssetSheetBatchScope, { signal: controller.signal })
+    const selected = generationOptions(projectName, "image");
+    const request = JSON.parse(scopeKey) as AssetSheetBatchScope;
+    API.previewAssetSheetBatch(projectName, selected ? { ...request, generation_options: selected } : request, { signal: controller.signal })
       .then((res) => {
         if (!controller.signal.aborted) setPreview(res);
       })

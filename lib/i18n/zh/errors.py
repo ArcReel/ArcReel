@@ -1,4 +1,5 @@
 MESSAGES = {
+    "image_draft_not_found": "图片草稿不存在或已删除",
     "asset_resource_busy": "资产有生成任务正在排队或执行，当前无法操作，任务结束后再试。",
     "apply_failed_resource_busy": "项目资产有任务正在排队或执行，无法覆盖。任务结束后再试。",
     "episode_position_name": "第 {position} 集",

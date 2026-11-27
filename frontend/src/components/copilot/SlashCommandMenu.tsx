@@ -8,6 +8,15 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { SkillInfo } from "@/types";
 
+/** 接口给出的 Lucide 图标名 → 图标组件。 */
+const FREE_IMAGE_COMMAND: SkillInfo = {
+  name: "generate-img",
+  description: "直接调用图片模型生成一张图片，结果保存到草稿库",
+  scope: "project",
+  path: "local",
+  icon: "images",
+};
+
 const ICON_MAP: Record<string, LucideIcon> = {
   clapperboard: Clapperboard,
   images: Images,
@@ -29,7 +38,9 @@ export function useSlashCommands(filter: string | null): SkillInfo[] {
   return useMemo(() => {
     if (filter === null) return [];
     const query = filter.toLowerCase();
-    return skills.filter(
+    const available = query.includes("generate") ? [FREE_IMAGE_COMMAND, ...skills] : skills;
+    // 后端已滤掉用户不能直接调用的技能
+    return available.filter(
       (skill) =>
         skill.name.toLowerCase().includes(query) ||
         skill.description.toLowerCase().includes(query) ||
@@ -113,7 +124,7 @@ export function SlashCommandMenu({
             <CommandGroup>
               {skills.map((skill) => {
                 const Icon = (skill.icon && ICON_MAP[skill.icon]) || Zap;
-                const label = skillLabel(t, skill.name);
+                const label = skill.name === FREE_IMAGE_COMMAND.name ? t("slash_generate_img_title") : skillLabel(t, skill.name);
                 return (
                   <CommandItem
                     key={skill.name}
@@ -126,9 +137,9 @@ export function SlashCommandMenu({
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="truncate">
                         {label ?? `/${skill.name}`}
-                        {label && <span className="ml-1.5 text-muted-foreground">/{skill.name}</span>}
+                        <span className="ml-1.5 text-muted-foreground">/{skill.name}</span>
                       </span>
-                      <span className="truncate text-xs text-muted-foreground">{skill.description}</span>
+                      <span className="truncate text-xs text-muted-foreground">{skill.name === FREE_IMAGE_COMMAND.name ? t("slash_generate_img_description") : skill.description}</span>
                     </span>
                   </CommandItem>
                 );

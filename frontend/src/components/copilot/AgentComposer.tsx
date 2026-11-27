@@ -40,6 +40,7 @@ interface AgentComposerProps {
   placeholder: string;
   hidden?: boolean;
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
+  onGenerateFreeImage?: (prompt: string) => void;
   onInterrupt: () => void;
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
   onResendQueued: (id: string) => Promise<void>;
@@ -72,6 +73,7 @@ export function AgentComposer({
   placeholder,
   hidden,
   onSend,
+  onGenerateFreeImage,
   onInterrupt,
   onWithdrawQueued,
   onResendQueued,
@@ -120,6 +122,13 @@ export function AgentComposer({
     setSlash(null);
     const submittedText = text;
     const submittedImages = images;
+    const freeImage = submittedText.trim().match(/^\/generate-img(?:\s+([\s\S]*))?$/i);
+    if (freeImage) {
+      if (!onGenerateFreeImage) return;
+      onGenerateFreeImage(freeImage[1]?.trim() ?? "");
+      setText((current) => withoutSubmittedText(current, submittedText));
+      return;
+    }
     voidCall(
       onSend(submittedText.trim(), submittedImages.length > 0 ? submittedImages : undefined).then((accepted) => {
         if (!accepted) return;
@@ -127,7 +136,7 @@ export function AgentComposer({
         removeImages(submittedImages.map((image) => image.id));
       }),
     );
-  }, [canSend, images, invalidatePendingTranscodes, onSend, removeImages, text]);
+  }, [canSend, images, invalidatePendingTranscodes, onGenerateFreeImage, onSend, removeImages, text]);
 
   useImperativeHandle(ref, () => ({ send }), [send]);
 

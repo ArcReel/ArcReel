@@ -528,3 +528,5 @@ body {
         border-radius: 0.375rem;
     }
 }
+
+.run-settings > summary::-webkit-details-marker { display: none; }

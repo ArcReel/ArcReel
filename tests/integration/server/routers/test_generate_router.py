@@ -204,6 +204,18 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user
 
 
 class TestGenerateRouter:
+    def test_selected_image_model_and_parameters_are_saved_in_task(self, tmp_path, monkeypatch):
+        pm = _FakePM(_prepare_files(tmp_path))
+        queue = _FakeQueue()
+        selected = {"backend": "openai/gpt-image-1", "resolution": "1K"}
+        with _client(monkeypatch, pm, queue) as client:
+            result = client.post(
+                "/api/v1/projects/demo/generate/character/Alice", json={"generation_options": selected}
+            )
+        assert result.status_code == 200
+        assert queue.calls[0]["payload"]["generation_options"] == selected
+        assert "default_image_backend" not in pm.project
+
     def test_storyboard_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

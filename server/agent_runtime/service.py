@@ -263,6 +263,7 @@ class AssistantService:
         images: list["ImageAttachment"] | None = None,
         locale: str = DEFAULT_LOCALE,
         client_key: str | None = None,
+        chat_options: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Unified send: create new session or send to existing one.
 
@@ -295,10 +296,18 @@ class AssistantService:
                     locale=locale,
                     user_entry=self._build_user_log_entry(prompt),
                     client_key=client_key,
+                    chat_options=chat_options,
                 )
             return self._accepted_response(session_id, accepted)
         if not client_key:
-            return await self._create_new_session(project_name, content, images, locale, client_key)
+            return await self._create_new_session(
+                project_name,
+                content,
+                images,
+                locale,
+                client_key,
+                chat_options=chat_options,
+            )
 
         existing = await self._find_accepted_new_session(client_key, project_name)
         if existing is not None:
@@ -309,7 +318,14 @@ class AssistantService:
             existing = await self._find_accepted_new_session(client_key, project_name)
             if existing is not None:
                 return existing
-            result = await self._create_new_session(project_name, content, images, locale, client_key)
+            result = await self._create_new_session(
+                project_name,
+                content,
+                images,
+                locale,
+                client_key,
+                chat_options=chat_options,
+            )
             self._record_new_session_client_key(client_key, result["session_id"])
             return result
 
@@ -361,6 +377,7 @@ class AssistantService:
         images: list["ImageAttachment"] | None,
         locale: str,
         client_key: str | None,
+        chat_options: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """实际创建新会话并投递首条消息，不涉及 client_key 幂等映射记账。"""
         prompt = self._prepare_content(content, images)
@@ -370,6 +387,7 @@ class AssistantService:
             locale=locale,
             user_entry=self._build_user_log_entry(prompt),
             client_key=client_key,
+            chat_options=chat_options,
         )
         managed = self.session_manager.sessions.get(new_sdk_session_id)
         entry = managed.initial_user_log_entry if managed is not None else None

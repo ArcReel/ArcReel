@@ -28,6 +28,7 @@ class TestResourceRelativePath:
             ("scenes", "庙宇", "scenes/庙宇.png"),
             ("props", "玉佩", "props/玉佩.png"),
             ("grids", "grid_abc", "grids/grid_abc.png"),
+            ("drafts", "abc", "image_drafts/abc.png"),
             ("reference_videos", "E1U1", "reference_videos/E1U1.mp4"),
         ],
     )
@@ -82,6 +83,7 @@ class TestResourceTypes:
             "props",
             "products",
             "grids",
+            "drafts",
             "reference_videos",
             "character_derivatives",
         }
