@@ -98,7 +98,7 @@ export function mergeWorkspaceProject(res: WorkspaceResponse, previous?: Project
       videos: row.videos,
     };
   });
-  if (summary.episodes_summary === null && !previous) return { ...res.project, episodes, status: undefined };
+  if (summary.episodes_summary === null && !previous?.status) return { ...res.project, episodes, status: undefined };
   const status: ProjectStatus = {
     currency: summary.currency,
     needs_repair: summary.needs_repair,
@@ -201,6 +201,12 @@ interface ProjectsState {
   ) => Promise<RefreshProjectResult>;
   receiveScriptBaseline: (project: string, proof: ProjectEventSnapshotPayload["episode_script"]) => void;
   clearActiveEpisodeScript: () => void;
+  hydrateEpisodeWorkspace: (
+    projectName: string,
+    episode: number,
+    options?: { onError?: (err: unknown) => void },
+  ) => Promise<RefreshProjectResult>;
+  cancelEpisodeWorkspaceHydration: () => void;
   refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<RefreshProjectResult>;
 }
 
@@ -215,6 +221,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   let queuedResolvers: Array<(result: WorkspaceRefreshResult) => void> = [];
 
   let projectScope = new AbortController();
+  let previewScope = new AbortController();
   let scriptScope = new AbortController();
   let scriptGeneration = 0;
   let pendingScript: Promise<RefreshProjectResult> | null = null;
@@ -241,11 +248,18 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     });
   };
 
+  const rotatePreviewScope = () => {
+    previewScope.abort();
+    previewScope = new AbortController();
+    return previewScope.signal;
+  };
+
   const rotateProjectScope = () => {
     baseline = undefined;
     degradedRead = undefined;
     projectScope.abort();
     projectScope = new AbortController();
+    rotatePreviewScope();
   };
 
   const rotateScriptScope = () => {
@@ -510,6 +524,9 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         useItemLocationsStore.getState().reset(name);
       }
     }
+    if (name === null || data === null || Boolean(data.status)) {
+      rotatePreviewScope();
+    }
     set((s) => {
       const nextScripts =
         scripts !== undefined
@@ -756,6 +773,35 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           generation: scriptGeneration,
         },
       }));
+    },
+
+    hydrateEpisodeWorkspace: async (projectName, episode, options) => {
+      if (!projectName || isDemoProject(projectName)) return "cancelled";
+      const previewSignal = rotatePreviewScope();
+      const signal = AbortSignal.any([projectScope.signal, previewSignal]);
+      try {
+        const response = await API.getWorkspace(projectName, { episodes: [episode], signal });
+        if (signal.aborted) return "cancelled";
+        const state = get();
+        if (state.currentProjectName !== projectName || state.currentProjectData?.status) return "cancelled";
+        if (!state.projectDetailLoading && state.currentProjectData === null) return "cancelled";
+        const generated = response.summary.episodes.some(
+          (row) => row.episode === episode && row.script_status === "generated",
+        );
+        if (state.projectDetailLoading && (!generated || response.summary.needs_repair)) return "cancelled";
+        const merged = mergeWorkspaceProject(response, state.currentProjectData);
+        const fingerprints = { ...state.assetFingerprints, ...response.asset_fingerprints };
+        commitCurrentProject(projectName, merged, undefined, fingerprints, { episodes: [episode] }, false);
+        return "success";
+      } catch (error) {
+        if (signal.aborted) return "cancelled";
+        if (!get().projectDetailLoading) options?.onError?.(error);
+        return "failed";
+      }
+    },
+
+    cancelEpisodeWorkspaceHydration: () => {
+      rotatePreviewScope();
     },
 
     refreshProject: (name, options) => {

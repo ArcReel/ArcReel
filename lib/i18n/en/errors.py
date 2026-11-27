@@ -250,7 +250,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "{count} voice-over clip(s)",
     "script_overwrite_loss_end_frame": "{count} end frame(s)",
     "script_overwrite_loss_grid": "{count} grid membership(s) across {grids} composite image(s), which lose their registration",
-    "script_overwrite_history": "The pre-overwrite formal script and any removed current or past media files are saved in the project trash for 30 days. You can download each file by its original path in the Files view and reuse it manually on a chosen target in the workspace; the new script does not inherit old version history, and old shots or relationships are not put back automatically.",
+    "script_overwrite_history": "The pre-overwrite formal script and any removed current or past media files are saved in the project trash for 30 days. You can download each file by its original path in the Files view and upload media files manually to a chosen target in the workspace; the new script does not inherit old version history, and old entries or relationships are not put back automatically.",
     "script_overwrite_entries": "Script entries to be removed: {entries}",
     "script_overwrite_entry": "{id} ({kinds})",
     "script_overwrite_kind_storyboard": "storyboard image",

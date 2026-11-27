@@ -14,12 +14,11 @@ from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.path_safety import try_safe_join
 from lib.project import project_trash
+from lib.project.project_trash import SCRIPT_ENTRY_KIND, SCRIPT_OVERWRITE_KIND
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script.item_excerpt import position_snapshot
 from lib.speech.narration_config import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_presentation import presentation_artifact_paths
-
-SCRIPT_ENTRY_KIND = "script_entry"
 
 ENTRY_MEDIA_RESOURCE_TYPES: tuple[str, ...] = (
     "storyboards",
@@ -51,6 +50,14 @@ def entry_derived_paths(episode: int, entry_id: str) -> list[str]:
         return []
 
 
+def _existing_project_files(project_dir: Path, candidates: Iterable[str]) -> list[str]:
+    return [
+        rel
+        for rel in dict.fromkeys(candidates)
+        if (path := try_safe_join(project_dir, rel)) is not None and path.is_file() and not path.is_symlink()
+    ]
+
+
 def entry_files(project_dir: Path, episode: int, entry_id: str) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """``project_dir`` 里属于这个条目的普通文件与版本记录；删除时取当前项目，恢复时取迁移后的临时项目。
 
@@ -63,12 +70,7 @@ def entry_files(project_dir: Path, episode: int, entry_id: str) -> tuple[list[st
         *entry_derived_paths(episode, entry_id),
         *versions.snapshot_files(history),
     ]
-    files = [
-        rel
-        for rel in dict.fromkeys(candidates)
-        if (path := try_safe_join(project_dir, rel)) is not None and path.is_file() and not path.is_symlink()
-    ]
-    return files, history
+    return _existing_project_files(project_dir, candidates), history
 
 
 def archive_script_overwrite(
@@ -87,11 +89,7 @@ def archive_script_overwrite(
             path for uid in removed_ids for path in (*entry_media_paths(uid), *entry_derived_paths(episode, uid))
         ]
         candidates.extend(versions.snapshot_files(history))
-        files = [
-            rel
-            for rel in dict.fromkeys(candidates)
-            if (path := try_safe_join(project_dir, rel)) is not None and path.is_file() and not path.is_symlink()
-        ]
+        files = _existing_project_files(project_dir, candidates)
         from lib.material.work_files import archived_remote_files
 
         remote = archived_remote_files(history)
@@ -101,10 +99,11 @@ def archive_script_overwrite(
             archived["versions/versions.json"] = json.dumps(history, ensure_ascii=False).encode()
         record = project_trash.record_deletion(
             project_dir,
-            {"kind": "script_overwrite", "episode": episode, "path": script},
+            {"kind": SCRIPT_OVERWRITE_KIND, "episode": episode, "path": script},
             files,
             archived_bytes=archived,
             remote_files=tuple(rel for rel in remote if rel in candidates),
+            download_only=True,
         )
         try:
             if history:

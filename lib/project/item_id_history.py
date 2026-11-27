@@ -14,16 +14,17 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter, decode_artifact_key_parts
 from lib.artifacts.sqlite_history import SQLiteHistory
+from lib.edit_timeline.store import episode_timeline_dirs
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import safe_join
-from lib.project.project_trash import is_structure_file, trash_dir
+from lib.project.project_trash import SCRIPT_ENTRY_KIND, SCRIPT_OVERWRITE_KIND, is_structure_file, trash_dir
 from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, episode_item_id_high_water, reissue_item_ids
+from lib.script.script_review import formal_script_filename
 from lib.script.script_skeleton import resolve_kind_items
 
 _ID_FIELDS = frozenset({"segment_id", "scene_id", "shot_id", "unit_id"})
 _ENTRY_RESOURCE_TYPES = ("storyboards", "end_frames", "videos", "reference_videos", "audio")
 _MANIFEST_FILE = ".arcreel_artifacts.json"
-_SCRIPT_ENTRY_KIND = "script_entry"
 
 
 def _load(path: Path) -> Any:
@@ -92,12 +93,12 @@ def _collect_archived_numbers(found: dict[int, set[int]], records: Iterable[Path
                         continue
                     header = json.loads((record_dir / "record.json").read_bytes())
                     obj = header.get("object", {})
-                    if obj.get("kind") == "script_overwrite" and obj.get("path") == relative:
+                    if obj.get("kind") == SCRIPT_OVERWRITE_KIND and obj.get("path") == relative:
                         continue
                 raise
             if path == record_dir / "record.json" and isinstance(value, dict):
                 obj = value.get("object")
-                if isinstance(obj, dict) and obj.get("kind") == _SCRIPT_ENTRY_KIND:
+                if isinstance(obj, dict) and obj.get("kind") == SCRIPT_ENTRY_KIND:
                     _record(found, obj.get("id"))
             for item_id in _id_fields(value):
                 _record(found, item_id)
@@ -188,9 +189,14 @@ def _landing_floor(project_dir: Path, project: Mapping[str, Any], episode: int) 
     floors = _history_floors(project_dir)
 
     found: dict[int, set[int]] = {}
-    script = project_dir / "scripts" / f"episode_{episode}.json"
-    timelines = project_dir / "edit_timelines" / f"episode_{episode}"
-    for path in (script, *_json_files(timelines)):
+    bound_name = formal_script_filename(project_dir, project, episode)
+    script_paths = dict.fromkeys(
+        (project_dir / "scripts" / bound_name, project_dir / "scripts" / f"episode_{episode}.json")
+    )
+    timeline_files = [
+        path for _, directory in episode_timeline_dirs(project_dir, episode) for path in _json_files(directory)
+    ]
+    for path in (*script_paths, *timeline_files):
         for value in _id_fields(_load(path)):
             _record(found, value)
     store = SQLiteHistory(project_dir)

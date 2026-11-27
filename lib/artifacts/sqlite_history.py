@@ -15,6 +15,7 @@ from typing import Any
 
 from lib.infra.project_write_journal import HISTORY_DB_RELATIVE_PATH
 from lib.project.asset_types import normalize_asset_name
+from lib.script.item_ids import ITEM_ID_LETTERS, item_id_number
 
 type Identity = tuple[str, str]
 type History = dict[str, dict[str, Any]]
@@ -283,12 +284,17 @@ class SQLiteHistory:
                 yield from db.execute("SELECT kind,name FROM resource WHERE kind=? ORDER BY id", (kind,))
 
     def episode_resource_names(self, episode: int, kinds: Iterable[str]) -> Iterator[str]:
+        letters = "".join(sorted(set(ITEM_ID_LETTERS.values())))
+        direct = f"E{episode}[{letters}]*"
+        padded = f"E0*{episode}[{letters}]*"
         with self._read_connection() as db:
             for kind in kinds:
                 for (name,) in db.execute(
-                    "SELECT name FROM resource WHERE kind=? AND name GLOB ?", (kind, f"E{episode}[SU]*")
+                    "SELECT name FROM resource WHERE kind=? AND (name GLOB ? OR name GLOB ?)",
+                    (kind, direct, padded),
                 ):
-                    yield name
+                    if item_id_number(name, episode) is not None:
+                        yield name
 
     def equivalent_keys(self, kind: str, *names: str) -> Iterator[Identity]:
         with self._read_connection() as db:

@@ -146,3 +146,40 @@ def test_landing_initialization_retries_old_history_and_observes_later_timeline(
     _write_json(project / "edit_timelines/episode_1/t.json", {"clips": [{"unit_id": "E1S105"}]})
     pm.save_script("demo", script, "episode_1.json", new_script_version=True)
     assert script["segments"][0]["segment_id"] == "E1S106"
+
+
+def test_landing_floor_observes_zero_padded_sqlite_ids_and_bound_script_filename(tmp_path: Path) -> None:
+    pm = _narration_project(tmp_path, ["E1S01"])
+    project = pm.get_project_path("demo")
+    script = pm.load_script("demo", "episode_1.json")
+    pm.save_script("demo", script, "episode_1.json", new_script_version=True)
+    assert script["segments"][0]["segment_id"] == "E1S02"
+
+    versions = VersionManager(project)
+    for resource_id in ("E01S40", "E021S900"):
+        media = project / "storyboards" / f"scene_{resource_id}.png"
+        media.parent.mkdir(parents=True, exist_ok=True)
+        media.write_bytes(b"img")
+        versions.add_version("storyboards", resource_id, "prompt", source_file=media)
+
+    pm.save_script("demo", script, "episode_1.json", new_script_version=True)
+    assert script["segments"][0]["segment_id"] == "E1S41"
+
+    legacy_script = project / "scripts" / "episode_01.json"
+    _write_json(legacy_script, {"episode": 1, "segments": [_segment("E1S75")]})
+    project_data = pm.load_project("demo")
+    for entry in project_data["episodes"]:
+        if entry["episode"] == 1:
+            entry["script_file"] = "episode_01.json"
+            entry["item_id_high_water"] = 41
+    _write_json(project / "project.json", project_data)
+
+    plan = {"episode": 1, "content_mode": "narration", "segments": [_segment("E1S01")]}
+    issue_landing_item_ids(project, pm.load_project("demo"), plan)
+    assert plan["segments"][0]["segment_id"] == "E1S76"
+
+    _write_json(project / "edit_timelines" / "episode_01" / "tl.json", {"clips": [{"unit_id": "E1S88"}]})
+    _write_json(project / "edit_timelines" / "episode_02" / "tl.json", {"clips": [{"unit_id": "E1S999"}]})
+    plan_after_timeline = {"episode": 1, "content_mode": "narration", "segments": [_segment("E1S01")]}
+    issue_landing_item_ids(project, pm.load_project("demo"), plan_after_timeline)
+    assert plan_after_timeline["segments"][0]["segment_id"] == "E1S89"

@@ -87,7 +87,7 @@ When you restore the merged asset, the system only adds:
 
 When you remove a storyboard or a video unit in the storyboard detail or the reference-to-video workbench, it becomes one deletion record together with its storyboard image, end frame, video, voice-over, thumbnails, subtitles, presentation, and version history. An entry without any media still becomes a record.
 
-Confirming a script plan for the first time does not write to the project trash. When content confirmation or a full regeneration overwrites an existing final script, ArcReel saves one record for that overwrite containing the pre-overwrite formal script and any removed current or past media files. You can identify each file by its original path in the project trash, download it individually, and upload it manually to a chosen target in the workspace; old shots and relationships are not put back automatically. Actively removing an individual storyboard or video unit still uses direct restore as described below.
+Confirming a script plan for the first time does not write to the project trash. When content confirmation or a full regeneration overwrites an existing final script, ArcReel saves one record for that overwrite containing the pre-overwrite formal script and any removed current or past media files. You can identify each file by its original path in the project trash and download it individually; media files can be uploaded manually to a chosen target in the workspace, while the formal script cannot be uploaded directly for reuse, and old entries and relationships are not put back automatically. Actively removing an individual storyboard or video unit still uses direct restore as described below.
 
 A restored entry returns to its original episode and is inserted after its original previous entry. If it was first, it goes back to the front; if the previous entry is gone, it is placed at the end of the episode. When several adjacent entries were removed in one batch, restore them in their original order so the position is closest to what it was before the deletion.
 
@@ -138,7 +138,7 @@ If a read or write error such as insufficient disk space or missing permissions 
 
 ## Retention, permanent deletion, and emptying {#retention-and-purge}
 
-Deletion records are kept for 30 days, counted from the deletion time, and are cleared automatically afterwards. Cleanup runs when the application starts and periodically while it runs. To keep files in the project trash, restore them before they expire.
+Deletion records are kept for 30 days, counted from the deletion time, and are cleared automatically afterwards. Cleanup runs when the application starts and periodically while it runs. To keep files in the project trash, restore them before they expire; for records that can only be downloaded, such as script overwrite records, download the files individually before they expire.
 
 In the **Project trash** section you can permanently delete a single record or empty the project trash. Neither can be undone, both need a second confirmation, and only you can do them in the interface.
 

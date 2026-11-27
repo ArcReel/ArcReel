@@ -18,9 +18,8 @@ import {
   DEMO_PROJECT_NAME,
   isDemoProject,
 } from "@/onboarding/demo-project";
-import { API, setApiReadOnly } from "@/api";
+import { setApiReadOnly } from "@/api";
 import {
-  mergeWorkspaceProject,
   shouldLoadEpisodeScript,
   normalizeScriptFile,
   useProjectsStore,
@@ -126,6 +125,7 @@ function StudioWorkspace() {
   const routeEpisode = parseWorkspaceEpisode(location);
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const currentProjectData = useProjectsStore((s) => s.currentProjectName === projectName ? s.currentProjectData : null);
+  const retryEpisodeProjection = useProjectsStore((s) => s.currentProjectName === projectName && s.currentProjectData !== null && !s.currentProjectData.status && !s.projectDetailLoading);
   const { t } = useTranslation("onboarding");
   const tRef = useRef(t);
   useEffect(() => {
@@ -188,24 +188,11 @@ function StudioWorkspace() {
     }
     const epMeta = currentProjectData?.episodes.find((entry) => entry.episode === routeEpisode);
     if (!currentProjectData || (!currentProjectData.status && epMeta && epMeta.script_status === undefined)) {
-      // Read the active episode independently of the full sidebar summary.
-      const controller = new AbortController();
-      void API.getWorkspace(projectName, { episodes: [routeEpisode], signal: controller.signal })
-        .then((response) => {
-          const generated = response.summary.episodes.some(
-            (row) => row.episode === routeEpisode && row.script_status === "generated",
-          );
-          if (!generated || response.summary.needs_repair || controller.signal.aborted ||
-              useProjectsStore.getState().currentProjectData !== currentProjectData) return;
-          setCurrentProject(projectName, mergeWorkspaceProject(response), undefined,
-            response.asset_fingerprints, { episodes: [routeEpisode] });
-        })
-        .catch((error: unknown) => {
-          if (!controller.signal.aborted && !useProjectsStore.getState().projectDetailLoading) {
-            useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(error) }), "error");
-          }
-        });
-      return () => controller.abort();
+      void store.hydrateEpisodeWorkspace(projectName, routeEpisode, {
+        onError: (error) =>
+          useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(error) }), "error"),
+      });
+      return () => useProjectsStore.getState().cancelEpisodeWorkspaceHydration();
     }
     const boundFile = normalizeScriptFile(epMeta?.script_file);
     if (!epMeta || !shouldLoadEpisodeScript(epMeta) || !boundFile) {
@@ -222,7 +209,7 @@ function StudioWorkspace() {
       onError: (err) =>
         useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
     });
-  }, [projectName, routeEpisode, currentProjectData, setCurrentProject]);
+  }, [projectName, routeEpisode, currentProjectData, retryEpisodeProjection]);
 
   useEffect(() => {
     if (!projectName || !isDemoProject(projectName)) return;
