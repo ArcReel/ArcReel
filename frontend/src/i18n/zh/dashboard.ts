@@ -2800,7 +2800,7 @@ export default {
   'trash_restored_degraded': "{{name}} 无法按原结构恢复，已找回其中 {{count}} 个文件；结构文件留在项目回收站里，只能下载",
   'trash_restored_degraded_files': "{{name}} 无法按原结构恢复，已找回其中 {{count}} 个文件",
   'trash_download_only_hint': "无法按原结构恢复，以下结构文件只能下载",
-  'trash_script_overwrite_hint': "以下文件按原路径列出，可逐个下载；其中的素材下载后可在创作界面选定目标手动上传复用，正式脚本只供下载，不会自动装回旧条目或原有关系",
+  'trash_script_overwrite_hint': "以下文件按原路径列出，可逐个下载；其中的分镜图和视频下载后可在创作界面选定目标手动上传复用，正式脚本只供下载，不会自动装回旧条目或原有关系",
   'trash_download_file': "下载 {{path}}",
   'trash_purge': "彻底删除",
   'trash_purge_title': "彻底删除这条删除记录？",

@@ -1,8 +1,10 @@
+import { hasEpisodeDraft } from "@/utils/episode-display";
 import i18n from "@/i18n";
 import { errMsg } from "@/utils/async";
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { create } from "zustand";
 import type {
+  EpisodeMeta,
   EpisodeScript,
   ProjectData,
   ProjectEventSnapshotPayload,
@@ -55,6 +57,16 @@ export function normalizeScriptFile(scriptFile: string | null | undefined): stri
   if (!scriptFile) return null;
   const normalized = stripScriptsPrefix(scriptFile).trim();
   return normalized || null;
+}
+
+export function canPreviewEpisode(
+  episode: EpisodeMeta | undefined,
+  active: ActiveEpisodeScriptState,
+): boolean {
+  if (!episode || !hasEpisodeDraft(episode)) return false;
+  if (episode.script_status === "segmented") return true;
+  return active.status === "ready" && active.episode === episode.episode &&
+    active.scriptFile === normalizeScriptFile(episode.script_file);
 }
 
 export function episodeScriptRevisionKey(projectName: string, episode: number): string {
@@ -785,10 +797,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         const state = get();
         if (state.currentProjectName !== projectName || state.currentProjectData?.status) return "cancelled";
         if (!state.projectDetailLoading && state.currentProjectData === null) return "cancelled";
-        const generated = response.summary.episodes.some(
-          (row) => row.episode === episode && row.script_status === "generated",
-        );
-        if (state.projectDetailLoading && (!generated || response.summary.needs_repair)) return "cancelled";
+        const target = response.summary.episodes.find((row) => row.episode === episode);
+        if (state.projectDetailLoading && (!hasEpisodeDraft(target) || response.summary.needs_repair)) return "cancelled";
         const merged = mergeWorkspaceProject(response, state.currentProjectData);
         const fingerprints = { ...state.assetFingerprints, ...response.asset_fingerprints };
         commitCurrentProject(projectName, merged, undefined, fingerprints, { episodes: [episode] }, false);

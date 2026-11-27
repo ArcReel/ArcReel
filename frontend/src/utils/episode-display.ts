@@ -3,6 +3,10 @@ import type { TFunction } from "i18next";
 import type { EpisodeItemRef, EpisodeMeta, ItemLocation, ItemLocationStatus } from "@/types";
 import { episodeItemKind, findEpisodeItem, isPositionedItemId, type EpisodeItemKind } from "@/utils/episode-item";
 
+export function hasEpisodeDraft(meta: Pick<EpisodeMeta, "script_status"> | undefined): boolean {
+  return meta?.script_status === "segmented" || meta?.script_status === "generated";
+}
+
 export type ProjectScripts = Readonly<Record<string, unknown>>;
 
 export type EpisodeLedger = readonly Pick<EpisodeMeta, "episode" | "title">[];
