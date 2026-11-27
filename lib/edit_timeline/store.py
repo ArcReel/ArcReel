@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,14 +52,18 @@ class EditTimelineStore:
     def _episode_dir(self, episode: int) -> Path:
         return self._root / f"episode_{episode}"
 
-    def _episode_dirs(self) -> list[tuple[int, Path]]:
+    def _episode_dirs(self, episode: int | None = None) -> list[tuple[int, Path]]:
         if not self._root.is_dir():
             return []
         found: list[tuple[int, Path]] = []
-        for path in self._root.iterdir():
-            prefix, _, number = path.name.partition("_")
-            if path.is_dir() and prefix == "episode" and number.isdigit() and int(number) >= 1:
-                found.append((int(number), path))
+        with os.scandir(self._root) as entries:
+            for entry in entries:
+                prefix, _, number = entry.name.partition("_")
+                if prefix != "episode" or not number.isdecimal():
+                    continue
+                value = int(number)
+                if value >= 1 and (episode is None or value == episode) and entry.is_dir():
+                    found.append((value, Path(entry.path)))
         return sorted(found)
 
     @staticmethod
@@ -71,9 +76,7 @@ class EditTimelineStore:
         无法解析的文件默认跳过并记日志；``strict`` 时抛出 ``timeline_invalid``。
         """
         documents: list[EditTimelineDocument] = []
-        for number, directory in self._episode_dirs():
-            if episode is not None and number != episode:
-                continue
+        for number, directory in self._episode_dirs(episode):
             for path in sorted(directory.glob("*.json")):
                 if not is_timeline_id(path.stem):
                     continue

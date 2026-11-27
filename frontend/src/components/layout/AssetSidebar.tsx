@@ -56,7 +56,7 @@ interface NavItem {
 
 export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
-  const { currentProjectName, currentProjectData } = useProjectsStore();
+  const { currentProjectName, currentProjectData, projectDetailLoading } = useProjectsStore();
   const debouncedFetchCost = useCostStore((s) => s.debouncedFetch);
   const [location, setLocation] = useLocation();
   const [search, setSearch] = useState("");
@@ -67,14 +67,15 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
   const demoMode = useDemoWorkbench();
   const route = normalizeRoute(currentProjectData?.generation_mode);
 
-  useEffect(() => {
-    if (currentProjectName) debouncedFetchCost(currentProjectName);
-  }, [currentProjectName, debouncedFetchCost]);
-
   const activeEp = useMemo(() => {
     const m = location.match(/^\/episodes\/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
   }, [location]);
+
+  const costReady = !projectDetailLoading && Boolean(currentProjectData);
+  useEffect(() => {
+    if (currentProjectName && costReady) debouncedFetchCost(currentProjectName);
+  }, [currentProjectName, activeEp, costReady, debouncedFetchCost]);
 
   const moveEpisode = useMoveEpisode(currentProjectName);
   const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {

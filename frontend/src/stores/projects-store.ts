@@ -98,6 +98,7 @@ export function mergeWorkspaceProject(res: WorkspaceResponse, previous?: Project
       videos: row.videos,
     };
   });
+  if (summary.episodes_summary === null && !previous) return { ...res.project, episodes, status: undefined };
   const status: ProjectStatus = {
     currency: summary.currency,
     needs_repair: summary.needs_repair,
@@ -639,7 +640,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         const isCurrentProject =
           currentProjectName === curName || (currentProjectName === null && !hasLoadedAnyProject);
         if (!supersededByOtherProject && !signal.aborted && isCurrentProject) {
-          const wasInitialLoad = currentProjectData === null;
+          const wasInitialLoad = prior === null;
           const partial = res.summary.episodes_summary === null;
           const merged = mergeWorkspaceProject(res, partial ? currentProjectData : null);
           const fingerprints = partial ? { ...get().assetFingerprints, ...res.asset_fingerprints } : res.asset_fingerprints;

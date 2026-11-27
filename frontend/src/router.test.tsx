@@ -168,7 +168,19 @@ describe("AppRoutes", () => {
       props: {},
     });
     const workspace = createDeferred<typeof ws>();
-    vi.spyOn(API, "getWorkspace").mockReturnValue(workspace.promise);
+    const broad = createDeferred<typeof ws>();
+    const projection = (episode: number) => ({
+      ...ws,
+      project: {
+        ...ws.project,
+        episodes: ws.project.episodes.map(({ script_status: _status, ...row }) => row),
+      },
+      summary: { ...ws.summary, episodes_summary: null, episodes: ws.summary.episodes.filter((row) => row.episode === episode) },
+    });
+    vi.spyOn(API, "getWorkspace").mockImplementation((_name, options) => {
+      if (options?.episodes?.[0] === 2) return Promise.resolve(projection(2));
+      return options?.episodes ? workspace.promise : broad.promise;
+    });
     const ep1Deferred = createDeferred<Awaited<ReturnType<typeof API.getScript>>>();
     const ep2Deferred = createDeferred<Awaited<ReturnType<typeof API.getScript>>>();
     let ep1Signal: AbortSignal | undefined;
@@ -188,11 +200,13 @@ describe("AppRoutes", () => {
     );
 
     await waitFor(() => {
-      expect(API.getWorkspace).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      expect(API.getWorkspace).toHaveBeenCalledWith("demo", { episodes: [1], signal: expect.any(AbortSignal) });
       expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_1.json", { speculative: true, onVersion: expect.any(Function), signal: expect.any(AbortSignal) });
     });
 
-    await act(async () => workspace.resolve(ws));
+    await act(async () => workspace.resolve(projection(1)));
+    expect(useProjectsStore.getState().currentProjectData?.status).toBeUndefined();
+    expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("generated");
     act(() => navigate("/app/projects/demo/episodes/2"));
     await waitFor(() => {
       expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_2.json", { signal: expect.any(AbortSignal) });
@@ -207,6 +221,8 @@ describe("AppRoutes", () => {
       expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_2.json"]);
       expect(useProjectsStore.getState().activeEpisodeScript.episode).toBe(2);
     });
+    await act(async () => broad.resolve(ws));
+    expect(getScriptSpy).toHaveBeenCalledTimes(2);
     await act(async () => ep1Deferred.resolve({ script: { episode: 1, segments: [] }, revision: "r1" } as never));
     expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_2.json"]);
     expect(useProjectsStore.getState().activeEpisodeScript.episode).toBe(2);

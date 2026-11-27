@@ -122,12 +122,19 @@ export function workspaceOverride(
     asset_fingerprints?: Record<string, number>;
   } = {},
 ): ApiOverrides {
+  const body = buildWorkspaceBody(projectPatch, options);
   const overrides: ApiOverrides = {
     "GET /api/v1/projects/demo/workspace": {
       status: 200,
-      body: buildWorkspaceBody(projectPatch, options),
+      body,
     },
   };
+  for (const row of body.summary.episodes) {
+    overrides[`GET /api/v1/projects/demo/workspace?episodes=${row.episode}`] = {
+      status: 200,
+      body: { ...body, summary: { ...body.summary, episodes: [row], episodes_summary: null, assets: {} } },
+    };
+  }
   if (options.scripts) {
     for (const [file, script] of Object.entries(options.scripts)) {
       const normalized = file.replace(/^scripts\//, "");

@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
-import { buildWorkspaceBody, recordedDemoEpisode } from "../support/workspace-override.ts";
+import { workspaceOverride, recordedDemoEpisode } from "../support/workspace-override.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SOURCE_PATH = "GET /api/v1/projects/demo/source/episode_1.txt";
@@ -47,12 +47,9 @@ const SOURCE_TEXT = Array.from(
 function scriptlessProject(episode: Record<string, unknown>): ApiOverrides {
   const { script_file: _scriptFile, script_status: _scriptStatus, ...baseEpisode } = recordedEpisode;
   return {
-    "GET /api/v1/projects/demo/workspace": {
-      status: 200,
-      body: buildWorkspaceBody({
-        episodes: [{ ...baseEpisode, script_file: "", script_status: "none", status: "draft", ...episode }],
-      }),
-    },
+    ...workspaceOverride({
+      episodes: [{ ...baseEpisode, script_file: "", script_status: "none", status: "draft", ...episode }],
+    }),
     "GET /api/v1/projects/demo/scripts/episode_1.json": {
       status: 404,
       body: { detail: "Script not found" },

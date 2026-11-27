@@ -1,0 +1,62 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/workspace?episodes=1",
+  "status": 200,
+  "body": {
+    "project": {
+      "schema_version": 21,
+      "title": "演示项目",
+      "content_mode": "narration",
+      "aspect_ratio": "9:16",
+      "style": "",
+      "episodes": [
+        {
+          "episode": 1,
+          "title": "第一集",
+          "script_file": "scripts/episode_1.json",
+          "source_origin": "none"
+        }
+      ],
+      "whole_source_files": [],
+      "characters": {},
+      "scenes": {},
+      "props": {},
+      "narration_delivery": "post_production",
+      "metadata": {
+        "created_at": "2026-01-01T08:00:00.000Z",
+        "updated_at": "2026-01-01T08:00:00.000Z"
+      },
+      "generation_mode": "storyboard",
+      "grid_storyboard": false,
+      "episode_id_high_water": 1,
+      "source_remaining": false
+    },
+    "summary": {
+      "currency": "registered",
+      "needs_repair": false,
+      "repair_reason": null,
+      "assets": {},
+      "episodes_summary": null,
+      "episodes": [
+        {
+          "episode": 1,
+          "script_status": "generated",
+          "status": "scripted",
+          "item_count": 0,
+          "duration_seconds": 0,
+          "needs_replan": 0,
+          "videos": {
+            "total": 0,
+            "available": 0
+          },
+          "storyboards": {
+            "total": 0,
+            "available": 0
+          }
+        }
+      ],
+      "source_remaining": false
+    },
+    "asset_fingerprints": {}
+  }
+}

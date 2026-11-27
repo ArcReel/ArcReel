@@ -18,8 +18,9 @@ import {
   DEMO_PROJECT_NAME,
   isDemoProject,
 } from "@/onboarding/demo-project";
-import { setApiReadOnly } from "@/api";
+import { API, setApiReadOnly } from "@/api";
 import {
+  mergeWorkspaceProject,
   shouldLoadEpisodeScript,
   normalizeScriptFile,
   useProjectsStore,
@@ -27,6 +28,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { useCostStore } from "@/stores/cost-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { errMsg } from "@/utils/async";
@@ -122,10 +124,6 @@ function StudioWorkspace() {
   const projectName = params.projectName ?? null;
   const [location] = useLocation();
   const routeEpisode = parseWorkspaceEpisode(location);
-  const routeEpisodeRef = useRef(routeEpisode);
-  useEffect(() => {
-    routeEpisodeRef.current = routeEpisode;
-  }, [routeEpisode]);
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const currentProjectData = useProjectsStore((s) => s.currentProjectName === projectName ? s.currentProjectData : null);
   const { t } = useTranslation("onboarding");
@@ -157,14 +155,6 @@ function StudioWorkspace() {
     setApiReadOnly(false);
     setProjectDetailLoading(true);
     setCurrentProject(projectName, null);
-    const initialEpisode = routeEpisodeRef.current;
-    if (initialEpisode !== null) {
-      void useProjectsStore
-        .getState()
-        .loadEpisodeScript(projectName, initialEpisode, `episode_${initialEpisode}.json`, {
-          speculative: true,
-        });
-    }
     void useProjectsStore
       .getState()
       .refreshProject(projectName, {
@@ -177,6 +167,7 @@ function StudioWorkspace() {
 
     return () => {
       disposed = true;
+      useCostStore.getState().clear();
       setCurrentProject(null, null);
     };
   }, [projectName, setCurrentProject, setProjectDetailLoading]);
@@ -194,9 +185,28 @@ function StudioWorkspace() {
       void store.loadEpisodeScript(projectName, routeEpisode, `episode_${routeEpisode}.json`, {
         speculative: true,
       });
-      return;
     }
-    const epMeta = currentProjectData.episodes.find((entry) => entry.episode === routeEpisode);
+    const epMeta = currentProjectData?.episodes.find((entry) => entry.episode === routeEpisode);
+    if (!currentProjectData || (!currentProjectData.status && epMeta && epMeta.script_status === undefined)) {
+      // Read the active episode independently of the full sidebar summary.
+      const controller = new AbortController();
+      void API.getWorkspace(projectName, { episodes: [routeEpisode], signal: controller.signal })
+        .then((response) => {
+          const generated = response.summary.episodes.some(
+            (row) => row.episode === routeEpisode && row.script_status === "generated",
+          );
+          if (!generated || response.summary.needs_repair || controller.signal.aborted ||
+              useProjectsStore.getState().currentProjectData !== currentProjectData) return;
+          setCurrentProject(projectName, mergeWorkspaceProject(response), undefined,
+            response.asset_fingerprints, { episodes: [routeEpisode] });
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted && !useProjectsStore.getState().projectDetailLoading) {
+            useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(error) }), "error");
+          }
+        });
+      return () => controller.abort();
+    }
     const boundFile = normalizeScriptFile(epMeta?.script_file);
     if (!epMeta || !shouldLoadEpisodeScript(epMeta) || !boundFile) {
       if (
@@ -212,7 +222,7 @@ function StudioWorkspace() {
       onError: (err) =>
         useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
     });
-  }, [projectName, routeEpisode, currentProjectData]);
+  }, [projectName, routeEpisode, currentProjectData, setCurrentProject]);
 
   useEffect(() => {
     if (!projectName || !isDemoProject(projectName)) return;

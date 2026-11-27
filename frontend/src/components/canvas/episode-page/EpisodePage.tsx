@@ -16,7 +16,6 @@ import { TextTaskFailureNote } from "@/components/canvas/shared/TextTaskFailureN
 import { LazyBoundary } from "@/components/shared/LazyBoundary";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
-import { useCostStore } from "@/stores/cost-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import type { ProjectData } from "@/types";
@@ -151,11 +150,6 @@ function EpisodePageContent({
   );
 
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => changeView("plan"));
-
-  const debouncedFetch = useCostStore((s) => s.debouncedFetch);
-  useEffect(() => {
-    debouncedFetch(projectName);
-  }, [projectName, episode, debouncedFetch]);
 
   const openAuthorPrompts = useCallback(
     () => usePromptAuthoringStore.getState().open({ projectName, episode, scope: "pending" }),
