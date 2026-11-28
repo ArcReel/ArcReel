@@ -23,6 +23,7 @@ from lib.final_cut.subtitles import BurnedSubtitle, ass_document
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
+from lib.infra.path_length import path_length, path_limit
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
     Spawner,
@@ -42,6 +43,12 @@ ACCEPTANCE_TOLERANCE_SECONDS = 0.1
 SUBTITLE_DOCUMENT = "subtitles.ass"
 SUBTITLE_FONTS_DIR = "fonts"
 """烧入字幕时 ASS 文档与字体在工作目录里的相对路径；画面渲染以工作目录为当前目录，滤镜参数不必转义路径。"""
+
+STAGED_SEGMENT_NAME = "segment_{index:04d}.mp4"
+"""各段画面在工作目录里的文件名模板。"""
+
+STAGED_SUBTITLE_FONT = f"{SUBTITLE_FONTS_DIR}/{SUBTITLE_FONT_FILE.name}"
+"""烧入字幕时字体在工作目录里的相对路径；它比工作目录本身更深，是渲染要写的最深路径。"""
 
 _STDERR_TAIL = 2000
 
@@ -345,7 +352,7 @@ async def render_plan_to_file(
         await run_sync_transaction(_stage_subtitles, workspace, ass_document(subtitles, plan.profile))
     segment_files: list[Path] = []
     for index, segment in enumerate(plan.segments):
-        segment_file = workspace / f"segment_{index:04d}.mp4"
+        segment_file = workspace / STAGED_SEGMENT_NAME.format(index=index)
         await _run(
             segment_args(ffmpeg, segment, plan, segment_file, burn_subtitles=burn),
             deadline=deadlines.for_seconds(segment.frames / fps),
@@ -377,15 +384,37 @@ async def render_plan_to_file(
 
 
 def _stage_subtitles(workspace: Path, document: str) -> None:
-    """把 ASS 文档与随包字体放进工作目录；字体优先硬链接，跨卷时复制。"""
+    """把 ASS 文档与随包字体放进工作目录；字体优先硬链接，跨卷时复制。
+
+    字体落盘失败时按路径长度分流：路径过长时 Windows 报「找不到」而不是「太长」，
+    报 ``final_cut_path_too_long`` 才不会被当成字体没随包；其余按渲染失败报。
+    """
     (workspace / SUBTITLE_DOCUMENT).write_text(document, encoding="utf-8")
     fonts = workspace / SUBTITLE_FONTS_DIR
     fonts.mkdir(exist_ok=True)
     target = fonts / SUBTITLE_FONT_FILE.name
     try:
         target.hardlink_to(SUBTITLE_FONT_FILE)
+        return
     except OSError:
+        pass
+    try:
         shutil.copyfile(SUBTITLE_FONT_FILE, target)
+    except OSError as exc:
+        length = path_length(target)
+        limit = path_limit()
+        if length > limit:
+            raise FinalCutError(
+                "final_cut_path_too_long",
+                f"渲染路径过长（{length} 字符，上限 {limit}），字体放不进渲染工作目录：{target}",
+                path=str(target),
+                length=length,
+                limit=limit,
+            ) from exc
+        raise FinalCutError(
+            "final_cut_render_failed",
+            f"字幕字体无法放入渲染工作目录：{target}（{exc}）",
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)

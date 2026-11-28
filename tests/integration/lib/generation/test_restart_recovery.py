@@ -255,7 +255,11 @@ class TestRestartRecovery:
 
     @pytest.mark.asyncio
     async def test_handle_orphan_render_running_marks_restart_lost(self, tmp_path, monkeypatch):
-        """render 孤儿判失败、不重排，清理临时文件并保留正式成片与记录。"""
+        """render 孤儿判失败、不重排，清理临时文件并保留正式成片与记录。
+
+        临时文件包含现行命名（只带 token）与旧版命名（隐藏名里带正式文件名），
+        两种残留都要清掉。
+        """
         from lib.project.project_manager import ProjectManager
 
         projects = ProjectManager(tmp_path)
@@ -268,13 +272,15 @@ class TestRestartRecovery:
         formal.write_bytes(b"previous")
         record.write_bytes(b"previous record")
         token = "a" * 32
-        partial = render_dir / f".final_cut.{token}.partial.mp4"
-        work = render_dir / f".final_cut.{token}.work"
+        partial = render_dir / f".{token}.partial.mp4"
+        work = render_dir / f".{token}.work"
+        legacy_work = render_dir / f".final_cut.{token}.work"
         partial.write_bytes(b"unfinished")
         record_temp = render_dir / ".project.interrupted.tmp"
         record_temp.write_bytes(b"unfinished record")
         work.mkdir()
         (work / "segment_0000.mp4").write_bytes(b"intermediate")
+        legacy_work.mkdir()
         queue = FakeWorkerQueue()
         queue._orphans = [
             {
@@ -298,6 +304,7 @@ class TestRestartRecovery:
         assert not partial.exists()
         assert not record_temp.exists()
         assert not work.exists()
+        assert not legacy_work.exists()
         assert formal.read_bytes() == b"previous"
         assert record.read_bytes() == b"previous record"
 

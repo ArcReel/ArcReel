@@ -34,6 +34,7 @@ _ACTIONS: dict[str, GenerationAction] = {
     "final_cut_render_failed": GenerationAction.RETRY,
     "final_cut_acceptance_failed": GenerationAction.RETRY,
     "final_cut_ffmpeg_unavailable": GenerationAction.NONE,
+    "final_cut_path_too_long": GenerationAction.NONE,
     "jianying_draft_hold_frame_unavailable": GenerationAction.RETRY,
     "jianying_draft_acceptance_failed": GenerationAction.RETRY,
 }

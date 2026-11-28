@@ -34,12 +34,29 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json
+from lib.infra.path_length import path_length, path_limit
 from lib.project.project_activity import record_project_activity
 
 RENDERS_DIRNAME = "renders"
 """本地渲染产物的项目根目录：可随时重新渲染，项目归档不包含它。"""
 
 _RECORD_SUFFIX = ".render.json"
+
+_STAGING_TOKEN_LENGTH = 32
+"""渲染临时文件与工作目录名里的随机 token 长度（``uuid4().hex``）。"""
+
+_PLACEHOLDER_TOKEN = "0" * _STAGING_TOKEN_LENGTH
+"""长度检查用的占位 token：与实际 token 等长，路径长度因此一致。"""
+
+
+class RenderedArtifactPathTooLong(OSError):
+    """渲染要落盘的路径超出当前系统的长度上限。"""
+
+    def __init__(self, path: Path, length: int, limit: int) -> None:
+        super().__init__(f"渲染路径过长（{length} 字符，上限 {limit}）：{path}")
+        self.path = path
+        self.length = length
+        self.limit = limit
 
 
 def timeline_renders_dir(episode: int, timeline_id: str) -> str:
@@ -118,11 +135,54 @@ def _replace_and_register(
     return record
 
 
+def _staging_paths(formal: Path, token: str) -> tuple[Path, Path]:
+    """渲染用的隐藏临时文件与工作目录：名字只由随机 token 决定，与正式文件名无关。
+
+    正式文件名可能很长（如成片的 ``final_cut.with_narration.burned_subtitles``），把它拼进隐藏
+    目录名会让工作目录里的字体等文件顶出 Windows 的路径长度上限。因此隐藏名字只带 token。
+    """
+    return formal.with_name(f".{token}.partial{formal.suffix}"), formal.with_name(f".{token}.work")
+
+
+def staging_paths(formal: Path) -> tuple[Path, Path]:
+    """渲染用的隐藏临时文件与工作目录：占位 token 与实际 token 等长，落盘前的长度检查用它。"""
+    return _staging_paths(formal, _PLACEHOLDER_TOKEN)
+
+
+def check_render_path_lengths(formal: Path, *, deepest_relative: str = "") -> None:
+    """检查渲染要落盘的路径是否在当前系统的长度上限内。
+
+    ``deepest_relative`` 是渲染器在工作目录里写的最深相对路径（如烧字幕时的字体文件）：
+    工作目录里的文件名不参与隐藏目录名的长度计算，超限时只有它会把路径顶出上限。
+
+    Raises:
+        RenderedArtifactPathTooLong: 路径超出当前系统的长度上限。
+    """
+    output, workspace = staging_paths(formal)
+    candidates = [formal, output, workspace]
+    if deepest_relative:
+        candidates.append(workspace / deepest_relative)
+    limit = path_limit()
+    for candidate in candidates:
+        length = path_length(candidate)
+        if length > limit:
+            raise RenderedArtifactPathTooLong(candidate, length, limit)
+
+
 def cleanup_interrupted_render_staging(project_dir: Path) -> None:
-    """重启后清理渲染临时文件；调用方须确认项目没有本进程仍在执行的渲染。"""
+    """重启后清理渲染临时文件；调用方须确认项目没有本进程仍在执行的渲染。
+
+    匹配三种隐藏名：只带 token 的现行命名、隐藏名里带正式文件名的旧版命名、
+    以及 ``.project.*.tmp``。旧版命名留在这里是为了清掉旧版本留下的残留。
+    """
     root = project_dir / RENDERS_DIRNAME
     for path in root.rglob(".*"):
-        if re.fullmatch(r"(?:\..+\.[0-9a-f]{32}\.(?:work|partial\.[^.]+)|\.project\.[^.]+\.tmp)", path.name):
+        if re.fullmatch(
+            r"(?:\.[0-9a-f]{32}\.(?:work|partial\.[^.]+)"
+            r"|\..+\.[0-9a-f]{32}\.(?:work|partial\.[^.]+)"
+            r"|\.project\.[^.]+\.tmp)",
+            path.name,
+        ):
             if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)  # hard-delete: temp -- 重启后清理中断渲染留下的 .work 目录
             else:
@@ -146,9 +206,8 @@ async def commit_rendered_artifact[AcceptanceT](
     """按快照依据渲染、验收并登记一件本地渲染产物；任一步失败时临时文件与工作目录都被清理。"""
     formal = project_dir / artifact_path
     await asyncio.to_thread(formal.parent.mkdir, parents=True, exist_ok=True)
-    token = uuid4().hex
-    output = formal.with_name(f".{formal.stem}.{token}.partial{formal.suffix}")
-    workspace = formal.with_name(f".{formal.stem}.{token}.work")
+    output, workspace = _staging_paths(formal, uuid4().hex)
+    check_render_path_lengths(formal)
     try:
         await run_sync_transaction(workspace.mkdir)
         await render(output, workspace)
@@ -165,7 +224,10 @@ __all__ = [
     "RenderRecord",
     "RenderStep",
     "RenderedArtifact",
+    "RenderedArtifactPathTooLong",
+    "check_render_path_lengths",
     "cleanup_interrupted_render_staging",
     "commit_rendered_artifact",
     "read_render_record",
+    "staging_paths",
 ]

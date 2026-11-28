@@ -135,6 +135,7 @@ _FINAL_CUT_STATUS: dict[str, int] = {
     "final_cut_empty": 422,
     "final_cut_ffmpeg_unavailable": 503,
     "final_cut_render_failed": 500,
+    "final_cut_path_too_long": 500,
     "final_cut_acceptance_failed": 500,
 }
 

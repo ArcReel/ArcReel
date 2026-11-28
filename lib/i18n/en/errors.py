@@ -781,6 +781,7 @@ MESSAGES = {
     "final_cut_empty": "The edit timeline has no clips to render",
     "final_cut_ffmpeg_unavailable": "The bundled ffmpeg is unavailable, so the final cut cannot be rendered",
     "final_cut_render_failed": "Rendering the final cut failed; please try again",
+    "final_cut_path_too_long": "The render path is too long ({length} characters, limit {limit}), so the final cut cannot be written to disk: {path}",
     "final_cut_acceptance_failed": "The rendered final cut failed acceptance; please try again",
     "final_cut_render_in_progress": "A final-cut render with different parameters is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
     "jianying_draft_narration_unavailable": "Only TTS voiceover projects can export the Jianying draft version with narration",

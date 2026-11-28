@@ -725,6 +725,7 @@ MESSAGES = {
     "final_cut_empty": "剪辑时间线没有可渲染的剪辑片段",
     "final_cut_ffmpeg_unavailable": "随包 ffmpeg 不可用，无法渲染成片",
     "final_cut_render_failed": "成片渲染失败，请重试",
+    "final_cut_path_too_long": "渲染路径过长（{length} 字符，上限 {limit}），成片无法落盘：{path}",
     "final_cut_acceptance_failed": "渲染出的成片未通过验收，请重试",
     "final_cut_render_in_progress": "这条剪辑时间线已有一个参数不同的成片渲染任务在排队或执行（{task_id}），请等它结束后再提交",
     "jianying_draft_narration_unavailable": "只有 TTS 配音项目可以导出带旁白版本的剪映草稿",

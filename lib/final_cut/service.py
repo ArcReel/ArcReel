@@ -21,7 +21,12 @@ from pydantic import BaseModel, ConfigDict
 
 from lib.artifacts.artifact_currency import active_artifact_currency_resolver, read_artifact_content_digest
 from lib.artifacts.artifact_manifest import ArtifactStatus, ProjectArtifactManifestAdapter
-from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
+from lib.artifacts.rendered_artifact import (
+    RenderedArtifactPathTooLong,
+    check_render_path_lengths,
+    commit_rendered_artifact,
+    read_render_record,
+)
 from lib.artifacts.version_manager import VersionManager
 from lib.bgm.library import resolve_bgm_sources
 from lib.edit_timeline.bgm import bgm_ids, place_bgm
@@ -52,6 +57,8 @@ from lib.final_cut.basis import (
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.ffmpeg_render import (
     DEFAULT_RENDER_DEADLINES,
+    STAGED_SEGMENT_NAME,
+    STAGED_SUBTITLE_FONT,
     BgmInput,
     FinalCutAcceptance,
     NarrationInput,
@@ -457,14 +464,26 @@ class FinalCutService:
         async def accept_step(output: Path) -> FinalCutAcceptance:
             return await accept_final_cut(output, plan, spawn=self._spawn)
 
-        rendered = await commit_rendered_artifact(
-            project_dir,
-            key=final_cut_key(inputs.episode, inputs.timeline_id, variant),
-            artifact_path=final_cut_artifact_path(inputs.episode, inputs.timeline_id, variant),
-            basis=basis,
-            render=render_step,
-            accept=accept_step,
-        )
+        artifact_path = final_cut_artifact_path(inputs.episode, inputs.timeline_id, variant)
+        deepest_staged = STAGED_SUBTITLE_FONT if burned is not None else STAGED_SEGMENT_NAME.format(index=0)
+        try:
+            check_render_path_lengths(project_dir / artifact_path, deepest_relative=deepest_staged)
+            rendered = await commit_rendered_artifact(
+                project_dir,
+                key=final_cut_key(inputs.episode, inputs.timeline_id, variant),
+                artifact_path=artifact_path,
+                basis=basis,
+                render=render_step,
+                accept=accept_step,
+            )
+        except RenderedArtifactPathTooLong as exc:
+            raise FinalCutError(
+                "final_cut_path_too_long",
+                f"渲染路径过长（{exc.length} 字符，上限 {exc.limit}），成片无法落盘：{exc.path}",
+                path=str(exc.path),
+                length=exc.length,
+                limit=exc.limit,
+            ) from exc
         return FinalCutRender(
             episode=inputs.episode,
             timeline_id=inputs.timeline_id,
