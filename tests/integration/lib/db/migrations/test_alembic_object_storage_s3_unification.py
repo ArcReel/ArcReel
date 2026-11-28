@@ -480,6 +480,8 @@ def test_upgraded_legacy_tos_connection_works_end_to_end_via_high_level_apis(
                     rotated = await ObjectStorageConnectionRepository(session).get()
                     assert rotated is not None
                     assert rotated.id == legacy_id
+                    assert rotated.access_key_id == "ROTATED-AK"
+                    assert rotated.secret_access_key == "TEST-SK"
 
                 blank_relocate = api.put(
                     "/api/v1/object-storage/connection",

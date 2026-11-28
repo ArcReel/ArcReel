@@ -12,6 +12,7 @@ import functools
 import importlib
 import itertools
 import json
+import os
 import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
@@ -23,6 +24,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import portalocker
 
 if TYPE_CHECKING:
+    import pytest
+
     from lib.artifacts.version_manager import PaidVersionCommit
     from lib.generation.media_generator import MediaGenerator
 
@@ -34,6 +37,10 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+def intercept_file_replace(monkeypatch: pytest.MonkeyPatch, replacement: Callable[..., None]) -> None:
+    monkeypatch.setattr(os, "replace", replacement)
 
 
 @contextmanager

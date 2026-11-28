@@ -50,6 +50,31 @@ function mockResponse(options: JsonResponseOptions = {}): Response {
 }
 
 describe("API", () => {
+  it("serializes object storage connection identity and acknowledged losses", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    const root = "/api/v1/object-storage/connection";
+    const run = { mode: "delete" as const, expected_connection_id: 17, delete_remote_objects: false };
+    const save = { expected_connection_id: 17, region: "region", bucket: "bucket", endpoint: "https://storage.example" };
+    await API.saveObjectStorageConnection(save);
+    await API.deleteObjectStorageConnection(false, { expectedConnectionId: 17, resetNewImageTarget: true });
+    await API.cancelObjectStorageRelocation(17);
+    await API.runObjectStorageRelocation(run);
+    await API.forceDisconnectObjectStorage(17, ["holder:item:path:digest"]);
+    const requests = fetchMock.mock.calls.map(([url, init]) => ({
+      url, method: init?.method, body: init?.body && JSON.parse(String(init.body)),
+    }));
+    expect(requests).toEqual([
+      { url: root, method: "PUT", body: save },
+      { url: `${root}?delete_remote_objects=false&expected_connection_id=17&reset_new_image_target=true`, method: "DELETE", body: undefined },
+      { url: `${root}/relocation/cancel`, method: "POST", body: { expected_connection_id: 17 } },
+      { url: `${root}/relocation/run`, method: "POST", body: run },
+      { url: `${root}/relocation/force-disconnect`, method: "POST", body: {
+        confirm: true, expected_connection_id: 17, acknowledged_unrecoverable_keys: ["holder:item:path:digest"],
+      } },
+    ]);
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

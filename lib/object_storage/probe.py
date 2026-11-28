@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import uuid
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
@@ -112,12 +115,18 @@ def _classify_http_status(status_code: int, code: str) -> ProbeErrorKind:
     return classified
 
 
-def _failed_from_storage_error(step: ProbeStepName, exc: ObjectStorageError) -> ProbeStepResult:
+def _diagnostic_code(code: str, status_code: int | None) -> str:
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", code):
+        return code
+    return f"HTTP_{status_code}" if status_code is not None else "ProviderError"
+
+
+def failed_step_from_storage_error(step: ProbeStepName, exc: ObjectStorageError) -> ProbeStepResult:
     return ProbeStepResult(
         step=step,
         status="failed",
         error_kind=exc.kind,
-        error_code=exc.code,
+        error_code=_diagnostic_code(exc.code, exc.status_code),
         status_code=exc.status_code,
         error_message=sanitize_probe_diagnostic(exc.message),
     )
@@ -135,6 +144,7 @@ async def probe_connection(
     client: ObjectStorageClient,
     *,
     http_client: httpx.AsyncClient | None = None,
+    timeout_factory: Callable[[float], AbstractAsyncContextManager[object]] = asyncio.timeout,
 ) -> ObjectStorageProbeResult:
     """对对象存储连接执行 5 步分级探针并返回完整分项结果。"""
     key = probe_object_key()
@@ -146,14 +156,22 @@ async def probe_connection(
     try:
         await client.check()
     except ObjectStorageError as exc:
-        results["head_bucket"] = _failed_from_storage_error("head_bucket", exc)
+        results["head_bucket"] = failed_step_from_storage_error("head_bucket", exc)
         return _finalize(results, residual_object_key=None)
     results["head_bucket"] = ProbeStepResult(step="head_bucket", status="passed")
 
     try:
         await client.put_bytes(key, payload, content_type="application/octet-stream")
     except ObjectStorageError as exc:
-        results["put_object"] = _failed_from_storage_error("put_object", exc)
+        results["put_object"] = failed_step_from_storage_error("put_object", exc)
+        if exc.kind in ("network", "provider"):
+            try:
+                await client.delete(key)
+            except ObjectStorageError as cleanup_error:
+                if cleanup_error.kind != "not_found":
+                    results["delete_object"] = failed_step_from_storage_error("delete_object", cleanup_error)
+                    return _finalize(results, residual_object_key=key)
+            results["delete_object"] = ProbeStepResult(step="delete_object", status="passed")
         return _finalize(results, residual_object_key=None)
     results["put_object"] = ProbeStepResult(step="put_object", status="passed")
 
@@ -162,7 +180,7 @@ async def probe_connection(
         try:
             info = await client.head(key)
         except ObjectStorageError as exc:
-            results["head_object"] = _failed_from_storage_error("head_object", exc)
+            results["head_object"] = failed_step_from_storage_error("head_object", exc)
         else:
             if info.size != len(payload):
                 results["head_object"] = ProbeStepResult(
@@ -182,12 +200,13 @@ async def probe_connection(
                 expected_sha256=expected_sha256,
                 expected_size=len(payload),
                 http_client=http_client,
+                timeout_factory=timeout_factory,
             )
     finally:
         try:
             await client.delete(key)
         except ObjectStorageError as exc:
-            results["delete_object"] = _failed_from_storage_error("delete_object", exc)
+            results["delete_object"] = failed_step_from_storage_error("delete_object", exc)
             residual_object_key = key
         else:
             results["delete_object"] = ProbeStepResult(step="delete_object", status="passed")
@@ -202,15 +221,17 @@ async def _probe_presigned_get(
     expected_sha256: str,
     expected_size: int,
     http_client: httpx.AsyncClient | None,
+    timeout_factory: Callable[[float], AbstractAsyncContextManager[object]] = asyncio.timeout,
 ) -> ProbeStepResult:
     try:
         presigned_url = await client.presign_get(key, expires_seconds=PROBE_PRESIGN_EXPIRES_SECONDS)
     except ObjectStorageError as exc:
-        return _failed_from_storage_error("presigned_get", exc)
+        return failed_step_from_storage_error("presigned_get", exc)
 
     try:
-        response = await _fetch_presigned(presigned_url, http_client)
-    except httpx.HTTPError as exc:
+        async with timeout_factory(PROBE_HTTP_TIMEOUT_SECONDS):
+            response = await _fetch_presigned(presigned_url, http_client)
+    except (TimeoutError, httpx.HTTPError) as exc:
         return ProbeStepResult(
             step="presigned_get",
             status="failed",
@@ -221,7 +242,7 @@ async def _probe_presigned_get(
 
     if response.status_code != 200:
         xml_code, xml_message = _parse_s3_xml_error(response.content)
-        code = xml_code or f"HTTP_{response.status_code}"
+        code = _diagnostic_code(xml_code, response.status_code)
         raw_message = xml_message or response.reason_phrase or ""
         return ProbeStepResult(
             step="presigned_get",

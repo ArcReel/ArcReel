@@ -10,6 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from lib.db.base import Base, TimestampMixin
 
 CURRENT_CONNECTION_SLOT = 1
+MAX_REGION_LENGTH = 64
+MAX_BUCKET_LENGTH = 255
 
 
 class ObjectStorageConnection(TimestampMixin, Base):
@@ -31,9 +33,9 @@ class ObjectStorageConnection(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    region: Mapped[str] = mapped_column(String(MAX_REGION_LENGTH), nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
     addressing_style: Mapped[str] = mapped_column(String(16), nullable=False, default="auto", server_default="auto")
     needs_endpoint_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     relocating: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
@@ -63,7 +65,7 @@ class RelayObject(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     connection_id: Mapped[int] = mapped_column(Integer, nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="retained")
@@ -95,7 +97,7 @@ class FormalObject(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     connection_id: Mapped[int] = mapped_column(Integer, nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.config.repository import mask_secret
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
-from lib.db.models.object_storage import ObjectStorageConnection
+from lib.db.models.object_storage import MAX_BUCKET_LENGTH, MAX_REGION_LENGTH, ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_noninterruptible_async
@@ -45,6 +45,7 @@ from lib.material.convergence import (
     force_disconnect_connection,
     get_relocation_progress,
     inspect_relocation_plan,
+    probe_relocation_lock,
     run_relocation,
 )
 from lib.material.formal_objects import (
@@ -75,8 +76,8 @@ from lib.object_storage.probe import (
     ProbeStepName,
     ProbeStepResult,
     ProbeStepStatus,
+    failed_step_from_storage_error,
     probe_connection,
-    sanitize_probe_diagnostic,
 )
 from lib.project.project_manager import get_project_manager
 from server.i18n import Translator
@@ -84,15 +85,11 @@ from server.i18n import Translator
 router = APIRouter(prefix="/object-storage", tags=["Object Storage"])
 
 
-def _strip(value: str | None) -> str | None:
-    return value.strip() if isinstance(value, str) else value
-
-
-_Stripped = Annotated[str, AfterValidator(_strip), Field(max_length=2048)]
-_StrippedOpt = Annotated[str | None, AfterValidator(_strip), Field(max_length=2048)]
+_Stripped = Annotated[str, AfterValidator(str.strip), Field(max_length=2048)]
 
 
 class ObjectStorageConnectionResponse(BaseModel):
+    id: int
     kind: ObjectStorageKind
     region: str
     endpoint: str
@@ -121,13 +118,14 @@ class NewImageTargetBody(BaseModel):
 class SaveObjectStorageConnectionRequest(BaseModel):
     """保存连接。同目标（Endpoint 与桶未变）时两个密钥字段留空表示保留已保存的值；换桶或换 Endpoint 必须显式提供新凭证。"""
 
+    expected_connection_id: int | None = None
     kind: ObjectStorageKind = OBJECT_STORAGE_KIND_S3
-    region: _Stripped
+    region: Annotated[_Stripped, Field(max_length=MAX_REGION_LENGTH)]
     endpoint: _Stripped
-    bucket: _Stripped
-    addressing_style: AddressingStyle = DEFAULT_ADDRESSING_STYLE
-    access_key_id: _StrippedOpt = None
-    secret_access_key: _StrippedOpt = None
+    bucket: Annotated[_Stripped, Field(max_length=MAX_BUCKET_LENGTH)]
+    addressing_style: AddressingStyle | None = None
+    access_key_id: _Stripped | None = None
+    secret_access_key: _Stripped | None = None
     delete_remote_objects: bool = True
 
 
@@ -185,6 +183,7 @@ def _to_response(conn: ObjectStorageConnection, *, in_use_object_count: int = 0)
         "switch" if conn.relocate_mode == "switch" else "delete" if conn.relocate_mode == "delete" else None
     )
     return ObjectStorageConnectionResponse(
+        id=conn.id,
         kind=OBJECT_STORAGE_KIND_S3,
         region=conn.region,
         endpoint=conn.endpoint,
@@ -212,6 +211,7 @@ def _current_layout() -> DataRootLayout:
 
 
 class UnrecoverableItemResponse(BaseModel):
+    confirmation_key: str
     holder_kind: str
     holder_label: str
     path: str
@@ -242,6 +242,7 @@ class RelocationPlanResponse(BaseModel):
     connection_id: int
     in_use_object_count: int
     in_use_reference_count: int
+    reusable_local_object_count: int
     download_object_count: int
     estimated_download_bytes: int
     pending_ingest_tasks: int
@@ -255,17 +256,18 @@ class RelocationPlanResponse(BaseModel):
 
 class RelocationTargetRequest(BaseModel):
     kind: ObjectStorageKind = OBJECT_STORAGE_KIND_S3
-    region: _Stripped
+    region: Annotated[_Stripped, Field(max_length=MAX_REGION_LENGTH)]
     endpoint: _Stripped
-    bucket: _Stripped
+    bucket: Annotated[_Stripped, Field(max_length=MAX_BUCKET_LENGTH)]
     addressing_style: AddressingStyle = DEFAULT_ADDRESSING_STYLE
-    access_key_id: _StrippedOpt = None
-    secret_access_key: _StrippedOpt = None
+    access_key_id: _Stripped | None = None
+    secret_access_key: _Stripped | None = None
 
 
 class RunRelocationRequest(BaseModel):
+    expected_connection_id: int
     mode: RelocationMode
-    delete_remote_objects: bool = True
+    delete_remote_objects: bool | None = None
     target: RelocationTargetRequest | None = None
 
 
@@ -291,7 +293,13 @@ class RunRelocationResponse(BaseModel):
     unrecoverable_items: list[UnrecoverableItemResponse] = Field(default_factory=list)
 
 
+class CancelRelocationRequest(BaseModel):
+    expected_connection_id: int | None = None
+
+
 class ForceDisconnectRequest(BaseModel):
+    expected_connection_id: int
+    acknowledged_unrecoverable_keys: list[str]
     confirm: bool = False
 
 
@@ -320,6 +328,7 @@ _RELOCATION_ERROR_KEYS: dict[str, str] = {
 
 def _unrecoverable_response(item: UnrecoverableItem) -> UnrecoverableItemResponse:
     return UnrecoverableItemResponse(
+        confirmation_key=item.confirmation_key,
         holder_kind=item.holder_kind,
         holder_label=item.holder_label,
         path=item.path,
@@ -354,6 +363,7 @@ def _plan_response(plan: RelocationPlan) -> RelocationPlanResponse:
         connection_id=plan.connection_id,
         in_use_object_count=plan.in_use_object_count,
         in_use_reference_count=plan.in_use_reference_count,
+        reusable_local_object_count=plan.reusable_local_object_count,
         download_object_count=plan.download_object_count,
         estimated_download_bytes=plan.estimated_download_bytes,
         pending_ingest_tasks=plan.pending_ingest_tasks,
@@ -446,22 +456,36 @@ async def save_connection(
     async def apply_change() -> SaveConnectionResponse:
         async with connection_change_lock():
             try:
-                conn, failures = await _save_connection(session, body, normalized_endpoint)
+                conn, failures = await _save_connection(
+                    session, body, normalized_endpoint, expected_connection_id=body.expected_connection_id
+                )
             except IntegrityError:
                 await session.rollback()
-                conn, failures = await _save_connection(session, body, normalized_endpoint)
-        return SaveConnectionResponse(**_to_response(conn).model_dump(), cleanup_failures=failures)
+                conn, failures = await _save_connection(
+                    session, body, normalized_endpoint, expected_connection_id=body.expected_connection_id
+                )
+            in_use = await holding_object_count(session, conn.id)
+        return SaveConnectionResponse(
+            **_to_response(conn, in_use_object_count=in_use).model_dump(), cleanup_failures=failures
+        )
 
     return await run_noninterruptible_async(apply_change())
 
 
 async def _save_connection(
-    session: AsyncSession, body: SaveObjectStorageConnectionRequest, normalized_endpoint: str
+    session: AsyncSession,
+    body: SaveObjectStorageConnectionRequest,
+    normalized_endpoint: str,
+    *,
+    expected_connection_id: int | None,
 ) -> tuple[ObjectStorageConnection, dict[str, int]]:
     async with AsyncExitStack() as stack:
         repo = ObjectStorageConnectionRepository(session)
         existing = await repo.get()
+        if expected_connection_id is not None and (existing is None or existing.id != expected_connection_id):
+            raise ConflictError("object_storage_connection_changed")
         failures: dict[str, int] = {}
+        next_addressing_style = body.addressing_style or DEFAULT_ADDRESSING_STYLE
         if existing is None:
             if not body.access_key_id or not body.secret_access_key:
                 raise UnprocessableError("object_storage_keys_required")
@@ -486,6 +510,7 @@ async def _save_connection(
                     if existing.relocating:
                         raise ObjectStorageRelocatingError()
                     await _ensure_connection_unused(session, existing)
+                next_addressing_style = body.addressing_style or cast(AddressingStyle, existing.addressing_style)
                 next_endpoint = existing.endpoint
                 needs_review = bool(existing.needs_endpoint_review)
         conn = await repo.save(
@@ -493,7 +518,7 @@ async def _save_connection(
             region=body.region,
             endpoint=next_endpoint,
             bucket=body.bucket,
-            addressing_style=body.addressing_style,
+            addressing_style=next_addressing_style,
             access_key_id=body.access_key_id or None,
             secret_access_key=body.secret_access_key or None,
             needs_endpoint_review=needs_review,
@@ -504,6 +529,7 @@ async def _save_connection(
 
 @router.delete("/connection", response_model=ConnectionCleanupResponse)
 async def delete_connection(
+    expected_connection_id: int | None = None,
     delete_remote_objects: bool = True,
     reset_new_image_target: bool = False,
     session: AsyncSession = Depends(get_async_session),
@@ -514,6 +540,8 @@ async def delete_connection(
             existing = await repo.get()
             failures: dict[str, int] = {}
             if existing is not None:
+                if expected_connection_id is not None and existing.id != expected_connection_id:
+                    raise ConflictError("object_storage_connection_changed")
                 if existing.relocating:
                     raise ObjectStorageRelocatingError()
                 await _ensure_connection_unused(session, existing)
@@ -571,16 +599,18 @@ async def run_connection_relocation(
         mode=body.mode,
         delete_remote_objects=body.delete_remote_objects,
         target=target_cfg,
+        expected_connection_id=body.expected_connection_id,
     )
     return _run_result_response(result, _t)
 
 
 @router.post("/connection/relocation/cancel", response_model=ObjectStorageConnectionEnvelope)
 async def cancel_connection_relocation(
+    body: CancelRelocationRequest | None = None,
     session: AsyncSession = Depends(get_async_session),
 ) -> ObjectStorageConnectionEnvelope:
     """取消未完成的收敛回本地流程，保留已转正的本地文件并恢复旧连接正常使用。"""
-    await cancel_relocation(_default_session_factory())
+    await cancel_relocation(_default_session_factory(), body.expected_connection_id if body else None)
     conn = await ObjectStorageConnectionRepository(session).get()
     in_use = await holding_object_count(session, conn.id) if conn else 0
     return ObjectStorageConnectionEnvelope(
@@ -595,7 +625,12 @@ async def force_disconnect(body: ForceDisconnectRequest) -> ForceDisconnectRespo
     """旧桶永久不可达时执行抢救式强制断开：先跨持有方按摘要抢救有效本地文件，再移除旧连接。"""
     if not body.confirm:
         raise BadRequestError("object_storage_force_disconnect_confirm_required")
-    result = await force_disconnect_connection(_current_layout(), _default_session_factory())
+    result = await force_disconnect_connection(
+        _current_layout(),
+        _default_session_factory(),
+        expected_connection_id=body.expected_connection_id,
+        acknowledged_unrecoverable_keys=body.acknowledged_unrecoverable_keys,
+    )
     return _force_disconnect_response(result)
 
 
@@ -620,6 +655,8 @@ _STEP_DENIED_KEYS: dict[ProbeStepName, str] = {
 
 
 def _probe_step_message_key(step: ProbeStepResult) -> str:
+    if step.error_kind == "not_found" and step.step != "head_bucket" and step.error_code != "NoSuchBucket":
+        return "object_storage_probe_object_not_found"
     if step.error_kind == "denied":
         return _STEP_DENIED_KEYS[step.step]
     if step.error_kind is None:
@@ -661,28 +698,36 @@ async def check_connection(
 ) -> ObjectStorageTestResponse:
     """用已保存的连接执行分级探针（桶探测、写入、元信息、无登录态预签名下载校验与探针清理）。"""
     repo = ObjectStorageConnectionRepository(session)
-    conn = await repo.get()
-    if conn is None:
-        raise NotFoundError("object_storage_not_configured")
-    try:
-        client = ObjectStorageClient(config_from_connection(conn))
-    except ObjectStorageError as exc:
-        failed_head = ProbeStepResult(
-            step="head_bucket",
-            status="failed",
-            error_kind=exc.kind,
-            error_code=exc.code,
-            status_code=exc.status_code,
-            error_message=sanitize_probe_diagnostic(exc.message),
-        )
-        steps = (failed_head, *(ProbeStepResult(step=name, status="skipped") for name in PROBE_STEP_ORDER[1:]))
-        return _probe_result_response(ObjectStorageProbeResult(success=False, steps=steps), _t)
+    async with probe_relocation_lock():
+        async with connection_change_lock():
+            conn = await repo.get()
+            if conn is None:
+                raise NotFoundError("object_storage_not_configured")
+            if conn.relocating:
+                raise ObjectStorageRelocatingError()
+            conn_id, needs_review = conn.id, conn.needs_endpoint_review
+            config = config_from_connection(conn)
+            await session.rollback()
+        try:
+            client = ObjectStorageClient(config)
+        except ObjectStorageError as exc:
+            failed_head = failed_step_from_storage_error("head_bucket", exc)
+            steps = (failed_head, *(ProbeStepResult(step=name, status="skipped") for name in PROBE_STEP_ORDER[1:]))
+            return _probe_result_response(ObjectStorageProbeResult(success=False, steps=steps), _t)
 
-    result = await probe_connection(client)
-    if result.success and conn.needs_endpoint_review:
-        await repo.clear_endpoint_review(conn.id)
-        await session.commit()
-    return _probe_result_response(result, _t)
+        result = await probe_connection(client)
+        if result.success and needs_review:
+            async with connection_change_lock():
+                current = await repo.get()
+                if (
+                    current
+                    and current.id == conn_id
+                    and not current.relocating
+                    and config_from_connection(current) == config
+                ):
+                    await repo.clear_endpoint_review(conn_id)
+                    await session.commit()
+        return _probe_result_response(result, _t)
 
 
 @router.post("/work-cache/cleanup", response_model=WorkCacheCleanupResponse)

@@ -109,6 +109,7 @@ const REMOTE_STORAGE: ApiOverrides = {
     status: 200,
     body: {
       connection: {
+        id: 1,
         kind: "s3",
         region: "cn-beijing",
         endpoint: "https://tos-s3-cn-beijing.volces.com",

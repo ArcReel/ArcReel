@@ -5,19 +5,22 @@ boto3 / botocore 基于 urllib3，不经 httpx；对象存储的网络边界在 
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Generator
 from typing import Any, ClassVar
 
 import httpx
 import pytest
 import respx
-from botocore.exceptions import ParamValidationError
+from botocore.exceptions import EndpointConnectionError, ParamValidationError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from lib.db import get_async_session
+from lib.db.models.object_storage import RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.object_storage import probe
 from lib.object_storage.client import ObjectStorageClient, ObjectStorageConfig
 from lib.object_storage.probe import PROBE_PREFIX
 from server.error_handlers import register_error_handlers
@@ -76,6 +79,7 @@ class FakeS3:
         body = kwargs["Body"]
         raw = body if isinstance(body, bytes) else body.read()
         self.objects[(kwargs["Bucket"], kwargs["Key"])] = (raw, kwargs.get("ContentType"))
+        self._maybe_fail("put_response")
         return {"ETag": '"fake-etag"'}
 
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
@@ -175,12 +179,18 @@ async def test_save_masks_secrets_rotates_in_place_and_allocates_new_id_on_targe
         assert first_conn is not None
         first_id = first_conn.id
 
+    without_style = {key: value for key, value in without_keys.items() if key != "addressing_style"}
     rotated = storage_api.put(
         "/api/v1/object-storage/connection",
-        json={**without_keys, "addressing_style": "path", "access_key_id": NEW_AK},
+        json={**without_style, "access_key_id": NEW_AK},
+    )
+    assert rotated.json()["addressing_style"] == "virtual"
+    rotated = storage_api.put(
+        "/api/v1/object-storage/connection",
+        json={**without_keys, "addressing_style": "auto"},
     )
     assert rotated.status_code == 200
-    assert rotated.json()["addressing_style"] == "path"
+    assert rotated.json()["addressing_style"] == "auto"
     async with storage_sessions() as session:
         rotated_conn = await ObjectStorageConnectionRepository(session).get()
         assert rotated_conn is not None
@@ -263,6 +273,22 @@ async def test_save_masks_secrets_rotates_in_place_and_allocates_new_id_on_targe
     assert s3.calls[4][1]["Key"] == probe_key
 
 
+def test_null_credentials_only_reuse_keys_for_the_saved_target(storage_api: TestClient):
+    url = "/api/v1/object-storage/connection"
+    saved = storage_api.put(url, json=_BODY)
+    assert saved.status_code == 200
+    null_keys = {**_BODY, "access_key_id": None, "secret_access_key": None}
+
+    changed = storage_api.put(url, json={**null_keys, "bucket": "another-bucket"}, headers={"Accept-Language": "zh"})
+    assert changed.status_code == 422
+    assert "更换桶或 Endpoint" in changed.json()["detail"]
+
+    same = storage_api.put(url, json=null_keys)
+    assert same.status_code == 200
+    for field in ("access_key_id_masked", "secret_access_key_masked"):
+        assert same.json()[field] == saved.json()[field]
+
+
 def test_accepts_tos_s3_endpoint_and_rejects_legacy_tos_kind_or_bad_endpoint(storage_api: TestClient):
     ok = storage_api.put("/api/v1/object-storage/connection", json=_BODY)
     assert ok.status_code == 200
@@ -332,6 +358,16 @@ def test_connection_test_put_denied_stops_without_cleanup(storage_api: TestClien
     ]
     assert "PutObject" in body["steps"][1]["message"]
     assert body["residual_object_key"] is None
+
+
+@pytest.mark.parametrize(("code", "message"), [("NoSuchKey", "临时探针对象"), ("NoSuchBucket", "找不到这个桶")])
+def test_probe_reports_missing_object_or_bucket(storage_api, fake_s3, code, message):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    fake_s3["failures"]["head_object"] = s3_client_error(404, code)
+    result = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"}).json()
+    step = next(step for step in result["steps"] if step["step"] == "head_object")
+    assert step["error_kind"] == "not_found"
+    assert message in step["message"]
 
 
 def test_connection_test_head_mismatch_still_cleans_up_probe(storage_api: TestClient, fake_s3):
@@ -407,6 +443,22 @@ def test_connection_test_presigned_get_network_error_strips_presigned_query(stor
     assert "X-Amz-Signature" not in resp.text
 
 
+@pytest.mark.parametrize("step", ["head_bucket", "presigned_get"])
+def test_probe_rejects_credential_bearing_provider_codes(storage_api, fake_s3, step):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    code = "https://s3.example/key?X-Amz-Signature=secret-value"
+    if step == "head_bucket":
+        fake_s3["failures"]["head_bucket"] = s3_client_error(403, code)
+    with respx.mock(assert_all_called=False) as http_mock:
+        http_mock.get(url__regex=r"^https://arcreel-relay[.]example/.*").mock(
+            return_value=httpx.Response(403, text=f"<Error><Code>{code}</Code></Error>")
+        )
+        response = storage_api.post("/api/v1/object-storage/connection/test")
+    failed = next(entry for entry in response.json()["steps"] if entry["step"] == step)
+    assert failed["diagnostic"]["code"] == "HTTP_403"
+    assert "secret-value" not in response.text
+
+
 async def test_connection_test_delete_failure_reports_residual_and_keeps_endpoint_review(
     storage_api: TestClient, storage_sessions: async_sessionmaker, fake_s3
 ):
@@ -469,3 +521,93 @@ async def test_presigned_download_address_is_a_url_string(fake_s3):
     url = await ObjectStorageClient(config).presign_get("relay/a.png", expires_seconds=600)
     assert url.startswith("https://b.example/relay/a.png?")
     assert FakeS3.instances[0].calls[0][1]["ExpiresIn"] == 600
+
+
+@pytest.mark.parametrize("cleanup_status", [None, 404, 403])
+def test_ambiguous_probe_put_cleans_up_and_reports_possible_residue(storage_api, fake_s3, cleanup_status):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    fake_s3["failures"]["put_response"] = EndpointConnectionError(endpoint_url=_BODY["endpoint"])
+    if cleanup_status:
+        code = "NoSuchKey" if cleanup_status == 404 else "AccessDenied"
+        fake_s3["failures"]["delete_object"] = s3_client_error(cleanup_status, code)
+    response = storage_api.post("/api/v1/object-storage/connection/test")
+    assert response.status_code == 200
+    result = response.json()
+    assert [step["status"] for step in result["steps"]] == [
+        "passed",
+        "failed",
+        "skipped",
+        "skipped",
+        "failed" if cleanup_status == 403 else "passed",
+    ]
+    [client] = FakeS3.instances
+    assert [op for op, _ in client.calls] == ["head_bucket", "put_object", "delete_object"]
+    key = client.calls[1][1]["Key"]
+    assert client.calls[2][1]["Key"] == key
+    assert result["residual_object_key"] == (key if cleanup_status == 403 else None)
+    if cleanup_status != 404:
+        assert ((_BODY["bucket"], key) in fake_s3["objects"]) == (cleanup_status == 403)
+
+
+async def test_presigned_timeout_still_deletes_probe(fake_s3):
+    config = ObjectStorageConfig(**_BODY)
+    deadline = asyncio.timeout(None)
+
+    async def slow_response(request):
+        deadline.reschedule(asyncio.get_running_loop().time())
+        await asyncio.Event().wait()
+        raise AssertionError("the probe deadline should interrupt the request")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(slow_response)) as http_client:
+        result = await probe.probe_connection(
+            ObjectStorageClient(config), http_client=http_client, timeout_factory=lambda seconds: deadline
+        )
+    assert deadline.expired()
+    steps = {step.step: step for step in result.steps}
+    assert steps["presigned_get"].error_kind == "network"
+    assert steps["presigned_get"].error_code == "TimeoutError"
+    assert steps["delete_object"].status == "passed"
+    assert not fake_s3["objects"]
+
+
+async def test_config_rotation_during_probe_preserves_review(storage_api, storage_sessions, fake_s3):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    async with storage_sessions() as session:
+        current = await ObjectStorageConnectionRepository(session).get()
+        assert current is not None
+        current.needs_endpoint_review = True
+        await session.commit()
+
+    async def rotate_during_get(request):
+        async with storage_sessions() as session:
+            current = await ObjectStorageConnectionRepository(session).get()
+            assert current is not None
+            current.secret_access_key = NEW_SK
+            await session.commit()
+        return httpx.Response(200, content=fake_s3["objects"][(_BODY["bucket"], request.url.path.lstrip("/"))][0])
+
+    with respx.mock() as http_mock:
+        http_mock.get(url__regex=r"^https://arcreel-relay[.]example/.*").mock(side_effect=rotate_during_get)
+        result = storage_api.post("/api/v1/object-storage/connection/test").json()
+    assert result["success"]
+    assert storage_api.get("/api/v1/object-storage/connection").json()["connection"]["needs_endpoint_review"]
+
+
+async def test_stale_save_preserves_replacement_connection_objects(storage_api, storage_sessions, fake_s3):
+    url = "/api/v1/object-storage/connection"
+    old_id = storage_api.put(url, json=_BODY).json()["id"]
+    replacement = storage_api.put(url, json={**_BODY, "bucket": "replacement"}).json()
+    key = "arcreel-relay/replacement.png"
+    fake_s3["objects"][("replacement", key)] = (b"replacement", None)
+    async with storage_sessions() as session:
+        session.add(
+            RelayObject(
+                connection_id=replacement["id"], endpoint=replacement["endpoint"], bucket="replacement", object_key=key
+            )
+        )
+        await session.commit()
+    response = storage_api.put(url, json={**_BODY, "expected_connection_id": old_id})
+    assert response.status_code == 409
+    assert storage_api.get(url).json()["connection"]["id"] == replacement["id"]
+    assert ("replacement", key) in fake_s3["objects"]
+    assert not any(op == "delete_object" for client in FakeS3.instances for op, _ in client.calls)

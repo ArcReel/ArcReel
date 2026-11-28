@@ -496,7 +496,7 @@ async def _collect_unreferenced(
             if row is None:
                 continue
             key = row.object_key
-        async with object_key_lock(key), session_factory() as session:
+        async with connection_change_lock(), object_key_lock(key), session_factory() as session:
             row = await session.get(FormalObject, object_id)
             if row is None or row.state not in states or await _ref_count(session, object_id):
                 continue
@@ -563,7 +563,7 @@ async def sweep_formal_objects(
         ]
     deleted = 0
     for object_id, key in candidates:
-        async with object_key_lock(key), session_factory() as session:
+        async with connection_change_lock(), object_key_lock(key), session_factory() as session:
             row = await session.get(FormalObject, object_id)
             if row is None or row.state != "orphaned":
                 continue
@@ -871,8 +871,10 @@ async def add_reference(
         if row is None or row.state not in {"stored", "orphaned"}:
             return False
         current = await ObjectStorageConnectionRepository(session).get()
-        if not same_connection(row, current) or (current is not None and current.relocating):
+        if not same_connection(row, current):
             return False
+        if current is not None and current.relocating:
+            raise ObjectStorageRelocatingError()
         row.state = "stored"
         row.next_attempt_at = None
         await _ensure_ref(session, row.id, project_name, content_version_id)

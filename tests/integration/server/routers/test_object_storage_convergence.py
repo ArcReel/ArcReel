@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import hashlib
 import io
 import json
+import os
 from collections.abc import Generator, Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -23,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from lib.artifacts.version_manager import VersionManager
+from lib.asset_library import ingest
 from lib.asset_library.ingest import run_once as run_ingest_once
 from lib.config.repository import SystemSettingRepository
 from lib.db import get_async_session
@@ -31,10 +34,19 @@ from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
 from lib.db.models.object_storage import FormalObject, FormalObjectRef, RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.infra.api_errors import UnprocessableError
+from lib.infra.async_thread import EventLoopBridge
 from lib.infra.data_root_layout import DataRootLayout
-from lib.material.convergence import force_disconnect_connection, inspect_relocation_plan, run_relocation
+from lib.material import remote_holders
+from lib.material.convergence import (
+    RelocationTargetConfig,
+    force_disconnect_connection,
+    inspect_relocation_plan,
+    run_relocation,
+)
 from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
+    ObjectStorageRelocatingError,
     add_reference,
     collect_unreferenced_objects,
     retain_formal_objects,
@@ -43,7 +55,7 @@ from lib.material.formal_objects import (
 from lib.material.global_library import cleanup_global_work_files
 from lib.material.remote_holders import PromoteResult, RemoteContentItem
 from lib.material.storage import ObjectLocator
-from lib.material.work_files import cleanup_work_cache
+from lib.material.work_files import cleanup_work_cache, mark_connection_relocating, unmark_connection_relocating
 from lib.object_storage.relay import sweep_relay_objects
 from lib.project import deleted_projects
 from lib.project import project_trash as project_trash_store
@@ -65,6 +77,7 @@ from server.services.project import project_retirement
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import (
     bind_session_factory,
+    intercept_file_replace,
     s3_client_error,
     use_assets_router_sessions,
     use_object_storage_sdk,
@@ -101,12 +114,14 @@ class MemoryS3:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.calls: list[tuple[str, str, str]] = []
         self.fail_ops: set[str] = set()
+        self.denied_get_keys: set[str] = set()
         self.fail_get_keys: set[str] = set()
         self.unreachable_buckets: set[str] = set()
+        self.unreachable_get_keys: set[str] = set()
 
     def _record(self, op: str, bucket: str, key: str) -> None:
         self.calls.append((op, bucket, key))
-        if bucket in self.unreachable_buckets:
+        if bucket in self.unreachable_buckets or (op == "get" and key in self.unreachable_get_keys):
             raise EndpointConnectionError(endpoint_url=f"https://{bucket}.unreachable.invalid")
         if op in self.fail_ops or (op == "get" and key in self.fail_get_keys):
             raise s3_client_error(503, "ServiceUnavailable", f"injected {op} failure")
@@ -128,6 +143,8 @@ class MemoryS3:
 
     def get_object(self, *, Bucket: str, Key: str):
         self._record("get", Bucket, Key)
+        if Key in self.denied_get_keys:
+            raise s3_client_error(403, "AccessDenied")
         if (Bucket, Key) not in self.objects:
             raise s3_client_error(404, "NoSuchKey")
         return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
@@ -363,7 +380,12 @@ async def test_multi_holder_convergence_switch_localizes_active_trash_tombstone_
 
     run_resp = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "switch", "delete_remote_objects": True, "target": NEW_CONN},
+        json={
+            "expected_connection_id": old_conn_id,
+            "mode": "switch",
+            "delete_remote_objects": True,
+            "target": NEW_CONN,
+        },
     )
     assert run_resp.status_code == 200, run_resp.text
     result = run_resp.json()
@@ -425,7 +447,7 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
 ):
     """中途下载失败不破坏旧连接与已完成转正文件；收敛期间阻断新写与新签名但允许同桶轮换密钥，支持重试完成或取消。"""
     api, sessions, pm = convergence_api, convergence_sessions, convergence_pm
-    await _enable_remote(sessions)
+    conn_id = await _enable_remote(sessions)
     img_a = solid_png_bytes((11, 22, 33), size=(64, 64))
     img_b = solid_png_bytes((44, 55, 66), size=(64, 64))
     _upload_character(api, img_a, "demo", "Alice")
@@ -458,7 +480,7 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
             locator_path=other_rec["file"],
             origin="upload",
             account_id=account.id,
-            account_identity="id-1",
+            account_identity=ingest.account_identity(account.site, account.access_key_id),
             site="volcengine",
             region="cn-beijing",
             provider_project_name="default",
@@ -471,9 +493,31 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
         session.add(link)
         await session.commit()
 
+    async def start_relocation() -> None:
+        async with sessions() as session:
+            await ObjectStorageConnectionRepository(session).set_relocating(conn_id, delete_remote=False, mode="switch")
+            await session.commit()
+
+    bridge = EventLoopBridge.capture()
+
+    def project_path_during_relocation(name: str) -> Path:
+        bridge.run(start_relocation())
+        return pm.get_project_path(name)
+
+    now = utc_now()
+    await run_ingest_once(sessions, now=now, project_path_of=project_path_during_relocation)
+    async with sessions() as session:
+        deferred_link = await session.get(ProviderAssetLink, link.id)
+        assert deferred_link is not None
+        assert deferred_link.state == "pending"
+        assert deferred_link.next_check_at is not None
+        assert deferred_link.next_check_at.replace(tzinfo=now.tzinfo) == now + ingest.CHECK_INITIAL_DELAY
+        await ObjectStorageConnectionRepository(session).clear_relocating()
+        await session.commit()
+
     first = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "switch", "delete_remote_objects": False, "target": NEW_CONN},
+        json={"expected_connection_id": conn_id, "mode": "switch", "delete_remote_objects": False, "target": NEW_CONN},
     )
     assert first.status_code == 200, first.text
     first_body = first.json()
@@ -486,6 +530,22 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
     assert env["connection"]["bucket"] == OLD_BUCKET
     assert env["connection"]["relocating"] is True
     assert env["connection"]["relocate_delete_remote"] is False
+    run_url = "/api/v1/object-storage/connection/relocation/run"
+    assert (
+        api.post(
+            run_url,
+            json={
+                "expected_connection_id": conn_id,
+                "mode": "switch",
+                "target": NEW_CONN,
+                "delete_remote_objects": True,
+            },
+        ).status_code
+        == 409
+    )
+    resumed = api.post(run_url, json={"expected_connection_id": conn_id, "mode": "switch", "target": NEW_CONN})
+    assert resumed.status_code == 200
+    assert resumed.json()["delete_remote_objects"] is False
     assert "storage" not in _character_versions(pm, "demo", "Alice")[0]
     assert "storage" in _character_versions(pm, "other", "Alice")[0]
 
@@ -496,17 +556,22 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
     assert blocked_upload.status_code == 409
     assert api.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"}).status_code == 409
     other_storage = _character_versions(pm, "other", "Alice")[0]["storage"]
-    assert (
+    with pytest.raises(ObjectStorageRelocatingError):
         await add_reference(
             ObjectLocator(other_storage["connection_id"], other_storage["bucket"], other_storage["key"]),
             "demo",
             "cv-new",
             session_factory=sessions,
         )
-        is False
-    )
     calls_before_ingest = len(s3.calls)
-    await run_ingest_once(sessions, project_path_of=pm.get_project_path)
+    next_check = now + ingest.CHECK_INITIAL_DELAY
+    await run_ingest_once(sessions, now=next_check, project_path_of=pm.get_project_path)
+    async with sessions() as session:
+        deferred_link = await session.get(ProviderAssetLink, link.id)
+        assert deferred_link is not None
+        assert deferred_link.state == "pending"
+        assert deferred_link.next_check_at is not None
+        assert deferred_link.next_check_at.replace(tzinfo=now.tzinfo) == next_check + ingest.CHECK_INITIAL_DELAY
     assert [op for op, _b, _k in s3.calls[calls_before_ingest:] if op in ("put", "presign")] == []
 
     rotated = api.put(
@@ -515,6 +580,10 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
     )
     assert rotated.status_code == 200, rotated.text
     assert rotated.json()["relocating"] is True
+    assert rotated.json()["in_use_object_count"] == env["connection"]["in_use_object_count"] > 0
+    before_probe = list(s3.calls)
+    assert api.post("/api/v1/object-storage/connection/test").status_code == 409
+    assert s3.calls == before_probe
 
     cancelled = api.post("/api/v1/object-storage/connection/relocation/cancel")
     assert cancelled.status_code == 200, cancelled.text
@@ -524,7 +593,7 @@ async def test_interrupted_convergence_blocks_writes_allows_key_rotation_and_sup
     s3.fail_get_keys.clear()
     second = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "switch", "delete_remote_objects": False, "target": NEW_CONN},
+        json={"expected_connection_id": conn_id, "mode": "switch", "delete_remote_objects": False, "target": NEW_CONN},
     )
     assert second.status_code == 200, second.text
     assert second.json()["status"] == "completed"
@@ -572,7 +641,7 @@ async def test_delete_remote_false_issues_zero_remote_deletes_under_concurrent_m
             object_key="arcreel-materials/orphan.png",
             content_digest="a" * 64,
             size=10,
-            state="orphaned",
+            state="stored",
             next_attempt_at=utc_now() - timedelta(hours=1),
         )
         session.add(orphan)
@@ -586,15 +655,40 @@ async def test_delete_remote_false_issues_zero_remote_deletes_under_concurrent_m
     key_b = f"arcreel-materials/sha256/{digest_b[:2]}/{digest_b}.png"
     s3.fail_get_keys.add(key_b)
 
-    res1 = api.post(
-        "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "delete", "delete_remote_objects": False},
-    )
-    assert res1.status_code == 200
-    assert res1.json()["status"] == "incomplete"
+    scanning = asyncio.Event()
+    resume = asyncio.Event()
 
-    assert await collect_unreferenced_objects([orphan_id], session_factory=sessions) == 0
-    assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=2)) == 0
+    class PausedHolder:
+        async def enumerate_remote_items(self, connection_id, bucket, *, strict_trash=True):
+            scanning.set()
+            await resume.wait()
+            return []
+
+        async def promote_item(self, item, data):
+            raise AssertionError("empty holder")
+
+        async def reconcile_holder(self, holder_key, items, session_factory):
+            raise AssertionError("empty holder")
+
+    run = asyncio.create_task(
+        run_relocation(
+            DataRootLayout(pm.data_root),
+            sessions,
+            mode="delete",
+            delete_remote_objects=False,
+            extra_holders=[PausedHolder()],
+        )
+    )
+    try:
+        async with asyncio.timeout(10):
+            await scanning.wait()
+            assert await collect_unreferenced_objects([orphan_id], session_factory=sessions) == 0
+            assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=2)) == 0
+    finally:
+        resume.set()
+        res1 = await run
+    assert res1.status == "incomplete"
+
     assert await retain_formal_objects(pm.projects_dir, pm.data_root / "deleted_projects", sessions) == 0
     assert await sweep_relay_objects(sessions, now=utc_now() + timedelta(days=2)) == 0
     await cleanup_work_cache(pm.projects_dir, min_idle=timedelta(0), session_factory=sessions)
@@ -605,7 +699,7 @@ async def test_delete_remote_false_issues_zero_remote_deletes_under_concurrent_m
     s3.fail_get_keys.clear()
     res2 = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "delete", "delete_remote_objects": False},
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
     )
     assert res2.status_code == 200, res2.text
     assert res2.json()["status"] == "completed"
@@ -694,13 +788,22 @@ async def test_external_overwrite_conflict_is_preserved_and_disk_full_retries_cl
     assert disk_fail.unreachable is False
     assert disk_fail.conflicts_preserved == 1
 
-    retry_ok = api.post(
-        "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "switch", "delete_remote_objects": True, "target": NEW_CONN},
+    retry_ok = await run_relocation(
+        layout,
+        sessions,
+        mode="switch",
+        target=RelocationTargetConfig(
+            region=NEW_CONN["region"],
+            endpoint=NEW_CONN["endpoint"],
+            bucket=NEW_BUCKET,
+            access_key_id=NEW_CONN["access_key_id"],
+            secret_access_key=NEW_CONN["secret_access_key"],
+        ),
+        extra_holders=[disk_holder],
     )
-    assert retry_ok.status_code == 200, retry_ok.text
-    body = retry_ok.json()
-    assert body["status"] == "completed"
+    assert retry_ok.status == "completed"
+    assert retry_ok.delete_remote_objects is False
+    assert disk_holder.stored is None
     assert formal_path.read_bytes() == manual_edit
     ver = _character_versions(pm, "demo", "Alice")[0]
     assert "storage" not in ver
@@ -717,12 +820,49 @@ async def test_relay_only_switch_keeps_local_target_and_corrupted_trash_blocks_r
     api, sessions, pm = convergence_api, convergence_sessions, convergence_pm
     assert api.put("/api/v1/object-storage/connection", json=OLD_CONN).status_code == 200
     assert api.get("/api/v1/object-storage/connection").json()["new_image_target"] == "local"
+    plan_url = "/api/v1/object-storage/connection/relocation-plan"
+    old_id = api.get(plan_url).json()["connection_id"]
+    run_url = "/api/v1/object-storage/connection/relocation/run"
+    assert api.post(run_url, json={"mode": "delete"}).status_code == 422
+    rotation = api.post(
+        run_url,
+        json={
+            "expected_connection_id": old_id,
+            "mode": "switch",
+            "target": {**OLD_CONN, "access_key_id": "TEST-ROTATED"},
+        },
+    )
+    assert rotation.status_code == 422
 
     switched = api.put("/api/v1/object-storage/connection", json={**NEW_CONN, "delete_remote_objects": True})
     assert switched.status_code == 200, switched.text
     env = api.get("/api/v1/object-storage/connection").json()
     assert env["connection"]["bucket"] == NEW_BUCKET
     assert env["new_image_target"] == "local"
+
+    for route, payload in [
+        ("run", {"mode": "delete"}),
+        ("force-disconnect", {"confirm": True, "acknowledged_unrecoverable_keys": []}),
+    ]:
+        stale = api.post(
+            f"/api/v1/object-storage/connection/relocation/{route}", json={**payload, "expected_connection_id": old_id}
+        )
+        assert stale.status_code == 409, stale.text
+    assert (
+        api.post(
+            "/api/v1/object-storage/connection/relocation/cancel", json={"expected_connection_id": old_id}
+        ).status_code
+        == 409
+    )
+    assert (
+        api.delete(
+            "/api/v1/object-storage/connection",
+            params={"expected_connection_id": old_id, "reset_new_image_target": True},
+        ).status_code
+        == 409
+    )
+    assert api.get(plan_url).json()["connection_id"] != old_id
+    assert api.get("/api/v1/object-storage/connection").json() == env
 
     assert api.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"}).status_code == 200
     deleted = api.delete("/api/v1/object-storage/connection?delete_remote_objects=true&reset_new_image_target=true")
@@ -733,7 +873,7 @@ async def test_relay_only_switch_keeps_local_target_and_corrupted_trash_blocks_r
         "pending_ingest_tasks": 0,
     }
 
-    await _enable_remote(sessions)
+    conn_id = await _enable_remote(sessions)
     corrupted_dir = project_trash_store.trash_dir(pm.get_project_path("demo")) / "20261128T120000Z-deadbeef"
     corrupted_dir.mkdir(parents=True, exist_ok=True)
     (corrupted_dir / "record.json").write_text("{broken json", encoding="utf-8")
@@ -742,12 +882,23 @@ async def test_relay_only_switch_keeps_local_target_and_corrupted_trash_blocks_r
     assert plan_resp.status_code == 409
     assert "20261128T120000Z-deadbeef" in plan_resp.json()["detail"]
 
+    forced = api.post(
+        "/api/v1/object-storage/connection/relocation/force-disconnect",
+        json={"confirm": True, "expected_connection_id": conn_id, "acknowledged_unrecoverable_keys": []},
+    )
+    assert forced.status_code == 409
+    assert corrupted_dir.name in forced.json()["detail"]
+    assert api.get("/api/v1/object-storage/connection").json()["connection"]["relocating"] is False
+
     run_resp = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "delete", "delete_remote_objects": False},
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
         headers={"Accept-Language": "zh"},
     )
     assert run_resp.status_code == 409
+    status = api.get("/api/v1/object-storage/connection/relocation-status").json()
+    assert status["phase"] == "failed"
+    assert status["last_error_kind"]
     assert "20261128T120000Z-deadbeef" in run_resp.json()["detail"]
 
 
@@ -759,7 +910,7 @@ async def test_force_disconnect_salvages_valid_local_copies_across_holders_and_r
 ):
     """旧桶永久失联时，强制断开按 SHA-256 跨持有方抢救所有尚存有效本地副本为永久本地文件，列出并保留无法拉回项。"""
     api, sessions, pm = convergence_api, convergence_sessions, convergence_pm
-    await _enable_remote(sessions)
+    conn_id = await _enable_remote(sessions)
     salvageable_bytes = solid_png_bytes((30, 180, 180), size=(64, 64))
     unrecoverable_bytes = solid_png_bytes((190, 60, 60), size=(64, 64))
 
@@ -790,9 +941,18 @@ async def test_force_disconnect_salvages_valid_local_copies_across_holders_and_r
 
     s3.unreachable_buckets.add(OLD_BUCKET)
 
+    force_url = "/api/v1/object-storage/connection/relocation/force-disconnect"
+    declined = api.post(
+        force_url, json={"confirm": True, "expected_connection_id": conn_id, "acknowledged_unrecoverable_keys": []}
+    )
+    assert declined.status_code == 409
+    assert "storage" in _character_versions(pm, "demo", "Alice")[0]
+    assert not (demo_dir / "characters/Alice.png").exists()
+    assert api.get("/api/v1/object-storage/connection").json()["connection"]["relocating"] is False
+
     failed_run = api.post(
         "/api/v1/object-storage/connection/relocation/run",
-        json={"mode": "delete", "delete_remote_objects": False},
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
     )
     assert failed_run.status_code == 200
     failed_body = failed_run.json()
@@ -801,12 +961,38 @@ async def test_force_disconnect_salvages_valid_local_copies_across_holders_and_r
     assert len(failed_body["unrecoverable_items"]) == 1
     assert failed_body["unrecoverable_items"][0]["digest"] == hashlib.sha256(unrecoverable_bytes).hexdigest()
 
+    assert api.post(force_url, json={"confirm": True, "expected_connection_id": conn_id}).status_code == 422
+    assert api.post(force_url, json={"confirm": True, "acknowledged_unrecoverable_keys": []}).status_code == 422
+    changed = api.post(
+        force_url, json={"confirm": True, "expected_connection_id": conn_id, "acknowledged_unrecoverable_keys": []}
+    )
+    assert changed.status_code == 409
+    current = api.get("/api/v1/object-storage/connection").json()["connection"]
+    assert (current["id"], current["relocating"], current["relocate_delete_remote"], current["relocate_mode"]) == (
+        conn_id,
+        True,
+        False,
+        "delete",
+    )
+
     assert (
-        api.post("/api/v1/object-storage/connection/relocation/force-disconnect", json={"confirm": False}).status_code
+        api.post(
+            "/api/v1/object-storage/connection/relocation/force-disconnect",
+            json={"confirm": False, "expected_connection_id": conn_id, "acknowledged_unrecoverable_keys": []},
+        ).status_code
         == 400
     )
 
-    forced = api.post("/api/v1/object-storage/connection/relocation/force-disconnect", json={"confirm": True})
+    forced = api.post(
+        "/api/v1/object-storage/connection/relocation/force-disconnect",
+        json={
+            "confirm": True,
+            "expected_connection_id": conn_id,
+            "acknowledged_unrecoverable_keys": [
+                item["confirmation_key"] for item in failed_body["unrecoverable_items"]
+            ],
+        },
+    )
     assert forced.status_code == 200, forced.text
     forced_body = forced.json()
     assert forced_body["new_image_target"] == "local"
@@ -901,6 +1087,429 @@ async def test_extra_holder_extension_slot_participates_in_plan_relocation_and_f
 
     conn_id_2 = await _enable_remote(sessions)
     holder.stored = ObjectLocator(conn_id_2, OLD_BUCKET, key)
-    forced = await force_disconnect_connection(layout, sessions, extra_holders=[holder])
+    force_plan = await inspect_relocation_plan(layout, sessions, extra_holders=[holder])
+    forced = await force_disconnect_connection(
+        layout,
+        sessions,
+        acknowledged_unrecoverable_keys=[item.confirmation_key for item in force_plan.unrecoverable_items],
+        extra_holders=[holder],
+    )
     assert len(forced.unrecoverable_items) == 1
     assert forced.unrecoverable_items[0].holder_kind == "unversioned_end_frame"
+
+
+async def test_cleanup_preserves_files_during_relocation_startup(
+    convergence_api, convergence_sessions, convergence_pm, s3
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((3, 7, 11))
+    _upload_character(convergence_api, data, "demo", "Alice")
+    target = convergence_pm.get_project_path("demo") / "characters/Alice.png"
+    mark_connection_relocating(conn_id)
+    try:
+        assert _cleanup_cache(convergence_api)["removed"] == 0
+        assert target.read_bytes() == data
+    finally:
+        unmark_connection_relocating(conn_id)
+    assert _cleanup_cache(convergence_api)["removed"] > 0
+
+
+async def test_relocation_continues_after_nonconsecutive_network_errors(convergence_api, convergence_sessions, s3):
+    conn_id = await _enable_remote(convergence_sessions)
+    for index in range(6):
+        _upload_character(convergence_api, solid_png_bytes((index, 20, 30)), "demo", "Alice")
+    _cleanup_cache(convergence_api)
+    keys = sorted(key for bucket, key in s3.objects if bucket == OLD_BUCKET)
+    s3.unreachable_get_keys.update(keys[::2])
+
+    result = convergence_api.post(
+        "/api/v1/object-storage/connection/relocation/run",
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
+    ).json()
+    assert result["status"] == "incomplete"
+    assert result["failed_objects"] == result["downloaded_objects"] == 3
+
+
+@pytest.mark.parametrize("force", [False, True])
+async def test_relocation_uses_second_copy_if_first_disappears(
+    convergence_api, convergence_sessions, convergence_pm, s3, monkeypatch, force
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((1, 7, 3))
+    _upload_character(convergence_api, data, "demo", "Alice")
+    project_dir = convergence_pm.get_project_path("demo")
+    snapshot = project_dir / _character_versions(convergence_pm, "demo", "Alice")[0]["file"]
+    read_bytes = Path.read_bytes
+
+    def evict_before_read(path):
+        if path == snapshot:
+            path.unlink()
+        return read_bytes(path)
+
+    base = "/api/v1/object-storage/connection/relocation"
+    s3.unreachable_buckets.add(OLD_BUCKET)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "read_bytes", evict_before_read)
+        if force:
+            response = convergence_api.post(
+                f"{base}/force-disconnect",
+                json={"expected_connection_id": conn_id, "confirm": True, "acknowledged_unrecoverable_keys": []},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["salvaged_objects"] == 1
+        else:
+            response = convergence_api.post(
+                f"{base}/run",
+                json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
+            )
+            assert response.json()["status"] == "completed"
+            assert response.json()["reused_local_objects"] == 1
+    assert snapshot.read_bytes() == data
+    assert all(op != "get" for op, _, _ in s3.calls)
+
+
+@pytest.mark.parametrize("record_persisted", [False, True])
+async def test_trash_manifest_retry_after_record_write(
+    convergence_api, convergence_sessions, convergence_pm, s3, monkeypatch, record_persisted
+):
+    api, pm = convergence_api, convergence_pm
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((10, 20, 30))
+    _upload_character(api, data, "demo", "Alice")
+    _cleanup_cache(api)
+    assert api.delete("/api/v1/projects/demo/characters/Alice").status_code == 200
+    holder = remote_holders.ActiveProjectsHolder(DataRootLayout(pm.data_root))
+    [item] = await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    record_dir = project_trash_store.trash_dir(pm.get_project_path("demo")) / item.metadata["record_id"]
+    record_path = record_dir / "record.json"
+    original = json.loads(record_path.read_text())
+    files_root = record_dir / project_trash_store.FILES_DIRNAME
+    rel = item.metadata["formal_rel"]
+    prematerialized = files_root / rel
+    prematerialized.parent.mkdir(parents=True, exist_ok=True)
+    prematerialized.write_bytes(b"edited")
+    replace = os.replace
+
+    observed_records = []
+
+    def interrupt_manifest(source, target):
+        if Path(target).name == "versions.json" and not observed_records:
+            observed_records.append(json.loads(record_path.read_text()))
+            raise OSError(errno.ENOSPC, "No space left on device")
+        replace(source, target)
+
+    with monkeypatch.context() as patch:
+        intercept_file_replace(patch, interrupt_manifest)
+        with pytest.raises(OSError, match="No space left on device"):
+            await holder.promote_item(item, data)
+    [recorded] = observed_records
+    assert {rel, item.path} <= set(recorded["files"])
+    assert recorded["size"] == original["size"] + len(data) + len(b"edited")
+    record_path.write_text(json.dumps(recorded if record_persisted else original))
+    [retry_item] = await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    retry = await holder.promote_item(retry_item, data)
+    assert retry.promoted
+    assert retry.conflict_preserved
+    assert json.loads(record_path.read_text()) == recorded
+    assert not await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+
+
+@pytest.mark.parametrize(("listed", "recorded_size"), [(False, 0), (True, 0), (True, None)])
+async def test_single_trash_version_counts_existing_file_once(
+    convergence_api, convergence_sessions, convergence_pm, s3, listed, recorded_size
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((11, 22, 33))
+    _upload_character(convergence_api, data, "demo", "Alice")
+    _upload_character(convergence_api, solid_png_bytes((10, 20, 30)), "demo", "Alice")
+    file_rel = _character_versions(convergence_pm, "demo", "Alice")[0]["file"]
+    _cleanup_cache(convergence_api)
+    deleted = convergence_api.delete("/api/v1/projects/demo/file-view", params={"path": file_rel})
+    assert deleted.status_code == 200
+    record_dir = project_trash_store.trash_dir(convergence_pm.get_project_path("demo")) / deleted.json()["record"]["id"]
+    target = record_dir / project_trash_store.FILES_DIRNAME / file_rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    record_file = record_dir / "record.json"
+    raw = json.loads(record_file.read_bytes())
+    raw["files"] = [file_rel] if listed else []
+    raw["size"] = len(data) if recorded_size is None else recorded_size
+    record_file.write_text(json.dumps(raw))
+
+    result = convergence_api.post(
+        "/api/v1/object-storage/connection/relocation/run",
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
+    )
+    assert result.json()["status"] == "completed"
+    record = json.loads(record_file.read_bytes())
+    assert record["files"].count(file_rel) == 1
+    assert record["size"] == len(data)
+
+
+async def test_force_disconnect_rescans_projects_retired_during_salvage(
+    convergence_api, convergence_sessions, convergence_pm, s3, monkeypatch
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    _upload_character(convergence_api, solid_png_bytes((3, 2, 1)), "demo", "Alice")
+    project_dir = convergence_pm.get_project_path("demo")
+    layout = DataRootLayout(convergence_pm.data_root)
+
+    async def retire() -> None:
+        async with project_retirement.retiring_project(convergence_sessions, project_dir) as tombstone_id:
+            await asyncio.to_thread(deleted_projects.move_in, layout, project_dir, tombstone_id)
+
+    read_bytes = Path.read_bytes
+
+    def retire_after_read(path: Path) -> bytes:
+        data = read_bytes(path)
+        if path.is_relative_to(project_dir) and path.suffix == ".png":
+            convergence_api.portal.call(retire)
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", retire_after_read)
+    url = "/api/v1/object-storage/connection"
+    result = convergence_api.post(
+        f"{url}/relocation/force-disconnect",
+        json={"expected_connection_id": conn_id, "confirm": True, "acknowledged_unrecoverable_keys": []},
+    )
+    assert result.status_code == 409, result.text
+    connection = convergence_api.get(url).json()["connection"]
+    assert connection["id"] == conn_id
+    assert connection["relocating"] is False
+    plan = convergence_api.get(f"{url}/relocation-plan").json()
+    assert plan["in_use_reference_count"] == plan["reusable_local_object_count"] == 1
+
+
+async def test_force_disconnect_blocks_db_reference_missed_during_project_restore(
+    convergence_api, convergence_sessions, convergence_pm, s3, monkeypatch
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((4, 3, 2))
+    _upload_character(convergence_api, data, "demo", "Alice")
+    _upload_character(convergence_api, data, "other", "Alice")
+    _cleanup_cache(convergence_api)
+    plan = convergence_api.get("/api/v1/object-storage/connection/relocation-plan").json()
+    assert len({item["object_key"] for item in plan["unrecoverable_items"]}) == 1
+    [acknowledged] = [
+        item["confirmation_key"] for item in plan["unrecoverable_items"] if item["holder_label"].startswith("other /")
+    ]
+    project_dir = convergence_pm.get_project_path("demo")
+    layout = DataRootLayout(convergence_pm.data_root)
+
+    async def retire() -> str:
+        async with project_retirement.retiring_project(convergence_sessions, project_dir) as tombstone:
+            await asyncio.to_thread(deleted_projects.move_in, layout, project_dir, tombstone)
+        return tombstone
+
+    async def restore(tombstone: str) -> None:
+        restored = await asyncio.to_thread(deleted_projects.move_out, layout, tombstone)
+        await project_retirement.restore_retired_project(
+            convergence_sessions, tombstone, restored, sdk_config_dir=layout.root
+        )
+
+    iterdir = Path.iterdir
+    restores = []
+
+    def list_during_restore(path):
+        if path != layout.projects_dir:
+            return iterdir(path)
+        tombstone = convergence_api.portal.call(retire)
+        children = list(iterdir(path))
+        convergence_api.portal.call(restore, tombstone)
+        restores.append(tombstone)
+        return iter(children)
+
+    url = "/api/v1/object-storage/connection"
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "iterdir", list_during_restore)
+        result = convergence_api.post(
+            f"{url}/relocation/force-disconnect",
+            json={
+                "expected_connection_id": conn_id,
+                "confirm": True,
+                "acknowledged_unrecoverable_keys": [acknowledged],
+            },
+        )
+    assert len(restores) == 2
+    assert result.status_code == 409, result.text
+    connection = convergence_api.get(url).json()["connection"]
+    assert connection["id"] == conn_id
+    assert connection["in_use_object_count"] == 1
+    assert connection["relocating"] is False
+
+
+async def test_force_disconnect_blocks_in_flight_uploads(convergence_api, convergence_sessions):
+    conn_id = await _enable_remote(convergence_sessions)
+    async with convergence_sessions() as session:
+        session.add(
+            FormalObject(
+                connection_id=conn_id,
+                endpoint=OLD_CONN["endpoint"],
+                bucket=OLD_BUCKET,
+                object_key="pending.png",
+                content_digest="a" * 64,
+                size=1,
+                state="uploading",
+            )
+        )
+        await session.commit()
+    url = "/api/v1/object-storage/connection"
+    response = convergence_api.post(
+        f"{url}/relocation/force-disconnect",
+        json={"expected_connection_id": conn_id, "confirm": True, "acknowledged_unrecoverable_keys": []},
+    )
+    assert response.status_code == 409
+    conn = convergence_api.get(url).json()["connection"]
+    assert (conn["id"], conn["relocating"], conn["relocate_delete_remote"], conn["relocate_mode"]) == (
+        conn_id,
+        False,
+        None,
+        None,
+    )
+    assert convergence_api.get(f"{url}/relocation-plan").json()["reusable_local_object_count"] == 0
+    result = convergence_api.post(
+        f"{url}/relocation/run", json={"expected_connection_id": conn_id, "mode": "delete"}
+    ).json()
+    assert convergence_api.get(f"{url}/relocation-status").json()["failed_objects"] == result["failed_objects"] == 1
+
+
+async def test_invalid_trash_snapshot_blocks_scan_and_purged_record_stays_absent(
+    convergence_api, convergence_sessions, convergence_pm, s3, tmp_path
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((10, 20, 30))
+    _upload_character(convergence_api, data, "demo", "Alice")
+    _cleanup_cache(convergence_api)
+    assert convergence_api.delete("/api/v1/projects/demo/characters/Alice").status_code == 200
+    holder = remote_holders.ActiveProjectsHolder(DataRootLayout(convergence_pm.data_root))
+    [item] = await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    record_dir = project_trash_store.trash_dir(convergence_pm.get_project_path("demo")) / item.metadata["record_id"]
+    manifest = record_dir / project_trash_store.SNAPSHOT_DIRNAME / "versions/versions.json"
+    versions_data = json.loads(manifest.read_text())
+    versions_data["characters"]["Alice"]["versions"][0]["content_digest"] = ""
+    manifest.write_text(json.dumps(versions_data))
+    with pytest.raises(remote_holders.CorruptedTrashRecordError):
+        await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    record_dir.rename(tmp_path / "purged")
+    assert not (await holder.promote_item(item, data)).promoted
+    assert not record_dir.exists()
+
+
+async def test_object_access_denied_continues_downloading_other_keys(convergence_api, convergence_sessions, s3):
+    conn_id = await _enable_remote(convergence_sessions)
+    for index in range(3):
+        _upload_character(convergence_api, solid_png_bytes((index, 20, 30)))
+    _cleanup_cache(convergence_api)
+    keys = sorted(key for bucket, key in s3.objects if bucket == OLD_BUCKET)
+    s3.denied_get_keys.add(keys[0])
+    result = convergence_api.post(
+        "/api/v1/object-storage/connection/relocation/run",
+        json={"expected_connection_id": conn_id, "mode": "delete", "delete_remote_objects": False},
+    ).json()
+    assert result["status"] == "incomplete"
+    assert result["failed_objects"] == 1
+    assert result["promoted_references"] == result["downloaded_objects"] == 2
+
+
+@pytest.mark.parametrize(("field", "length"), [("region", 65), ("bucket", 256)])
+async def test_oversized_target_preserves_old_objects(
+    convergence_api, convergence_sessions, convergence_pm, s3, field, length
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    key = "arcreel-relay/old.png"
+    async with convergence_sessions() as session:
+        session.add(
+            RelayObject(connection_id=conn_id, endpoint=OLD_CONN["endpoint"], bucket=OLD_BUCKET, object_key=key)
+        )
+        await session.commit()
+    s3.objects[(OLD_BUCKET, key)] = b"retained"
+    url = "/api/v1/object-storage/connection"
+    target = {**NEW_CONN, field: "a" * length}
+    assert convergence_api.put(url, json=target).status_code == 422
+    response = convergence_api.post(
+        f"{url}/relocation/run", json={"mode": "switch", "expected_connection_id": conn_id, "target": target}
+    )
+    assert response.status_code == 422
+    with pytest.raises(UnprocessableError):
+        await run_relocation(
+            DataRootLayout(convergence_pm.data_root),
+            convergence_sessions,
+            mode="switch",
+            target=RelocationTargetConfig(**target),
+        )
+    assert convergence_api.get(url).json()["connection"]["id"] == conn_id
+    assert s3.objects[(OLD_BUCKET, key)] == b"retained"
+    assert all(op != "delete" for op, _, _ in s3.calls)
+
+
+async def test_force_disconnect_reconciles_promoted_project_on_disk_full(
+    convergence_api, convergence_sessions, convergence_pm, s3, monkeypatch
+):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((31, 22, 13))
+    for project in ("demo", "other"):
+        _upload_character(convergence_api, data, project)
+    layout = DataRootLayout(convergence_pm.data_root)
+    holder = remote_holders.ActiveProjectsHolder(layout)
+    first, second = await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    target = layout.projects_dir / second.holder_key / second.path
+    target.unlink()
+    original = Path.mkdir
+
+    def disk_full(path, *args, **kwargs):
+        if path == target.parent:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "mkdir", disk_full)
+        with pytest.raises(OSError, match="No space left"):
+            await force_disconnect_connection(layout, convergence_sessions, acknowledged_unrecoverable_keys=[])
+    async with convergence_sessions() as session:
+        refs = await session.scalars(
+            select(FormalObjectRef.project_name).where(FormalObjectRef.state.in_(("active", "trashed")))
+        )
+        assert set(refs) == {second.holder_key}
+    assert first.holder_key != second.holder_key
+    result = await force_disconnect_connection(layout, convergence_sessions, acknowledged_unrecoverable_keys=[])
+    assert result.salvaged_references == 1
+
+
+async def test_episode_snapshot_promotes_only_owned_grid(convergence_api, convergence_sessions, convergence_pm, s3):
+    conn_id = await _enable_remote(convergence_sessions)
+    data = solid_png_bytes((10, 20, 30))
+    _upload_character(convergence_api, data)
+    _cleanup_cache(convergence_api)
+    assert convergence_api.delete("/api/v1/projects/demo/characters/Alice").status_code == 200
+    holder = remote_holders.ActiveProjectsHolder(DataRootLayout(convergence_pm.data_root))
+    [source] = await holder.enumerate_remote_items(conn_id, OLD_BUCKET)
+    record_dir = project_trash_store.trash_dir(convergence_pm.get_project_path("demo")) / source.metadata["record_id"]
+    record_path = record_dir / "record.json"
+    record = json.loads(record_path.read_bytes())
+    record.update(object={"kind": "episode", "id": 1}, files=["grids/owned.json"], size=0)
+    record_path.write_text(json.dumps(record))
+    manifest = record_dir / project_trash_store.SNAPSHOT_DIRNAME / "versions/versions.json"
+    history = json.loads(manifest.read_bytes())["characters"]["Alice"]
+    grids = {
+        name: {**history, "versions": [{**history["versions"][0], "file": f"versions/grids/{name}_v1.png"}]}
+        for name in ("owned", "other")
+    }
+    manifest.write_text(json.dumps({"grids": grids}))
+    items = {item.metadata["resource_id"]: item for item in await holder.enumerate_remote_items(conn_id, OLD_BUCKET)}
+    assert set(items) == {"owned", "other"}
+    assert items["owned"].metadata["owned"] is True
+    assert items["owned"].metadata["formal_rel"] == "grids/owned.png"
+    assert items["other"].metadata["owned"] is False
+    assert items["other"].metadata["formal_rel"] is None
+    assert all(p.name != "other.png" for p in items["other"].local_paths)
+    for item in items.values():
+        assert (await holder.promote_item(item, data)).promoted
+    record = json.loads(record_path.read_bytes())
+    assert set(record["files"]) == {"grids/owned.json", "grids/owned.png", items["owned"].path}
+    assert record["size"] == 2 * len(data)
+    files = record_dir / project_trash_store.FILES_DIRNAME
+    assert not (files / "grids/other.png").exists()
+    assert not (files / items["other"].path).exists()
+    updated = json.loads(manifest.read_bytes())["grids"]
+    assert "storage" not in updated["owned"]["versions"][0]
+    assert "storage" not in updated["other"]["versions"][0]

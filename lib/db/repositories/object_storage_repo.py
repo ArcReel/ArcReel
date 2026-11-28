@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.orm import Session
 
 from lib.db.models.object_storage import CURRENT_CONNECTION_SLOT, ObjectStorageConnection
 from lib.db.repositories.base import BaseRepository
@@ -12,6 +13,24 @@ from lib.object_storage.client import (
     AddressingStyle,
     ObjectStorageKind,
 )
+
+_relocation_epoch = 0
+
+
+def relocation_state_epoch() -> int:
+    return _relocation_epoch
+
+
+@event.listens_for(Session, "after_commit")
+def _advance_relocation_epoch(session: Session) -> None:
+    global _relocation_epoch
+    if session.info.pop("relocation_state_changed", False):
+        _relocation_epoch += 1
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _discard_relocation_epoch_flag(session: Session, _previous_transaction: object) -> None:
+    session.info.pop("relocation_state_changed", None)
 
 
 class ObjectStorageConnectionRepository(BaseRepository):
@@ -95,8 +114,18 @@ class ObjectStorageConnectionRepository(BaseRepository):
                 conn.access_key_id = access_key_id
             if secret_access_key:
                 conn.secret_access_key = secret_access_key
+        self.session.info["relocation_state_changed"] = True
         await self.session.flush()
         return conn
+
+    async def write_relocation_state(
+        self, conn: ObjectStorageConnection, relocating: bool, delete_remote: bool | None, mode: str | None
+    ) -> None:
+        conn.relocating = relocating
+        conn.relocate_delete_remote = delete_remote
+        conn.relocate_mode = mode
+        self.session.info["relocation_state_changed"] = True
+        await self.session.flush()
 
     async def set_relocating(
         self, connection_id: int, *, delete_remote: bool, mode: str
@@ -104,20 +133,14 @@ class ObjectStorageConnectionRepository(BaseRepository):
         conn = await self.get()
         if conn is None or conn.id != connection_id:
             return None
-        conn.relocating = True
-        conn.relocate_delete_remote = delete_remote
-        conn.relocate_mode = mode
-        await self.session.flush()
+        await self.write_relocation_state(conn, True, delete_remote, mode)
         return conn
 
     async def clear_relocating(self, connection_id: int | None = None) -> ObjectStorageConnection | None:
         conn = await self.get()
         if conn is None or (connection_id is not None and conn.id != connection_id):
             return None
-        conn.relocating = False
-        conn.relocate_delete_remote = None
-        conn.relocate_mode = None
-        await self.session.flush()
+        await self.write_relocation_state(conn, False, None, None)
         return conn
 
     async def clear_endpoint_review(self, connection_id: int) -> None:
@@ -132,4 +155,5 @@ class ObjectStorageConnectionRepository(BaseRepository):
             return False
         await self.session.delete(conn)
         await self.session.flush()
+        self.session.info["relocation_state_changed"] = True
         return True

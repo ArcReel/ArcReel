@@ -300,11 +300,13 @@ def _snapshot_owns_resource(
         return asset_name_namespace_key(resource_id) == expected
     if kind == "episode":
         episode = obj.get("episode")
-        if isinstance(episode, int):
+        if type(episode) is not int:
+            episode = obj.get("id")
+        if type(episode) is int:
             if item_id_number(resource_id, episode) is not None:
                 return True
             if resource_type == "grids":
-                return True
+                return f"grids/{resource_id}.json" in record.files or f"grids/{resource_id}.png" in record.files
         return False
     if kind == project_trash.SCRIPT_ENTRY_KIND:
         entry_id = str(obj.get("id") or obj.get("entry_id") or "")
@@ -407,7 +409,15 @@ def _enumerate_project_directory(
                     file_rel = ver_rec.get("file")
                     version_num = ver_rec.get("version")
                     content_version_id = ver_rec.get(CONTENT_VERSION_ID)
-                    if not isinstance(digest, str) or not isinstance(file_rel, str) or not isinstance(version_num, int):
+                    if (
+                        not isinstance(digest, str)
+                        or not digest.strip()
+                        or not isinstance(file_rel, str)
+                        or not file_rel.strip()
+                        or type(version_num) is not int
+                    ):
+                        if strict_trash:
+                            raise CorruptedTrashRecordError(display_prefix, record.id)
                         continue
                     bucket_map = archived_versions.get(resource_type, {})
                     res_history = bucket_map.get(resource_id, {}) if isinstance(bucket_map, dict) else {}
@@ -427,7 +437,7 @@ def _enumerate_project_directory(
                             holder_kind=trash_overwrite_kind,
                             holder_key=holder_key,
                             display_label=(
-                                f"{display_prefix} [trash:{record.id}] / {resource_type}/{resource_id} (v{version_num})"
+                                f"{display_prefix} / {record.id} / {resource_type}/{resource_id} (v{version_num})"
                             ),
                             path=file_rel,
                             locator=locator,
@@ -458,7 +468,12 @@ def _enumerate_project_directory(
                         digest = meta.get(CONTENT_DIGEST)
                         content_version_id = meta.get(CONTENT_VERSION_ID)
                         file_rel = record.object.get("path") or (record.files[0] if record.files else None)
-                        if isinstance(digest, str) and isinstance(file_rel, str):
+                        if (
+                            isinstance(digest, str)
+                            and digest.strip()
+                            and isinstance(file_rel, str)
+                            and file_rel.strip()
+                        ):
                             resource_type = str(record.object.get("resource_type") or "")
                             resource_id = str(record.object.get("resource_id") or "")
                             version_num = record.object.get("version")
@@ -467,7 +482,7 @@ def _enumerate_project_directory(
                                     holder_kind=trash_version_kind,
                                     holder_key=holder_key,
                                     display_label=(
-                                        f"{display_prefix} [trash:{record.id}] / "
+                                        f"{display_prefix} / {record.id} / "
                                         f"{resource_type}/{resource_id} (v{version_num})"
                                     ),
                                     path=file_rel,
@@ -484,6 +499,9 @@ def _enumerate_project_directory(
                                     },
                                 )
                             )
+
+                        elif strict_trash:
+                            raise CorruptedTrashRecordError(display_prefix, record.id)
 
             if record.has_snapshot:
                 snapshot_dir = record_dir / project_trash.SNAPSHOT_DIRNAME
@@ -508,8 +526,12 @@ def _enumerate_project_directory(
                         if (
                             not isinstance(digest, str)
                             or not isinstance(file_rel, str)
-                            or not isinstance(version_num, int)
+                            or not digest.strip()
+                            or not file_rel.strip()
+                            or type(version_num) is not int
                         ):
+                            if strict_trash:
+                                raise CorruptedTrashRecordError(display_prefix, record.id)
                             continue
                         owned = _snapshot_owns_resource(record, resource_type, resource_id, file_rel, snapshot_project)
                         bucket_map = snapshot_versions.get(resource_type, {})
@@ -526,8 +548,7 @@ def _enumerate_project_directory(
                                 holder_kind=trash_snapshot_kind,
                                 holder_key=holder_key,
                                 display_label=(
-                                    f"{display_prefix} [trash:{record.id}] / "
-                                    f"{resource_type}/{resource_id} (v{version_num})"
+                                    f"{display_prefix} / {record.id} / {resource_type}/{resource_id} (v{version_num})"
                                 ),
                                 path=file_rel,
                                 locator=locator,
@@ -549,6 +570,18 @@ def _enumerate_project_directory(
     return items
 
 
+def _place_verified_bytes(target: Path, data: bytes, digest: str) -> tuple[bool, bool]:
+    if target.is_symlink():
+        return False, True
+    if target.exists():
+        return False, not target.is_file() or sha256_file(target) != digest
+    staged = _stage_verified_bytes(target.parent, target.stem, target.suffix, data)
+    try:
+        return _place_from_staged(staged, target, digest)
+    finally:
+        staged.unlink(missing_ok=True)  # hard-delete: temp -- 清理未使用的暂存文件
+
+
 def _promote_project_version_sync(item: RemoteContentItem, data: bytes) -> PromoteResult:
     project_dir = Path(item.metadata["project_dir"])
     resource_type = str(item.metadata["resource_type"])
@@ -560,131 +593,62 @@ def _promote_project_version_sync(item: RemoteContentItem, data: bytes) -> Promo
         return PromoteResult(promoted=False)
 
     snapshot_path = VersionManager.resolve_snapshot_path(project_dir, resource_type, file_rel)
-    staged_snapshot: Path | None = None
-    staged_formal: Path | None = None
-    staged_formal_target: Path | None = None
-
-    if not snapshot_path.exists() and not snapshot_path.is_symlink():
-        staged_snapshot = _stage_verified_bytes(snapshot_path.parent, snapshot_path.stem, snapshot_path.suffix, data)
-    formal_rel_hint = item.metadata.get("formal_rel")
-    if isinstance(formal_rel_hint, str) and formal_rel_hint:
-        try:
-            safe_join(project_dir, formal_rel_hint)
-            candidate = project_dir / formal_rel_hint
-            if not candidate.exists() and not candidate.is_symlink():
-                staged_formal = _stage_verified_bytes(candidate.parent, candidate.stem, candidate.suffix, data)
-                staged_formal_target = candidate
-        except PathTraversalError:
-            staged_formal_target = None
-
-    try:
-        with project_metadata_lock(project_dir):
-            if not (project_dir / "project.json").is_file():
+    with project_metadata_lock(project_dir):
+        if not (project_dir / "project.json").is_file():
+            return PromoteResult(promoted=False)
+        manager = VersionManager(project_dir)
+        with manager._lock:
+            all_data: dict[str, Any] | None = None
+            if manager.sqlite.is_enabled():
+                batch = manager.sqlite.resources([(resource_type, resource_id)])
+                res_data = batch.get(resource_type, {}).get(resource_id)
+            else:
+                all_data = manager._load_versions()
+                res_data = all_data.get(resource_type, {}).get(resource_id)
+                batch = None
+            if not isinstance(res_data, dict):
                 return PromoteResult(promoted=False)
-            manager = VersionManager(project_dir)
-            with manager._lock:
-                all_data: dict[str, Any] | None = None
-                if manager.sqlite.is_enabled():
-                    batch = manager.sqlite.resources([(resource_type, resource_id)])
-                    res_data = batch.get(resource_type, {}).get(resource_id)
-                else:
-                    all_data = manager._load_versions()
-                    res_data = all_data.get(resource_type, {}).get(resource_id)
-                    batch = None
-                if not isinstance(res_data, dict):
-                    return PromoteResult(promoted=False)
-                versions = res_data.get("versions")
-                if not isinstance(versions, list):
-                    return PromoteResult(promoted=False)
-                target_rec = next(
-                    (
-                        rec
-                        for rec in versions
-                        if isinstance(rec, dict)
-                        and rec.get("version") == version_num
-                        and rec.get(CONTENT_VERSION_ID) == item.content_version_id
-                    ),
-                    None,
-                )
-                if target_rec is None:
-                    return PromoteResult(promoted=False)
-                if ObjectLocator.from_record(target_rec.get(STORAGE)) != item.locator:
-                    return PromoteResult(promoted=False)
-                if target_rec.get(CONTENT_DIGEST) != item.digest:
-                    return PromoteResult(promoted=False)
+            versions = res_data.get("versions")
+            if not isinstance(versions, list):
+                return PromoteResult(promoted=False)
+            target_rec = next(
+                (
+                    rec
+                    for rec in versions
+                    if isinstance(rec, dict)
+                    and rec.get("version") == version_num
+                    and rec.get(CONTENT_VERSION_ID) == item.content_version_id
+                ),
+                None,
+            )
+            if target_rec is None:
+                return PromoteResult(promoted=False)
+            if ObjectLocator.from_record(target_rec.get(STORAGE)) != item.locator:
+                return PromoteResult(promoted=False)
+            if target_rec.get(CONTENT_DIGEST) != item.digest:
+                return PromoteResult(promoted=False)
 
-                conflict = False
-                with hold_work_file(snapshot_path):
-                    if staged_snapshot is not None:
-                        _written, snap_conflict = _place_from_staged(staged_snapshot, snapshot_path, item.digest)
-                        if not snap_conflict and _written:
-                            staged_snapshot = None
-                        conflict = conflict or snap_conflict
-                    elif snapshot_path.is_symlink():
-                        conflict = True
-                    elif snapshot_path.is_file():
-                        if sha256_file(snapshot_path) != item.digest:
-                            conflict = True
-                    else:
-                        extra = _stage_verified_bytes(
-                            snapshot_path.parent, snapshot_path.stem, snapshot_path.suffix, data
-                        )
+            with hold_work_file(snapshot_path):
+                _, conflict = _place_verified_bytes(snapshot_path, data, item.digest)
+                if res_data.get("current_version") == version_num:
+                    fresh_project = load_project_json(project_dir)
+                    fresh_formal_rel = formal_path(fresh_project, resource_type, resource_id)
+                    if fresh_formal_rel is not None:
                         try:
-                            _written, snap_conflict = _place_from_staged(extra, snapshot_path, item.digest)
-                            conflict = conflict or snap_conflict
-                        finally:
-                            with contextlib.suppress(OSError):
-                                extra.unlink(missing_ok=True)  # hard-delete: temp -- 锁内补写快照的临时文件
-
-                    if res_data.get("current_version") == version_num:
-                        fresh_project = load_project_json(project_dir)
-                        fresh_formal_rel = formal_path(fresh_project, resource_type, resource_id)
-                        if fresh_formal_rel is not None:
-                            try:
-                                safe_join(project_dir, fresh_formal_rel)
-                                target_formal = project_dir / fresh_formal_rel
-                            except PathTraversalError:
-                                target_formal = None
-                            if target_formal is not None:
-                                with hold_work_file(target_formal):
-                                    if staged_formal is not None and staged_formal_target == target_formal:
-                                        _written, formal_conflict = _place_from_staged(
-                                            staged_formal, target_formal, item.digest
-                                        )
-                                        if not formal_conflict and _written:
-                                            staged_formal = None
-                                        conflict = conflict or formal_conflict
-                                    elif target_formal.is_symlink():
-                                        conflict = True
-                                    elif target_formal.exists():
-                                        if not target_formal.is_file() or sha256_file(target_formal) != item.digest:
-                                            conflict = True
-                                    else:
-                                        extra_formal = _stage_verified_bytes(
-                                            target_formal.parent, target_formal.stem, target_formal.suffix, data
-                                        )
-                                        try:
-                                            _written, formal_conflict = _place_from_staged(
-                                                extra_formal, target_formal, item.digest
-                                            )
-                                            conflict = conflict or formal_conflict
-                                        finally:
-                                            with contextlib.suppress(OSError):
-                                                extra_formal.unlink(
-                                                    missing_ok=True
-                                                )  # hard-delete: temp -- 锁内补写正式文件的临时文件
-
-                    target_rec.pop(STORAGE, None)
-                    if batch is not None:
-                        manager.sqlite.save(batch)
-                    elif all_data is not None:
-                        atomic_write_json(manager.versions_file, all_data)
-                return PromoteResult(promoted=True, conflict_preserved=conflict)
-    finally:
-        for leftover in (staged_snapshot, staged_formal):
-            if leftover is not None:
-                with contextlib.suppress(OSError):
-                    leftover.unlink(missing_ok=True)  # hard-delete: temp -- 收敛提交后未使用的暂存文件
+                            safe_join(project_dir, fresh_formal_rel)
+                            target_formal = project_dir / fresh_formal_rel
+                        except PathTraversalError:
+                            target_formal = None
+                        if target_formal is not None:
+                            with hold_work_file(target_formal):
+                                _, formal_conflict = _place_verified_bytes(target_formal, data, item.digest)
+                                conflict |= formal_conflict
+                target_rec.pop(STORAGE, None)
+                if batch is not None:
+                    manager.sqlite.save(batch)
+                elif all_data is not None:
+                    atomic_write_json(manager.versions_file, all_data)
+            return PromoteResult(promoted=True, conflict_preserved=conflict)
 
 
 def _promote_trash_version_sync(item: RemoteContentItem, data: bytes) -> PromoteResult:
@@ -696,54 +660,35 @@ def _promote_trash_version_sync(item: RemoteContentItem, data: bytes) -> Promote
     safe_join(files_root, file_rel)
     target = files_root / file_rel
 
-    staged: Path | None = None
-    if not target.exists() and not target.is_symlink():
-        staged = _stage_verified_bytes(target.parent, target.stem, target.suffix, data)
-    try:
-        with project_metadata_lock(project_dir):
-            record_file = record_dir / _RECORD_FILE
-            if not record_file.is_file():
-                return PromoteResult(promoted=False)
-            raw = json.loads(record_file.read_text(encoding="utf-8"))
-            obj = raw.get("object")
-            meta = obj.get("metadata") if isinstance(obj, dict) else None
-            if not isinstance(meta, dict):
-                return PromoteResult(promoted=False)
-            if meta.get(CONTENT_VERSION_ID) != item.content_version_id:
-                return PromoteResult(promoted=False)
-            if ObjectLocator.from_record(meta.get(STORAGE)) != item.locator:
-                return PromoteResult(promoted=False)
-            if meta.get(CONTENT_DIGEST) != item.digest:
-                return PromoteResult(promoted=False)
+    with project_metadata_lock(project_dir):
+        record_file = record_dir / _RECORD_FILE
+        if not record_file.is_file():
+            return PromoteResult(promoted=False)
+        raw = json.loads(record_file.read_text(encoding="utf-8"))
+        obj = raw.get("object")
+        meta = obj.get("metadata") if isinstance(obj, dict) else None
+        if not isinstance(meta, dict):
+            return PromoteResult(promoted=False)
+        if meta.get(CONTENT_VERSION_ID) != item.content_version_id:
+            return PromoteResult(promoted=False)
+        if ObjectLocator.from_record(meta.get(STORAGE)) != item.locator:
+            return PromoteResult(promoted=False)
+        if meta.get(CONTENT_DIGEST) != item.digest:
+            return PromoteResult(promoted=False)
 
-            conflict = False
-            written = False
-            if staged is not None:
-                written, conflict = _place_from_staged(staged, target, item.digest)
-                if written:
-                    staged = None
-            elif target.is_symlink():
-                conflict = True
-            elif target.is_file():
-                if sha256_file(target) != item.digest:
-                    conflict = True
+        _, conflict = _place_verified_bytes(target, data, item.digest)
+        meta.pop(STORAGE, None)
+        existing_files = list(raw.get("files") or [])
+        if not target.is_symlink() and target.is_file():
+            file_size = target.stat().st_size
+            recorded_size = int(raw.get("size") or 0)
+            if file_rel not in existing_files:
+                raw["files"] = [*existing_files, file_rel]
+                raw["size"] = recorded_size + file_size
             else:
-                extra = _stage_verified_bytes(target.parent, target.stem, target.suffix, data)
-                try:
-                    written, conflict = _place_from_staged(extra, target, item.digest)
-                finally:
-                    with contextlib.suppress(OSError):
-                        extra.unlink(missing_ok=True)  # hard-delete: temp -- 回收站单版本补写临时文件
-
-            meta.pop(STORAGE, None)
-            if written:
-                raw["size"] = int(raw.get("size") or 0) + len(data)
-            atomic_write_json(record_file, raw)
-            return PromoteResult(promoted=True, conflict_preserved=conflict)
-    finally:
-        if staged is not None:
-            with contextlib.suppress(OSError):
-                staged.unlink(missing_ok=True)  # hard-delete: temp -- 回收站转正未使用的暂存文件
+                raw["size"] = max(recorded_size, file_size)
+        atomic_write_json(record_file, raw)
+        return PromoteResult(promoted=True, conflict_preserved=conflict)
 
 
 def _promote_trash_versions_manifest_sync(
@@ -766,79 +711,58 @@ def _promote_trash_versions_manifest_sync(
         else record_dir / project_trash.SNAPSHOT_DIRNAME / _VERSIONS_FILE
     )
 
-    staged_targets: list[tuple[str, Path, Path]] = []
-    if should_materialize:
-        rels_to_place = [file_rel]
-        if isinstance(formal_rel, str) and formal_rel and formal_rel != file_rel:
-            rels_to_place.append(formal_rel)
+    rels_to_place = [file_rel] if should_materialize else []
+    if should_materialize and isinstance(formal_rel, str) and formal_rel and formal_rel != file_rel:
+        rels_to_place.append(formal_rel)
+    with project_metadata_lock(project_dir):
+        record_file = record_dir / _RECORD_FILE
+        if not record_file.is_file() or not manifest_path.is_file():
+            return PromoteResult(promoted=False)
+        versions_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        bucket_map = versions_data.get(resource_type)
+        res_data = bucket_map.get(resource_id) if isinstance(bucket_map, dict) else None
+        records = res_data.get("versions") if isinstance(res_data, dict) else None
+        if not isinstance(records, list):
+            return PromoteResult(promoted=False)
+        target_rec = next(
+            (
+                rec
+                for rec in records
+                if isinstance(rec, dict)
+                and rec.get("version") == version_num
+                and rec.get(CONTENT_VERSION_ID) == item.content_version_id
+            ),
+            None,
+        )
+        if target_rec is None:
+            return PromoteResult(promoted=False)
+        if ObjectLocator.from_record(target_rec.get(STORAGE)) != item.locator:
+            return PromoteResult(promoted=False)
+        if target_rec.get(CONTENT_DIGEST) != item.digest:
+            return PromoteResult(promoted=False)
+
+        conflict = False
+        present_sizes: dict[str, int] = {}
         for rel in rels_to_place:
             safe_join(files_root, rel)
             target = files_root / rel
-            if not target.exists() and not target.is_symlink():
-                staged_targets.append(
-                    (rel, target, _stage_verified_bytes(target.parent, target.stem, target.suffix, data))
-                )
+            _, item_conflict = _place_verified_bytes(target, data, item.digest)
+            conflict |= item_conflict
+            if target.is_symlink():
+                present_sizes[rel] = 0
+            elif target.is_file():
+                present_sizes[rel] = target.stat().st_size
 
-    try:
-        with project_metadata_lock(project_dir):
-            record_file = record_dir / _RECORD_FILE
-            if not record_file.is_file() or not manifest_path.is_file():
-                return PromoteResult(promoted=False)
-            versions_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            bucket_map = versions_data.get(resource_type)
-            res_data = bucket_map.get(resource_id) if isinstance(bucket_map, dict) else None
-            records = res_data.get("versions") if isinstance(res_data, dict) else None
-            if not isinstance(records, list):
-                return PromoteResult(promoted=False)
-            target_rec = next(
-                (
-                    rec
-                    for rec in records
-                    if isinstance(rec, dict)
-                    and rec.get("version") == version_num
-                    and rec.get(CONTENT_VERSION_ID) == item.content_version_id
-                ),
-                None,
-            )
-            if target_rec is None:
-                return PromoteResult(promoted=False)
-            if ObjectLocator.from_record(target_rec.get(STORAGE)) != item.locator:
-                return PromoteResult(promoted=False)
-            if target_rec.get(CONTENT_DIGEST) != item.digest:
-                return PromoteResult(promoted=False)
-
-            conflict = False
-            newly_written_rels: list[str] = []
-            added_bytes = 0
-            remaining_staged: list[tuple[str, Path, Path]] = []
-            for rel, target, staged in staged_targets:
-                written, item_conflict = _place_from_staged(staged, target, item.digest)
-                conflict = conflict or item_conflict
-                if written:
-                    newly_written_rels.append(rel)
-                    added_bytes += len(data)
-                else:
-                    remaining_staged.append((rel, target, staged))
-            staged_targets = remaining_staged
-
-            target_rec.pop(STORAGE, None)
-            atomic_write_json(manifest_path, versions_data)
-
-            if newly_written_rels:
-                raw = json.loads(record_file.read_text(encoding="utf-8"))
-                existing_files = list(raw.get("files") or [])
-                for rel in newly_written_rels:
-                    if rel not in existing_files:
-                        existing_files.append(rel)
-                raw["files"] = existing_files
-                raw["size"] = int(raw.get("size") or 0) + added_bytes
-                atomic_write_json(record_file, raw)
-
-            return PromoteResult(promoted=True, conflict_preserved=conflict)
-    finally:
-        for _rel, _target, staged in staged_targets:
-            with contextlib.suppress(OSError):
-                staged.unlink(missing_ok=True)  # hard-delete: temp -- 回收站快照转正未使用的暂存文件
+        raw = json.loads(record_file.read_text(encoding="utf-8"))
+        existing_files = list(raw.get("files") or [])
+        missing = [rel for rel in present_sizes if rel not in existing_files]
+        if missing:
+            raw["files"] = existing_files + missing
+            raw["size"] = int(raw.get("size") or 0) + sum(present_sizes[rel] for rel in missing)
+            atomic_write_json(record_file, raw)
+        target_rec.pop(STORAGE, None)
+        atomic_write_json(manifest_path, versions_data)
+        return PromoteResult(promoted=True, conflict_preserved=conflict)
 
 
 class _BaseProjectDirectoryHolder:
@@ -851,7 +775,7 @@ class _BaseProjectDirectoryHolder:
     def _list_targets(self) -> list[tuple[str, Path, str]]:
         if self._is_deleted:
             return [
-                (entry.id, self._layout.deleted_projects_dir / entry.id, f"deleted:{entry.name}({entry.id})")
+                (entry.id, self._layout.deleted_projects_dir / entry.id, f"{entry.name} ({entry.id})")
                 for entry in deleted_projects.list_entries(self._layout)
             ]
         return [
@@ -958,7 +882,7 @@ class GlobalAssetLibraryHolder:
                     RemoteContentItem(
                         holder_kind="global_asset",
                         holder_key=library_holder(asset.id),
-                        display_label=f"global-asset: {asset.type}/{asset.name}",
+                        display_label=asset.name,
                         path=image.path,
                         locator=image.stored,
                         digest=image.digest,
@@ -993,7 +917,7 @@ class GlobalAssetLibraryHolder:
                     RemoteContentItem(
                         holder_kind="global_derivative",
                         holder_key=library_holder(deriv.asset_id),
-                        display_label=f"global-derivative: {parent_name}/{deriv.name}",
+                        display_label=f"{parent_name} / {deriv.name}",
                         path=image.path,
                         locator=image.stored,
                         digest=image.digest,
@@ -1010,13 +934,17 @@ class GlobalAssetLibraryHolder:
         model: type[Asset] | type[AssetDerivative] = Asset if item.metadata["model"] == "asset" else AssetDerivative
         target = self._data_root / item.path
 
+        created_staged: list[Path] = []
+
         def _stage_if_needed() -> Path | None:
             if not target.exists() and not target.is_symlink():
-                return _stage_verified_bytes(target.parent, target.stem, target.suffix, data)
+                path = _stage_verified_bytes(target.parent, target.stem, target.suffix, data)
+                created_staged.append(path)
+                return path
             return None
 
-        staged = await run_sync_transaction(_stage_if_needed)
         try:
+            staged = await run_sync_transaction(_stage_if_needed)
             async with library_entry_lock(asset_id), self._session_factory() as session:
                 row = await session.get(model, row_id)
                 current = GlobalImage.of(row) if row is not None else None
@@ -1031,12 +959,11 @@ class GlobalAssetLibraryHolder:
                     return PromoteResult(promoted=False)
 
                 def _place() -> bool:
-                    nonlocal staged
                     with hold_work_file(target):
                         if staged is not None:
                             written, conflict = _place_from_staged(staged, target, item.digest)
                             if written:
-                                staged = None
+                                created_staged.remove(staged)
                             return conflict
                         if target.is_symlink():
                             return True
@@ -1055,11 +982,13 @@ class GlobalAssetLibraryHolder:
                 await session.commit()
                 return PromoteResult(promoted=True, conflict_preserved=conflict)
         finally:
-            if staged is not None:
-                await asyncio.to_thread(
-                    lambda p: p.unlink(missing_ok=True),  # hard-delete: temp -- 全局资产转正未使用的暂存文件
-                    staged,
-                )
+
+            def _unlink_quietly(path: Path) -> None:
+                with contextlib.suppress(OSError):
+                    path.unlink(missing_ok=True)  # hard-delete: temp -- 全局资产转正暂存文件
+
+            for unused in created_staged:
+                await run_sync_transaction(_unlink_quietly, unused)
 
     async def reconcile_holder(
         self,
@@ -1113,17 +1042,24 @@ def default_remote_holders(
     return holders
 
 
-def build_local_digest_index(items: Iterable[RemoteContentItem]) -> dict[str, Path]:
-    """跨持有方扫描已存在且 SHA-256 匹配的本地副本，返回 ``digest -> 有效本地路径``。同步磁盘操作。"""
-    verified: dict[str, Path] = {}
+def build_local_digest_index(items: Iterable[RemoteContentItem]) -> dict[str, tuple[Path, ...]]:
+    candidates: dict[str, dict[Path, None]] = {}
     for item in items:
-        if item.digest in verified:
-            continue
-        for candidate in item.local_paths:
-            if _verified_local_file(candidate, item.digest):
-                verified[item.digest] = candidate
-                break
+        candidates.setdefault(item.digest, {}).update(dict.fromkeys(item.local_paths))
+    verified = {}
+    for digest, paths in candidates.items():
+        matches = tuple(path for path in paths if _verified_local_file(path, digest))
+        if matches:
+            verified[digest] = matches
     return verified
+
+
+def read_verified_local(candidates: Iterable[Path], digest: str) -> bytes | None:
+    for path in candidates:
+        data = verify_and_read_local(path, digest)
+        if data is not None:
+            return data
+    return None
 
 
 def verify_and_read_local(path: Path, expected_digest: str) -> bytes | None:
@@ -1151,6 +1087,7 @@ __all__ = [
     "RemoteHolderFactory",
     "build_local_digest_index",
     "default_remote_holders",
+    "read_verified_local",
     "register_remote_content_holder_factory",
     "verify_and_read_local",
 ]

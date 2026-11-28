@@ -338,7 +338,8 @@ async def test_upload_reaches_active_link_bound_to_the_frozen_version(api, sessi
     [relay] = await _relays(sessions)
     assert relay.state == "deleted"
     assert _panel(api)["content_version"]["id"] == version_a["id"]
-    assert "X-Tos-Signature" not in caplog.text
+    assert "X-Amz-Signature" not in caplog.text
+    assert create[0]["URL"] not in caplog.text
     assert SK not in caplog.text
 
 

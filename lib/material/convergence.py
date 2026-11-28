@@ -16,21 +16,30 @@ from __future__ import annotations
 import asyncio
 import errno
 import hashlib
+import json
 import logging
+import tempfile
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Literal
+from typing import IO, Literal
+from weakref import WeakValueDictionary
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.asset import Asset, AssetDerivative
-from lib.db.models.object_storage import FormalObject, FormalObjectRef, ObjectStorageConnection
+from lib.db.models.object_storage import (
+    MAX_BUCKET_LENGTH,
+    MAX_REGION_LENGTH,
+    FormalObject,
+    FormalObjectRef,
+    ObjectStorageConnection,
+)
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
-from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.async_thread import run_noninterruptible_async, run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.material.formal_objects import (
     INGEST_HOLDER_PREFIX,
@@ -49,9 +58,10 @@ from lib.material.remote_holders import (
     RemoteContentItem,
     build_local_digest_index,
     default_remote_holders,
-    verify_and_read_local,
+    read_verified_local,
 )
 from lib.material.storage import ObjectLocator
+from lib.material.work_files import mark_connection_relocating, unmark_connection_relocating
 from lib.object_storage.client import (
     DEFAULT_ADDRESSING_STYLE,
     OBJECT_STORAGE_KIND_S3,
@@ -91,6 +101,23 @@ class UnrecoverableItem:
     digest: str
     object_key: str
     size: int
+    confirmation_key: str
+
+    @classmethod
+    def from_item(cls, item: RemoteContentItem, sizes: Mapping[ObjectLocator, int]) -> UnrecoverableItem:
+        return cls(
+            holder_kind=item.holder_kind,
+            holder_label=item.display_label,
+            path=item.path,
+            digest=item.digest,
+            object_key=item.locator.key,
+            size=sizes.get(item.locator, 0),
+            confirmation_key=unrecoverable_item_key(item.holder_kind, item.display_label, item.path, item.digest),
+        )
+
+
+def unrecoverable_item_key(holder_kind: str, holder_label: str, path: str, digest: str) -> str:
+    return json.dumps([holder_kind, holder_label, path, digest], ensure_ascii=False, separators=(",", ":"))
 
 
 @dataclass
@@ -136,6 +163,7 @@ class RelocationPlan:
     connection_id: int
     in_use_object_count: int
     in_use_reference_count: int
+    reusable_local_object_count: int
     download_object_count: int
     estimated_download_bytes: int
     pending_ingest_tasks: int
@@ -179,6 +207,7 @@ class ForceDisconnectResult:
 
 
 _RUN_LOCKS: dict[int, asyncio.Lock] = {}
+_PROBE_LOCKS: WeakValueDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakValueDictionary()
 _PROGRESS_BY_LOOP: dict[int, RelocationProgress] = {}
 
 
@@ -187,6 +216,14 @@ def _run_lock() -> asyncio.Lock:
     lock = _RUN_LOCKS.get(loop_key)
     if lock is None:
         lock = _RUN_LOCKS[loop_key] = asyncio.Lock()
+    return lock
+
+
+def probe_relocation_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _PROBE_LOCKS.get(loop)
+    if lock is None:
+        lock = _PROBE_LOCKS[loop] = asyncio.Lock()
     return lock
 
 
@@ -218,12 +255,16 @@ def _validate_switch_target(
         raise UnprocessableError("object_storage_fields_required")
     if not target.region or not target.endpoint or not target.bucket:
         raise UnprocessableError("object_storage_fields_required")
+    if len(target.region) > MAX_REGION_LENGTH or len(target.bucket) > MAX_BUCKET_LENGTH:
+        raise UnprocessableError("object_storage_invalid_config")
     try:
         normalized_endpoint = normalize_endpoint_url(target.endpoint)
     except ObjectStorageError as exc:
         raise UnprocessableError("object_storage_invalid_config") from exc
     same_endpoint = _same_endpoint(existing.endpoint, target.endpoint, normalized_endpoint)
     target_changed = (not same_endpoint) or (existing.bucket != target.bucket)
+    if not target_changed and (existing.kind, existing.region) == (target.kind, target.region):
+        raise UnprocessableError("object_storage_relocation_target_unchanged")
     if target_changed and (not target.access_key_id or not target.secret_access_key):
         raise UnprocessableError("object_storage_target_keys_required")
     return (normalized_endpoint if target_changed else existing.endpoint), target_changed
@@ -252,16 +293,7 @@ def _build_unrecoverable(
     for item in items:
         if item.digest in local_index:
             continue
-        missing.append(
-            UnrecoverableItem(
-                holder_kind=item.holder_kind,
-                holder_label=item.display_label,
-                path=item.path,
-                digest=item.digest,
-                object_key=item.locator.key,
-                size=sizes.get(item.locator, 0),
-            )
-        )
+        missing.append(UnrecoverableItem.from_item(item, sizes))
     return tuple(missing)
 
 
@@ -305,6 +337,7 @@ async def inspect_relocation_plan(
         connection_id=conn_id,
         in_use_object_count=in_use_objects,
         in_use_reference_count=len(items),
+        reusable_local_object_count=len(unique_objects) - len(download_locators),
         download_object_count=len(download_locators),
         estimated_download_bytes=estimated_bytes,
         pending_ingest_tasks=pending_ingest,
@@ -392,8 +425,9 @@ async def run_relocation(
     session_factory: async_sessionmaker[AsyncSession],
     *,
     mode: RelocationMode,
-    delete_remote_objects: bool,
+    delete_remote_objects: bool | None = None,
     target: RelocationTargetConfig | None = None,
+    expected_connection_id: int | None = None,
     extra_holders: Sequence[RemoteContentHolder] = (),
 ) -> RelocationRunResult:
     """幂等执行旧桶收敛回本地并在全部转正且零残留引用后原子切换或删除连接。"""
@@ -401,13 +435,21 @@ async def run_relocation(
     if lock.locked():
         raise ConflictError("object_storage_relocation_in_progress")
 
-    async with lock:
+    async with lock, AsyncExitStack() as relocation:
         progress = _progress()
-        async with connection_change_lock(), session_factory() as session:
+        async with probe_relocation_lock(), connection_change_lock(), session_factory() as session:
             repo = ObjectStorageConnectionRepository(session)
             existing = await repo.get()
             if existing is None:
                 raise NotFoundError("object_storage_not_configured")
+            if expected_connection_id is not None and existing.id != expected_connection_id:
+                raise ConflictError("object_storage_connection_changed")
+            if existing.relocating and existing.relocate_delete_remote is not None:
+                if delete_remote_objects is not None and delete_remote_objects != existing.relocate_delete_remote:
+                    raise ConflictError("object_storage_relocation_delete_mode_locked")
+                delete_remote_objects = existing.relocate_delete_remote
+            elif delete_remote_objects is None:
+                delete_remote_objects = True
             next_endpoint: str | None = None
             target_changed = False
             if mode == "switch":
@@ -415,8 +457,12 @@ async def run_relocation(
             conn_id = existing.id
             conn_bucket = existing.bucket
             conn_config = config_from_connection(existing)
+            mark_connection_relocating(conn_id)
+            relocation.callback(unmark_connection_relocating, conn_id)
             await repo.set_relocating(conn_id, delete_remote=delete_remote_objects, mode=mode)
             await session.commit()
+
+        async with session_factory() as session:
             in_flight = await in_flight_upload_count(session, conn_id)
             current_target = await new_content_target(session)
 
@@ -438,6 +484,7 @@ async def run_relocation(
 
         try:
             if in_flight > 0:
+                progress.failed_objects = in_flight
                 progress.phase = "failed"
                 progress.last_error_kind = "in_flight_uploads"
                 progress.last_error_message = f"{in_flight} in-flight uploads"
@@ -492,13 +539,8 @@ async def run_relocation(
                     progress.failed_objects += 1
                     continue
 
-                data: bytes | None = None
-                reused_local = False
-                local_path = local_index.get(digest)
-                if local_path is not None:
-                    data = await asyncio.to_thread(verify_and_read_local, local_path, digest)
-                    if data is not None:
-                        reused_local = True
+                data = await asyncio.to_thread(read_verified_local, local_index.get(digest, ()), digest)
+                reused_local = data is not None
 
                 if data is None:
                     if bucket_unreachable:
@@ -508,12 +550,13 @@ async def run_relocation(
                         if client is None:
                             client = ObjectStorageClient(conn_config)
                         downloaded = await client.get_bytes(locator.key)
+                        network_failures = 0
                     except ObjectStorageError as exc:
                         progress.failed_objects += 1
                         progress.last_error_kind = exc.kind
                         progress.last_error_message = sanitize_probe_diagnostic(exc.message or exc.code)
                         progress.unreachable = True
-                        if exc.kind in ("auth", "denied"):
+                        if exc.kind == "auth":
                             bucket_unreachable = True
                         elif exc.kind == "network":
                             network_failures += 1
@@ -593,6 +636,7 @@ async def run_relocation(
             await _reconcile_remaining_db_refs(layout, session_factory, conn_id)
             remaining_after = await _enumerate_all(holders, conn_id, conn_bucket, strict_trash=True)
             if remaining_after:
+                progress.failed_objects = len(remaining_after)
                 progress.phase = "failed"
                 progress.last_error_kind = "remaining_references"
                 progress.last_error_message = f"{len(remaining_after)} remote references remain"
@@ -657,6 +701,7 @@ async def run_relocation(
 
             final_conn, final_target, cleanup_failures, remaining_db = await run_noninterruptible_async(_finalize())
             if remaining_db > 0:
+                progress.failed_objects = remaining_db
                 progress.phase = "failed"
                 progress.last_error_kind = "remaining_references"
                 progress.last_error_message = f"{remaining_db} formal objects remain held"
@@ -702,11 +747,18 @@ async def run_relocation(
                 unreachable=False,
                 unrecoverable_items=(),
             )
+        except Exception as exc:
+            progress.phase = "failed"
+            progress.last_error_kind = type(exc).__name__
+            progress.last_error_message = sanitize_probe_diagnostic(str(exc))
+            raise
         finally:
             progress.running = False
 
 
-async def cancel_relocation(session_factory: async_sessionmaker[AsyncSession]) -> bool:
+async def cancel_relocation(
+    session_factory: async_sessionmaker[AsyncSession], expected_connection_id: int | None = None
+) -> bool:
     """取消未完成的收敛回本地流程：保留已转正的本地文件与旧连接，恢复旧连接正常使用。"""
     lock = _run_lock()
     if lock.locked():
@@ -716,6 +768,8 @@ async def cancel_relocation(session_factory: async_sessionmaker[AsyncSession]) -
         conn = await repo.get()
         if conn is None:
             raise NotFoundError("object_storage_not_configured")
+        if expected_connection_id is not None and conn.id != expected_connection_id:
+            raise ConflictError("object_storage_connection_changed")
         was_relocating = bool(conn.relocating)
         await repo.clear_relocating(conn.id)
         await session.commit()
@@ -733,6 +787,8 @@ async def force_disconnect_connection(
     layout: DataRootLayout,
     session_factory: async_sessionmaker[AsyncSession],
     *,
+    expected_connection_id: int | None = None,
+    acknowledged_unrecoverable_keys: Sequence[str],
     extra_holders: Sequence[RemoteContentHolder] = (),
 ) -> ForceDisconnectResult:
     """旧桶永久不可达时的强制断开：先按 SHA-256 跨持有方抢救全部尚存有效本地工作文件，再移除旧连接。"""
@@ -740,19 +796,43 @@ async def force_disconnect_connection(
     if lock.locked():
         raise ConflictError("object_storage_relocation_in_progress")
 
-    async with lock:
-        async with connection_change_lock(), session_factory() as session:
+    async with lock, AsyncExitStack() as relocation:
+        async with probe_relocation_lock(), connection_change_lock(), session_factory() as session:
             repo = ObjectStorageConnectionRepository(session)
             existing = await repo.get()
             if existing is None:
                 raise NotFoundError("object_storage_not_configured")
+            if expected_connection_id is not None and existing.id != expected_connection_id:
+                raise ConflictError("object_storage_connection_changed")
             conn_id = existing.id
             conn_bucket = existing.bucket
+            mark_connection_relocating(conn_id)
+            relocation.callback(unmark_connection_relocating, conn_id)
+            previous = (existing.relocating, existing.relocate_delete_remote, existing.relocate_mode)
             await repo.set_relocating(conn_id, delete_remote=False, mode="delete")
+            disconnected = False
+
+            async def restore_previous() -> None:
+                if disconnected:
+                    return
+                async with connection_change_lock(), session_factory() as session:
+                    repo = ObjectStorageConnectionRepository(session)
+                    current = await repo.get()
+                    if current is not None and current.id == conn_id:
+                        await repo.write_relocation_state(current, *previous)
+                        await session.commit()
+
+            relocation.push_async_callback(restore_previous)
             await session.commit()
 
+        async def check_uploads(session: AsyncSession) -> None:
+            if await in_flight_upload_count(session, conn_id):
+                raise ConflictError("object_storage_relocation_in_flight_uploads")
+
         holders = default_remote_holders(layout, session_factory, extra_holders=extra_holders)
-        pairs = await _enumerate_all(holders, conn_id, conn_bucket, strict_trash=False)
+        async with session_factory() as session:
+            await check_uploads(session)
+        pairs = await _enumerate_all(holders, conn_id, conn_bucket, strict_trash=True)
         items = [item for _holder, item in pairs]
         local_index = await asyncio.to_thread(build_local_digest_index, items)
         sizes = await formal_object_sizes({item.locator for item in items}, session_factory=session_factory)
@@ -766,46 +846,90 @@ async def force_disconnect_connection(
         conflicts_preserved = 0
         unrecoverable_items: list[UnrecoverableItem] = []
 
-        for (locator, digest), group_entries in groups.items():
-            local_path = local_index.get(digest)
-            data = (
-                await asyncio.to_thread(verify_and_read_local, local_path, digest) if local_path is not None else None
-            )
+        unrecoverable_refs: set[tuple[str, str, str | None]] = set()
+        salvageable = []
+        handles: list[IO[bytes]] = []
+
+        def open_contents() -> IO[bytes]:
+            layout.root.mkdir(parents=True, exist_ok=True)
+            handle = tempfile.TemporaryFile(dir=layout.root)  # noqa: SIM115 -- the exit stack closes it after promotion
+            handles.append(handle)
+            return handle
+
+        def close_contents() -> None:
+            for handle in handles:
+                handle.close()
+
+        relocation.push_async_callback(run_sync_transaction, close_contents)
+        contents = await run_sync_transaction(open_contents)
+        for (_locator, digest), group_entries in groups.items():
+            data = await asyncio.to_thread(read_verified_local, local_index.get(digest, ()), digest)
             if data is None:
                 for _holder, item in group_entries:
-                    unrecoverable_items.append(
-                        UnrecoverableItem(
-                            holder_kind=item.holder_kind,
-                            holder_label=item.display_label,
-                            path=item.path,
-                            digest=item.digest,
-                            object_key=item.locator.key,
-                            size=sizes.get(locator, 0),
-                        )
-                    )
+                    unrecoverable_refs.add((item.holder_key, item.locator.key, item.content_version_id))
+                    unrecoverable_items.append(UnrecoverableItem.from_item(item, sizes))
                 continue
-            group_salvaged = False
-            for holder, item in group_entries:
-                res = await holder.promote_item(item, data)
-                if res.promoted:
+            await run_sync_transaction(contents.write, data)
+            salvageable.append((group_entries, len(data)))
+
+        final_keys = {item.confirmation_key for item in unrecoverable_items}
+        if not final_keys.issubset(acknowledged_unrecoverable_keys):
+            raise ConflictError("object_storage_force_disconnect_list_changed")
+
+        await run_sync_transaction(contents.seek, 0)
+        touched_holders: dict[tuple[int, str], tuple[RemoteContentHolder, list[RemoteContentItem]]] = {}
+        try:
+            for group_entries, size in salvageable:
+                data = await run_sync_transaction(contents.read, size)
+                for holder, item in group_entries:
+                    res = await holder.promote_item(item, data)
+                    if not res.promoted:
+                        raise ConflictError("object_storage_force_disconnect_list_changed")
                     salvaged_references += 1
-                    group_salvaged = True
                     if res.conflict_preserved:
                         conflicts_preserved += 1
-            if group_salvaged:
+                    touched_holders.setdefault((id(holder), item.holder_key), (holder, []))[1].append(item)
                 salvaged_objects += 1
+        finally:
+            for holder, promoted_items in touched_holders.values():
+                await holder.reconcile_holder(promoted_items[0].holder_key, promoted_items, session_factory)
+
+        remaining_pairs = await _enumerate_all(holders, conn_id, conn_bucket, strict_trash=True)
+        if any(
+            unrecoverable_item_key(item.holder_kind, item.display_label, item.path, item.digest) not in final_keys
+            for _, item in remaining_pairs
+        ):
+            raise ConflictError("object_storage_force_disconnect_list_changed")
 
         async def _remove_connection() -> None:
             async with connection_change_lock(), AsyncExitStack() as stack, session_factory() as session:
                 repo = ObjectStorageConnectionRepository(session)
                 current = await repo.get()
-                if current is not None and current.id == conn_id:
-                    await stack.enter_async_context(dispose_connection_objects(session, current, delete_remote=False))
-                    await repo.delete()
+                if current is None or current.id != conn_id:
+                    raise ConflictError("object_storage_connection_changed")
+                await check_uploads(session)
+                remaining_refs = await session.execute(
+                    select(FormalObjectRef.project_name, FormalObject.object_key, FormalObjectRef.content_version_id)
+                    .join(FormalObjectRef, FormalObjectRef.object_id == FormalObject.id)
+                    .where(
+                        FormalObject.connection_id == conn_id,
+                        ~FormalObjectRef.project_name.startswith(INGEST_HOLDER_PREFIX),
+                        FormalObjectRef.state.in_(("active", "trashed")),
+                    )
+                    .distinct()
+                )
+                if any(
+                    (project, key, version) not in unrecoverable_refs and (project, key, None) not in unrecoverable_refs
+                    for project, key, version in remaining_refs
+                ):
+                    raise ConflictError("object_storage_force_disconnect_list_changed")
+                await stack.enter_async_context(dispose_connection_objects(session, current, delete_remote=False))
+                await repo.delete()
                 await set_new_content_target(session, "local")
                 await session.commit()
 
         await run_noninterruptible_async(_remove_connection())
+        disconnected = True
 
         progress = _progress()
         progress.running = False
@@ -837,5 +961,6 @@ __all__ = [
     "force_disconnect_connection",
     "get_relocation_progress",
     "inspect_relocation_plan",
+    "probe_relocation_lock",
     "run_relocation",
 ]

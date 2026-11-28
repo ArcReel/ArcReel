@@ -46,6 +46,7 @@ from lib.infra.task_cancel import raise_if_cancel_absorbed
 from lib.material.formal_objects import (
     INGEST_HOLDER_PREFIX,
     REF_ACTIVE,
+    ObjectStorageRelocatingError,
     add_reference,
     connection_change_lock,
     release_holder,
@@ -299,6 +300,14 @@ async def _submit(
         data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
+        return
+    except ObjectStorageRelocatingError:
+        await _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "pending",
+            next_check_at=now + CHECK_INITIAL_DELAY,
+        )
         return
     except (OSError, ValueError, ApiError):
         await _fail(session_factory, link.id, now, "content_unavailable")

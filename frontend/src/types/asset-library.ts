@@ -52,6 +52,7 @@ export type ObjectStorageRelocationPhase =
   | "failed";
 
 export interface ObjectStorageUnrecoverableItem {
+  confirmation_key: string;
   holder_kind: string;
   holder_label: string;
   path: string;
@@ -82,6 +83,7 @@ export interface ObjectStorageRelocationPlan {
   connection_id: number;
   in_use_object_count: number;
   in_use_reference_count: number;
+  reusable_local_object_count: number;
   download_object_count: number;
   estimated_download_bytes: number;
   pending_ingest_tasks: number;
@@ -104,8 +106,9 @@ export interface ObjectStorageRelocationTargetPayload {
 }
 
 export interface RunObjectStorageRelocationPayload {
+  expected_connection_id: number;
   mode: ObjectStorageRelocationMode;
-  delete_remote_objects: boolean;
+  delete_remote_objects?: boolean | null;
   target?: ObjectStorageRelocationTargetPayload | null;
 }
 
@@ -140,6 +143,7 @@ export interface ObjectStorageForceDisconnectResult {
 }
 
 export interface ObjectStorageConnection {
+  id: number;
   kind: ObjectStorageKind;
   region: string;
   endpoint: string;
@@ -170,6 +174,7 @@ export interface ObjectStorageCleanupResult {
 export type SavedObjectStorageConnection = ObjectStorageConnection & ObjectStorageCleanupResult;
 
 export interface SaveObjectStorageConnectionPayload {
+  expected_connection_id?: number;
   kind?: ObjectStorageKind;
   region: string;
   endpoint: string;

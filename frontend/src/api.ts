@@ -3116,9 +3116,10 @@ class API {
 
   static async deleteObjectStorageConnection(
     deleteRemoteObjects = true,
-    options?: { resetNewImageTarget?: boolean },
+    options?: { resetNewImageTarget?: boolean; expectedConnectionId?: number },
   ): Promise<ObjectStorageCleanupResult> {
     const params = new URLSearchParams({ delete_remote_objects: String(deleteRemoteObjects) });
+    if (options?.expectedConnectionId != null) params.set("expected_connection_id", String(options.expectedConnectionId));
     if (options?.resetNewImageTarget) {
       params.set("reset_new_image_target", "true");
     }
@@ -3150,14 +3151,24 @@ class API {
     });
   }
 
-  static async cancelObjectStorageRelocation(): Promise<ObjectStorageSettings> {
-    return this.request("/object-storage/connection/relocation/cancel", { method: "POST" });
+  static async cancelObjectStorageRelocation(expectedConnectionId?: number | null): Promise<ObjectStorageSettings> {
+    return this.request("/object-storage/connection/relocation/cancel", {
+      method: "POST",
+      body: expectedConnectionId == null ? undefined : JSON.stringify({ expected_connection_id: expectedConnectionId }),
+    });
   }
 
-  static async forceDisconnectObjectStorage(): Promise<ObjectStorageForceDisconnectResult> {
+  static async forceDisconnectObjectStorage(
+    expectedConnectionId: number,
+    acknowledgedUnrecoverableKeys: string[],
+  ): Promise<ObjectStorageForceDisconnectResult> {
     return this.request("/object-storage/connection/relocation/force-disconnect", {
       method: "POST",
-      body: JSON.stringify({ confirm: true }),
+      body: JSON.stringify({
+        confirm: true,
+        expected_connection_id: expectedConnectionId,
+        acknowledged_unrecoverable_keys: acknowledgedUnrecoverableKeys,
+      }),
     });
   }
 

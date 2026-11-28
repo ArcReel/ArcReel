@@ -3,6 +3,7 @@ import { ChevronRight, CircleAlert, CircleCheck, CircleX, Loader2, Minus, Pencil
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { RequestErrorNotice } from "@/components/shared/RequestErrorNotice";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -105,13 +106,34 @@ function formatProbeDiagnostic(diagnostic: ObjectStorageProbeDiagnostic | null |
   return parts.length > 0 ? parts.join(": ") : null;
 }
 
+type StorageDraft = {
+  presetId: ObjectStoragePresetId;
+  autoSyncEndpoint: boolean;
+  region: string;
+  endpoint: string;
+  bucket: string;
+  addressingStyle: ObjectStorageAddressingStyle;
+  accessKeyId: string;
+  secretAccessKey: string;
+  deleteRemote: boolean;
+};
+
+function normalizedEndpoint(value: string): string {
+  const raw = value.trim();
+  const candidate = raw.includes("://") ? raw : `https://${raw}`;
+  return candidate.replace(/^([^/]+:\/\/[^/]+)/, (authority) => authority.toLowerCase()).replace(/\/+$/, "");
+}
+
 type RelocationModalState = {
+  connectionId: number;
   mode: ObjectStorageRelocationMode;
   target?: ObjectStorageRelocationTargetPayload | null;
   initialDeleteRemote?: boolean;
 };
 
 type ForceDisconnectModalState = {
+  needsRefreshOnClose: boolean;
+  connectionId?: number | null;
   items?: ObjectStorageUnrecoverableItem[] | null;
 };
 
@@ -123,115 +145,147 @@ export function ObjectStorageBlock() {
   const [relocationResult, setRelocationResult] = useState<ObjectStorageRelocationRunResult | null>(null);
   const [forceDisconnectResult, setForceDisconnectResult] = useState<ObjectStorageForceDisconnectResult | null>(null);
   const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [baselineConnection, setBaselineConnection] = useState<ObjectStorageConnection | null>(null);
+  const [deleteConnectionId, setDeleteConnectionId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<StorageDraft | null>(null);
   const [relocationModal, setRelocationModal] = useState<RelocationModalState | null>(null);
   const [forceDisconnectModal, setForceDisconnectModal] = useState<ForceDisconnectModalState | null>(null);
   const [cancellingRelocation, setCancellingRelocation] = useState(false);
   const [relocationCancelError, setRelocationCancelError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ status: "idle" });
 
-  const loadController = useRef<AbortController | null>(null);
-  const fetchConnection = useCallback(async () => {
-    loadController.current?.abort();
-    const controller = new AbortController();
-    loadController.current = controller;
-    try {
-      const settings = await API.getObjectStorageConnection({ signal: controller.signal });
-      if (controller.signal.aborted) return;
-      setLoad({ status: "ready", settings });
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      setLoad({ status: "error", error });
-    }
+  const readSequence = useRef(0);
+  const mutationGeneration = useRef(0);
+  const appliedRead = useRef(0);
+  const latestSettings = useRef<ObjectStorageSettings | undefined>(undefined);
+  const invalidateReads = useCallback(() => {
+    mutationGeneration.current += 1;
+    latestSettings.current = undefined;
   }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取连接配置后回写，属于受控的初始化加载
-    void fetchConnection();
-    return () => loadController.current?.abort();
-  }, [fetchConnection]);
-
   const testGeneration = useRef(0);
   const resetTest = useCallback(() => {
     testGeneration.current += 1;
     setTest({ status: "idle" });
   }, []);
-  const closeEditor = useCallback(() => setEditing(false), []);
+  const previousSignature = useRef<string | undefined>(undefined);
+  const fetchConnection = useCallback(async (keepForm = false) => {
+    const request = ++readSequence.current;
+    const generation = mutationGeneration.current;
+    try {
+      const settings = await API.getObjectStorageConnection();
+      if (generation !== mutationGeneration.current) return;
+      if (request < appliedRead.current) return latestSettings.current;
+      appliedRead.current = request;
+      latestSettings.current = settings;
+      const connection = settings.connection;
+      const signature = JSON.stringify(connection && [
+        connection.id, connection.kind, connection.region, connection.endpoint, connection.bucket,
+        connection.addressing_style, connection.access_key_id_masked, connection.secret_access_key_masked,
+        connection.updated_at,
+      ]);
+      if (previousSignature.current !== undefined && previousSignature.current !== signature) resetTest();
+      previousSignature.current = signature;
+      setLoad({ status: "ready", settings });
+      return settings;
+    } catch (error) {
+      if (generation !== mutationGeneration.current || request < appliedRead.current) return;
+      if (!keepForm) {
+        appliedRead.current = request;
+        latestSettings.current = undefined;
+        setLoad({ status: "error", error });
+      }
+    }
+  }, [resetTest]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 挂载时拉取连接配置后回写，属于受控的初始化加载
+    void fetchConnection();
+    return () => {
+      invalidateReads();
+    };
+  }, [fetchConnection, invalidateReads]);
+
+  const openEditor = async () => {
+    const settings = await fetchConnection(true);
+    if (!settings) return;
+    setBaselineConnection(settings.connection);
+    setEditing(true);
+  };
+
+  const closeEditor = useCallback(() => {
+    setEditing(false);
+    setDraft(null);
+  }, []);
   const patchSettings = useCallback((patch: Partial<ObjectStorageSettings>) => {
     setLoad((prev) => (prev.status === "ready" ? { status: "ready", settings: { ...prev.settings, ...patch } } : prev));
   }, []);
-  const refreshPendingIngest = useCallback(async () => {
-    try {
-      const latest = await API.getObjectStorageConnection();
-      patchSettings({ pending_ingest_tasks: latest.pending_ingest_tasks });
-    } catch {
-      return;
-    }
-  }, [patchSettings]);
   const handleSaved = useCallback(
     (saved: SavedObjectStorageConnection) => {
       setCleanupFailures(saved.cleanup_failures);
       setRelocationResult(null);
       setForceDisconnectResult(null);
+      setDraft(null);
       setEditing(false);
       resetTest();
+      invalidateReads();
       patchSettings({ connection: saved });
       void fetchConnection();
     },
-    [resetTest, patchSettings, fetchConnection],
+    [resetTest, patchSettings, fetchConnection, invalidateReads],
   );
   const handleRelocationCompleted = useCallback(
-    (result: ObjectStorageRelocationRunResult) => {
+    async (result: ObjectStorageRelocationRunResult) => {
       setRelocationModal(null);
+      setDraft(null);
       setEditing(false);
-      setDeleting(false);
+      setDeleteConnectionId(null);
       resetTest();
       setForceDisconnectResult(null);
-      setRelocationResult(result);
-      setCleanupFailures(result.cleanup_failures);
-      patchSettings({
-        connection: result.connection,
-        new_image_target: result.new_image_target,
-        pending_ingest_tasks: 0,
-      });
-      void fetchConnection();
+      setRelocationResult(null);
+      setCleanupFailures({});
+      invalidateReads();
+      setLoad({ status: "loading" });
+      if (await fetchConnection()) {
+        setRelocationResult(result);
+        setCleanupFailures(result.cleanup_failures);
+      }
     },
-    [resetTest, patchSettings, fetchConnection],
+    [resetTest, fetchConnection, invalidateReads],
   );
   const handleRelocationCancelled = useCallback(
     (nextSettings: ObjectStorageSettings) => {
+      invalidateReads();
+      setDraft(null);
       setRelocationModal(null);
       setRelocationCancelError(null);
       setLoad({ status: "ready", settings: nextSettings });
     },
-    [],
+    [invalidateReads],
   );
   const handleForceDisconnected = useCallback(
-    (result: ObjectStorageForceDisconnectResult) => {
+    async (result: ObjectStorageForceDisconnectResult) => {
       setForceDisconnectModal(null);
       setRelocationModal(null);
+      setDraft(null);
       setEditing(false);
-      setDeleting(false);
+      setDeleteConnectionId(null);
       resetTest();
       setRelocationResult(null);
       setCleanupFailures({});
-      setForceDisconnectResult(result);
-      patchSettings({
-        connection: null,
-        new_image_target: result.new_image_target,
-        pending_ingest_tasks: 0,
-      });
-      void fetchConnection();
+      setForceDisconnectResult(null);
+      invalidateReads();
+      setLoad({ status: "loading" });
+      if (await fetchConnection()) setForceDisconnectResult(result);
     },
-    [resetTest, patchSettings, fetchConnection],
+    [resetTest, fetchConnection, invalidateReads],
   );
   const handleBannerCancelRelocation = async () => {
-    if (cancellingRelocation) return;
+    if (cancellingRelocation || !connection) return;
     setCancellingRelocation(true);
     setRelocationCancelError(null);
     try {
-      const nextSettings = await API.cancelObjectStorageRelocation();
-      setLoad({ status: "ready", settings: nextSettings });
+      const nextSettings = await API.cancelObjectStorageRelocation(connection.id);
+      handleRelocationCancelled(nextSettings);
     } catch (error) {
       setRelocationCancelError(errMsg(error));
     } finally {
@@ -239,9 +293,26 @@ export function ObjectStorageBlock() {
     }
   };
   const handleTargetSaved = useCallback(
-    (target: NewImageTarget) => patchSettings({ new_image_target: target }),
-    [patchSettings],
+    (target: NewImageTarget) => {
+      invalidateReads();
+      patchSettings({ new_image_target: target });
+      void fetchConnection();
+    },
+    [patchSettings, fetchConnection, invalidateReads],
   );
+  const openDeleteDialog = async (connectionId: number) => {
+    const latest = (await fetchConnection())?.connection;
+    if (!latest || latest.id !== connectionId) return;
+    if ((latest.in_use_object_count ?? 0) > 0 || latest.relocating) {
+      setRelocationModal({
+        connectionId: latest.id,
+        mode: "delete",
+        initialDeleteRemote: latest.relocate_delete_remote ?? true,
+      });
+    } else {
+      setDeleteConnectionId(latest.id);
+    }
+  };
   const runTest = async () => {
     const generation = ++testGeneration.current;
     setTest({ status: "testing" });
@@ -249,19 +320,7 @@ export function ObjectStorageBlock() {
       const result = await API.checkObjectStorageConnection();
       if (generation !== testGeneration.current) return;
       setTest({ status: "result", result });
-      if (result.success) {
-        setLoad((prev) =>
-          prev.status === "ready" && prev.settings.connection?.needs_endpoint_review
-            ? {
-                status: "ready",
-                settings: {
-                  ...prev.settings,
-                  connection: { ...prev.settings.connection, needs_endpoint_review: false },
-                },
-              }
-            : prev,
-        );
-      }
+      if (result.success && connection?.needs_endpoint_review) void fetchConnection(true);
     } catch (error) {
       if (generation === testGeneration.current) setTest({ status: "error", error });
     }
@@ -280,7 +339,7 @@ export function ObjectStorageBlock() {
           <p className="text-sm text-muted-foreground">{t("object_storage_desc")}</p>
         </div>
         {load.status === "ready" && !connection && (
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setEditing(true)}>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => { setBaselineConnection(null); setEditing(true); }}>
             <Plus data-icon="inline-start" />
             {t("object_storage_configure")}
           </Button>
@@ -308,33 +367,21 @@ export function ObjectStorageBlock() {
           cancellingRelocation={cancellingRelocation}
           relocationCancelError={relocationCancelError}
           onTest={() => void runTest()}
-          onEdit={() => {
-            setEditing(true);
-            void refreshPendingIngest();
-          }}
-          onDelete={() => {
-            if ((connection.in_use_object_count ?? 0) > 0 || connection.relocating) {
-              setRelocationModal({
-                mode: "delete",
-                initialDeleteRemote: connection.relocate_delete_remote ?? true,
-              });
-            } else {
-              setDeleting(true);
-              void refreshPendingIngest();
-            }
-          }}
+          onEdit={() => void openEditor()}
+          onDelete={() => void openDeleteDialog(connection.id)}
           onResumeRelocation={() => {
             if (connection.relocate_mode === "delete") {
               setRelocationModal({
+                connectionId: connection.id,
                 mode: "delete",
                 initialDeleteRemote: connection.relocate_delete_remote ?? true,
               });
             } else {
-              setEditing(true);
+              void openEditor();
             }
           }}
           onCancelRelocation={() => void handleBannerCancelRelocation()}
-          onForceDisconnect={() => setForceDisconnectModal({ items: null })}
+          onForceDisconnect={() => setForceDisconnectModal({ items: null, connectionId: connection.id, needsRefreshOnClose: false })}
         />
       )}
 
@@ -349,23 +396,30 @@ export function ObjectStorageBlock() {
 
       {editing && (
         <ObjectStorageDialog
+          draft={draft}
+          baselineConnection={baselineConnection}
           connection={connection}
           pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
           onCancel={closeEditor}
+          onConflict={() => void fetchConnection(true)}
           onSaved={handleSaved}
-          onStartRelocation={(target, deleteRemote) => {
+          onStartRelocation={(target, nextDraft) => {
+            if (!baselineConnection) return;
+            setDraft(nextDraft);
             setEditing(false);
-            setRelocationModal({ mode: "switch", target, initialDeleteRemote: deleteRemote });
+            setRelocationModal({ connectionId: baselineConnection.id, mode: "switch", target, initialDeleteRemote: nextDraft.deleteRemote });
           }}
         />
       )}
-      {deleting && (
+      {deleteConnectionId !== null && (
         <DeleteObjectStorageDialog
+          expectedConnectionId={deleteConnectionId}
           pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
           newImageTarget={settings?.new_image_target ?? "local"}
-          onClose={() => setDeleting(false)}
+          onClose={() => setDeleteConnectionId(null)}
           onDeleted={(result, resetTarget) => {
-            setDeleting(false);
+            invalidateReads();
+            setDeleteConnectionId(null);
             resetTest();
             setRelocationResult(null);
             setForceDisconnectResult(null);
@@ -380,23 +434,38 @@ export function ObjectStorageBlock() {
       )}
       {relocationModal && (
         <RelocationDialog
+          initialConnectionId={relocationModal.connectionId}
           mode={relocationModal.mode}
           target={relocationModal.target}
           initialDeleteRemote={relocationModal.initialDeleteRemote}
-          onClose={() => setRelocationModal(null)}
-          onCompleted={handleRelocationCompleted}
-          onCancelled={handleRelocationCancelled}
-          onRequestForceDisconnect={(items) => {
+          onClose={(refresh) => {
             setRelocationModal(null);
-            setForceDisconnectModal({ items });
+            if (refresh) {
+              setDraft(null);
+              void fetchConnection();
+            } else if (draft) {
+              setEditing(true);
+            }
+          }}
+          onRun={() => setDraft(null)}
+          onCompleted={(result) => void handleRelocationCompleted(result)}
+          onCancelled={handleRelocationCancelled}
+          onRequestForceDisconnect={(items, connectionId, needsRefreshOnClose) => {
+            setRelocationModal(null);
+            setDraft(null);
+            setForceDisconnectModal({ items, connectionId, needsRefreshOnClose });
           }}
         />
       )}
       {forceDisconnectModal && (
         <ForceDisconnectDialog
           initialItems={forceDisconnectModal.items}
-          onClose={() => setForceDisconnectModal(null)}
-          onDisconnected={handleForceDisconnected}
+          initialConnectionId={forceDisconnectModal.connectionId}
+          onClose={() => {
+            setForceDisconnectModal(null);
+            if (forceDisconnectModal.needsRefreshOnClose) void fetchConnection(true);
+          }}
+          onDisconnected={(result) => void handleForceDisconnected(result)}
         />
       )}
       {relocationResult && (
@@ -479,7 +548,7 @@ function ConnectionCard({
           <dd className="font-mono">{connection.access_key_id_masked}</dd>
         </dl>
         <div className="flex shrink-0 items-center gap-1 self-start">
-          <Button variant="ghost" size="sm" disabled={test.status === "testing"} onClick={onTest}>
+          <Button variant="ghost" size="sm" disabled={test.status === "testing" || Boolean(connection.relocating)} onClick={onTest}>
             {test.status === "testing" ? (
               <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
             ) : (
@@ -778,44 +847,51 @@ function CleanupFailures({ failures }: { failures: Record<string, number> }) {
 }
 
 function ObjectStorageDialog({
-  connection,
+  draft,
+  connection: latestConnection,
+  baselineConnection: connection,
   pendingIngestTasks,
   onCancel,
   onSaved,
+  onConflict,
   onStartRelocation,
 }: {
+  draft: StorageDraft | null;
+  baselineConnection: ObjectStorageConnection | null;
   connection: ObjectStorageConnection | null;
   pendingIngestTasks: number;
   onCancel: () => void;
   onSaved: (connection: SavedObjectStorageConnection) => void;
-  onStartRelocation: (target: ObjectStorageRelocationTargetPayload, deleteRemote: boolean) => void;
+  onConflict: () => void;
+  onStartRelocation: (target: ObjectStorageRelocationTargetPayload, draft: StorageDraft) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
   const regionRef = useRef<HTMLInputElement>(null);
-  const [presetId, setPresetId] = useState<ObjectStoragePresetId>(() => detectPresetForEndpoint(connection?.endpoint));
-  const [autoSyncEndpoint, setAutoSyncEndpoint] = useState(false);
-  const [region, setRegion] = useState(connection?.region ?? "");
-  const [endpoint, setEndpoint] = useState(connection?.endpoint ?? "");
-  const [bucket, setBucket] = useState(connection?.bucket ?? "");
+  const [presetId, setPresetId] = useState<ObjectStoragePresetId>(() => draft?.presetId ?? detectPresetForEndpoint(connection?.endpoint));
+  const [autoSyncEndpoint, setAutoSyncEndpoint] = useState(draft?.autoSyncEndpoint ?? false);
+  const [region, setRegion] = useState(draft?.region ?? connection?.region ?? "");
+  const [endpoint, setEndpoint] = useState(draft?.endpoint ?? connection?.endpoint ?? "");
+  const [bucket, setBucket] = useState(draft?.bucket ?? connection?.bucket ?? "");
   const [addressingStyle, setAddressingStyle] = useState<ObjectStorageAddressingStyle>(
-    connection?.addressing_style ?? "auto",
+    draft?.addressingStyle ?? connection?.addressing_style ?? "auto",
   );
-  const [accessKeyId, setAccessKeyId] = useState("");
-  const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [accessKeyId, setAccessKeyId] = useState(draft?.accessKeyId ?? "");
+  const [secretAccessKey, setSecretAccessKey] = useState(draft?.secretAccessKey ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteRemote, setDeleteRemote] = useState(true);
+  const [deleteRemote, setDeleteRemote] = useState(draft?.deleteRemote ?? true);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const creating = connection === null;
   const activePreset = getObjectStoragePreset(presetId);
   const endpointUnresolvedPlaceholder = hasEndpointPlaceholder(endpoint);
   const changesBucket =
-    !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
+    !!connection && (normalizedEndpoint(endpoint) !== normalizedEndpoint(connection.endpoint) || bucket.trim() !== connection.bucket);
   const changesRegion = !!connection && region.trim() !== connection.region;
   const requiresRelocation =
     !!connection &&
-    ((connection.in_use_object_count ?? 0) > 0 || Boolean(connection.relocating)) &&
+    latestConnection?.id === connection.id &&
+    ((latestConnection.in_use_object_count ?? 0) > 0 || Boolean(latestConnection.relocating)) &&
     (changesBucket || changesRegion);
   const requiresKeys = creating || changesBucket;
   const complete = Boolean(
@@ -843,6 +919,10 @@ function ObjectStorageDialog({
         setAddressingStyle(preset.defaultAddressingStyle);
       }
       return;
+    }
+    if (nextId !== presetId) {
+      setAccessKeyId("");
+      setSecretAccessKey("");
     }
     setAutoSyncEndpoint(preset.endpointTemplate.includes("{region}"));
     setRegion(preset.defaultRegion);
@@ -879,6 +959,7 @@ function ObjectStorageDialog({
     setError(null);
     try {
       const saved = await API.saveObjectStorageConnection({
+        expected_connection_id: connection?.id,
         kind: "s3",
         region: region.trim(),
         endpoint: endpoint.trim(),
@@ -892,12 +973,14 @@ function ObjectStorageDialog({
       return true;
     } catch (err) {
       setError(errMsg(err));
+      if (err instanceof ApiRequestError && err.status === 409) onConflict();
       return false;
     } finally {
       setSubmitting(false);
     }
   }, [
     complete,
+    connection,
     region,
     endpoint,
     bucket,
@@ -906,6 +989,7 @@ function ObjectStorageDialog({
     secretAccessKey,
     changesBucket,
     deleteRemote,
+    onConflict,
     onSaved,
   ]);
 
@@ -922,7 +1006,7 @@ function ObjectStorageDialog({
           access_key_id: accessKeyId.trim() || undefined,
           secret_access_key: secretAccessKey.trim() || undefined,
         },
-        deleteRemote,
+        { presetId, autoSyncEndpoint, region, endpoint, bucket, addressingStyle, accessKeyId, secretAccessKey, deleteRemote },
       );
       return false;
     }
@@ -934,6 +1018,8 @@ function ObjectStorageDialog({
   }, [
     complete,
     requiresRelocation,
+    presetId,
+    autoSyncEndpoint,
     onStartRelocation,
     region,
     endpoint,
@@ -971,6 +1057,7 @@ function ObjectStorageDialog({
         {label}
       </label>
       <Input
+        disabled={submitting}
         mono={options.mono}
         ref={options.ref}
         id={`${idPrefix}-${key}`}
@@ -1019,6 +1106,7 @@ function ObjectStorageDialog({
                     const selected = preset.id === presetId;
                     return (
                       <button
+                        disabled={submitting}
                         key={preset.id}
                         type="button"
                         aria-pressed={selected}
@@ -1058,6 +1146,7 @@ function ObjectStorageDialog({
                   {t("object_storage_addressing_style")}
                 </span>
                 <Select
+                  disabled={submitting}
                   items={addressingStyleItems}
                   value={addressingStyle}
                   onValueChange={(next) => {
@@ -1152,12 +1241,14 @@ function ObjectStorageDialog({
 }
 
 function DeleteObjectStorageDialog({
+  expectedConnectionId,
   pendingIngestTasks,
   newImageTarget,
   onClose,
   onDeleted,
 }: {
   pendingIngestTasks: number;
+  expectedConnectionId: number;
   newImageTarget: NewImageTarget;
   onClose: () => void;
   onDeleted: (result: ObjectStorageCleanupResult, resetTarget: boolean) => void;
@@ -1172,9 +1263,7 @@ function DeleteObjectStorageDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const result = willResetTarget
-        ? await API.deleteObjectStorageConnection(deleteRemote, { resetNewImageTarget: true })
-        : await API.deleteObjectStorageConnection(deleteRemote);
+      const result = await API.deleteObjectStorageConnection(deleteRemote, { expectedConnectionId, resetNewImageTarget: willResetTarget });
       onDeleted(result, willResetTarget);
     } catch (err) {
       setError(errMsg(err));

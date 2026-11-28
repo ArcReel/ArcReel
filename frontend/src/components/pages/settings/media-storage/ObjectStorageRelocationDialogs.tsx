@@ -3,10 +3,10 @@ import { Check, ChevronRight, CircleAlert, Copy, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { ApiRequestError } from "@/api/errors";
 import { RequestErrorNotice } from "@/components/shared/RequestErrorNotice";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogBody,
   AlertDialogCancel,
   AlertDialogContent,
@@ -18,15 +18,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import type {
   ObjectStorageForceDisconnectResult,
   ObjectStorageRelocationMode,
@@ -38,6 +29,19 @@ import type {
   ObjectStorageUnrecoverableItem,
 } from "@/types";
 import { errMsg } from "@/utils/async";
+
+const holderKeys = new Map([
+  ["project_version", "object_storage_holder_version"],
+  ["deleted_project_version", "object_storage_holder_deleted_version"],
+  ["global_asset", "object_storage_holder_asset"],
+  ["global_derivative", "object_storage_holder_derivative"],
+  ["project_trash_version", "object_storage_holder_trash"],
+  ["project_trash_snapshot", "object_storage_holder_trash"],
+  ["project_trash_script_overwrite", "object_storage_holder_trash"],
+  ["deleted_project_trash_version", "object_storage_holder_deleted_trash"],
+  ["deleted_project_trash_snapshot", "object_storage_holder_deleted_trash"],
+  ["deleted_project_trash_script_overwrite", "object_storage_holder_deleted_trash"],
+]);
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
@@ -54,7 +58,9 @@ function formatBytes(bytes: number): string {
 export function RelocationDialog({
   mode,
   target,
+  initialConnectionId,
   initialDeleteRemote = true,
+  onRun,
   onClose,
   onCompleted,
   onCancelled,
@@ -62,13 +68,16 @@ export function RelocationDialog({
 }: {
   mode: ObjectStorageRelocationMode;
   target?: ObjectStorageRelocationTargetPayload | null;
+  initialConnectionId?: number | null;
   initialDeleteRemote?: boolean;
-  onClose: () => void;
+  onRun: () => void;
+  onClose: (refresh: boolean) => void;
   onCompleted: (result: ObjectStorageRelocationRunResult) => void;
   onCancelled: (settings: ObjectStorageSettings) => void;
-  onRequestForceDisconnect: (items: ObjectStorageUnrecoverableItem[]) => void;
+  onRequestForceDisconnect: (items: ObjectStorageUnrecoverableItem[] | null, connectionId: number | null, needsRefreshOnClose: boolean) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const keepRemoteId = useId();
   const [plan, setPlan] = useState<ObjectStorageRelocationPlan | null>(null);
   const [loadingPlan, setLoadingPlan] = useState(true);
@@ -77,9 +86,13 @@ export function RelocationDialog({
   const [running, setRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [progress, setProgress] = useState<ObjectStorageRelocationProgress | null>(null);
-  const [incomplete, setIncomplete] = useState<ObjectStorageRelocationRunResult | null>(null);
+  const [incomplete, setIncomplete] = useState<(ObjectStorageRelocationRunResult & { connectionId: number }) | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
 
+  const confirmedConnectionId = useRef<number | null>(initialConnectionId ?? null);
+  const refreshOnClose = useRef(false);
+  const [connectionChanged, setConnectionChanged] = useState(false);
+  const close = () => onClose(refreshOnClose.current);
   const planController = useRef<AbortController | null>(null);
   const loadPlan = useCallback(async () => {
     planController.current?.abort();
@@ -90,6 +103,13 @@ export function RelocationDialog({
     try {
       const next = await API.getObjectStorageRelocationPlan({ signal: controller.signal });
       if (controller.signal.aborted) return;
+      if (confirmedConnectionId.current !== null && next.connection_id !== confirmedConnectionId.current) {
+        refreshOnClose.current = true;
+        setConnectionChanged(true);
+        return;
+      }
+      confirmedConnectionId.current = next.connection_id;
+      if (next.relocating) refreshOnClose.current = true;
       setPlan(next);
       if (next.relocating && next.relocate_delete_remote !== null) {
         setKeepRemote(!next.relocate_delete_remote);
@@ -111,10 +131,16 @@ export function RelocationDialog({
   useEffect(() => {
     if (!running) return;
     const controller = new AbortController();
+    let requestSeq = 0;
+    let latestAppliedSeq = 0;
     const poll = async () => {
+      const seq = ++requestSeq;
       try {
         const next = await API.getObjectStorageRelocationStatus({ signal: controller.signal });
-        if (!controller.signal.aborted) setProgress(next);
+        if (!controller.signal.aborted && seq > latestAppliedSeq) {
+          latestAppliedSeq = seq;
+          setProgress(next);
+        }
       } catch {
         return;
       }
@@ -127,17 +153,21 @@ export function RelocationDialog({
   }, [running]);
 
   const busy = running || cancelling;
-  const reusableCount = plan ? Math.max(0, plan.in_use_object_count - plan.download_object_count) : 0;
+  const reusableCount = plan?.reusable_local_object_count ?? 0;
   const inFlight = plan?.in_flight_uploads ?? 0;
 
   const startOrRetry = async () => {
-    if (busy || loadingPlan) return;
+    if (busy || loadingPlan || !plan || planError !== null || connectionChanged || inFlight > 0) return;
+    refreshOnClose.current = true;
+    onRun();
+    setProgress(null);
     setRunning(true);
     setRunError(null);
     setIncomplete(null);
     try {
       const result = await API.runObjectStorageRelocation({
         mode,
+        expected_connection_id: plan.connection_id,
         delete_remote_objects: !keepRemote,
         target: mode === "switch" ? (target ?? null) : null,
       });
@@ -145,10 +175,12 @@ export function RelocationDialog({
         onCompleted(result);
         return;
       }
-      setIncomplete(result);
+      setPlan(null);
+      setIncomplete({ ...result, connectionId: plan.connection_id });
       void loadPlan();
     } catch (error) {
       setRunError(errMsg(error));
+      void loadPlan();
     } finally {
       setRunning(false);
     }
@@ -159,7 +191,7 @@ export function RelocationDialog({
     setCancelling(true);
     setRunError(null);
     try {
-      const settings = await API.cancelObjectStorageRelocation();
+      const settings = await API.cancelObjectStorageRelocation(confirmedConnectionId.current);
       onCancelled(settings);
     } catch (error) {
       setRunError(errMsg(error));
@@ -172,33 +204,35 @@ export function RelocationDialog({
   const canForceDisconnect = Boolean(incomplete?.unreachable || plan?.relocating);
 
   return (
-    <Dialog
+    <AlertDialog
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open && !busy) close();
       }}
     >
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>
+      <AlertDialogContent size="lg" initialFocus={cancelRef}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
             {t(mode === "switch" ? "object_storage_relocation_title_switch" : "object_storage_relocation_title_delete")}
-          </DialogTitle>
-          <DialogDescription>
+          </AlertDialogTitle>
+          <AlertDialogDescription>
             {t(mode === "switch" ? "object_storage_relocation_desc_switch" : "object_storage_relocation_desc_delete")}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogBody>
           <div className="flex flex-col gap-3">
             {loadingPlan && !plan ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 aria-hidden className="size-4 animate-spin text-primary" />
                 {t("object_storage_relocation_loading_plan")}
               </p>
-            ) : planError !== null && !plan ? (
+            ) : planError !== null ? (
               <RequestErrorNotice
                 error={planError}
                 action={{ label: t("common:retry"), onClick: () => void loadPlan() }}
               />
+            ) : connectionChanged ? (
+              <p role="alert" className="text-sm text-destructive">{t("object_storage_relocation_connection_changed")}</p>
             ) : (
               plan && (
                 <>
@@ -244,6 +278,7 @@ export function RelocationDialog({
                       <p className="min-w-0 flex-1 wrap-break-word">
                         {t("object_storage_relocation_in_flight_warning", { count: inFlight })}
                       </p>
+                      <Button size="xs" variant="outline" disabled={busy || loadingPlan} onClick={() => void loadPlan()}>{t("common:refresh")}</Button>
                     </div>
                   )}
 
@@ -253,7 +288,7 @@ export function RelocationDialog({
                         id={keepRemoteId}
                         checked={keepRemote}
                         onCheckedChange={setKeepRemote}
-                        disabled={busy}
+                        disabled={busy || showCancelConvergence}
                       />
                       <label htmlFor={keepRemoteId} className="text-sm font-medium">
                         {t("object_storage_relocation_keep_remote_label")}
@@ -340,34 +375,37 @@ export function RelocationDialog({
               </p>
             )}
           </div>
-        </DialogBody>
-        <DialogFooter className="flex-wrap">
+        </AlertDialogBody>
+        <AlertDialogFooter className="flex-wrap">
           {canForceDisconnect && (
             <Button
               variant="destructive"
               size="sm"
               className="mr-auto"
-              disabled={busy}
+              disabled={busy || connectionChanged || loadingPlan || planError !== null}
               onClick={() =>
-                onRequestForceDisconnect(incomplete?.unrecoverable_items ?? plan?.unrecoverable_items ?? [])
+                onRequestForceDisconnect(
+                  plan?.unrecoverable_items ?? (incomplete?.unreachable ? incomplete.unrecoverable_items : null),
+                  incomplete?.connectionId ?? plan?.connection_id ?? null,
+                  refreshOnClose.current,
+                )
               }
             >
               {t("object_storage_relocating_force_disconnect_entry")}
             </Button>
           )}
-          {showCancelConvergence ? (
-            <Button variant="outline" disabled={busy} onClick={() => void handleCancelConvergence()}>
+          {showCancelConvergence && (
+            <Button ref={cancelRef} variant="outline" disabled={busy || connectionChanged || loadingPlan || planError !== null} onClick={() => void handleCancelConvergence()}>
               {cancelling && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
               {t("object_storage_relocating_cancel")}
             </Button>
-          ) : (
-            <Button variant="outline" disabled={busy} onClick={onClose}>
-              {t("common:cancel")}
-            </Button>
           )}
+          <Button ref={showCancelConvergence ? undefined : cancelRef} variant="outline" disabled={busy} onClick={close}>
+            {t(showCancelConvergence ? "common:close" : "common:cancel")}
+          </Button>
           <Button
-            variant={mode === "delete" ? "destructive" : "default"}
-            disabled={busy || loadingPlan || !plan || inFlight > 0}
+            variant={mode === "delete" || !keepRemote ? "destructive" : "default"}
+            disabled={busy || loadingPlan || !plan || inFlight > 0 || planError !== null || connectionChanged}
             onClick={() => void startOrRetry()}
           >
             {running && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
@@ -375,24 +413,28 @@ export function RelocationDialog({
               ? t("object_storage_relocation_retry")
               : t(mode === "switch" ? "object_storage_relocation_start_switch" : "object_storage_relocation_start_delete")}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
 export function ForceDisconnectDialog({
   initialItems,
+  initialConnectionId,
   onClose,
   onDisconnected,
 }: {
+  initialConnectionId?: number | null;
   initialItems?: ObjectStorageUnrecoverableItem[] | null;
   onClose: () => void;
   onDisconnected: (result: ObjectStorageForceDisconnectResult) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const confirmedId = useRef(initialConnectionId ?? null);
+  const [connectionId, setConnectionId] = useState(initialConnectionId ?? null);
   const [items, setItems] = useState<ObjectStorageUnrecoverableItem[]>(initialItems ?? []);
-  const [loading, setLoading] = useState(initialItems == null);
+  const [loading, setLoading] = useState(initialItems == null || initialConnectionId == null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -408,6 +450,13 @@ export function ForceDisconnectDialog({
     try {
       const plan = await API.getObjectStorageRelocationPlan({ signal: controller.signal });
       if (controller.signal.aborted) return;
+      if (confirmedId.current !== null && confirmedId.current !== plan.connection_id) {
+        setConnectionId(null);
+        setLoadError(new Error(t("object_storage_relocation_connection_changed")));
+        return;
+      }
+      confirmedId.current = plan.connection_id;
+      setConnectionId(plan.connection_id);
       setItems(plan.unrecoverable_items);
     } catch (err) {
       if (controller.signal.aborted) return;
@@ -415,17 +464,21 @@ export function ForceDisconnectDialog({
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    if (initialItems != null) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 未传清单时于弹层打开拉取无法拉回列表，属于受控的初始化加载
-    void fetchItems();
+    if (initialItems == null || initialConnectionId == null) void fetchItems();
     return () => loadController.current?.abort();
-  }, [initialItems, fetchItems]);
+  }, [initialItems, initialConnectionId, fetchItems]);
+
+  const holderLabel = (kind: string) => {
+    const key = holderKeys.get(kind);
+    return key ? t(key) : kind;
+  };
 
   const handleCopy = async () => {
-    const text = items.map((item) => `${item.holder_label}\t${item.path}\t${item.digest}`).join("\n");
+    const text = items.map((item) => `${holderLabel(item.holder_kind)}\t${item.holder_label}\t${item.path}\t${item.digest}`).join("\n");
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -436,14 +489,15 @@ export function ForceDisconnectDialog({
   };
 
   const handleConfirm = async () => {
-    if (submitting) return;
+    if (submitting || loading || connectionId === null || loadError !== null) return;
     setSubmitting(true);
     setError(null);
     try {
-      const result = await API.forceDisconnectObjectStorage();
+      const result = await API.forceDisconnectObjectStorage(connectionId, items.map((item) => item.confirmation_key));
       onDisconnected(result);
     } catch (err) {
       setError(errMsg(err));
+      if (err instanceof ApiRequestError && err.status === 409) await fetchItems();
     } finally {
       setSubmitting(false);
     }
@@ -489,12 +543,13 @@ export function ForceDisconnectDialog({
                     {t(copied ? "object_storage_force_disconnect_copied" : "object_storage_force_disconnect_copy")}
                   </Button>
                 </div>
-                <ul className="relative flex max-h-48 flex-col gap-1.5 overflow-y-auto text-xs">
+                <ul className="relative flex flex-col gap-1.5 text-xs">
                   {items.map((item) => (
                     <li
-                      key={`${item.holder_kind}:${item.holder_label}:${item.path}:${item.digest}`}
+                      key={item.confirmation_key}
                       className="flex flex-col gap-0.5 rounded border border-border/60 bg-background/80 px-2 py-1.5"
                     >
+                      <span>{holderLabel(item.holder_kind)}</span>
                       <span className="font-medium wrap-break-word text-foreground">{item.holder_label}</span>
                       <span className="font-mono wrap-break-word text-muted-foreground" translate="no">
                         {item.path} · {item.digest.slice(0, 12)}
@@ -514,10 +569,10 @@ export function ForceDisconnectDialog({
         </AlertDialogBody>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" disabled={submitting || loading} onClick={() => void handleConfirm()}>
+          <Button variant="destructive" disabled={submitting || loading || connectionId === null || loadError !== null} onClick={() => void handleConfirm()}>
             {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
             {t("object_storage_force_disconnect_confirm")}
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

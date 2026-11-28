@@ -120,6 +120,9 @@ export function getObjectStoragePreset(id: ObjectStoragePresetId): ObjectStorage
 export function buildPresetEndpoint(preset: ObjectStoragePreset, region: string): string {
   if (!preset.endpointTemplate) return "";
   const effectiveRegion = region.trim() || preset.defaultRegion;
+  if (preset.id === "aws-s3" && effectiveRegion.toLowerCase().startsWith("cn-")) {
+    return `https://s3.${effectiveRegion}.amazonaws.com.cn`;
+  }
   return preset.endpointTemplate.replace("{region}", effectiveRegion);
 }
 
@@ -127,18 +130,42 @@ export function hasEndpointPlaceholder(endpoint: string): boolean {
   return /<[^>]+>/.test(endpoint);
 }
 
+function parseEndpointHostname(endpoint: string): string | null {
+  const trimmed = endpoint.trim();
+  if (!trimmed) return null;
+  const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+  try {
+    return new URL(candidate).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function hostMatchesDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 export function detectPresetForEndpoint(endpoint: string | undefined): ObjectStoragePresetId {
   if (!endpoint) return "custom";
-  const lower = endpoint.trim().toLowerCase();
-  if (!lower) return "custom";
-  if (lower.includes(".aliyuncs.com")) return "aliyun-oss";
-  if (lower.includes(".myqcloud.com")) return "tencent-cos";
-  if (lower.includes(".volces.com") || lower.includes(".ivolces.com") || lower.includes(".bytepluses.com") || lower.includes(".ibytepluses.com")) {
+  const hostname = parseEndpointHostname(endpoint);
+  if (!hostname) return "custom";
+  if (hostMatchesDomain(hostname, "aliyuncs.com")) return "aliyun-oss";
+  if (hostMatchesDomain(hostname, "myqcloud.com")) return "tencent-cos";
+  if (
+    hostMatchesDomain(hostname, "volces.com") ||
+    hostMatchesDomain(hostname, "ivolces.com") ||
+    hostMatchesDomain(hostname, "bytepluses.com") ||
+    hostMatchesDomain(hostname, "ibytepluses.com")
+  ) {
     return "volcengine-tos";
   }
-  if (lower.includes(".r2.cloudflarestorage.com")) return "cloudflare-r2";
-  if (lower.includes(".qiniucs.com")) return "qiniu-kodo";
-  if (lower.includes(".amazonaws.com")) return "aws-s3";
-  if (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/.test(lower)) return "minio";
+  if (hostMatchesDomain(hostname, "r2.cloudflarestorage.com")) return "cloudflare-r2";
+  if (hostMatchesDomain(hostname, "qiniucs.com")) return "qiniu-kodo";
+  if (hostMatchesDomain(hostname, "amazonaws.com") || hostMatchesDomain(hostname, "amazonaws.com.cn")) {
+    return "aws-s3";
+  }
+  if (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]" || hostname === "::1") {
+    return "minio";
+  }
   return "custom";
 }

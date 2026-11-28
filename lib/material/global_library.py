@@ -61,6 +61,7 @@ from lib.material.work_files import (
     evict_idle_work_file,
     fetch_object_content,
     in_use_or_recent,
+    is_connection_relocating_in_process,
 )
 from lib.project.asset_types import ASSET_SPECS
 
@@ -321,7 +322,9 @@ async def ensure_global_image(
     return True
 
 
-def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int]:
+def _evict(target: Path, digest: str, idle_before: float, connection_id: int) -> tuple[int, int, int]:
+    if is_connection_relocating_in_process(connection_id):
+        return 0, 0, 0
     try:
         stat_result = target.stat()
     except OSError:
@@ -330,7 +333,7 @@ def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int
         return 0, 0, 1
     if sha256_file(target) != digest:
         return 0, 0, 0
-    return evict_idle_work_file(target, stat_result, idle_before)
+    return evict_idle_work_file(target, stat_result, idle_before, connection_id)
 
 
 async def cleanup_global_work_files(
@@ -388,7 +391,7 @@ async def cleanup_global_work_files(
                 ):
                     continue
             count, size, in_use = await asyncio.to_thread(
-                _evict, Path(data_root) / image.path, image.digest, idle_before
+                _evict, Path(data_root) / image.path, image.digest, idle_before, image.stored.connection_id
             )
             removed += count
             freed += size
