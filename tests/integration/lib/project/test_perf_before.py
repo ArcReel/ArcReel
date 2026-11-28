@@ -5,6 +5,7 @@ from zipfile import ZipFile
 import pytest
 
 from lib.artifacts.version_manager import VersionManager
+from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations import run_project_migrations
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -21,16 +22,26 @@ def test_workflow_before(tmp_path, sqlite):
     with ZipFile(FIXTURES / "workflow-v2.zip") as archive:
         root = pm.projects_dir / "demo"
         archive.extractall(root)
+        project_file = root / "project.json"
+        project = json.loads(project_file.read_bytes())
+        project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+        project_file.write_text(json.dumps(project), encoding="utf-8")
         if sqlite:
             manager = VersionManager(root)
             manager.versions_file.unlink()
             manager.enable_sqlite_history(json.loads(archive.read("versions/versions.json")))
+    expected_revision = prefixed_canonical_json_digest(project)
     status = WorkflowStateService(pm).get_status("demo")
     expected_status = json.loads((FIXTURES / "wf_status.json").read_bytes())
-    assert status.model_dump(mode="json") == {**expected_status, "schema_version": 3}
+    assert status.model_dump(mode="json") == {
+        **expected_status,
+        "schema_version": 3,
+        "project_revision": expected_revision,
+    }
     plan = build_workflow_plan(status)
     expected_plan = json.loads((FIXTURES / "wf_plan.json").read_bytes())
     expected_plan["schema_version"] = expected_plan["status"]["schema_version"] = 3
+    expected_plan["status"]["project_revision"] = expected_revision
     assert plan.model_dump(mode="json") == expected_plan
 
 
@@ -59,7 +70,10 @@ def test_archive_before(tmp_path, scope):
             assert not any(
                 "history.sqlite3" in name or ".history-undo" in name or ".bak.v" in name for name in package.namelist()
             )
-            assert json.loads(package.read(f"{path.name}/project.json"))["schema_version"] == 21
+            assert (
+                json.loads(package.read(f"{path.name}/project.json"))["schema_version"]
+                == CURRENT_PROJECT_SCHEMA_VERSION
+            )
         fresh = ProjectManager(tmp_path / "restored")
         imported = ProjectArchiveService(fresh).import_project_archive(archive)
         restored = fresh.get_project_path(imported.project_name)

@@ -8,7 +8,7 @@ from lib.artifacts.sqlite_history import SQLiteHistory
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations import v20_to_v21_retired_drafts as step
-from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_migrations.runner import migrate_project_dir, run_project_migrations
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.project.project_archive import ProjectArchiveService, ProjectArchiveValidationError
 
@@ -87,7 +87,6 @@ def test_empty_absent_and_corrupt_legacy_history(tmp_path: Path, payload):
         None,
         "[",
         "[]",
-        '{"unknown":7}',
         '{"videos":{"a":{"versions":[],"current_version":"invalid"}}}',
         '{"videos":{"a":{"versions":[{"file":"versions/videos/a.mp4"}]}}}',
     ],
@@ -102,6 +101,23 @@ def test_current_archive_requires_valid_exchange_history(tmp_path, history):
     with pytest.raises(ProjectArchiveValidationError) as failure:
         ProjectArchiveService(projects).import_project_archive(archive)
     assert failure.value.status_code == 400
+    assert projects.list_projects() == []
+
+
+@pytest.mark.parametrize("schema_version", [21, 22])
+def test_sqlite_archive_rejects_malformed_unknown_bucket(tmp_path, schema_version):
+    source = ProjectManager(tmp_path / "source")
+    source.create_project("demo")
+    project = source.create_project_metadata("demo") | {"schema_version": schema_version}
+    archive = tmp_path / "broken.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr("demo/project.json", json.dumps(project))
+        output.writestr("demo/versions/versions.json", '{"unknown":7}')
+    projects = ProjectManager(tmp_path / "target")
+    with pytest.raises(ProjectArchiveValidationError) as failure:
+        ProjectArchiveService(projects).import_project_archive(archive)
+    assert failure.value.status_code == 400
+    assert [error.key for error in failure.value.errors] == ["arch_version_history_malformed"]
     assert projects.list_projects() == []
 
 
@@ -131,3 +147,32 @@ def test_current_native_project_prefers_its_database_and_retires_conflicting_exc
     assert report is not None
     assert report.adjusted[-1].backup
     assert json.loads((tmp_path / report.adjusted[-1].backup).read_bytes()) == {"audio": {}}
+
+
+@pytest.mark.parametrize("history", ['{"videos":{}}', '{"future_bucket":{"a":{"versions":[]}}}'])
+def test_future_schema_project_is_not_mutated_by_startup_or_archive_import(tmp_path: Path, history: str) -> None:
+    future_version = CURRENT_PROJECT_SCHEMA_VERSION + 1
+    projects_dir = tmp_path / "projects"
+    project_dir = projects_dir / "future"
+    (project_dir / "versions").mkdir(parents=True)
+    (project_dir / "project.json").write_text(json.dumps({"schema_version": future_version}))
+    exchange = project_dir / "versions" / "versions.json"
+    exchange.write_text('{"videos":{}}')
+
+    assert migrate_project_dir(project_dir) is False
+    summary = run_project_migrations(projects_dir)
+    assert summary.skipped == ["future"]
+    assert summary.migrated == []
+    assert summary.failed == []
+    assert exchange.read_text() == '{"videos":{}}'
+    assert not SQLiteHistory(project_dir).path.exists()
+
+    archive = tmp_path / "future.zip"
+    with ZipFile(archive, "w") as output:
+        output.writestr("future/project.json", json.dumps({"schema_version": future_version, "content_mode": "drama"}))
+        output.writestr("future/versions/versions.json", history)
+    projects = ProjectManager(tmp_path / "target")
+    with pytest.raises(ProjectArchiveValidationError) as rejected:
+        ProjectArchiveService(projects).import_project_archive(archive)
+    assert rejected.value.status_code == 400
+    assert projects.list_projects() == []

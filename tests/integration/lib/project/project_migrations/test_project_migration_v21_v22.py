@@ -24,7 +24,14 @@ from lib.episode.episode_replan import (
 from lib.episode.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
-from lib.project.project_migration_report import load_migration_report
+from lib.project.project_migration_report import (
+    MigrationAdjustment,
+    MigrationReport,
+    MigrationSkippedArtifact,
+    load_migration_report,
+    migration_report_path,
+    write_migration_report,
+)
 from lib.project.project_migrations import v21_to_v22_episode_source_names as step
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -126,6 +133,57 @@ def _none_entry(episode: int) -> dict[str, Any]:
         "source_origin": "none",
         "ledger_status": "planned",
     }
+
+
+def _write_acknowledged_report(project_dir: Path) -> MigrationReport:
+    report = MigrationReport(
+        from_schema_version=14,
+        to_schema_version=21,
+        migrated_at="2026-01-01T00:00:00Z",
+        acknowledged_at="2026-01-02T00:00:00Z",
+        adjusted=[MigrationAdjustment(code="placeholder_asset_added", file="project.json")],
+        skipped=[
+            MigrationSkippedArtifact(
+                kind="character",
+                resource_id="a",
+                artifact_path="a.png",
+                reason="unreadable image",
+                category="unreadable",
+            )
+        ],
+        registered={"character": 2},
+    )
+    write_migration_report(project_dir, report)
+    return report
+
+
+def test_filename_adjustment_extends_acknowledged_report(tmp_path: Path) -> None:
+    project_dir = _make_v21_project(tmp_path, episodes=[_own_entry(1)], source_files={"episode_01.txt": b"body"})
+    previous = _write_acknowledged_report(project_dir)
+
+    assert migrate_project_dir(project_dir)
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.complete
+    assert report.from_schema_version == previous.from_schema_version
+    assert report.to_schema_version == 22
+    assert report.acknowledged_at is None
+    assert report.skipped == previous.skipped
+    assert report.registered == previous.registered
+    assert report.adjusted[:-1] == previous.adjusted
+    assert report.adjusted[-1].code == "episode_source_canonicalized"
+
+
+def test_no_adjustment_leaves_acknowledged_report_untouched(tmp_path: Path) -> None:
+    project_dir = _make_v21_project(tmp_path, episodes=[_own_entry(1)], source_files={"episode_1.txt": b"body"})
+    _write_acknowledged_report(project_dir)
+    path = migration_report_path(project_dir)
+    before = path.read_bytes()
+
+    assert migrate_project_dir(project_dir)
+
+    assert path.read_bytes() == before
 
 
 def test_only_padded_alias_promotes_to_canonical_and_readable_by_workflow(tmp_path: Path) -> None:
@@ -343,6 +401,7 @@ def test_failure_before_schema_commit_recovers_on_retry_and_is_idempotent(
             "episode_002.txt": b"ep2-conflict-b",
         },
     )
+    previous = _write_acknowledged_report(project_dir)
     real_write = step.atomic_write_json
 
     def fail_on_project(path: Path, payload: object) -> None:
@@ -359,6 +418,9 @@ def test_failure_before_schema_commit_recovers_on_retry_and_is_idempotent(
     partial_report = load_migration_report(project_dir)
     assert partial_report is not None
     assert partial_report.complete is False
+    assert partial_report.skipped == previous.skipped
+    assert partial_report.registered == previous.registered
+    assert partial_report.adjusted[:1] == previous.adjusted
 
     assert migrate_project_dir(project_dir) is True
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -368,7 +430,13 @@ def test_failure_before_schema_commit_recovers_on_retry_and_is_idempotent(
     final_report = load_migration_report(project_dir)
     assert final_report is not None
     assert final_report.complete is True
-    assert len(final_report.adjusted) == 3
+    assert final_report.skipped == previous.skipped
+    assert final_report.registered == previous.registered
+    assert final_report.adjusted == partial_report.adjusted
+    assert len(final_report.adjusted) == len(previous.adjusted) + 3
+    assert final_report.from_schema_version == previous.from_schema_version
+    assert final_report.to_schema_version == 22
+    assert final_report.acknowledged_at is None
 
     before = {p.relative_to(project_dir): p.read_bytes() for p in (project_dir / "source").iterdir() if p.is_file()}
     assert migrate_project_dir(project_dir) is False
@@ -392,6 +460,87 @@ def test_interrupted_ambiguous_group_retry_does_not_promote_remaining_conflict(t
     assert not (project_dir / "source/episode_01.txt").exists()
     kept_files = sorted(p.name for p in (project_dir / "source").glob("episode_*.txt.kept.v21-*"))
     assert len(kept_files) == 2
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.complete is True
+    assert sorted(item.backup for item in report.adjusted if item.backup is not None) == [
+        f"source/{name}" for name in kept_files
+    ]
+    assert {(item.file, item.episode) for item in report.adjusted} == {
+        ("source/episode_001.txt", 1),
+        ("source/episode_01.txt", 1),
+    }
+
+
+def test_interrupted_after_all_aliases_preserved_still_records_kept_copies_in_report(tmp_path: Path) -> None:
+    project_dir = _make_v21_project(
+        tmp_path / "projects",
+        episodes=[_own_entry(1)],
+        source_files={"episode_01.txt.kept.v21-100": b"preserved-before-crash"},
+    )
+
+    assert migrate_project_dir(project_dir) is True
+    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.complete is True
+    assert [(item.code, item.episode, item.file, item.backup) for item in report.adjusted] == [
+        ("episode_source_alias_preserved", 1, "source/episode_01.txt", "source/episode_01.txt.kept.v21-100")
+    ]
+
+
+def test_canonical_symlink_to_alias_preserves_readable_canonical_source(tmp_path: Path) -> None:
+    project_dir = _make_v21_project(
+        tmp_path / "projects",
+        episodes=[_cut_entry(1, 0, CUT_1), _own_entry(2)],
+        source_files={
+            "episode_01.txt": SOURCE_TEXT[:CUT_1].encode("utf-8"),
+            "episode_001.txt": b"diverged-extra-alias",
+            "episode_02.txt": b"episode-two-body",
+        },
+    )
+    (project_dir / "source/episode_1.txt").symlink_to("episode_01.txt")
+
+    assert migrate_project_dir(project_dir) is True
+
+    ep1 = project_dir / "source/episode_1.txt"
+    assert not ep1.is_symlink()
+    assert ep1.read_text(encoding="utf-8") == SOURCE_TEXT[:CUT_1]
+    assert not (project_dir / "source/episode_01.txt").exists()
+    assert not (project_dir / "source/episode_001.txt").exists()
+    assert discover_episode_files(project_dir) == {
+        1: ep1,
+        2: project_dir / "source/episode_2.txt",
+    }
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert [item.code for item in report.adjusted] == [
+        "episode_source_canonicalized",
+        "episode_source_alias_preserved",
+        "episode_source_canonicalized",
+    ]
+    preserved = next(item for item in report.adjusted if item.code == "episode_source_alias_preserved")
+    assert preserved.backup is not None
+    assert (project_dir / preserved.backup).read_bytes() == b"diverged-extra-alias"
+
+
+def test_canonical_symlink_to_other_episode_alias_is_materialized_before_move(tmp_path: Path) -> None:
+    project_dir = _make_v21_project(
+        tmp_path / "projects",
+        episodes=[_own_entry(1), _own_entry(2)],
+        source_files={"episode_02.txt": b"shared-source-body"},
+    )
+    (project_dir / "source/episode_1.txt").symlink_to("episode_02.txt")
+
+    assert migrate_project_dir(project_dir) is True
+
+    ep1 = project_dir / "source/episode_1.txt"
+    ep2 = project_dir / "source/episode_2.txt"
+    assert not ep1.is_symlink()
+    assert ep1.read_bytes() == b"shared-source-body"
+    assert ep2.read_bytes() == b"shared-source-body"
+    assert not (project_dir / "source/episode_02.txt").exists()
 
 
 def test_post_migration_normal_operations_use_canonical_filenames_only(tmp_path: Path) -> None:

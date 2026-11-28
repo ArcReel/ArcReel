@@ -2517,7 +2517,7 @@ export default {
   'migration_report_acknowledge': '知道了，不再提示',
   'migration_report_dismiss_failed': '没能关闭升级提示：{{message}}',
   'migration_report_title': '升级调整了哪些内容',
-  'migration_report_description': '升级项目数据时做了下列调整。被替下的内容留有备份，没有删除任何文件。',
+  'migration_report_description': '升级项目数据时做了下列调整。被替下或存在冲突的内容留有备份，仅清理可从原文重建或内容完全相同的冗余副本。',
   'migration_report_adjusted': '已调整',
   'migration_report_skipped': '未能带入',
   'migration_report_skipped_hint': '这些文件留在原处，但项目不再识别它们，会显示为缺失。需要时重新生成或上传。',

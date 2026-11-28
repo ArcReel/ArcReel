@@ -26,6 +26,7 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_report import (
     ArtifactBackfillOutcome,
     MigrationAdjustment,
+    MigrationReport,
     build_migration_report,
     complete_migration_report,
     load_migration_report,
@@ -76,6 +77,7 @@ from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
     SQLITE_HISTORY_SCHEMA_VERSION,
     parse_project_schema_version,
+    project_schema_uses_sqlite_history,
 )
 
 logger = logging.getLogger(__name__)
@@ -196,10 +198,12 @@ def migrate_project_dir(
     version = _load_schema_version(project_dir)
     if version < 0:
         return False
-    if version >= CURRENT_SCHEMA_VERSION:
+    if version > CURRENT_SCHEMA_VERSION:
+        return False
+    if version == CURRENT_SCHEMA_VERSION:
         changed = False
         if (
-            version >= SQLITE_HISTORY_SCHEMA_VERSION
+            project_schema_uses_sqlite_history(version)
             and not restoring_snapshot
             and _current_history_needs_activation(project_dir)
         ):
@@ -222,7 +226,7 @@ def migrate_project_dir(
             if preflight:
                 preflight(project_dir)
             if version == initial_version:
-                if version < SQLITE_HISTORY_SCHEMA_VERSION:
+                if not project_schema_uses_sqlite_history(version):
                     prepare_legacy_history(project_dir, version, adjusted)
                 elif not restoring_snapshot and _current_history_needs_activation(project_dir):
                     activate_current_history(project_dir, record=adjusted)
@@ -271,6 +275,7 @@ def migrate_project_dir(
                 project_dir,
                 build_migration_report(
                     outcome,
+                    previous=carried,
                     from_schema_version=start_version,
                     to_schema_version=CURRENT_SCHEMA_VERSION,
                     adjusted=adjusted,
@@ -280,7 +285,9 @@ def migrate_project_dir(
     except BaseException:
         finished = outcome if version >= CURRENT_SCHEMA_VERSION else None
         if adjusted or finished is not None:
-            _record_unfinished_report(project_dir, finished, adjusted, from_version=start_version, to_version=version)
+            _record_unfinished_report(
+                project_dir, finished, adjusted, previous=carried, from_version=start_version, to_version=version
+            )
         raise
     return True
 
@@ -304,6 +311,7 @@ def _record_unfinished_report(
     outcome: ArtifactBackfillOutcome | None,
     adjusted: list[MigrationAdjustment],
     *,
+    previous: MigrationReport | None,
     from_version: int,
     to_version: int,
 ) -> None:
@@ -314,6 +322,7 @@ def _record_unfinished_report(
             project_dir,
             build_migration_report(
                 outcome,
+                previous=previous,
                 from_schema_version=from_version,
                 to_schema_version=to_version,
                 adjusted=adjusted,
@@ -379,8 +388,11 @@ def run_project_migrations(
         if version < 0:
             continue
         try:
-            if version >= CURRENT_SCHEMA_VERSION and not (
-                version >= SQLITE_HISTORY_SCHEMA_VERSION and _current_history_needs_activation(child)
+            if version > CURRENT_SCHEMA_VERSION:
+                summary.skipped.append(child.name)
+                continue
+            if version == CURRENT_SCHEMA_VERSION and not (
+                project_schema_uses_sqlite_history(version) and _current_history_needs_activation(child)
             ):
                 clear_migration_failure(child)
                 _finish_unfinished_report(child)

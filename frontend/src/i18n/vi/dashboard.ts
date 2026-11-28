@@ -2743,7 +2743,7 @@ export default {
   'migration_report_acknowledge': 'Đã hiểu, không hiện lại',
   'migration_report_dismiss_failed': 'Không thể đóng thông báo nâng cấp: {{message}}',
   'migration_report_title': 'Những gì lần nâng cấp đã điều chỉnh',
-  'migration_report_description': 'Khi nâng cấp dữ liệu dự án, các điều chỉnh dưới đây đã được thực hiện. Nội dung bị thay thế được giữ làm bản sao lưu; không có tệp nào bị xóa.',
+  'migration_report_description': 'Khi nâng cấp dữ liệu dự án, các điều chỉnh dưới đây đã được thực hiện. Nội dung bị thay thế hoặc xung đột được giữ làm bản sao lưu; chỉ dọn các bản sao trùng hệt hoặc có thể tái tạo.',
   'migration_report_adjusted': 'Đã điều chỉnh',
   'migration_report_skipped': 'Không mang theo được',
   'migration_report_skipped_hint': 'Các tệp này vẫn ở nguyên chỗ nhưng dự án không còn nhận ra, nên hiển thị là bị thiếu. Hãy tạo lại hoặc tải lên khi cần.',

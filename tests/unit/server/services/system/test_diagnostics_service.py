@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import ParseResult
 
 import pytest
 
@@ -111,3 +112,25 @@ def test_collect_preserves_four_slash_sqlite_url_without_secrets(
     text = diag_mod.collect_diagnostics()
 
     assert "Database URL: sqlite+aiosqlite:////var/lib/arcreel/arcreel.db" in text.splitlines()
+
+
+def test_collect_preserves_four_slash_sqlite_url_when_masking_query(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:////var/lib/arcreel/arcreel.db?mode=ro&token=secret123")
+    reset_for_tests()
+
+    real_urlunparse = diag_mod.urlunparse
+
+    def collapsing_urlunparse(components: ParseResult) -> str:
+        result = real_urlunparse(components)
+        return result.replace("sqlite+aiosqlite:////", "sqlite+aiosqlite://", 1)
+
+    monkeypatch.setattr(diag_mod, "urlunparse", collapsing_urlunparse)
+
+    text = diag_mod.collect_diagnostics()
+    db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
+
+    assert "secret123" not in db_line
+    assert db_line == "Database URL: sqlite+aiosqlite:////var/lib/arcreel/arcreel.db?mode=ro&token=%E2%80%A2%E2%80%A2"
