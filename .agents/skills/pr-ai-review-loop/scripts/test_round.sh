@@ -79,3 +79,25 @@ ROUND_TEST_HEAD=bbb222 run_round mark --implemented 1 --pushback 0
 [[ "$(jq -r .round "$TMP_ROOT/result.out")" == "3" ]] || fail "expected round 3"
 [[ "$(jq -r .rounds "$TMP_ROOT/result.out")" == "3" ]] || fail "expected rounds total 3"
 echo "PASS: a later mark keeps numbering on a new head"
+
+NO_PY_BIN="$TMP_ROOT/no-python-bin"
+mkdir "$NO_PY_BIN"
+ln -s "$TMP_ROOT/bin/gh" "$NO_PY_BIN/gh"
+for cmd in bash dirname git jq id mkdir chmod env; do
+  ln -s "$(command -v "$cmd")" "$NO_PY_BIN/$cmd"
+done
+PATH="$NO_PY_BIN" bash "$ROUND_SH" "${REPO_ARGS[@]}" 1767 show \
+  > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
+[[ "$(jq -r '.rounds | length' "$TMP_ROOT/result.out")" == "3" ]] || fail "show must work without python3 on PATH"
+set +e
+PATH="$NO_PY_BIN" bash "$ROUND_SH" "${REPO_ARGS[@]}" 1767 mark --implemented x --pushback 0 \
+  > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
+bad_arg_rc=$?
+PATH="$NO_PY_BIN" bash "$ROUND_SH" "${REPO_ARGS[@]}" 1767 mark --implemented 1 --pushback 0 \
+  > "$TMP_ROOT/result.out" 2> "$TMP_ROOT/result.err"
+no_py_mark_rc=$?
+set -e
+[[ "$bad_arg_rc" -eq 2 ]] || fail "invalid mark args without python3 must keep exit 2, got $bad_arg_rc"
+[[ "$no_py_mark_rc" -eq 3 ]] || fail "mark without python3 must exit 3, got $no_py_mark_rc"
+grep -q 'ROUND_ERROR: python3 not found on PATH' "$TMP_ROOT/result.err" || fail "expected missing python3 diagnostic"
+echo "PASS: show stays independent of python3 while mark enforces it after arg validation"
