@@ -816,3 +816,175 @@ async def test_unreadable_start_frame_prevents_generation(tmp_path, gemini_backe
     assert caught.value.params["name"] == "missing.png"
     assert not router.calls
     submit.assert_not_awaited()
+
+
+class TestVertexVeo31Fast4KContract:
+    """Vertex veo-3.1-fast-generate-001 补齐 4K 输出能力与有声/无声计价后的确定性回归验证。"""
+
+    @staticmethod
+    def _catalog():
+        from arcreel_catalog_core import (
+            BuiltinProviderListing,
+            BuiltinProviderModel,
+            CatalogData,
+            CatalogEntry,
+        )
+        from arcreel_catalog_core.model import DurationConstraints, Meter, PriceRow, PriceTable, VideoFacts
+
+        entry = CatalogEntry(
+            maker="google",
+            name="veo-3.1-fast-generate-001",
+            media_type="video",
+            display_name="Veo 3.1 Fast",
+            facts=VideoFacts(
+                durations=(4, 6, 8),
+                resolutions=("720p", "1080p", "4k"),
+                duration_constraints=DurationConstraints(
+                    by_resolution={"1080p": (8,), "4k": (8,)},
+                    with_reference_images=(8,),
+                ),
+                max_reference_images=3,
+                text_to_video=True,
+                first_frame=True,
+                last_frame=True,
+                reference_audio=False,
+            ),
+            price=PriceTable(
+                currency="USD",
+                meters=(
+                    Meter(
+                        meter="output_seconds",
+                        dims=("resolution", "audio"),
+                        rows=(
+                            PriceRow(when={"resolution": "720p", "audio": True}, price=0.1),
+                            PriceRow(when={"resolution": "720p", "audio": False}, price=0.08),
+                            PriceRow(when={"resolution": "1080p", "audio": True}, price=0.12),
+                            PriceRow(when={"resolution": "1080p", "audio": False}, price=0.1),
+                            PriceRow(when={"resolution": "4k", "audio": True}, price=0.3),
+                            PriceRow(when={"resolution": "4k", "audio": False}, price=0.25),
+                        ),
+                        defaults={"resolution": "720p", "audio": True},
+                    ),
+                ),
+            ),
+        )
+        return CatalogData(
+            dataset_version="2026-11-28T00:00:00Z",
+            entries=(entry,),
+            builtin_providers={
+                "gemini-vertex": BuiltinProviderListing(
+                    models=(
+                        BuiltinProviderModel(
+                            api_model_name="veo-3.1-fast-generate-001",
+                            entry="google/veo-3.1-fast-generate-001",
+                            endpoint="gemini-vertex-video",
+                        ),
+                    )
+                )
+            },
+        )
+
+    def test_4k_capability_and_duration_constraints(self, monkeypatch: pytest.MonkeyPatch):
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.catalog import query as catalog
+        from lib.config.resolver import constrain_durations
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog())
+        info = catalog.get_model("gemini-vertex", "veo-3.1-fast-generate-001", media_type="video")
+        assert info is not None
+        assert info.resolutions == ["720p", "1080p", "4k"]
+        assert info.duration_resolution_constraints == {"1080p": [8], "4k": [8]}
+        assert constrain_durations("gemini-vertex", "veo-3.1-fast-generate-001", [4, 6, 8], resolution="4k") == [8]
+        assert constrain_durations("gemini-vertex", "veo-3.1-fast-generate-001", [4, 6, 8], resolution="1080p") == [8]
+        assert constrain_durations("gemini-vertex", "veo-3.1-fast-generate-001", [4, 6, 8], resolution="720p") == [
+            4,
+            6,
+            8,
+        ]
+        assert constrain_durations(
+            "gemini-vertex",
+            "veo-3.1-fast-generate-001",
+            [4, 6, 8],
+            resolution="720p",
+            uses_reference_images=True,
+        ) == [8]
+
+        caps = builtin_video_capabilities_for_model("gemini-vertex", "veo-3.1-fast-generate-001")
+        assert caps.audio_track == "controllable"
+        assert caps.max_reference_images == 3
+        assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (True, True, True)
+        assert caps.reference_audio_mode == "none"
+
+    @pytest.mark.parametrize(
+        ("resolution", "generate_audio", "seconds", "expected_usd"),
+        [
+            ("4k", True, 8, 2.4),
+            ("4k", False, 8, 2.0),
+            ("1080p", True, 8, 0.96),
+            ("1080p", False, 8, 0.8),
+            ("720p", True, 4, 0.4),
+            ("720p", False, 4, 0.32),
+        ],
+    )
+    def test_4k_pricing_with_and_without_audio(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+        resolution: str,
+        generate_audio: bool,
+        seconds: int,
+        expected_usd: float,
+    ):
+        from lib.backends.video_backends.gemini import VertexVideoBackend
+        from lib.billing.catalog_pricing import price_builtin_call
+        from lib.billing.metering import Priced
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog())
+        req = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "out.mp4",
+            duration_seconds=seconds,
+            resolution=resolution,
+            generate_audio=generate_audio,
+        )
+        usage = VertexVideoBackend.metered_usage("veo-3.1-fast-generate-001", req)
+        cost = price_builtin_call(
+            provider="gemini-vertex",
+            model="veo-3.1-fast-generate-001",
+            media_type="video",
+            requests=(usage,),
+            provider_multiplier=1.0,
+        )
+        assert isinstance(cost, Priced), cost
+        assert cost.currency == "USD"
+        assert cost.amount == pytest.approx(expected_usd)
+
+    @pytest.mark.parametrize("generate_audio", [True, False])
+    async def test_vertex_4k_request_passes_resolution_and_audio_switch(self, tmp_path, generate_audio: bool):
+        from lib.backends.video_backends.gemini import VertexVideoBackend
+
+        backend = VertexVideoBackend.__new__(VertexVideoBackend)
+        backend._rate_limiter = None
+        backend._video_model = "veo-3.1-fast-generate-001"
+        backend._backend_type = "vertex"
+        backend._types = MagicMock()
+        backend._client = MagicMock()
+        backend._client.aio.models.generate_videos = AsyncMock(side_effect=RuntimeError("stop"))
+
+        req = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "out.mp4",
+            aspect_ratio="16:9",
+            duration_seconds=8,
+            resolution="4k",
+            generate_audio=generate_audio,
+        )
+        with pytest.raises(RuntimeError, match="stop"):
+            await backend._create_task(req)
+
+        kwargs = backend._types.GenerateVideosConfig.call_args.kwargs
+        assert kwargs["resolution"] == "4k"
+        assert kwargs["duration_seconds"] == "8"
+        assert kwargs["generate_audio"] is generate_audio

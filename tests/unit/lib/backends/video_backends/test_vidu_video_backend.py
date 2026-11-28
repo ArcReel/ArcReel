@@ -879,9 +879,11 @@ class TestQ3ReferenceOnlyModelsInCatalog:
             CatalogEntry,
             endpoint_version_floor,
         )
-        from arcreel_catalog_core.model import DurationConstraints, VideoFacts
+        from arcreel_catalog_core.model import DurationConstraints, Meter, PriceRow, PriceTable, VideoFacts
 
-        def entry(name: str, durations: range, *, reference_audio: bool) -> CatalogEntry:
+        def entry(
+            name: str, durations: range, *, reference_audio: bool, price: PriceTable | None = None
+        ) -> CatalogEntry:
             values = tuple(durations)
             return CatalogEntry(
                 maker="shengshu",
@@ -899,11 +901,26 @@ class TestQ3ReferenceOnlyModelsInCatalog:
                     reference_audio=reference_audio,
                     max_reference_audio_count=3 if reference_audio else None,
                 ),
+                price=price,
             )
 
+        mix_price = PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="output_seconds",
+                    dims=("resolution",),
+                    rows=(
+                        PriceRow(when={"resolution": "720p"}, price=0.75),
+                        PriceRow(when={"resolution": "1080p"}, price=0.90625),
+                    ),
+                    defaults={"resolution": "720p"},
+                ),
+            ),
+        )
         entries = (
             entry("viduq3-drama", range(2, 17), reference_audio=True),
-            entry("viduq3-mix", range(3, 16), reference_audio=False),
+            entry("viduq3-mix", range(3, 16), reference_audio=False, price=mix_price),
             entry("viduq3-ad", range(3, 16), reference_audio=False),
         )
         models = tuple(
@@ -971,6 +988,54 @@ class TestQ3ReferenceOnlyModelsInCatalog:
         table = set(_profile(model).endpoint.durations["/reference2video"])
         assert set(info.supported_durations) <= table
         assert set(info.reference_image_durations or []) <= table
+
+    @pytest.mark.parametrize(
+        ("resolution", "requested_seconds", "billed_seconds", "expected_cny"),
+        [
+            ("720p", 5, 5, 3.75),
+            ("1080p", 5, 5, 4.53125),
+            (None, 5, 5, 3.75),
+            ("720p", 2, 3, 2.25),
+            ("1080p", 16, 15, 13.59375),
+        ],
+    )
+    def test_viduq3_mix_pricing_matches_official_api_rates_and_duration_contract(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        resolution: str | None,
+        requested_seconds: int,
+        billed_seconds: int,
+        expected_cny: float,
+    ):
+        """Vidu Q3 Mix 按中国区官方 API 费率（720p ¥0.75/s、1080p ¥0.90625/s）计价，并保持 3–15s 时长契约。"""
+        from lib.billing.catalog_pricing import price_builtin_call
+        from lib.billing.metering import Priced
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog(), app_version="0.37.1")
+        ref = tmp_path / "ref.png"
+        ref.write_bytes(b"fake")
+        req = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "out.mp4",
+            duration_seconds=requested_seconds,
+            resolution=resolution,
+            reference_images=[ref],
+        )
+        usage = _profile("viduq3-mix").metered_usage("viduq3-mix", req)
+        assert usage.quantities["output_seconds"] == billed_seconds
+
+        cost = price_builtin_call(
+            provider="vidu",
+            model="viduq3-mix",
+            media_type="video",
+            requests=(usage,),
+            provider_multiplier=1.0,
+        )
+        assert isinstance(cost, Priced), cost
+        assert cost.currency == "CNY"
+        assert cost.amount == pytest.approx(expected_cny)
 
 
 async def test_unreadable_start_frame_prevents_generation(tmp_path):
