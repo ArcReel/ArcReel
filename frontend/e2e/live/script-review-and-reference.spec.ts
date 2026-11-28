@@ -325,9 +325,17 @@ test("reference video script review recovers when workspace reads script_status 
     },
   ]);
 
-  await page.goto(`/app/projects/${project}/episodes/1`);
   const planButton = page.getByRole("button", { name: "AI 规划", exact: true });
-  await expect(planButton).toBeVisible();
+  await Promise.all([
+    page.waitForResponse(
+      (reply) =>
+        reply.request().method() === "GET" &&
+        new URL(reply.url()).pathname === `${API}/projects/${project}/events/stream` &&
+        reply.ok(),
+    ),
+    page.goto(`/app/projects/${project}/episodes/1`),
+    expect(planButton).toBeVisible(),
+  ]);
 
   const gate = `/__playwright/script-plan-register-gate/${project}`;
   await post(request, gate);
