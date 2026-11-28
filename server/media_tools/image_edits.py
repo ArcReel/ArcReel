@@ -75,11 +75,7 @@ async def _i2i_unavailable_problem(
 
     try:
         await ImageRuntime(config_resolver).read_bucket(project, "i2i")
-    except ImageBucketCapabilityError as exc:
-        return GenerationProblem(
-            code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
-        )
-    except ModelNotInCatalogError as exc:
+    except (ImageBucketCapabilityError, ModelNotInCatalogError) as exc:
         return GenerationProblem(
             code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
         )

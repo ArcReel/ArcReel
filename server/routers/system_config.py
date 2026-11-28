@@ -227,44 +227,47 @@ async def _enumerate_candidates(
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
     from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-    repo = CustomProviderRepository(session)
-    providers = await repo.list_providers()
-    provider_name_map = {p.id: p.display_name for p in providers}
-    enabled_models = await repo.list_all_enabled_models()
-    endpoint_repo = CustomEndpointRepository(session)
-    for model in enabled_models:
-        try:
-            endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
-        except ValueError as exc:
-            logger.warning(
-                "Skipping custom model %s/%s with unresolvable endpoint %r: %s",
-                model.provider_id,
-                model.model_id,
-                model.endpoint,
-                exc,
+    try:
+        repo = CustomProviderRepository(session)
+        providers = await repo.list_providers()
+        provider_name_map = {p.id: p.display_name for p in providers}
+        enabled_models = await repo.list_all_enabled_models()
+        endpoint_repo = CustomEndpointRepository(session)
+        for model in enabled_models:
+            try:
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, endpoint_repo.get)
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping custom model %s/%s with unresolvable endpoint %r: %s",
+                    model.provider_id,
+                    model.model_id,
+                    model.endpoint,
+                    exc,
+                )
+                continue
+            if model_lifecycle(model, endpoint_spec.media_type).discontinued:
+                continue
+            pid = make_provider_id(model.provider_id)
+            entry = model_entry(model.model_id, endpoint_spec.media_type, model.entry_binding)
+            candidates.append(
+                _ModelCandidate(
+                    option=f"{pid}/{model.model_id}",
+                    media_type=endpoint_spec.media_type,
+                    fit=custom_model_bucket_fit(
+                        endpoint=model.endpoint,
+                        model_id=model.model_id,
+                        capability_overrides=model.capability_overrides,
+                        endpoint_spec=endpoint_spec,
+                        entry_binding=model.entry_binding,
+                    ),
+                    display_name=model.display_name,
+                    entry=entry.key.ref if entry is not None else None,
+                )
             )
-            continue
-        if model_lifecycle(model, endpoint_spec.media_type).discontinued:
-            continue
-        pid = make_provider_id(model.provider_id)
-        entry = model_entry(model.model_id, endpoint_spec.media_type, model.entry_binding)
-        candidates.append(
-            _ModelCandidate(
-                option=f"{pid}/{model.model_id}",
-                media_type=endpoint_spec.media_type,
-                fit=custom_model_bucket_fit(
-                    endpoint=model.endpoint,
-                    model_id=model.model_id,
-                    capability_overrides=model.capability_overrides,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                ),
-                display_name=model.display_name,
-                entry=entry.key.ref if entry is not None else None,
-            )
-        )
-        if pid not in provider_names and model.provider_id in provider_name_map:
-            provider_names[pid] = provider_name_map[model.provider_id]
+            if pid not in provider_names and model.provider_id in provider_name_map:
+                provider_names[pid] = provider_name_map[model.provider_id]
+    except Exception:
+        logger.warning("Failed to enumerate custom provider candidates", exc_info=True)
 
     return candidates, provider_names
 

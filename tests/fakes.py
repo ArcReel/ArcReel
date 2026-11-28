@@ -1212,6 +1212,11 @@ def use_system_config_router_sessions(monkeypatch, factory) -> None:
     monkeypatch.setattr("server.routers.system_config.async_session_factory", factory)
 
 
+def use_generation_worker_sessions(monkeypatch, factory) -> None:
+    """生成 worker 经 *factory* 开数据库会话：它在模块顶部绑定了 ``async_session_factory``。"""
+    monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", factory)
+
+
 def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
     """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
 

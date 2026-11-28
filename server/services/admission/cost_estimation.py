@@ -65,7 +65,7 @@ from lib.script.reference_video.request_projection import (
     unit_reference_declarations,
 )
 from lib.script.script_editor import ScriptEditError
-from lib.script.script_models import PENDING_AUTHORING_FIELD, get_generated_assets
+from lib.script.script_models import get_generated_assets, is_pending_authoring
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.speech.speech_composition import video_unit_replan_problems
 from lib.video_runtime.builtin import builtin_video_metered_usage
@@ -870,7 +870,7 @@ class CostEstimationService:
                     continue
                 text = unit.get("text")
                 enqueueable = (
-                    unit.get(PENDING_AUTHORING_FIELD) is not True
+                    not is_pending_authoring(unit)
                     and isinstance(text, str)
                     and bool(text.strip())
                     and not video_unit_replan_problems(unit)

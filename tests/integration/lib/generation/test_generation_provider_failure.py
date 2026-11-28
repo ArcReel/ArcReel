@@ -10,7 +10,7 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import GenerationWorker
 from lib.generation.task_failure import parse_failure
 from tests.catalog_support import install_catalog, with_entry_changes
-from tests.fakes import bind_session_factory
+from tests.fakes import bind_session_factory, use_generation_worker_sessions
 from tests.integration.lib.generation.worker_support import (
     capacity_table,
     seed_running_task,
@@ -28,7 +28,7 @@ async def test_bare_provider_without_default_keeps_failure_provider(db_factory, 
     project = {"image_provider_t2i": "ark"}
     use_worker_project(monkeypatch, project)
     bind_session_factory(monkeypatch, db_factory)
-    monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", db_factory)
+    use_generation_worker_sessions(monkeypatch, db_factory)
     queue = GenerationQueue(session_factory=db_factory)
     if legacy:
         task_id = "legacy-null"

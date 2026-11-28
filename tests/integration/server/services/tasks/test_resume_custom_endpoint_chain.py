@@ -36,6 +36,7 @@ from server.services.tasks.generation_context import VideoLaneRequest, resolve_g
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.fakes import use_generation_worker_sessions
 from tests.http_capture import capture_http
 from tests.integration.server.services.tasks.video_recovery_support import (
     configure_chain_project,
@@ -206,7 +207,7 @@ async def test_disabled_custom_video_model_rejects_new_submission(chain_project,
     project_file = chain_project / "project.json"
     project = json.loads(project_file.read_text())
     project_file.write_text(json.dumps({**project, "video_provider_i2v": f"{provider_id}/video-x"}))
-    monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", session_factory)
+    use_generation_worker_sessions(monkeypatch, session_factory)
     async with session_factory() as session:
         await session.execute(update(CustomProviderModel).values(is_enabled=False))
         await session.commit()

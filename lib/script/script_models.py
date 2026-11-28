@@ -7,6 +7,7 @@ script_models.py - 剧本数据模型
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, get_args
@@ -184,6 +185,11 @@ PromptText = SkipJsonSchema[Annotated[str, AfterValidator(_require_non_blank_pro
 PendingPrompt = SkipJsonSchema[None]
 
 PENDING_AUTHORING_FIELD = "pending_authoring"
+
+
+def is_pending_authoring(item: object) -> bool:
+    """条目是否显式标记为待编写（缺省或为 false 均视为非待编写，兼容历史条目）。"""
+    return isinstance(item, Mapping) and item.get(PENDING_AUTHORING_FIELD) is True
 
 
 class GeneratedAssets(BaseModel):

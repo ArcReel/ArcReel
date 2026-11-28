@@ -2583,3 +2583,48 @@ async def test_input_image_rejection_names_the_reference_image_and_points_to_upl
     assert expected in rendered
     assert "InputImageSensitiveContentDetected.PrivacyInformation" in rendered
     assert ("上传到供应商素材库" in rendered) is (not sent_as_asset)
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_blocks_pending_authoring_before_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """已入队的参考生视频任务若当前单元仍标记 pending_authoring=True，执行期必须阻断，不向供应商发付费请求。"""
+    from lib.generation.task_failure_encoding import encode_task_failure_message
+    from lib.infra.api_errors import ConflictError
+    from server.services.tasks import reference_video_tasks as rvt
+
+    proj_dir = write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["pending_authoring"] = True
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.return_value = script
+    use_project_manager(monkeypatch, fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    seen_lanes: list[dict[str, Any]] = []
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        seen_lane_requests=seen_lanes,
+    )
+
+    with pytest.raises(ConflictError) as excinfo:
+        await rvt.execute_reference_video_task(
+            "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-pending"
+        )
+
+    assert excinfo.value.key == "script_prompt_pending"
+    assert excinfo.value.params == {"segment_id": "E1U1"}
+    assert encode_task_failure_message(excinfo.value) == '[script_prompt_pending] {"segment_id": "E1U1"}'
+    assert seen_lanes == []
+    assert fake_generator.generate_video_async.await_count == 0

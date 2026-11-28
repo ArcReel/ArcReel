@@ -46,7 +46,7 @@ from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_ass
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
 from lib.script.script_editor import resolve_items
-from lib.script.script_models import PENDING_AUTHORING_FIELD, get_generated_assets
+from lib.script.script_models import get_generated_assets, is_pending_authoring
 from lib.script.script_skeleton import resolve_script_kind
 from lib.script.storyboard_sequence import (
     EndFrameImageUnavailable,
@@ -254,7 +254,7 @@ async def generate_video(
         admission = admit_script_unit(resolve_script_kind(script), resolved[0])
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
-        if resolved[0].get(PENDING_AUTHORING_FIELD) is True or resolved[0].get("video_prompt") is None:
+        if is_pending_authoring(resolved[0]) or resolved[0].get("video_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         try:
             resolve_usable_storyboard_video_inputs(
