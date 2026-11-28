@@ -77,15 +77,20 @@ def _db_url() -> str:
     raw = get_database_url()
     try:
         parsed = urlparse(raw)
+        has_credentials = bool(parsed.username or parsed.password)
+        has_query = bool(parsed.query)
+        if not has_credentials and not has_query:
+            return raw
+
         netloc = parsed.netloc
-        if parsed.username or parsed.password:
+        if has_credentials:
             user = redact_value(parsed.username) if parsed.username else ""
             host = parsed.hostname or ""
             port = f":{parsed.port}" if parsed.port else ""
             netloc = f"{user}:••@{host}{port}" if parsed.password else f"{user}@{host}{port}"
 
         query = parsed.query
-        if query:
+        if has_query:
             masked = [
                 (k, "••" if k.lower() in _SENSITIVE_QUERY_KEYS else v)
                 for k, v in parse_qsl(query, keep_blank_values=True)
