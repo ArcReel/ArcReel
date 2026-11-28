@@ -29,6 +29,14 @@ interface PresentationPlayerProps {
 }
 
 const START_END_MARGIN_SECONDS = 0.05;
+/** 播放头在有效终点的容差范围内时，点播放从呈现起点重播。 */
+const BOUNDARY_EPSILON_SECONDS = 0.001;
+
+function getEffectiveEndSeconds(presentationEnd: number, mediaDuration: number): number {
+  return Number.isFinite(mediaDuration) && mediaDuration > 0
+    ? Math.min(presentationEnd, mediaDuration)
+    : presentationEnd;
+}
 
 interface PresentationLoadState {
   resourceKey: string;
@@ -244,20 +252,40 @@ export function PresentationPlayer({
     return () => video.removeEventListener("loadedmetadata", apply);
   }, [startAt, presentation, onStartApplied]);
 
+  const presentationBounds = useMemo(() => {
+    if (!presentation) return null;
+    const start = presentation.video.start_microseconds / 1_000_000;
+    return {
+      start,
+      end: start + presentation.video.duration_microseconds / 1_000_000,
+      durationMicroseconds: presentation.video.duration_microseconds,
+    };
+  }, [presentation]);
+
   const stopAtPresentationBoundary = useCallback(
     (video: HTMLVideoElement) => {
-      if (!presentation) return false;
-      const boundaryMicroseconds =
-        presentation.video.start_microseconds + presentation.video.duration_microseconds;
-      const boundarySeconds = boundaryMicroseconds / 1_000_000;
-      if (video.currentTime < boundarySeconds) return false;
-      if (video.currentTime !== boundarySeconds) video.currentTime = boundarySeconds;
+      if (!presentationBounds) return false;
+      const endSeconds = getEffectiveEndSeconds(presentationBounds.end, video.duration);
+      if (video.currentTime < endSeconds) return false;
+      if (video.currentTime !== endSeconds) video.currentTime = endSeconds;
       video.pause();
       audioRef.current?.pause();
-      setPositionMicroseconds(presentation.video.duration_microseconds);
+      setPositionMicroseconds(presentationBounds.durationMicroseconds);
       return true;
     },
-    [presentation],
+    [presentationBounds],
+  );
+
+  const restartWhenParkedAtBoundary = useCallback(
+    (video: HTMLVideoElement) => {
+      if (!presentationBounds) return false;
+      const endSeconds = getEffectiveEndSeconds(presentationBounds.end, video.duration);
+      if (video.currentTime < endSeconds - BOUNDARY_EPSILON_SECONDS) return false;
+      if (video.currentTime <= presentationBounds.start) return false;
+      video.currentTime = presentationBounds.start;
+      return true;
+    },
+    [presentationBounds],
   );
 
   const refreshNativeCaptionMode = useCallback(() => {
@@ -382,9 +410,11 @@ export function PresentationPlayer({
         }}
         onRateChange={(event) => synchronizeNarrationControls(event.currentTarget)}
         onPlay={(event) => {
+          if (restartWhenParkedAtBoundary(event.currentTarget)) return;
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPlaying={(event) => {
+          // 缓冲恢复也会触发 playing，那不是用户点播放：只判边界，不重播。
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPause={() => audioRef.current?.pause()}

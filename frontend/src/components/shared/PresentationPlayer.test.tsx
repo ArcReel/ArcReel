@@ -371,6 +371,75 @@ describe("PresentationPlayer", () => {
     expect(pause).toHaveBeenCalledTimes(2);
   });
 
+  it("stops at the decoded media end and replays when the presentation is longer", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    Object.defineProperty(video, "duration", { configurable: true, value: 5.98 });
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6 });
+    pause.mockClear();
+
+    fireEvent.timeUpdate(video);
+
+    expect(video).toHaveProperty("currentTime", 5.98);
+    expect(pause).toHaveBeenCalled();
+
+    pause.mockClear();
+    fireEvent.play(video);
+
+    expect(video).toHaveProperty("currentTime", 0);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("replays from the presentation start when play is pressed at the boundary", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    // 播放头停在呈现边界时，点播放从呈现起点重播。
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6 });
+    pause.mockClear();
+
+    fireEvent.play(video);
+
+    expect(video).toHaveProperty("currentTime", 0);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("keeps resuming after buffering near the boundary instead of replaying", async () => {
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    // 缓冲恰好在边界前恢复：playing 不是用户点的播放，播放头必须留在原处继续。
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 5.9995 });
+
+    fireEvent.playing(video);
+
+    expect(video).toHaveProperty("currentTime", 5.9995);
+  });
+
   it("suppresses the custom cue while native captions are showing", async () => {
     const nativeTrack = { mode: "hidden" };
     const textTracks = new EventTarget() as EventTarget & { length: number; 0: typeof nativeTrack };
