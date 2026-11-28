@@ -27,6 +27,7 @@ from arcreel_catalog_core import (
     CatalogEntry,
     ImageFacts,
     MediaType,
+    PriceTable,
     TextFacts,
     VideoFacts,
     dump_entry,
@@ -380,14 +381,22 @@ async def reload_user_added_models(session: AsyncSession) -> None:
     )
 
 
-def _flags(entry: CatalogEntry | None, multiplier: float, state: Lifecycle) -> list[ModelFlag]:
+def _has_priceable_rows(price: PriceTable | None) -> bool:
+    return price is not None and price.is_priceable and any(meter.rows for meter in price.meters)
+
+
+def _flags(
+    entry: CatalogEntry | None,
+    price: PriceTable | None,
+    multiplier: float,
+    state: Lifecycle,
+) -> list[ModelFlag]:
     flags: list[ModelFlag] = []
     if state.status == "discontinued":
         flags.append("discontinued")
     elif state.status == "retiring":
         flags.append("retiring")
-    priced = entry is not None and entry.price is not None and entry.price.is_priceable
-    if not priced and multiplier != 0:
+    if not _has_priceable_rows(price) and multiplier != 0:
         flags.append("unpriced")
     if entry is not None and catalog.entry_source(entry.key) == "modified":
         flags.append("modified")
@@ -398,8 +407,8 @@ def _lifecycle(state: Lifecycle) -> LifecycleResponse:
     return LifecycleResponse(status=state.status, shutdown_date=state.shutdown_date, successor=state.successor)
 
 
-def _price(entry: CatalogEntry | None) -> PriceSummaryResponse | None:
-    summary = summarize_price(entry.price, entry.media_type) if entry is not None else None
+def _price(price: PriceTable | None, media_type: MediaType) -> PriceSummaryResponse | None:
+    summary = summarize_price(price, media_type)
     if summary is None:
         return None
     return PriceSummaryResponse(
@@ -419,16 +428,17 @@ def _builtin_item(item: builtin_models.BuiltinModelItem, provider_multiplier: fl
 def _builtin_view_item(
     view: catalog.ProviderModelView, provider_multiplier: float, *, enabled: bool, is_default: bool
 ) -> ProviderModelItem:
+    media_type = cast("MediaType", view.model.media_type)
     return ProviderModelItem(
         model_id=view.model_id,
         api_model_name=view.api_model_name,
         display_name=view.entry.display_name if view.entry is not None else None,
-        media_type=cast("MediaType", view.model.media_type),
+        media_type=media_type,
         enabled=enabled,
         is_default=is_default,
         official=view.official,
-        flags=_flags(view.entry, provider_multiplier * view.multiplier, view.lifecycle),
-        price=_price(view.entry),
+        flags=_flags(view.entry, view.price, provider_multiplier * view.multiplier, view.lifecycle),
+        price=_price(view.price, media_type),
         lifecycle=_lifecycle(view.lifecycle),
         min_app_version=view.min_app_version,
         min_app_version_satisfied=view.min_app_version_satisfied,
@@ -456,6 +466,7 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
     )
     display_name = row.display_name.strip() if row.display_name and row.display_name.strip() != row.model_id else None
     state = entry_lifecycle(entry)
+    price = entry.price if entry is not None else None
     return ProviderModelItem(
         model_id=row.model_id,
         api_model_name=row.model_id,
@@ -464,8 +475,8 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         enabled=row.is_enabled,
         is_default=row.is_enabled and row.is_default and not state.discontinued,
         official=False,
-        flags=_flags(entry, provider_multiplier * row.multiplier, state),
-        price=_price(entry),
+        flags=_flags(entry, price, provider_multiplier * row.multiplier, state),
+        price=_price(price, media_type),
         lifecycle=_lifecycle(state),
         endpoint=row.endpoint,
     )

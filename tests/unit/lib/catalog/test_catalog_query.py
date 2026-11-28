@@ -317,3 +317,114 @@ def test_kling_amphibious_models_are_readable_in_both_media(monkeypatch, api_nam
     assert image is not None
     assert (image.media_type, image.api_model_name, image.default) == ("image", api_name, True)
     assert catalog.default_model("kling", "image") == f"{api_name}-image"
+
+
+def test_provider_model_view_price_narrows_with_resolutions(monkeypatch):
+    from arcreel_catalog_core import (
+        BuiltinProviderListing,
+        BuiltinProviderModel,
+        CatalogData,
+        CatalogEntry,
+        Meter,
+        PriceRow,
+        PriceTable,
+        VideoFacts,
+    )
+
+    full_price = PriceTable(
+        currency="CNY",
+        meters=(
+            Meter(
+                meter="video_tokens",
+                dims=("resolution", "input_video"),
+                rows=(
+                    PriceRow(when={"resolution": "720p", "input_video": False}, price=70.0),
+                    PriceRow(when={"resolution": "720p", "input_video": True}, price=42.0),
+                    PriceRow(when={"resolution": "1080p", "input_video": False}, price=77.0),
+                    PriceRow(when={"resolution": "4k", "input_video": True}, price=19.0),
+                ),
+                defaults={"resolution": "720p", "input_video": False},
+            ),
+        ),
+    )
+    only_4k_price = PriceTable(
+        currency="CNY",
+        meters=(
+            Meter(
+                meter="video_tokens",
+                dims=("resolution",),
+                rows=(PriceRow(when={"resolution": "4k"}, price=31.0),),
+                defaults={"resolution": "4k"},
+            ),
+        ),
+    )
+    shared_entry = CatalogEntry(
+        maker="acme",
+        name="clip-pro",
+        media_type="video",
+        display_name="Clip Pro",
+        facts=VideoFacts(durations=(5, 10), resolutions=("720p", "1080p", "4k")),
+        price=full_price,
+    )
+    only_4k_entry = CatalogEntry(
+        maker="acme",
+        name="clip-4k",
+        media_type="video",
+        display_name="Clip 4K",
+        facts=VideoFacts(durations=(5,), resolutions=("720p", "4k")),
+        price=only_4k_price,
+    )
+    data = CatalogData(
+        dataset_version="2026-11-28T00:00:00Z",
+        entries=(shared_entry, only_4k_entry),
+        builtin_providers={
+            "acme": BuiltinProviderListing(
+                models=(
+                    BuiltinProviderModel(api_model_name="clip-full", entry="acme/clip-pro"),
+                    BuiltinProviderModel(
+                        api_model_name="clip-narrowed",
+                        entry="acme/clip-pro",
+                        resolutions=("720p", "1080p"),
+                    ),
+                    BuiltinProviderModel(
+                        api_model_name="clip-empty",
+                        entry="acme/clip-4k",
+                        resolutions=("720p",),
+                    ),
+                    BuiltinProviderModel(
+                        api_model_name="clip-gated",
+                        entry="acme/clip-pro",
+                        resolutions=("720p",),
+                        min_app_version="999.0.0",
+                    ),
+                ),
+                defaults={"video": "clip-full"},
+            ),
+        },
+    )
+    install_catalog(monkeypatch, data)
+
+    views = {view.model_id: view for view in catalog.provider_models("acme")}
+    assert views["clip-full"].price == full_price
+    assert views["clip-full"].entry == shared_entry
+
+    narrowed = views["clip-narrowed"]
+    narrowed_price = catalog.provider_model_price("acme", "clip-narrowed", "video")
+    assert narrowed_price is not None
+    assert narrowed.price == narrowed_price.price
+    assert narrowed.price is not None
+    assert [row.price for row in narrowed.price.meters[0].rows] == [70.0, 42.0, 77.0]
+    assert narrowed.entry == shared_entry
+
+    empty = views["clip-empty"]
+    empty_price = catalog.provider_model_price("acme", "clip-empty", "video")
+    assert empty_price is not None
+    assert empty.price == empty_price.price
+    assert empty.price is not None
+    assert empty.price.meters[0].rows == ()
+    assert empty.entry == only_4k_entry
+
+    [gated] = catalog.version_gated_models("acme")
+    assert gated.price is not None
+    assert [row.price for row in gated.price.meters[0].rows] == [70.0, 42.0]
+    assert gated.entry == shared_entry

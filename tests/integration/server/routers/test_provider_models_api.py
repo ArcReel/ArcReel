@@ -1559,3 +1559,156 @@ async def test_silent_dashscope_model_from_settings_to_billed_request(models_cli
         assert row is not None
         assert row.generate_audio is False
         assert row.cost_amount == pytest.approx(quote.amount)
+
+
+def test_builtin_resolutions_narrow_price_summary_and_unpriced_flag_without_altering_entry(
+    models_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arcreel_catalog_core import (
+        BuiltinProviderListing,
+        BuiltinProviderModel,
+        CatalogData,
+        CatalogEntry,
+        Meter,
+        PriceRow,
+        PriceTable,
+        VideoFacts,
+    )
+
+    seedance_25 = CatalogEntry(
+        maker="bytedance",
+        name="doubao-seedance-2.5",
+        media_type="video",
+        display_name="Seedance 2.5",
+        facts=VideoFacts(durations=(5, 10), resolutions=("480p", "720p", "1080p", "4k")),
+        price=PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="video_tokens",
+                    dims=("resolution", "input_video"),
+                    rows=(
+                        PriceRow(when={"resolution": "480p", "input_video": False}, price=70.0),
+                        PriceRow(when={"resolution": "480p", "input_video": True}, price=42.0),
+                        PriceRow(when={"resolution": "720p", "input_video": False}, price=70.0),
+                        PriceRow(when={"resolution": "720p", "input_video": True}, price=42.0),
+                        PriceRow(when={"resolution": "1080p", "input_video": False}, price=77.0),
+                        PriceRow(when={"resolution": "1080p", "input_video": True}, price=46.0),
+                        PriceRow(when={"resolution": "4k", "input_video": False}, price=31.0),
+                        PriceRow(when={"resolution": "4k", "input_video": True}, price=19.0),
+                    ),
+                    defaults={"resolution": "720p", "input_video": False},
+                ),
+            ),
+        ),
+    )
+    only_4k = CatalogEntry(
+        maker="bytedance",
+        name="doubao-seedance-4k-only",
+        media_type="video",
+        display_name="Seedance 4K Only",
+        facts=VideoFacts(durations=(5,), resolutions=("480p", "4k")),
+        price=PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="video_tokens",
+                    dims=("resolution",),
+                    rows=(PriceRow(when={"resolution": "4k"}, price=31.0),),
+                    defaults={"resolution": "4k"},
+                ),
+            ),
+        ),
+    )
+    install_catalog(
+        monkeypatch,
+        CatalogData(
+            dataset_version="2026-11-28T14:00:00Z",
+            entries=(seedance_25, only_4k),
+            builtin_providers={
+                "ark": BuiltinProviderListing(
+                    models=(
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2-5-260628",
+                            entry="bytedance/doubao-seedance-2.5",
+                            endpoint="ark-seedance-2-5",
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-4k-only",
+                            entry="bytedance/doubao-seedance-4k-only",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p",),
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-4k-free",
+                            entry="bytedance/doubao-seedance-4k-only",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p",),
+                            multiplier=0.0,
+                        ),
+                    ),
+                    defaults={"video": "doubao-seedance-2-5-260628"},
+                ),
+                "ark-agent-plan": BuiltinProviderListing(
+                    models=(
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2.5",
+                            entry="bytedance/doubao-seedance-2.5",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p", "720p", "1080p"),
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-4k-only",
+                            entry="bytedance/doubao-seedance-4k-only",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p",),
+                        ),
+                    ),
+                    defaults={"video": "doubao-seedance-2.5"},
+                ),
+            },
+        ),
+    )
+
+    ark_models = _models(models_client, "ark")
+    assert ark_models["doubao-seedance-2-5-260628"]["flags"] == []
+    assert ark_models["doubao-seedance-2-5-260628"]["price"] == {
+        "currency": "CNY",
+        "items": [{"meter": "video_tokens", "min_price": 19.0, "max_price": 77.0, "per": 1_000_000}],
+    }
+
+    unpriced = ark_models["doubao-seedance-4k-only"]
+    assert unpriced["price"] is None
+    assert "unpriced" in unpriced["flags"]
+    unpriced_detail = models_client.get("/api/v1/providers/ark/models/doubao-seedance-4k-only").json()
+    assert unpriced_detail["model"]["price"] is None
+    assert "unpriced" in unpriced_detail["model"]["flags"]
+    assert len(unpriced_detail["entry"]["price"]["meters"][0]["rows"]) == 1
+
+    free = ark_models["doubao-seedance-4k-free"]
+    assert free["price"] is None
+    assert "unpriced" not in free["flags"]
+    free_detail = models_client.get("/api/v1/providers/ark/models/doubao-seedance-4k-free").json()
+    assert free_detail["model"]["price"] is None
+    assert "unpriced" not in free_detail["model"]["flags"]
+
+    plan_models = _models(models_client, "ark-agent-plan")
+    narrowed = plan_models["doubao-seedance-2.5"]
+    assert narrowed["flags"] == []
+    assert narrowed["price"] == {
+        "currency": "CNY",
+        "items": [{"meter": "video_tokens", "min_price": 42.0, "max_price": 77.0, "per": 1_000_000}],
+    }
+
+    detail_resp = models_client.get("/api/v1/providers/ark-agent-plan/models/doubao-seedance-2.5")
+    assert detail_resp.status_code == 200
+    detail = detail_resp.json()
+    assert detail["model"]["flags"] == []
+    assert detail["model"]["price"] == narrowed["price"]
+    entry_rows = detail["entry"]["price"]["meters"][0]["rows"]
+    assert len(entry_rows) == 8
+    assert {row["price"] for row in entry_rows if row["when"]["resolution"] == "4k"} == {31.0, 19.0}
+
+    plan_unpriced = plan_models["doubao-seedance-4k-only"]
+    assert plan_unpriced["price"] is None
+    assert "unpriced" not in plan_unpriced["flags"]
