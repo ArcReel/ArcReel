@@ -281,6 +281,96 @@ test("reference video script review resolves blocking issues inline and material
   await health.assertClean();
 });
 
+test("reference video script review recovers when workspace reads script_status none before manifest registration", async ({ page, request, baseURL }) => {
+  const health = watchProtocolHealth(page);
+  await configureFixtureProviders(request, baseURL!);
+
+  const project = "live-ref-review-register-race";
+  const { partOne, partTwo } = await createReferenceEpisode(request, project);
+
+  await queueTextResponses(request, project, [
+    {
+      units: [
+        {
+          duration_seconds: 4,
+          source_text: "不在原文里的错误锚点。",
+          text: "@[林夕] 推开茶馆木窗。",
+        },
+        {
+          duration_seconds: 4,
+          source_text: partTwo,
+          text: "街角亮起一盏马灯。",
+        },
+      ],
+      new_assets: [],
+    },
+  ]);
+
+  await post(request, `/__playwright/script-plan-register-gate/${project}`);
+  try {
+    await page.goto(`/app/projects/${project}/episodes/1`);
+    const midTransactionRead = page.waitForResponse(async (reply) => {
+      if (reply.request().method() !== "GET") return false;
+      if (new URL(reply.url()).pathname !== `${API}/projects/${project}/workspace`) return false;
+      if (!reply.ok()) return false;
+      const body = await reply.json() as {
+        project?: { episodes?: { item_id_high_water?: number }[] };
+        summary?: { episodes?: { script_status?: string }[] };
+      };
+      return (
+        body.project?.episodes?.[0]?.item_id_high_water === 2 &&
+        body.summary?.episodes?.[0]?.script_status === "none"
+      );
+    });
+
+    await page.getByRole("button", { name: "AI 规划", exact: true }).click();
+    await post(request, `/__playwright/script-plan-register-gate/${project}/wait-entered`);
+    await midTransactionRead;
+  } finally {
+    await post(request, `/__playwright/script-plan-register-gate/${project}/release`);
+  }
+
+  await expect(page.getByText("1 项确认阻断项")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("非源文逐字子串")).toBeVisible();
+  const confirmButton = page.getByRole("button", { name: "确认拆分，继续生成" });
+  await expect(confirmButton).toBeDisabled();
+  await health.assertClean();
+
+  await page.getByRole("button", { name: "编辑文稿" }).first().click();
+  await page.getByRole("textbox", { name: "视频单元 1 原文" }).fill(partOne);
+
+  const saveResponse = page.waitForResponse(
+    (reply) =>
+      reply.request().method() === "PUT" &&
+      new URL(reply.url()).pathname === `${API}/projects/${project}/episodes/1/script-review/content`,
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  expect((await saveResponse).ok()).toBe(true);
+
+  await expect(page.getByText("非源文逐字子串")).toHaveCount(0);
+  await expect(confirmButton).toBeEnabled();
+
+  const confirmResponse = page.waitForResponse(
+    (reply) =>
+      reply.request().method() === "POST" &&
+      new URL(reply.url()).pathname === `${API}/projects/${project}/episodes/1/script-review/confirm`,
+  );
+  await confirmButton.click();
+  expect((await confirmResponse).ok()).toBe(true);
+
+  await expect(page.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "true", { timeout: 15_000 });
+
+  const unitsResp = await request.get(`${API}/projects/${project}/reference-videos/episodes/1/units`);
+  await expect(unitsResp).toBeOK();
+  expect(await unitsResp.json()).toMatchObject({
+    units: [
+      expect.objectContaining({ source_text: partOne, pending_authoring: true }),
+      expect.objectContaining({ source_text: partTwo, pending_authoring: true }),
+    ],
+  });
+  await health.assertClean();
+});
+
 test("reference video units persist partial prompt authoring outcome across reload and allow retrying failed units", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
   await configureFixtureProviders(request, baseURL!);

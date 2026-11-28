@@ -80,6 +80,13 @@ class TestBuildTaskTerminalChange:
         assert change["important"] is False
         assert change["focus"] is None
 
+    def test_episode_is_preserved_when_positive_int(self):
+        change = build_task_terminal_change(
+            {"task_id": "t1", "status": "succeeded", "task_type": "text_reference_script_plan", "episode": 2}
+        )
+        assert change is not None
+        assert change["episode"] == 2
+
     @pytest.mark.parametrize(
         "event",
         [
@@ -226,3 +233,23 @@ class TestQueueEmitsTerminalEvents:
 
         failed_ids = {c["entity_id"] for c in _task_changes(captured_batches) if c["action"] == "task_failed"}
         assert failed_ids == {parent["task_id"], child["task_id"]}
+
+    async def test_script_plan_success_includes_episode_in_terminal_event(self, queue, captured_batches):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="text_reference_script_plan",
+            media_type="text",
+            resource_id="episode-1",
+            payload={"episode": 1},
+            source="webui",
+        )
+        await queue.claim_next_task(media_type="text")
+        captured_batches.clear()
+
+        await queue.mark_task_succeeded(task["task_id"], {"message": "ok"})
+
+        changes = _task_changes(captured_batches)
+        assert len(changes) == 1
+        assert changes[0]["action"] == "task_succeeded"
+        assert changes[0]["task_type"] == "text_reference_script_plan"
+        assert changes[0]["episode"] == 1

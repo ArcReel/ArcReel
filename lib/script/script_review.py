@@ -264,6 +264,7 @@ def formal_script_plan_write_transaction(
     *paths: Path,
     basis: ArtifactBasis | None = None,
     record_activity: bool = True,
+    before_register: Callable[[], None] | None = None,
 ) -> Generator[None]:
     """Commit formal script_plan files and their active Manifest claim as one unit.
 
@@ -282,6 +283,8 @@ def formal_script_plan_write_transaction(
 
     with project_metadata_lock(project_path), formal_write_transaction(*paths):
         yield
+        if before_register is not None:
+            before_register()
         from lib.artifacts.artifact_activation import (
             register_current_artifact,
             register_current_artifact_if_provable,
@@ -340,6 +343,7 @@ def write_formal_script_plan_locked(
     generated_from: dict[str, Any] | None = None,
     project_check: Callable[[dict[str, Any]], None] | None = None,
     project_update: Callable[[dict[str, Any]], None] | None = None,
+    before_register: Callable[[], None] | None = None,
 ) -> bool:
     """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 刷新产物清单。返回内容是否发生变化。
 
@@ -374,7 +378,14 @@ def write_formal_script_plan_locked(
         if project_update is not None:
             project_update(current)
 
-    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
+    with formal_script_plan_write_transaction(
+        project_path,
+        episode,
+        *paths,
+        basis=basis,
+        record_activity=changed,
+        before_register=before_register,
+    ):
         if project_check is not None:
             pm = ProjectManager.for_project_dir(project_path)
             project_check(pm.load_project(project_path.name))
@@ -382,7 +393,7 @@ def write_formal_script_plan_locked(
         if settle_stale or project_update is not None:
             pm = ProjectManager.for_project_dir(project_path)
             pm.update_project_locked(project_path.name, update_project)
-    if changed:
+    if changed or basis is not None:
         emit_project_change_hint(project_path.name, changed_paths=[path.relative_to(project_path).as_posix()])
     return changed
 

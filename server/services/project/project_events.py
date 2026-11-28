@@ -10,13 +10,20 @@ import hashlib
 import logging
 import uuid
 from collections import Counter
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from lib import PROJECT_ROOT
+from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
 from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 from lib.infra.content_digest import FileIdentity, file_identity, file_version
 from lib.infra.path_safety import try_safe_join
@@ -76,15 +83,30 @@ def _script_plan_paths(project_path: Path) -> list[tuple[str, Path]]:
     ]
 
 
-def _read_file_digests(paths: list[tuple[str, Path]]) -> dict[str, str]:
-    digests: dict[str, str] = {}
+def _read_script_plan_manifest_entries(project_path: Path) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+    try:
+        return ProjectArtifactManifestAdapter(project_path).snapshot_entries()
+    except (ArtifactManifestError, OSError):
+        return {}
+
+
+def _read_script_plan_states(project_path: Path, paths: list[tuple[str, Path]]) -> dict[str, str]:
+    manifest_entries = _read_script_plan_manifest_entries(project_path)
+    states: dict[str, str] = {}
     for key, path in paths:
         try:
             payload = path.read_bytes()
         except FileNotFoundError:
             continue
-        digests[key] = hashlib.sha256(payload).hexdigest()
-    return digests
+        digest = hashlib.sha256(payload).hexdigest()
+        episode = int(key.partition(":")[0])
+        entry = manifest_entries.get(ArtifactKey.episode_script_plan(episode))
+        rel_path = path.relative_to(project_path).as_posix()
+        if entry is not None and entry.artifact_path == rel_path:
+            states[key] = f"{digest}:registered:{entry.basis_digest}"
+        else:
+            states[key] = digest
+    return states
 
 
 def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
@@ -102,7 +124,7 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     return ProjectState(
         project=project,
         scripts=scripts,
-        script_plans=_read_file_digests(_script_plan_paths(project_path)),
+        script_plans=_read_script_plan_states(project_path, _script_plan_paths(project_path)),
     )
 
 
@@ -117,14 +139,17 @@ def _file_stat(path: Path) -> FileIdentity | None:
 
 
 def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputStamp:
-    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、``scripts/*.json``、
-    正式脚本规划与在场草稿。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
+    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、产物清单、
+    ``scripts/*.json`` 与正式脚本规划。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
 
     标识不变就说明输入没变，轮询据此跳过重新解析与重建。读盘入口新增输入文件时须同步纳入这里，
     否则那类变更不会被轮询发现。
     """
     project_path = pm.get_project_path(project_name)
-    candidates = [(ProjectManager.PROJECT_FILE, project_path / ProjectManager.PROJECT_FILE)]
+    candidates = [
+        (ProjectManager.PROJECT_FILE, project_path / ProjectManager.PROJECT_FILE),
+        (MANIFEST_FILENAME, project_path / MANIFEST_FILENAME),
+    ]
     scripts_dir = project_path / "scripts"
     if scripts_dir.exists():
         candidates.extend((f"scripts/{path.name}", path) for path in sorted(scripts_dir.glob("*.json")))

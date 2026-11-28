@@ -542,6 +542,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const scriptPlanSuccessChanges = taskChanges.filter(
           (c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""),
         );
+        let scriptPlanRefreshScope: ProjectRefreshScope | null = null;
         if (scriptPlanSuccessChanges.length > 0) {
           const explicitEpisodes = scriptPlanSuccessChanges
             .map((c) => c.episode)
@@ -550,11 +551,20 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             for (const ep of explicitEpisodes) {
               invalidationKeys.push(buildEntityRevisionKey("script_plan", `episode_${ep}`));
             }
+            scriptPlanRefreshScope = {
+              episodes: [...new Set(explicitEpisodes)],
+              assets: false,
+              projectWide: false,
+            };
           } else {
             const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
             invalidationKeys.push(
               ...episodes.map(({ episode }) => buildEntityRevisionKey("script_plan", `episode_${episode}`)),
             );
+            scriptPlanRefreshScope =
+              episodes.length > 0
+                ? { episodes: episodes.map(({ episode }) => episode), assets: false, projectWide: false }
+                : { projectWide: true, assets: false };
           }
         }
 
@@ -580,7 +590,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const hasUsageRecord = payload.changes.some(isUsageRecordChange);
         const hasCostChange =
           hasCompletionEvent || hasBilledVoiceSampleTerminal || hasGridSplit || hasUsageRecord;
-        const refreshScope = entityChanges.length > 0 ? deriveRefreshScope(entityChanges) : null;
+        const entityRefreshScope = entityChanges.length > 0 ? deriveRefreshScope(entityChanges) : null;
+        const refreshScope =
+          entityRefreshScope && scriptPlanRefreshScope
+            ? mergePendingScope(entityRefreshScope, scriptPlanRefreshScope)
+            : (entityRefreshScope ?? scriptPlanRefreshScope);
 
         const groupedChanges = sortGroupedChanges(groupChangesByType(entityChanges));
 

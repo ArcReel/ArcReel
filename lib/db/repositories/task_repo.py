@@ -126,6 +126,22 @@ class TaskNotCancellableError(Exception):
         self.task_id = task_id
 
 
+def _task_episode(task: Task) -> int | None:
+    payload = _json_loads(task.payload_json, {})
+    if isinstance(payload, dict):
+        episode = payload.get("episode")
+        if type(episode) is int and episode >= 1:
+            return episode
+    resource_id = task.resource_id or ""
+    if resource_id.startswith("episode-"):
+        suffix = resource_id.removeprefix("episode-")
+        if suffix.isascii() and suffix.isdigit():
+            parsed = int(suffix)
+            if parsed >= 1:
+                return parsed
+    return None
+
+
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
@@ -138,17 +154,19 @@ class TaskRepository(BaseRepository):
         project_name: str,
         status: str,
         task_type: str | None = None,
+        episode: int | None = None,
     ) -> None:
         """非终态调用是空操作：状态守卫兜住未来新增的非终态调用点，避免发出无对应动作的事件。"""
         if status in TERMINAL_TASK_STATUSES:
-            self.terminal_events.append(
-                {
-                    "task_id": task_id,
-                    "project_name": project_name,
-                    "status": status,
-                    "task_type": task_type,
-                }
-            )
+            event: dict[str, Any] = {
+                "task_id": task_id,
+                "project_name": project_name,
+                "status": status,
+                "task_type": task_type,
+            }
+            if episode is not None:
+                event["episode"] = episode
+            self.terminal_events.append(event)
 
     async def _require_batch_units(
         self,
@@ -593,6 +611,7 @@ class TaskRepository(BaseRepository):
             project_name=done_task.project_name,
             status="succeeded",
             task_type=done_task.task_type,
+            episode=_task_episode(done_task),
         )
         await self.session.commit()
         return affected
@@ -699,6 +718,7 @@ class TaskRepository(BaseRepository):
             project_name=failed_task.project_name,
             status="failed",
             task_type=failed_task.task_type,
+            episode=_task_episode(failed_task),
         )
         return affected
 
@@ -727,6 +747,7 @@ class TaskRepository(BaseRepository):
             project_name=failed_task.project_name,
             status="failed",
             task_type=failed_task.task_type,
+            episode=_task_episode(failed_task),
         )
         return affected
 
@@ -864,6 +885,7 @@ class TaskRepository(BaseRepository):
             project_name=cancelled_task.project_name,
             status="cancelled",
             task_type=cancelled_task.task_type,
+            episode=_task_episode(cancelled_task),
         )
 
         cancelled.append(task_data)
@@ -1022,6 +1044,7 @@ class TaskRepository(BaseRepository):
                 project_name=project_name,
                 status="cancelled",
                 task_type=updated_task.task_type,
+                episode=_task_episode(updated_task),
             )
 
         await self.session.commit()
