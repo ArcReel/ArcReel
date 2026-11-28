@@ -38,9 +38,10 @@ if [[ -n "$SPEC" && ! "$SPEC" =~ ^[0-9]+$ ]]; then
 fi
 command -v gh >/dev/null 2>&1 || { echo "BATCH_POLL_ERROR: gh CLI not found on PATH" >&2; exit 3; }
 command -v jq >/dev/null 2>&1 || { echo "BATCH_POLL_ERROR: jq not found on PATH" >&2; exit 3; }
+command -v python3 >/dev/null 2>&1 || { echo "BATCH_POLL_ERROR: python3 not found on PATH" >&2; exit 3; }
 
 TASK_TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TASK_TMP_DIR"' EXIT
+trap 'remove_paths "$TASK_TMP_DIR"' EXIT
 
 OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>"$TASK_TMP_DIR/repo.err") || {
   echo "BATCH_POLL_ERROR: gh repo view failed" >&2

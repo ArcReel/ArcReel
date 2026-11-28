@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 WAIT_SH="$SCRIPT_DIR/wait.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -11,7 +13,7 @@ fail() {
 }
 
 TMP_ROOT=$(mktemp -d)
-trap 'rm -rf "$TMP_ROOT"' EXIT
+trap 'remove_paths "$TMP_ROOT"' EXIT
 
 mkdir "$TMP_ROOT/bin"
 mkdir "$TMP_ROOT/tmp"
@@ -19,6 +21,13 @@ mkdir "$TMP_ROOT/repo"
 git -C "$TMP_ROOT/repo" init -q
 REPO_ARGS=(--repo-root "$TMP_ROOT/repo")
 export TMPDIR="$TMP_ROOT/tmp"
+
+cat > "$TMP_ROOT/bin/rm" <<'EOF'
+#!/usr/bin/env bash
+echo "unexpected rm invocation: $*" >&2
+exit 99
+EOF
+chmod +x "$TMP_ROOT/bin/rm"
 
 cat > "$TMP_ROOT/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -301,7 +310,7 @@ EOF
 chmod +x "$TMP_ROOT/bin/date"
 
 reset_case() {
-  rm -f "$TMP_ROOT"/*-count "$TMP_ROOT/sleeps" "$TMP_ROOT/result.out" "$TMP_ROOT/result.err"
+  remove_paths "$TMP_ROOT"/*-count "$TMP_ROOT/sleeps" "$TMP_ROOT/result.out" "$TMP_ROOT/result.err"
   printf '0\n' > "$TMP_ROOT/clock"
 }
 

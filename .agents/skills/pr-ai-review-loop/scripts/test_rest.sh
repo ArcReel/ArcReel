@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
 TMP_ROOT=$(mktemp -d)
-trap 'rm -rf "$TMP_ROOT"' EXIT
+trap 'remove_paths "$TMP_ROOT"' EXIT
 mkdir "$TMP_ROOT/bin" "$TMP_ROOT/tmp" "$TMP_ROOT/repo"
 git -C "$TMP_ROOT/repo" init -q
 export TMPDIR="$TMP_ROOT/tmp" REST_TEST_ROOT="$TMP_ROOT"
+cat > "$TMP_ROOT/bin/rm" <<'RM'
+#!/usr/bin/env bash
+echo "unexpected rm invocation: $*" >&2
+exit 99
+RM
+chmod +x "$TMP_ROOT/bin/rm"
+
 cat > "$TMP_ROOT/bin/gh" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
