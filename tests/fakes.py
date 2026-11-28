@@ -1218,11 +1218,21 @@ def use_generation_worker_sessions(monkeypatch, factory) -> None:
 
 
 def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
-    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
+    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 S3 SDK 客户端替身）。
 
-    TOS SDK 基于 requests，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
+    boto3 / botocore 基于 urllib3，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
     """
     monkeypatch.setattr("lib.object_storage.client.create_sdk_client", factory)
+
+
+def s3_client_error(status: int, code: str, message: str = "failed", operation: str = "S3Operation") -> Any:
+    """构造与 botocore 一致的 ``ClientError``，供各对象存储测试复用。"""
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {"Error": {"Code": code, "Message": message}, "ResponseMetadata": {"HTTPStatusCode": status}},
+        operation,
+    )
 
 
 def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:

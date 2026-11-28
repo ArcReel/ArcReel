@@ -32,10 +32,12 @@ const ACCOUNTS: AssetLibraryAccountList = {
 };
 
 const CONNECTION = {
-  kind: "tos" as const,
+  kind: "s3" as const,
   region: "cn-beijing",
-  endpoint: "tos-cn-beijing.volces.com",
+  endpoint: "https://tos-s3-cn-beijing.volces.com",
   bucket: "old-relay",
+  addressing_style: "virtual" as const,
+  needs_endpoint_review: false,
   access_key_id_masked: "TEST…0001",
   secret_access_key_masked: "tos-…0001",
   updated_at: "2026-11-03T00:00:00Z",
@@ -93,10 +95,12 @@ describe("AssetLibrarySection", () => {
 
   it("首次配置对象存储要求填写密钥，保存后只展示掩码；配置连接不改变新增图片保存位置", async () => {
     vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({
-      kind: "tos",
+      kind: "s3",
       region: "cn-beijing",
-      endpoint: "tos-cn-beijing.volces.com",
+      endpoint: "https://tos-s3-cn-beijing.volces.com",
       bucket: "arcreel-relay",
+      addressing_style: "auto",
+      needs_endpoint_review: false,
       access_key_id_masked: "TEST…0001",
       secret_access_key_masked: "tos-…0001",
       updated_at: "2026-11-03T00:00:00Z",
@@ -113,7 +117,7 @@ describe("AssetLibrarySection", () => {
     await user.click(await screen.findByRole("button", { name: "配置对象存储" }));
     const dialog = await screen.findByRole("dialog", { name: "配置对象存储" });
     await user.type(within(dialog).getByLabelText("区域"), "cn-beijing");
-    await user.type(within(dialog).getByLabelText("Endpoint"), "tos-cn-beijing.volces.com");
+    await user.type(within(dialog).getByLabelText("Endpoint"), "https://tos-s3-cn-beijing.volces.com");
     await user.type(within(dialog).getByLabelText("桶名"), "arcreel-relay");
     const save = within(dialog).getByRole("button", { name: "保存" });
     expect(save).toBeDisabled();
@@ -126,9 +130,11 @@ describe("AssetLibrarySection", () => {
     await user.click(save);
 
     expect(API.saveObjectStorageConnection).toHaveBeenCalledWith({
+      kind: "s3",
       region: "cn-beijing",
-      endpoint: "tos-cn-beijing.volces.com",
+      endpoint: "https://tos-s3-cn-beijing.volces.com",
       bucket: "arcreel-relay",
+      addressing_style: "auto",
       access_key_id: "TEST-TOS-AK-0001",
       secret_access_key: "tos-secret-0001",
       delete_remote_objects: undefined,
@@ -189,6 +195,9 @@ describe("AssetLibrarySection", () => {
     await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
     await user.type(within(dialog).getByLabelText("桶名"), "-2");
+    expect(within(dialog).getByRole("button", { name: "保存" })).toBeDisabled();
+    await user.type(within(dialog).getByLabelText("Access Key ID"), "TEST-S3-AK-NEW");
+    await user.type(within(dialog).getByLabelText("Secret Access Key"), "TEST-S3-SK-NEW");
     return dialog;
   }
 
@@ -329,6 +338,8 @@ describe("AssetLibrarySection", () => {
     const bucket = within(dialog).getByLabelText("桶名");
     await user.clear(bucket);
     await user.type(bucket, "new-relay");
+    await user.type(within(dialog).getByLabelText("Access Key ID"), "TEST-S3-AK-NEW");
+    await user.type(within(dialog).getByLabelText("Secret Access Key"), "TEST-S3-SK-NEW");
     await user.click(within(dialog).getByRole("checkbox"));
     vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
       ...LOCAL_ONLY,
@@ -370,5 +381,20 @@ describe("AssetLibrarySection", () => {
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("自定义 TOS 域名升级后的连接显示核对提示，测试通过后消除提示", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      ...LOCAL_ONLY,
+      connection: { ...CONNECTION, endpoint: "custom-tos.internal.example", needs_endpoint_review: true },
+    });
+    vi.spyOn(API, "checkObjectStorageConnection").mockResolvedValue({ success: true });
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+
+    expect(await screen.findByText(/由自定义 TOS 域名升级而来/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "测试连接" }));
+    expect(await screen.findByText("连接正常，可以访问这个桶")).toBeInTheDocument();
+    expect(screen.queryByText(/由自定义 TOS 域名升级而来/)).not.toBeInTheDocument();
   });
 });

@@ -28,11 +28,13 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
 def _body(bucket: str, suffix: str) -> dict[str, str]:
     return {
+        "kind": "s3",
         "region": "cn-beijing",
-        "endpoint": "tos-cn-beijing.volces.com",
+        "endpoint": "https://tos-s3-cn-beijing.volces.com",
         "bucket": bucket,
-        "access_key_id": f"TEST-TOS-AK-{suffix}",
-        "secret_access_key": f"TEST-TOS-SECRET-{suffix}",
+        "addressing_style": "virtual",
+        "access_key_id": f"TEST-S3-AK-{suffix}",
+        "secret_access_key": f"TEST-S3-SECRET-{suffix}",
     }
 
 
@@ -82,4 +84,4 @@ async def test_concurrent_first_saves_leave_one_connection(
     assert count == 1
     assert conn is not None
     saved = {"bucket-a": "A", "bucket-b": "B"}[conn.bucket]
-    assert (conn.access_key_id, conn.secret_access_key) == (f"TEST-TOS-AK-{saved}", f"TEST-TOS-SECRET-{saved}")
+    assert (conn.access_key_id, conn.secret_access_key) == (f"TEST-S3-AK-{saved}", f"TEST-S3-SECRET-{saved}")

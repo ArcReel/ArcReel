@@ -30,20 +30,21 @@ from tests.fakes import bind_session_factory, use_assets_router_sessions, use_ob
 async def test_asset_image_compensation_stops_at_commit(assets_env, db_engine, db_factory, monkeypatch, entry, failure):
     objects: dict[str, bytes] = {}
     sdk = SimpleNamespace(
-        put_object=lambda *, key, content, **kw: objects.update({key: content}),
-        head_object=lambda *, key, **kw: SimpleNamespace(content_length=len(objects[key]), etag="etag"),
-        delete_object=lambda *, key, **kw: objects.pop(key, None),
+        put_object=lambda *, Key, Body, **kw: objects.update({Key: Body}) or {"ETag": "etag"},
+        head_object=lambda *, Key, **kw: {"ContentLength": len(objects[Key]), "ETag": "etag"},
+        delete_object=lambda *, Key, **kw: objects.pop(Key, None),
     )
     use_object_storage_sdk(monkeypatch, lambda config: sdk)
     bind_session_factory(monkeypatch, db_factory)
     async with db_factory() as session:
         await ObjectStorageConnectionRepository(session).save(
-            kind="tos",
+            kind="s3",
             region="cn-beijing",
-            endpoint="tos-cn-beijing.volces.com",
+            endpoint="https://tos-s3-cn-beijing.volces.com",
             bucket="test-library",
-            access_key_id="TEST-TOS-AK-LIBRARY",
-            secret_access_key="TEST-TOS-SECRET-LIBRARY",
+            addressing_style="virtual",
+            access_key_id="TEST-S3-AK-LIBRARY",
+            secret_access_key="TEST-S3-SECRET-LIBRARY",
         )
         await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, "object_storage")
         await session.commit()

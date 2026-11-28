@@ -30,16 +30,24 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type {
   NewImageTarget,
+  ObjectStorageAddressingStyle,
+  ObjectStorageCleanupResult,
   ObjectStorageConnection,
   ObjectStorageSettings,
-  ObjectStorageCleanupResult,
   SavedObjectStorageConnection,
 } from "@/types";
 import { errMsg } from "@/utils/async";
 
 const LABEL_CLS = "text-sm font-medium text-foreground";
+
+const ADDRESSING_STYLE_LABEL_KEYS: Record<ObjectStorageAddressingStyle, string> = {
+  auto: "object_storage_addressing_style_auto",
+  virtual: "object_storage_addressing_style_virtual",
+  path: "object_storage_addressing_style_path",
+};
 
 type LoadState =
   | { status: "loading" }
@@ -114,7 +122,20 @@ export function ObjectStorageBlock() {
     setTest({ status: "testing" });
     try {
       await API.checkObjectStorageConnection();
-      if (generation === testGeneration.current) setTest({ status: "ok" });
+      if (generation === testGeneration.current) {
+        setTest({ status: "ok" });
+        setLoad((prev) =>
+          prev.status === "ready" && prev.settings.connection?.needs_endpoint_review
+            ? {
+                status: "ready",
+                settings: {
+                  ...prev.settings,
+                  connection: { ...prev.settings.connection, needs_endpoint_review: false },
+                },
+              }
+            : prev,
+        );
+      }
     } catch (error) {
       if (generation === testGeneration.current) setTest({ status: "failed", error });
     }
@@ -231,6 +252,8 @@ function ConnectionCard({
           </dd>
           <dt className="text-muted-foreground">{t("object_storage_region")}</dt>
           <dd className="font-mono">{connection.region}</dd>
+          <dt className="text-muted-foreground">{t("object_storage_addressing_style")}</dt>
+          <dd>{t(ADDRESSING_STYLE_LABEL_KEYS[connection.addressing_style])}</dd>
           <dt className="text-muted-foreground">{t("object_storage_access_key_id")}</dt>
           <dd className="font-mono">{connection.access_key_id_masked}</dd>
         </dl>
@@ -251,6 +274,11 @@ function ConnectionCard({
           </Button>
         </div>
       </div>
+      {connection.needs_endpoint_review && (
+        <p role="status" className="text-xs text-warn">
+          {t("object_storage_needs_endpoint_review")}
+        </p>
+      )}
       <div aria-live="polite">
         {test.status === "ok" && <p className="text-xs text-good">{t("object_storage_test_ok")}</p>}
         {test.status === "failed" && <RequestErrorNotice error={test.error} className="text-xs" />}
@@ -416,6 +444,9 @@ function ObjectStorageDialog({
   const [region, setRegion] = useState(connection?.region ?? "");
   const [endpoint, setEndpoint] = useState(connection?.endpoint ?? "");
   const [bucket, setBucket] = useState(connection?.bucket ?? "");
+  const [addressingStyle, setAddressingStyle] = useState<ObjectStorageAddressingStyle>(
+    connection?.addressing_style ?? "auto",
+  );
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -425,15 +456,23 @@ function ObjectStorageDialog({
   const creating = connection === null;
   const changesBucket =
     !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
+  const requiresKeys = creating || changesBucket;
   const complete =
-    region.trim() && endpoint.trim() && bucket.trim() && (!creating || (accessKeyId.trim() && secretAccessKey.trim()));
+    region.trim() && endpoint.trim() && bucket.trim() && (!requiresKeys || (accessKeyId.trim() && secretAccessKey.trim()));
 
   const dirty =
     region !== (connection?.region ?? "") ||
     endpoint !== (connection?.endpoint ?? "") ||
     bucket !== (connection?.bucket ?? "") ||
+    addressingStyle !== (connection?.addressing_style ?? "auto") ||
     accessKeyId !== "" ||
     secretAccessKey !== "";
+
+  const addressingStyleItems: { value: ObjectStorageAddressingStyle; label: string }[] = [
+    { value: "auto", label: t("object_storage_addressing_style_auto") },
+    { value: "virtual", label: t("object_storage_addressing_style_virtual") },
+    { value: "path", label: t("object_storage_addressing_style_path") },
+  ];
 
   const submit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
@@ -441,9 +480,11 @@ function ObjectStorageDialog({
     setError(null);
     try {
       const saved = await API.saveObjectStorageConnection({
+        kind: "s3",
         region: region.trim(),
         endpoint: endpoint.trim(),
         bucket: bucket.trim(),
+        addressing_style: addressingStyle,
         access_key_id: accessKeyId.trim() || undefined,
         secret_access_key: secretAccessKey.trim() || undefined,
         delete_remote_objects: changesBucket ? deleteRemote : undefined,
@@ -456,7 +497,18 @@ function ObjectStorageDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, changesBucket, deleteRemote, onSaved]);
+  }, [
+    complete,
+    region,
+    endpoint,
+    bucket,
+    addressingStyle,
+    accessKeyId,
+    secretAccessKey,
+    changesBucket,
+    deleteRemote,
+    onSaved,
+  ]);
 
   const handleSubmit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
@@ -525,25 +577,53 @@ function ObjectStorageDialog({
           <DialogBody>
             <div className="flex flex-col gap-4">
               {field("region", t("object_storage_region"), region, setRegion, {
-                placeholder: "cn-beijing",
+                placeholder: "auto",
                 ref: regionRef,
               })}
               {field("endpoint", t("object_storage_endpoint"), endpoint, setEndpoint, {
-                placeholder: "tos-cn-beijing.volces.com",
+                placeholder: "https://s3.example.com",
               })}
               {field("bucket", t("object_storage_bucket"), bucket, setBucket)}
+              <div className="flex flex-col gap-1.5">
+                <span id={`${idPrefix}-addressing-style`} className={LABEL_CLS}>
+                  {t("object_storage_addressing_style")}
+                </span>
+                <Select
+                  items={addressingStyleItems}
+                  value={addressingStyle}
+                  onValueChange={(next) => {
+                    if (next !== null) setAddressingStyle(next);
+                  }}
+                >
+                  <SelectTrigger aria-labelledby={`${idPrefix}-addressing-style`} className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {addressingStyleItems.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {field("ak", t("object_storage_access_key_id"), accessKeyId, setAccessKeyId, {
                 secret: true,
-                placeholder: connection
-                  ? t("credential_keep_existing", { masked: connection.access_key_id_masked })
-                  : undefined,
+                placeholder:
+                  connection && !changesBucket
+                    ? t("credential_keep_existing", { masked: connection.access_key_id_masked })
+                    : undefined,
               })}
               {field("sk", t("object_storage_secret_access_key"), secretAccessKey, setSecretAccessKey, {
                 secret: true,
-                placeholder: connection
-                  ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
-                  : undefined,
+                placeholder:
+                  connection && !changesBucket
+                    ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
+                    : undefined,
               })}
+              {changesBucket && (
+                <p className="text-xs text-muted-foreground">{t("object_storage_target_keys_required_hint")}</p>
+              )}
               {changesBucket && (
                 <CleanupOptions
                   checked={deleteRemote}

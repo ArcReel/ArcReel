@@ -1,8 +1,14 @@
+export type ObjectStorageKind = "s3";
+
+export type ObjectStorageAddressingStyle = "auto" | "virtual" | "path";
+
 export interface ObjectStorageConnection {
-  kind: "tos";
+  kind: ObjectStorageKind;
   region: string;
   endpoint: string;
   bucket: string;
+  addressing_style: ObjectStorageAddressingStyle;
+  needs_endpoint_review?: boolean;
   access_key_id_masked: string;
   secret_access_key_masked: string;
   updated_at: string;
@@ -23,9 +29,11 @@ export interface ObjectStorageCleanupResult {
 export type SavedObjectStorageConnection = ObjectStorageConnection & ObjectStorageCleanupResult;
 
 export interface SaveObjectStorageConnectionPayload {
+  kind?: ObjectStorageKind;
   region: string;
   endpoint: string;
   bucket: string;
+  addressing_style?: ObjectStorageAddressingStyle;
   access_key_id?: string;
   secret_access_key?: string;
   delete_remote_objects?: boolean;

@@ -109,10 +109,12 @@ const REMOTE_STORAGE: ApiOverrides = {
     status: 200,
     body: {
       connection: {
-        kind: "tos",
+        kind: "s3",
         region: "cn-beijing",
-        endpoint: "tos-cn-beijing.volces.com",
+        endpoint: "https://tos-s3-cn-beijing.volces.com",
         bucket: "arcreel-production-materials-and-relay-bucket-for-the-north-china-studio-team",
+        addressing_style: "virtual",
+        needs_endpoint_review: false,
         access_key_id_masked: "TEST…0001",
         secret_access_key_masked: "TEST…0001",
         updated_at: "2026-01-01T07:00:00Z",

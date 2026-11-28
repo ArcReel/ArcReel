@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -27,7 +26,6 @@ from mcp import types
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from tos.exceptions import TosServerError
 
 from lib.artifacts import version_manager
 from lib.asset_library import importing, ingest, links
@@ -71,47 +69,50 @@ from server.services.project.provider_asset_import import import_provider_asset
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import bind_session_factory, use_object_storage_sdk, use_project_manager, use_upload_claim_registration
+from tests.fakes import (
+    bind_session_factory,
+    s3_client_error,
+    use_object_storage_sdk,
+    use_project_manager,
+    use_upload_claim_registration,
+)
 from tests.http_capture import capture_http, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 VOLC_HOST = "https://ark.cn-beijing.volcengineapi.com/"
 SK = "TEST-CONTROLPLANE-SECRET-0003"
-TOS_SK = "TEST-TOS-SECRET-0003"
+TOS_SK = "TEST-S3-SECRET-0003"
 LINKS = "/api/v1/projects/demo/provider-asset-links"
 
 
-class MemoryTos:
-    """TOS SDK 客户端替身：对象存在内存里，可以让写入或删除失败。"""
+class MemoryS3:
+    """S3 SDK 客户端替身：对象存在内存里，可以让写入或删除失败。"""
 
     def __init__(self, bucket_state: dict[str, Any]) -> None:
         self.state = bucket_state
 
-    def put_object(self, *, bucket: str, key: str, content: bytes, content_type: str | None = None):
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
         if self.state["fail_put"]:
-            raise _server_error(503, "ServiceUnavailable")
-        self.state["objects"][(bucket, key)] = content
-        return SimpleNamespace(etag="etag")
+            raise s3_client_error(503, "ServiceUnavailable")
+        self.state["objects"][(Bucket, Key)] = Body
+        return {"ETag": "etag"}
 
-    def head_object(self, *, bucket: str, key: str):
-        if (bucket, key) not in self.state["objects"]:
-            raise _server_error(404, "NoSuchKey")
-        return SimpleNamespace(content_length=len(self.state["objects"][(bucket, key)]), etag="etag")
+    def head_object(self, *, Bucket: str, Key: str):
+        if (Bucket, Key) not in self.state["objects"]:
+            raise s3_client_error(404, "NoSuchKey")
+        return {"ContentLength": len(self.state["objects"][(Bucket, Key)]), "ETag": "etag"}
 
-    def pre_signed_url(self, *, bucket: str, key: str, expires: int, **_kwargs):
-        self.state["presigned"].append((key, expires))
-        return SimpleNamespace(signed_url=f"https://{bucket}.tos.example/{key}?X-Tos-Signature=sig", signed_header={})
+    def generate_presigned_url(self, _client_method: str, *, Params: dict[str, Any], ExpiresIn: int) -> str:
+        bucket, key = Params["Bucket"], Params["Key"]
+        self.state["presigned"].append((key, ExpiresIn))
+        return f"https://{bucket}.tos.example/{key}?X-Amz-Signature=sig"
 
-    def delete_object(self, *, bucket: str, key: str):
-        self.state["delete_calls"].append(key)
+    def delete_object(self, *, Bucket: str, Key: str):
+        self.state["delete_calls"].append(Key)
         if self.state["fail_delete"]:
-            raise _server_error(500, "InternalError")
-        self.state["objects"].pop((bucket, key), None)
-
-
-def _server_error(status: int, code: str) -> TosServerError:
-    resp = SimpleNamespace(request_id="req-1", headers={}, status=status)
-    return TosServerError(resp, "failed", code, "host", "/bucket")
+            raise s3_client_error(500, "InternalError")
+        self.state["objects"].pop((Bucket, Key), None)
+        return {}
 
 
 @pytest.fixture
@@ -123,7 +124,7 @@ def bucket(monkeypatch) -> dict[str, Any]:
         "fail_put": False,
         "fail_delete": False,
     }
-    use_object_storage_sdk(monkeypatch, lambda config: MemoryTos(state))
+    use_object_storage_sdk(monkeypatch, lambda config: MemoryS3(state))
     return state
 
 
@@ -206,11 +207,12 @@ async def _configure(sessions: async_sessionmaker[AsyncSession], *, object_stora
     async with sessions() as session:
         if object_storage:
             await ObjectStorageConnectionRepository(session).save(
-                kind="tos",
+                kind="s3",
                 region="cn-beijing",
-                endpoint="tos-cn-beijing.volces.com",
+                endpoint="https://tos-s3-cn-beijing.volces.com",
                 bucket="relay-bucket",
-                access_key_id="TEST-TOS-AK-0003",
+                addressing_style="virtual",
+                access_key_id="TEST-S3-AK-0003",
                 secret_access_key=TOS_SK,
             )
         account = await AssetLibraryRepository(session).create_account(
@@ -787,9 +789,12 @@ async def test_connection_change_clears_relay_and_fails_processing_ingest(api, s
     changed = api.put(
         "/api/v1/object-storage/connection",
         json={
+            "kind": "s3",
             "region": "cn-beijing",
-            "endpoint": "tos-cn-beijing.volces.com",
+            "endpoint": "https://tos-s3-cn-beijing.volces.com",
             "bucket": "another-bucket",
+            "access_key_id": "TEST-S3-AK-NEW",
+            "secret_access_key": "TEST-S3-SECRET-NEW",
         },
     )
     assert changed.status_code == 200, changed.text
@@ -843,14 +848,14 @@ async def test_connection_disposal_waits_for_relay_upload_and_clears_its_records
     release = threading.Event()
     loop = asyncio.get_running_loop()
 
-    class PausedTos(MemoryTos):
+    class PausedS3(MemoryS3):
         def put_object(self, **kwargs):
             result = super().put_object(**kwargs)
             loop.call_soon_threadsafe(entered.set)
             assert release.wait(timeout=10), "test did not release the upload"
             return result
 
-    use_object_storage_sdk(monkeypatch, lambda config: PausedTos(bucket))
+    use_object_storage_sdk(monkeypatch, lambda config: PausedS3(bucket))
     shared_lock = ingest.connection_change_lock()
 
     acquire = shared_lock.acquire

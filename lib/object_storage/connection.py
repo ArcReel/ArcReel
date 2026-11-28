@@ -17,6 +17,7 @@ def config_from_connection(conn: ObjectStorageConnection) -> ObjectStorageConfig
         bucket=conn.bucket,
         access_key_id=conn.access_key_id,
         secret_access_key=conn.secret_access_key,
+        addressing_style=conn.addressing_style,
     )
 
 
