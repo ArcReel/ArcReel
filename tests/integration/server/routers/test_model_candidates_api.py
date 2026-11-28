@@ -843,3 +843,38 @@ class TestBucketJudgement:
 
         assert buckets(t2i) == frozenset({"t2i"})
         assert buckets(i2i) == frozenset({"i2i"})
+
+
+class TestBrokenCustomEndpointResilience:
+    @pytest.mark.asyncio
+    async def test_unresolvable_endpoint_skips_broken_model_without_dropping_later_models(
+        self, make_client, session_factory_and_engine, caplog
+    ):
+        factory, _engine = session_factory_and_engine
+        await _seed_custom_models(
+            factory,
+            [
+                {
+                    "model_id": "broken-model",
+                    "display_name": "Broken Model",
+                    "endpoint": "ce-999999",
+                    "is_enabled": True,
+                },
+                {
+                    "model_id": "healthy-model",
+                    "display_name": "Healthy Model",
+                    "endpoint": "openai-video",
+                    "is_enabled": True,
+                },
+            ],
+        )
+
+        with caplog.at_level("WARNING", logger="server.routers.system_config"), make_client([]) as client:
+            response = client.get(CANDIDATES_URL)
+
+        assert response.status_code == 200
+        body = response.json()
+        healthy_option = _custom_option(body, "healthy-model")
+        assert healthy_option in body["video"]["default"]
+        assert all("broken-model" not in opt for opt in body["video"]["default"])
+        assert any("ce-999999" in rec.message for rec in caplog.records)
