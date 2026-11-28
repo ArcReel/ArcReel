@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.catalog import query as catalog
@@ -23,8 +24,11 @@ from lib.catalog.errors import ModelDiscontinuedError
 from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.path_overrides import endpoint_guard
+from lib.db.models.api_call import ApiCall
+from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.models.task import Task
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.db.repositories.usage_repo import UsageRepository
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import GenerationWorker
 from server.services.tasks import generation_context
@@ -79,8 +83,19 @@ async def _run_orphan_recovery(session_factory) -> None:
         executor=execute_generation_task,
         resume_executor=execute_resume_video_task,
     )
+    await worker.reload_limits()
     await worker._recovery.handle_orphans()
     await asyncio.wait_for(worker._recovery.wait_dispatchers(), timeout=10)
+
+
+async def _disable_only_model_with_pending_call(session_factory, provider_id: str, task_id: str) -> int:
+    async with session_factory() as session:
+        await session.execute(update(CustomProviderModel).values(is_enabled=False))
+        call_id = await UsageRepository(session).start_call(
+            project_name="demo", call_type="video", model="video-x", provider=provider_id, task_id=task_id
+        )
+        await session.commit()
+        return call_id
 
 
 async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: Path, session_factory):
@@ -102,6 +117,7 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
         submitted_base_url="https://old-relay.test",
     )
 
+    call_id = await _disable_only_model_with_pending_call(session_factory, rows["provider_id"], "T-ce-resume")
     with capture_http() as router:
         submit = router.post("https://relay.test/v1/video/create")
         poll_current = router.get("https://relay.test/v1/video/fetch/job-old")
@@ -128,6 +144,10 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
         restored = await _load_task_row(session_factory, "T-ce-resume")
         assert json.loads(restored.result_json) == json.loads(initial.result_json)
 
+    async with session_factory() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert call.status == "success"
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -159,6 +179,7 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
         ),
     )
 
+    call_id = await _disable_only_model_with_pending_call(session_factory, rows["provider_id"], "T-ce-rebound")
     with capture_http() as router:
         submit = router.post("https://relay.test/v1/video/create")
         poll = router.get("https://relay.test/v1/video/fetch/job-old")
@@ -172,7 +193,65 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
+    async with session_factory() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert (call.status, call.cost_amount) == ("failed", 0)
     assert not (chain_project / "versions" / "videos").exists()
+
+
+async def test_disabled_custom_video_model_rejects_new_submission(chain_project, session_factory, monkeypatch):
+    rows = await _seed_custom_video_rows(session_factory)
+    provider_id = rows["provider_id"]
+    project_file = chain_project / "project.json"
+    project = json.loads(project_file.read_text())
+    project_file.write_text(json.dumps({**project, "video_provider_i2v": f"{provider_id}/video-x"}))
+    monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", session_factory)
+    async with session_factory() as session:
+        await session.execute(update(CustomProviderModel).values(is_enabled=False))
+        await session.commit()
+
+    queue = GenerationQueue(session_factory=session_factory)
+    worker = GenerationWorker(queue=queue, executor=execute_generation_task, resume_executor=execute_resume_video_task)
+    await worker.reload_limits()
+    with capture_http() as router:
+        queued = await queue.enqueue_task(
+            project_name="demo", task_type="video", media_type="video", resource_id="E1S01"
+        )
+        await worker._claim_tasks()
+
+    row = await _load_task_row(session_factory, queued["task_id"])
+    assert row.status == "failed"
+    assert row.provider_id == provider_id
+    assert "provider_unsupported_media" in (row.error_message or "")
+    assert len(router.calls) == 0
+
+
+async def test_disabled_custom_video_model_settles_rejected_poll_credentials(chain_project, session_factory):
+    rows = await _seed_custom_video_rows(session_factory)
+    provider_id = rows["provider_id"]
+    task_id = "T-ce-invalid-key"
+    await _seed_running_video_task(
+        session_factory,
+        task_id=task_id,
+        provider_id=provider_id,
+        checkpoint_json=_storyboard_checkpoint_json(
+            task_id, provider_id=provider_id, endpoint_guard=rows["endpoint_keys"][0]
+        ),
+    )
+    call_id = await _disable_only_model_with_pending_call(session_factory, provider_id, task_id)
+    with capture_http() as router:
+        poll = router.get("https://relay.test/v1/video/fetch/job-old").respond(401, json={"error": "invalid API key"})
+        await _run_orphan_recovery(session_factory)
+        assert poll.call_count == len(router.calls) == 1
+    row = await _load_task_row(session_factory, task_id)
+    assert row.status == "failed"
+    assert "401" in (row.error_message or "")
+    async with session_factory() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert (call.status, call.cost_amount) == ("failed", 0)
+        assert "401" in (call.error_message or "")
 
 
 async def test_ce_orphan_fails_without_resubmitting_when_path_overrides_changed(chain_project: Path, session_factory):
@@ -567,12 +646,6 @@ async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Pat
 
 @pytest.mark.parametrize(("submitted", "current"), [("always_off", "always_on"), ("always_on", "always_off")])
 async def test_resume_settles_frozen_audio_after_override_change(chain_project, session_factory, submitted, current):
-    from sqlalchemy import update
-
-    from lib.db.models.api_call import ApiCall
-    from lib.db.models.custom_provider import CustomProviderModel
-    from lib.db.repositories.usage_repo import UsageRepository
-
     rows = await _seed_custom_video_rows(session_factory)
     task_id = "T-audio-resume"
     await _seed_running_video_task(

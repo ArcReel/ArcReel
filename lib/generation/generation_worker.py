@@ -505,7 +505,6 @@ class GenerationWorker:
             capacity=self._capacity,
             slots=self._slots,
             stop_event=self._stop_event,
-            reload_limits=lambda: self.reload_limits(),
             provider_projection=provider_projection,
             resume=self._resume,
             settle_interrupted_calls=settle_interrupted_calls or self._settle_interrupted_calls_via_ledger,

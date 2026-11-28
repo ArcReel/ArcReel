@@ -87,7 +87,7 @@ MESSAGES = {
     "task_fail_restart_lost_checkpoint_no_job_id": "Задача перешла границу отправки, не сохранив идентификатор задачи у провайдера, и не может быть повторена автоматически без риска повторного списания",
     "task_fail_execution_identity_unrecoverable": "Не удаётся восстановить идентичность отправки задачи: {detail}",
     "task_fail_resume_unsupported_provider": "Провайдер {provider_id} не поддерживает продолжение задач; повторите попытку вручную, чтобы избежать повторного списания",
-    "task_fail_resume_unsupported_capacity_zero": "У провайдера {provider_id} нулевая ёмкость видео, продолжить задачу нельзя; повторите попытку вручную",
+    "task_fail_resume_unsupported_capacity_zero": "Не удалось возобновить задачу, поскольку на тот момент у провайдера {provider_id} была нулевая ёмкость видео",
     "task_fail_resume_unsupported_detail": "Задачу нельзя продолжить: {detail}",
     "task_fail_resume_expired_detail": "Срок продолжения задачи истёк: {detail}",
     "task_fail_resume_endpoint_changed_detail": (

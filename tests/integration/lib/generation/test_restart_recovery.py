@@ -629,91 +629,14 @@ async def test_committed_video_success_write_rechecks_project_identity(concurren
     assert resumed == []
 
 
-class TestDispatcherFailFastAndPendingTracking:
-    """dispatcher fail-fast + pending/inflight 分集合精确容量与 cancel 跟踪。"""
-
+class TestDispatcherPendingTracking:
+    @pytest.mark.parametrize("capacity", [0, 1])
     @pytest.mark.asyncio
-    async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, worker_db):
-        """video 容量=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。
-
-        容量 0 会先触发一次 reload 兜底：库里这个自定义供应商一个启用模型都没有，
-        video lane 因而被真实投影成 0，fail-fast 才落地。
-        """
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-        async with worker_db() as session:
-            provider = await CustomProviderRepository(session).create_provider(
-                display_name="no-models",
-                discovery_format="openai",
-                base_url="https://example.invalid",
-                api_key="k",
-            )
-            await session.commit()
-        provider_key = f"custom-{provider.id}"
-
+    async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project, capacity):
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
             queue=queue,
-            capacity=capacity_table({provider_key: {"image": 0, "video": 0}}),
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-        )
-
-        tasks = [{"task_id": f"orphan-{i}", "provider_id": provider_key} for i in range(3)]
-        await worker._recovery.dispatch_provider_bucket(provider_key, tasks)
-
-        assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
-        assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
-
-    @pytest.mark.asyncio
-    async def test_capacity_zero_settles_the_pending_call(self, worker_db):
-        """派发前就判死时那条 pending 的 ApiCall 也要翻 failed（零费用）。
-
-        续跑不开新记账括号，只翻任务不结算调用会在用量报表里留一条永不终态的行；
-        「重试下载」尤其明显——它刚把这条调用重开成 pending。
-        """
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-        from lib.db.repositories.usage_repo import UsageRepository
-
-        async with worker_db() as session:
-            provider = await CustomProviderRepository(session).create_provider(
-                display_name="no-models",
-                discovery_format="openai",
-                base_url="https://example.invalid",
-                api_key="k",
-            )
-            call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="m", provider="gemini", task_id="retry-1"
-            )
-            await session.commit()
-        provider_key = f"custom-{provider.id}"
-
-        queue = FakeWorkerQueue()
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({provider_key: {"image": 0, "video": 0}}),
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-        )
-
-        await worker._recovery.dispatch_provider_bucket(
-            provider_key,
-            [{"task_id": "retry-1", "provider_id": provider_key, "payload": {}}],
-        )
-
-        async with worker_db() as session:
-            row = await session.get(ApiCall, call_id)
-        assert (row.status, row.cost_amount) == ("failed", 0)
-        assert row.error_message == f"resume unsupported: provider {provider_key} has no video capacity"
-        assert (row.error_code, row.error_params) == (None, None)
-
-    @pytest.mark.asyncio
-    async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch, staged_project):
-        """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应以 PENDING 登记在台账。"""
-        queue = FakeWorkerQueue()
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
+            capacity=capacity_table({"ark": {"image": 0, "video": capacity}}),
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
@@ -732,10 +655,12 @@ class TestDispatcherFailFastAndPendingTracking:
         dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
 
         await asyncio.wait_for(started.wait(), timeout=5)
-        assert worker._slots.occupied("ark", "video") == 2
+        assert _phase_ids(worker._slots, "ark", "video") == ({"orphan-0"}, {"orphan-1"})
 
         gate.set()
-        await dispatcher
+        await asyncio.wait_for(dispatcher, timeout=5)
+        assert [tid for tid, _ in queue.succeeded] == ["orphan-0", "orphan-1"]
+        assert worker._slots.occupied("ark", "video") == 0
 
     @pytest.mark.asyncio
     async def test_sem_queued_interruption_lands_terminal(self, monkeypatch, staged_project):
@@ -919,7 +844,12 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
         call = await session.get(ApiCall, call_id)
         assert call is not None
         assert (call.status, call.error_message) == ("failed", "download failed")
-    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    worker = GenerationWorker(
+        queue=queue,
+        capacity=capacity_table({"ark": {"video": 0}}),
+        executor=stub_executors.execute,
+        resume_executor=resume,
+    )
     async with asyncio.timeout(5):
         await worker._recovery.handle_orphans()
         await entered["old"].wait()
