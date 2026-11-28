@@ -112,5 +112,6 @@ export default {
   'event_stream_interrupted': 'Поток событий прерван',
   'event_stream_ended': 'Поток событий завершён',
   'scroll_target_not_found': 'Не удалось найти элемент для перехода: {{id}}',
+  "submit_gateway_ambiguous": "Шлюз вернул HTTP {{status}}. Возможно, провайдер принял запрос. Перед повторной отправкой вручную проверьте статус задачи и списания у провайдера.",
   'text_wait_timeout': 'Локальное ожидание завершено, но поставщик всё ещё может выполнить запрос и списать плату. Проверьте результат перед повторной попыткой',
 } satisfies Record<keyof typeof enErrors, string> & Record<string, string>;

@@ -34,7 +34,7 @@ from lib.backends.audio_backends.base import (
 )
 from lib.backends.audio_profiles import endpoint_profile
 from lib.backends.backend_runtime import should_retry_submit, submit_post
-from lib.backends.http_status_errors import AmbiguousSubmitError
+from lib.backends.http_status_errors import AmbiguousGatewaySubmitError, AmbiguousSubmitError
 from lib.backends.providers import PROVIDER_ARK_AGENT_PLAN
 from lib.backends.transport_layer import TransportLayer
 from lib.infra.api_errors import BadGatewayError
@@ -142,13 +142,16 @@ def _business_error(code: int | None) -> BadGatewayError:
     return BadGatewayError("ark_agent_plan_tts_failed", code=code)
 
 
-def _rejection(response: httpx.Response) -> BadGatewayError:
-    """把 HTTP 错误状态换成领域错误：错误体里有业务码时按业务码分流，否则按 HTTP 状态码。"""
+def _rejection(exc: httpx.HTTPStatusError) -> BadGatewayError | None:
+    """把 HTTP 错误状态换成领域错误：网关歧义提交仅在明确鉴权/额度拒因时改判，其余返回 None 保留歧义语义。"""
+    response = exc.response
     try:
         payload: Any = response.json()
     except ValueError:
         payload = None
     code = _int_code(payload.get("code")) if isinstance(payload, dict) else None
+    if isinstance(exc, AmbiguousGatewaySubmitError):
+        return _business_error(code) if code == _ACCESS_DENIED_CODE else None
     if code is not None and code not in (_CHUNK_CODE, _SUCCESS_CODE):
         return _business_error(code)
     if response.status_code in _ACCESS_DENIED_STATUSES:
@@ -228,7 +231,9 @@ class ArkAgentPlanAudioBackend:
         try:
             artifact, billed_characters = await self._request_speech(request, upstream_format, wrap_wav)
         except httpx.HTTPStatusError as exc:
-            raise _rejection(exc.response) from exc
+            if (rejection := _rejection(exc)) is None:
+                raise
+            raise rejection from exc
         except httpx.RequestError as exc:
             raise _not_sent(exc) from _timeout_cause(exc)
         await run_noninterruptible_sync(request.output_path.write_bytes, artifact)
@@ -274,12 +279,11 @@ class ArkAgentPlanAudioBackend:
             except AmbiguousSubmitError as exc:
                 raise AmbiguousSubmitError(provider=self.name) from _timeout_cause(exc.__cause__)
             except httpx.HTTPStatusError as exc:
-                rejection = _rejection(exc.response)
-                if rejection.key == "ark_agent_plan_tts_access_denied":
-                    raise rejection from exc
                 if should_retry_submit(exc):
-                    raise
-                raise rejection from exc
+                    rejection = _rejection(exc)
+                    if rejection is not None and rejection.key == "ark_agent_plan_tts_access_denied":
+                        raise rejection from exc
+                raise
         try:
             synthesis = await run_noninterruptible_sync(lambda: _parse_stream(resp.content))
             if not synthesis.audio:

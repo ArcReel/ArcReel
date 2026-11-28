@@ -144,6 +144,18 @@ class TestViduReferenceImageLimit:
 class TestViduImageCreateTaskHttpErrors:
     """_create_task 的 >=400 收口：保留状态码（咽喉层据此降档），4xx 另带脱敏拒因摘要。"""
 
+    @pytest.mark.parametrize("status", [502, 504])
+    async def test_gateway_error_submits_image_only_once(self, image_output_path: Path, poll_clock, status: int):
+        base_url = "https://api.vidu.com/ent/v2"
+        backend = ViduImageBackend(api_key="k", base_url=base_url)
+        with capture_http() as router:
+            route = router.post(f"{base_url}/reference2image").respond(status)
+            with pytest.raises(httpx.HTTPStatusError) as caught:
+                await backend.generate(ImageGenerationRequest(prompt="x", output_path=image_output_path))
+
+        assert caught.value.response.status_code == status
+        assert route.call_count == 1
+
     async def test_create_task_413_surfaces_httpstatuserror_no_retry(self):
         from unittest.mock import AsyncMock, MagicMock
 

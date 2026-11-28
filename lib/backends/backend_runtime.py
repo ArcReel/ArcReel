@@ -32,6 +32,7 @@ from lib.backends.artifact_download_guard import (
 )
 from lib.backends.data_uri import file_to_data_uri, image_mime_from_bytes
 from lib.backends.http_status_errors import (
+    AmbiguousGatewaySubmitError,
     AmbiguousSubmitError,
     ArtifactDownloadError,
     provider_rejected_error,
@@ -313,6 +314,8 @@ async def submit_post(
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if resp.status_code in _AMBIGUOUS_SUBMIT_HTTP_STATUS_CODES:
+                raise AmbiguousGatewaySubmitError(exc) from None
             if include_provider_reason and is_provider_rejection(resp.status_code):
                 raise provider_rejected_error(exc, provider_reason=provider_reason_summary(resp)) from None
             raise redacted_status_error(exc) from None

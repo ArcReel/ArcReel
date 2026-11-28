@@ -60,7 +60,7 @@ export default {
   "video_end_image_requires_start_image": "模型 {{model}} 不支持单独的尾帧；请同时提供首帧（首尾帧模式），或移除尾帧",
   "video_end_image_unreadable": "模型 {{model}} 的尾帧图无法读取，已中止生成：{{name}}；请检查尾帧图路径",
   "video_first_frame_unsupported": "{{provider}}/{{model}} 当前配置不支持首帧，已中止生成；请移除该分镜的首帧，或改用支持首帧的模型/档位",
-  "video_kling_api_key_required": "模型 {{model}} 仅支持 API Key 鉴权，不支持 Access Key / Secret Key（JWT）；请在系统配置页填写可灵 Kling 的 API Key 后重试",
+  "video_kling_api_key_required": "模型 {{model}} 仅支持 API Key 鉴权，不支持 Access Key / Secret Key（JWT）；请在可灵供应商设置的「密钥」字段填写 API Key 后重试",
   "video_last_frame_requires_pro": "{{provider}}/{{model}} 的首尾帧仅在 pro 档生效；请切换到 pro 档，或移除尾帧",
   "video_last_frame_unsupported": "{{provider}}/{{model}} 当前配置不支持尾帧，已中止生成；请移除该分镜的尾帧，或改用支持尾帧的模型/档位",
   "video_prompt_too_long": "{{provider}}/{{model}} 的提示词最多 {{limit}} 个字符，当前 {{count}} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
@@ -112,5 +112,6 @@ export default {
   'event_stream_interrupted': '事件流中断',
   'event_stream_ended': '事件流已结束',
   'scroll_target_not_found': '未找到可定位的内容：{{id}}',
+  "submit_gateway_ambiguous": "网关返回 HTTP {{status}}，供应商可能已受理请求。手动重试前，请到供应商侧核对任务状态和计费记录。",
   'text_wait_timeout': '本地已停止等待，但供应商仍可能继续完成请求并计费。确认结果后再重试',
 } satisfies Record<keyof typeof enErrors, string>;

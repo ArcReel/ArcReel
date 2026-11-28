@@ -43,6 +43,14 @@ class ProviderRejectedError(httpx.HTTPStatusError):
         self.provider_reason = provider_reason
 
 
+class AmbiguousGatewaySubmitError(httpx.HTTPStatusError):
+    code = "submit_gateway_ambiguous"
+
+    def __init__(self, exc: httpx.HTTPStatusError) -> None:
+        self.params = {"status": exc.response.status_code}
+        super().__init__(_redacted_message(exc), request=exc.request, response=exc.response)
+
+
 class ArtifactDownloadError(RuntimeError):
     """供应商任务已成功、仅产物下载耗尽，可接续原任务重试取件。"""
 

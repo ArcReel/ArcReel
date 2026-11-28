@@ -111,5 +111,6 @@ export default {
   'event_stream_interrupted': 'Event stream interrupted',
   'event_stream_ended': 'Event stream ended',
   'scroll_target_not_found': 'Couldn\'t find the content to jump to: {{id}}',
+  "submit_gateway_ambiguous": "The gateway returned HTTP {{status}}. The provider may have accepted the request. Check the task status and billing records with the provider before retrying manually.",
   'text_wait_timeout': 'Local waiting has ended, but the provider may still complete the request and charge for it. Check the result before retrying',
 };
