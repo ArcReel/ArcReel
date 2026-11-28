@@ -225,7 +225,7 @@ class TestSelectChannel:
         resp = _select(c, "storyboards/scene_E1S02.png")
         assert resp.status_code == 400
         assert resp.json()["detail"] == i18n_message(
-            "end_frame_source_too_large", max_mb=0, path="storyboards/scene_未命名集 · S02.png"
+            "end_frame_source_too_large", max_mb=0, path="storyboards/scene_E1 · S02.png"
         )
         assert _segment(pm).get("end_frame_image") is None
 

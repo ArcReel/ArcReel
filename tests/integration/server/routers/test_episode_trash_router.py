@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -25,7 +24,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import edit_timelines, episode_management
 from server.routers import project_trash as trash_router
 from tests.auth_deps import override_auth
-from tests.factories import install_current_video, make_test_clip
+from tests.factories import install_uploaded_video
 from tests.fakes import use_project_manager
 
 
@@ -34,7 +33,6 @@ async def episode_client(
     timeline_project: ProjectManager, monkeypatch: pytest.MonkeyPatch, active_episode_tasks: dict[str, Any]
 ) -> AsyncIterator[AsyncClient]:
     use_project_manager(monkeypatch, timeline_project)
-    monkeypatch.setattr(episode_management, "get_project_manager", lambda: timeline_project)
     app = FastAPI()
     register_error_handlers(app)
     override_auth(app)
@@ -46,11 +44,10 @@ async def episode_client(
         yield http
 
 
-def _install_videos(timeline_project: ProjectManager, tmp_path: Path) -> None:
+def _install_videos(timeline_project: ProjectManager) -> None:
+    project_path = timeline_project.get_project_path("demo")
     for unit_id in ("E1U1", "E1U2"):
-        source = tmp_path / "media" / f"{unit_id}.mp4"
-        make_test_clip(source, size="160x90", fps=30, seconds=0.5, tone=True)
-        install_current_video(timeline_project.get_project_path("demo"), "reference_videos", unit_id, source)
+        install_uploaded_video(project_path, "reference_videos", unit_id, seconds=0.5)
 
 
 async def _create_timeline(client: AsyncClient) -> str:
@@ -77,9 +74,9 @@ def _episodes(timeline_project: ProjectManager) -> list[int]:
 
 
 async def test_a_deleted_episode_comes_back_with_its_timelines_media_versions_and_claims(
-    tmp_path: Path, episode_client: AsyncClient, timeline_project: ProjectManager
+    episode_client: AsyncClient, timeline_project: ProjectManager
 ) -> None:
-    _install_videos(timeline_project, tmp_path)
+    _install_videos(timeline_project)
     timeline_id = await _create_timeline(episode_client)
     rendered = await FinalCutService(timeline_project).render(
         "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
@@ -146,6 +143,7 @@ async def test_an_episode_without_files_keeps_its_title_and_hook_when_restored(
 async def test_a_timeline_deleted_before_its_episode_restores_normally_once_the_episode_is_back(
     episode_client: AsyncClient, timeline_project: ProjectManager
 ) -> None:
+    install_uploaded_video(timeline_project.get_project_path("demo"), "reference_videos", "E1U1", seconds=0.5)
     timeline_id = await _create_timeline(episode_client)
     assert (await episode_client.delete(f"/api/v1/projects/demo/edit-timelines/{timeline_id}")).status_code == 204
     await _delete_episode_1(episode_client)
@@ -215,12 +213,11 @@ async def test_a_grid_deleted_before_its_episode_restores_normally_once_the_epis
     ids=["detach-versions", "manifest-after-detach"],
 )
 def test_a_failed_deletion_commit_withdraws_the_record_and_keeps_the_episode(
-    tmp_path: Path,
     timeline_project: ProjectManager,
     monkeypatch: pytest.MonkeyPatch,
     failing_step: tuple[object, str],
 ) -> None:
-    _install_videos(timeline_project, tmp_path)
+    _install_videos(timeline_project)
     project_dir = timeline_project.get_project_path("demo")
     project_json = (project_dir / "project.json").read_bytes()
     versions = VersionManager(project_dir).get_versions("reference_videos", "E1U1")

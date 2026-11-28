@@ -75,7 +75,7 @@ def test_shared_request_contract_triggers_backend_in_ci_and_locally() -> None:
     [("backend", "backend"), ("frontend", "frontend"), ("website", "website"), ("workflow", "workflows")],
 )
 def test_every_ci_trigger_path_selects_the_matching_gate_domain(ci_domain: str, gate_domain: str) -> None:
-    skipped = {".codecov.yml", ".gitignore"}
+    skipped = {".gitignore"}
     for pattern in _ci_filters()[ci_domain]:
         if pattern in skipped:
             continue

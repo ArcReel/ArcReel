@@ -6,7 +6,10 @@ Single-file fakes stay in their respective test modules.
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import functools
+import importlib
 import itertools
 import json
 import tempfile
@@ -1089,44 +1092,54 @@ def observe_file_lock_contention(monkeypatch) -> asyncio.Event:
     return contended
 
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@functools.cache
+def _project_manager_consumers() -> tuple[tuple[str, str], ...]:
+    """发现 ``lib/`` 与 ``server/`` 中所有在顶层导入 ``get_project_manager`` 的模块与绑定名。"""
+    consumers: list[tuple[str, str]] = []
+    for root in ("lib", "server"):
+        for path in sorted((_REPO_ROOT / root).rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            if "get_project_manager" not in text:
+                continue
+            tree = ast.parse(text, filename=str(path))
+            parts = path.relative_to(_REPO_ROOT).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            module_name = ".".join(parts)
+            if module_name == "lib.project.project_manager":
+                continue
+            for node in tree.body:
+                if not isinstance(node, ast.ImportFrom):
+                    continue
+                consumers.extend(
+                    (module_name, alias.asname or alias.name)
+                    for alias in node.names
+                    if alias.name == "get_project_manager"
+                )
+    return tuple(consumers)
+
+
 def use_project_manager(monkeypatch, pm: Any) -> None:
     """让读 ``get_project_manager()`` 的项目入口、路由与任务执行模块都拿到 *pm*。
 
     生产里这些模块共用同一个进程级单例；用例按同一形状把替身装到所有调用方，而不是只换被测
     模块那一处。真实 ``ProjectManager`` 与只实现用到方法的替身都可以传。
+
+    替换 ``lib.project.project_manager`` 前先预导入并替换 ``lib/`` 与 ``server/`` 中全部顶层
+    导入方，最后再替换源模块，避免任何未导入模块在替换窗口内首次导入时把替身永久写入原值。
     """
-    for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
-    monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
-    monkeypatch.setattr("lib.project.project_manager.get_project_manager", for_pm)
-    monkeypatch.setattr("lib.video_runtime.text.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.project.model_references.get_project_manager", for_pm)
-    monkeypatch.setattr("lib.generation.asset_admission.get_project_manager", for_pm)
-    monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.file_view.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.files.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.object_storage.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.products.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.provider_asset_links.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.project_migration.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.project_trash.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.shot_uploads.get_project_manager", for_pm)
-    monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.currency.upload_finalize.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.grid.grid_split.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.project.end_frame.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.project.provider_asset_import.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.tasks.image_edit_tasks.get_project_manager", for_pm)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.get_project_manager", for_pm)
+
+    def _for_pm() -> Any:
+        return pm
+
+    consumers = [(importlib.import_module(name), attr) for name, attr in _project_manager_consumers()]
+    source = importlib.import_module("lib.project.project_manager")
+    for module, attr in consumers:
+        monkeypatch.setattr(module, attr, _for_pm)
+    monkeypatch.setattr(source, "get_project_manager", _for_pm)
 
 
 def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:

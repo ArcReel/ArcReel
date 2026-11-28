@@ -44,13 +44,13 @@
 
 [豁免清单](../../tests/blocking_guard/exemptions.toml)只收应用启动或关停时的一次性阻塞，每项附理由并由一条 `tests/unit` 用例触发。完整测试或 CI unit 作业会检查未触发的豁免；对应路径删改时同步移除失效条目。
 
-## CI 覆盖率与 Nightly 告警
+## CI 分层与 Nightly 告警
 
 普通 PR 和 `main` 推送按改动选择测试域。前端或后端域变更（包括共享协议、Alembic 和项目迁移）必须通过 `e2e-live`。聚合检查 `ci-required` 逐项核对各域应跑作业，任何必跑作业被跳过都会失败。Nightly 每次运行全部实机用例，并将构建和实机作业结果纳入告警汇总。PR 的 `changes` 作业记录受测合并提交，摘要列出改动涉及的静态门禁文件。对于仅修改产品源码或站点文档的推送，`main` 核对已合并 PR、受测树、合并父提交以及各受影响域的实际作业和步骤结果。证据缺失、基线前移、门禁变更或应跑项被跳过时，重新运行受影响域。
 
-每周日 02:00 UTC、推送 `v*` 标签或手动运行 `weekly-full.yml` 时，Tests 工作流通过 `full: true` 运行全部域。`release-please--*` 发布 PR 自动使用同一范围。巡检包括容器健康检查、PostgreSQL 16、17、18 兼容测试和发布完整性检查。普通验证与全域巡检均关闭覆盖率采集。
+每周日 02:00 UTC、推送 `v*` 标签或手动运行 `weekly-full.yml` 时，Tests 工作流通过 `full: true` 运行全部域。`release-please--*` 发布 PR 自动使用同一范围。巡检包括容器健康检查、PostgreSQL 16、17、18 兼容测试和发布完整性检查。
 
-Nightly 将后端测试分片采集为 `coverage-<编号>/raw.coverage`。各片通过后，`backend-report` 核对分片并生成一份后端 XML 报告。前端和真实 PostgreSQL 的覆盖率分别上传至 `frontend` 和 `postgres` 标记。新增每夜深度检查时，在 `nightly-full.yml` 定义作业并将其 ID 加入 `report.needs`。汇总作业读取每个直接依赖的 `result`，仅在全部成功时执行恢复流程。矩阵作业使用 `fail-fast: false`，失败时保留诊断。
+新增每夜深度检查时，在 `nightly-full.yml` 定义作业并将其 ID 加入 `report.needs`。汇总作业读取每个直接依赖的 `result`，仅在全部成功时执行恢复流程。矩阵作业使用 `fail-fast: false`，失败时保留诊断。
 
 Nightly 失败按运行编号创建或追加告警，并按失败作业给出产品断言、测试竞态、容量或基础设施的初步分类；确认问题后可另开 issue 或为告警添加 `bug` 等标签保留。Nightly 恢复通过后，自动关闭同一 Git 引用下仅带 `ci` 标签且保留原始标记的本次及更早告警。
 
