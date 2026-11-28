@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-11-27T01:26:38Z",
+  "dataset_version": "2026-11-28T14:00:00Z",
   "entries": [
     {
       "maker": "agnes",
@@ -5921,7 +5921,8 @@
         "resolutions": [
           "480p",
           "720p",
-          "1080p"
+          "1080p",
+          "4k"
         ],
         "max_reference_images": 30,
         "text_to_video": true,
@@ -5982,6 +5983,20 @@
                   "input_video": true
                 },
                 "price": 46.0
+              },
+              {
+                "when": {
+                  "resolution": "4k",
+                  "input_video": false
+                },
+                "price": 31.0
+              },
+              {
+                "when": {
+                  "resolution": "4k",
+                  "input_video": true
+                },
+                "price": 19.0
               }
             ],
             "defaults": {
@@ -19551,7 +19566,12 @@
         {
           "api_model_name": "doubao-seedance-2.5",
           "entry": "bytedance/doubao-seedance-2.5",
-          "endpoint": "ark-seedance-2-5"
+          "endpoint": "ark-seedance-2-5",
+          "resolutions": [
+            "480p",
+            "720p",
+            "1080p"
+          ]
         },
         {
           "api_model_name": "seed-tts-2.0",

@@ -131,7 +131,14 @@ def official_data() -> CatalogData:
     return _official_cache[0][2]
 
 
-def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, default: bool) -> CatalogModel:
+def _to_catalog_model(
+    entry: CatalogEntry,
+    api_model_name: str,
+    key: str,
+    default: bool,
+    *,
+    provider_resolutions: tuple[str, ...] | None = None,
+) -> CatalogModel:
     capabilities: list[ModelCapability] = []
     durations: list[int] = []
     by_resolution: dict[str, list[int]] = {}
@@ -154,14 +161,19 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
                 capabilities.append("text_to_image")
             if facts.image_to_image:
                 capabilities.append("image_to_image")
-            resolutions = list(facts.resolutions)
+            resolutions = list(provider_resolutions if provider_resolutions is not None else facts.resolutions)
             max_reference_images = facts.max_reference_images
         case VideoFacts():
             max_reference_images = facts.max_reference_images
             durations = list(facts.durations)
-            resolutions = list(facts.resolutions)
+            resolutions = list(provider_resolutions if provider_resolutions is not None else facts.resolutions)
             constraints = facts.duration_constraints
-            by_resolution = {res: list(allowed) for res, allowed in constraints.by_resolution.items()}
+            allowed_resolutions = set(resolutions) if provider_resolutions is not None else None
+            by_resolution = {
+                res: list(allowed)
+                for res, allowed in constraints.by_resolution.items()
+                if allowed_resolutions is None or res in allowed_resolutions
+            }
             reference_durations = list(constraints.with_reference_images)
             end_frame_durations = list(constraints.with_end_frame)
         case AudioFacts():
@@ -289,7 +301,7 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
         callable_here = meets_min_app_version(model.min_app_version, current_version)
         default = callable_here and listing.defaults.get(entry.media_type) == model.api_model_name
         (models if callable_here else version_gated)[key] = _IndexedModel(
-            _to_catalog_model(entry, model.api_model_name, key, default),
+            _to_catalog_model(entry, model.api_model_name, key, default, provider_resolutions=model.resolutions),
             entry,
             model.multiplier,
             model.api_model_name,

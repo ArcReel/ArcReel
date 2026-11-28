@@ -342,3 +342,21 @@ def test_unknown_duration_constraint_does_not_change_known_tiers():
         by_resolution={"1080p": (5,)},
         with_reference_images=(5,),
     )
+
+
+def test_provider_model_resolutions_parsed_as_tuple_or_none():
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][0]["resolutions"] = ["720p"]
+
+    providers = parse_catalog(data).builtin_providers
+
+    assert providers["kling"].models[0].resolutions == ("720p",)
+    assert providers["kling"].models[1].resolutions is None
+
+
+def test_provider_model_resolutions_rejects_non_list():
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][0]["resolutions"] = "720p"
+
+    with pytest.raises(CatalogFormatError):
+        parse_catalog(data)

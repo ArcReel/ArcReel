@@ -600,6 +600,24 @@ class TestArkServiceTierParam:
         usages = [backend.metered_usage(name, request) for name in names]
         assert all(usage == usages[0] for usage in usages)
 
+    @pytest.mark.parametrize("resolution", ["4k", "4K"])
+    async def test_seedance_2_5_4k_request_serialization(self, tmp_path, resolution: str):
+        params = await _created_params(
+            Seedance25VideoBackend,
+            "doubao-seedance-2-5-260628",
+            tmp_path,
+            resolution=resolution,
+            aspect_ratio="16:9",
+            duration_seconds=5,
+            service_tier="default",
+        )
+
+        assert params["model"] == "doubao-seedance-2-5-260628"
+        assert params["resolution"] == "4k"
+        assert params["ratio"] == "16:9"
+        assert params["duration"] == 5
+        assert "service_tier" not in params
+
     async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
 
