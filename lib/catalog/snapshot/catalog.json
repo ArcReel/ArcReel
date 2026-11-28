@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-11-24T05:06:43Z",
+  "dataset_version": "2026-11-27T01:26:38Z",
   "entries": [
     {
       "maker": "agnes",
@@ -42,6 +42,8 @@
       "name": "agnes-2.5-flash",
       "media_type": "text",
       "display_name": "Agnes 2.5 Flash",
+      "shutdown_date": "2026-11-30",
+      "successor": "agnes/agnes-3.0-flash",
       "facts": {
         "structured_output": true,
         "max_output_tokens": 65536
@@ -130,6 +132,91 @@
     },
     {
       "maker": "agnes",
+      "name": "agnes-2.5-pro-beta",
+      "media_type": "text",
+      "display_name": "Agnes 2.5 Pro Beta",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.01
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          }
+        ]
+      },
+      "context_length": 1048576
+    },
+    {
+      "maker": "agnes",
+      "name": "agnes-2.5-pro-theta",
+      "media_type": "text",
+      "display_name": "Agnes 2.5 Pro Theta",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.01
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "agnes",
       "name": "agnes-3.0-flash",
       "media_type": "text",
       "display_name": "Agnes 3.0 Flash",
@@ -172,6 +259,51 @@
           }
         ]
       }
+    },
+    {
+      "maker": "agnes",
+      "name": "agnes-3.0-pro",
+      "media_type": "text",
+      "display_name": "Agnes 3.0 Pro",
+      "facts": {
+        "max_output_tokens": 262144
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.01
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          }
+        ]
+      },
+      "context_length": 1048576
     },
     {
       "maker": "agnes",
@@ -1088,7 +1220,8 @@
             ]
           }
         ]
-      }
+      },
+      "release_date": "2026-04-23"
     },
     {
       "maker": "alibaba",
@@ -1621,9 +1754,6 @@
       "name": "qwen3-32b",
       "media_type": "text",
       "display_name": "Qwen3 32B",
-      "aliases": [
-        "qwen-3-32b"
-      ],
       "discontinued": true,
       "context_length": 131072,
       "shutdown_date": "2026-10-10",
@@ -1714,7 +1844,6 @@
       "media_type": "text",
       "display_name": "Qwen3 Max",
       "discontinued": true,
-      "release_date": "2026-01-23",
       "shutdown_date": "2026-10-10",
       "successor": "alibaba/qwen3.7-max",
       "facts": {
@@ -1752,9 +1881,6 @@
       "name": "qwen3-next-80b-a3b-instruct",
       "media_type": "text",
       "display_name": "Qwen3-Next 80B-A3B Instruct",
-      "aliases": [
-        "databricks-qwen3-next-80b-a3b-instruct"
-      ],
       "discontinued": true,
       "context_length": 131072,
       "shutdown_date": "2026-10-10",
@@ -1801,7 +1927,8 @@
             "cjk_double": true
           }
         ]
-      }
+      },
+      "release_date": "2025-11-27"
     },
     {
       "maker": "alibaba",
@@ -1848,6 +1975,48 @@
     },
     {
       "maker": "alibaba",
+      "name": "qwen3.5-122b-a10b",
+      "media_type": "text",
+      "display_name": "Qwen3.5 122B-A10B",
+      "aliases": [
+        "qwen35-122b-a10b"
+      ],
+      "context_length": 262144,
+      "release_date": "2026-02-23",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen3.5-27b",
+      "media_type": "text",
+      "display_name": "Qwen3.5 27B",
+      "context_length": 262144,
+      "release_date": "2026-02-23",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen3.5-35b-a3b",
+      "media_type": "text",
+      "display_name": "Qwen3.5 35B-A3B",
+      "context_length": 262144,
+      "release_date": "2026-02-23",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "maker": "alibaba",
       "name": "qwen3.5-397b-a17b",
       "media_type": "text",
       "display_name": "Qwen3.5 397B-A17B",
@@ -1882,10 +2051,42 @@
       "name": "qwen3.5-plus",
       "media_type": "text",
       "display_name": "Qwen3.5 Plus",
+      "aliases": [
+        "qwen3.5-plus-2026-02-15"
+      ],
       "context_length": 1000000,
       "release_date": "2026-02-16",
       "shutdown_date": "2027-01-19",
       "successor": "alibaba/qwen3.8-flash",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen3.6-27b",
+      "media_type": "text",
+      "display_name": "Qwen3.6 27B",
+      "context_length": 262144,
+      "release_date": "2026-04-22",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen3.6-35b-a3b",
+      "media_type": "text",
+      "display_name": "Qwen3.6 35B-A3B",
+      "aliases": [
+        "umans-qwen3.6-35b-a3b"
+      ],
+      "context_length": 262144,
+      "release_date": "2026-04-17",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2011,7 +2212,7 @@
       "media_type": "text",
       "display_name": "Qwen3.6 Plus",
       "aliases": [
-        "qwen-3-6-plus"
+        "qwen-3.6-plus"
       ],
       "release_date": "2026-04-02",
       "facts": {
@@ -2323,6 +2524,22 @@
         "image_input": true,
         "structured_output": true,
         "max_output_tokens": 131072
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen4-max",
+      "media_type": "text",
+      "display_name": "Qwen4 Max",
+      "aliases": [
+        "qwen-4-max"
+      ],
+      "context_length": 1000000,
+      "release_date": "2026-11-16",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 262144
       }
     },
     {
@@ -2780,10 +2997,10 @@
       "media_type": "text",
       "display_name": "Claude Fable 5",
       "aliases": [
-        "anthropic-claude-fable-5",
-        "eu.anthropic.claude-fable-5",
-        "global.anthropic.claude-fable-5",
-        "us.anthropic.claude-fable-5"
+        "databricks-claude-fable-5",
+        "us.anthropic.claude-fable-5",
+        "anthropic.claude-fable-5",
+        "global.anthropic.claude-fable-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-06-07",
@@ -2854,8 +3071,9 @@
       "media_type": "text",
       "display_name": "Claude Fable 5.1",
       "aliases": [
-        "anthropic-claude-fable-5.1",
+        "databricks-claude-fable-5-1",
         "global.anthropic.claude-fable-5-1",
+        "anthropic.claude-fable-5-1",
         "us.anthropic.claude-fable-5-1"
       ],
       "context_length": 1000000,
@@ -2927,8 +3145,9 @@
       "media_type": "text",
       "display_name": "Claude Fable 5.2",
       "aliases": [
-        "anthropic-claude-fable-5.2",
+        "system.ai.claude-fable-5-2",
         "global.anthropic.claude-fable-5-2",
+        "anthropic.claude-fable-5-2",
         "us.anthropic.claude-fable-5-2"
       ],
       "context_length": 1000000,
@@ -3001,8 +3220,8 @@
       "display_name": "Claude Haiku 4.5",
       "aliases": [
         "claude-haiku-4-5-20251001",
-        "anthropic-claude-haiku-4.5",
-        "databricks-claude-haiku-4-5"
+        "databricks-claude-haiku-4-5",
+        "anthropic-claude-haiku-4.5"
       ],
       "context_length": 200000,
       "release_date": "2025-10-15",
@@ -3074,12 +3293,14 @@
       "display_name": "Claude Haiku 5.5",
       "aliases": [
         "Claude Haiku 5.5",
-        "global.anthropic.claude-haiku-5-5",
+        "databricks-claude-haiku-5-5",
         "eu.anthropic.claude-haiku-5-5",
+        "us.anthropic.claude-haiku-5-5",
         "au.anthropic.claude-haiku-5-5",
         "jp.anthropic.claude-haiku-5-5",
         "anthropic.claude-haiku-5-5",
-        "us.anthropic.claude-haiku-5-5"
+        "global.anthropic.claude-haiku-5-5",
+        "ca.anthropic.claude-haiku-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-10-07",
@@ -3201,9 +3422,9 @@
       "display_name": "Claude Opus 4.5",
       "aliases": [
         "claude-opus-4-5-20251101",
-        "anthropic-claude-opus-4.5",
+        "claude-opus4-5",
         "databricks-claude-opus-4-5",
-        "claude-opus4-5"
+        "anthropic-claude-opus-4.5"
       ],
       "context_length": 200000,
       "release_date": "2025-11-24",
@@ -3276,9 +3497,9 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.6",
       "aliases": [
-        "anthropic-claude-opus-4.6",
+        "claude-opus4-6",
         "databricks-claude-opus-4-6",
-        "claude-opus4-6"
+        "anthropic-claude-opus-4.6"
       ],
       "context_length": 1000000,
       "release_date": "2026-02-04",
@@ -3349,14 +3570,14 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.7",
       "aliases": [
-        "anthropic-claude-opus-4.7",
-        "global.anthropic.claude-opus-4-7",
-        "us.anthropic.claude-opus-4-7",
-        "au.anthropic.claude-opus-4-7",
-        "eu.anthropic.claude-opus-4-7",
-        "jp.anthropic.claude-opus-4-7",
+        "claude-opus4-7",
         "databricks-claude-opus-4-7",
-        "claude-opus4-7"
+        "eu.anthropic.claude-opus-4-7",
+        "au.anthropic.claude-opus-4-7",
+        "us.anthropic.claude-opus-4-7",
+        "global.anthropic.claude-opus-4-7",
+        "jp.anthropic.claude-opus-4-7",
+        "anthropic.claude-opus-4-7"
       ],
       "context_length": 1000000,
       "release_date": "2026-04-14",
@@ -3427,13 +3648,14 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.8",
       "aliases": [
-        "anthropic-claude-opus-4.8",
-        "jp.anthropic.claude-opus-4-8",
-        "us.anthropic.claude-opus-4-8",
-        "au.anthropic.claude-opus-4-8",
-        "global.anthropic.claude-opus-4-8",
+        "claude-opus4-8",
+        "databricks-claude-opus-4-8",
+        "anthropic.claude-opus-4-8",
         "eu.anthropic.claude-opus-4-8",
-        "claude-opus4-8"
+        "global.anthropic.claude-opus-4-8",
+        "jp.anthropic.claude-opus-4-8",
+        "au.anthropic.claude-opus-4-8",
+        "us.anthropic.claude-opus-4-8"
       ],
       "context_length": 1000000,
       "release_date": "2026-05-28",
@@ -3504,12 +3726,12 @@
       "media_type": "text",
       "display_name": "Claude Opus 5",
       "aliases": [
-        "anthropic-claude-opus-5",
+        "databricks-claude-opus-5",
+        "au.anthropic.claude-opus-5",
+        "in.anthropic.claude-opus-5",
+        "anthropic.claude-opus-5",
         "us.anthropic.claude-opus-5",
         "eu.anthropic.claude-opus-5",
-        "jp.anthropic.claude-opus-5",
-        "in.anthropic.claude-opus-5",
-        "au.anthropic.claude-opus-5",
         "global.anthropic.claude-opus-5"
       ],
       "context_length": 1000000,
@@ -3581,12 +3803,13 @@
       "media_type": "text",
       "display_name": "Claude Opus 5.5",
       "aliases": [
-        "anthropic-claude-opus-5.5",
-        "global.anthropic.claude-opus-5-5",
-        "us.anthropic.claude-opus-5-5",
-        "eu.anthropic.claude-opus-5-5",
+        "databricks-claude-opus-5-5",
         "au.anthropic.claude-opus-5-5",
-        "jp.anthropic.claude-opus-5-5"
+        "anthropic.claude-opus-5-5",
+        "eu.anthropic.claude-opus-5-5",
+        "global.anthropic.claude-opus-5-5",
+        "jp.anthropic.claude-opus-5-5",
+        "us.anthropic.claude-opus-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-09-22",
@@ -3731,13 +3954,13 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 4.6",
       "aliases": [
+        "databricks-claude-sonnet-4-6",
         "anthropic.claude-sonnet-4-6",
-        "jp.anthropic.claude-sonnet-4-6",
-        "eu.anthropic.claude-sonnet-4-6",
+        "au.anthropic.claude-sonnet-4-6",
         "global.anthropic.claude-sonnet-4-6",
         "us.anthropic.claude-sonnet-4-6",
-        "au.anthropic.claude-sonnet-4-6",
-        "databricks-claude-sonnet-4-6"
+        "eu.anthropic.claude-sonnet-4-6",
+        "jp.anthropic.claude-sonnet-4-6"
       ],
       "context_length": 1000000,
       "release_date": "2026-02-17",
@@ -3808,13 +4031,13 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 5",
       "aliases": [
-        "in.anthropic.claude-sonnet-5",
-        "au.anthropic.claude-sonnet-5",
-        "global.anthropic.claude-sonnet-5",
-        "jp.anthropic.claude-sonnet-5",
-        "us.anthropic.claude-sonnet-5",
+        "databricks-claude-sonnet-5",
         "eu.anthropic.claude-sonnet-5",
-        "anthropic.claude-sonnet-5"
+        "in.anthropic.claude-sonnet-5",
+        "anthropic.claude-sonnet-5",
+        "us.anthropic.claude-sonnet-5",
+        "global.anthropic.claude-sonnet-5",
+        "au.anthropic.claude-sonnet-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-06-29",
@@ -3885,11 +4108,13 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 5.5",
       "aliases": [
-        "anthropic-claude-sonnet-5.5",
-        "eu.anthropic.claude-sonnet-5-5",
-        "global.anthropic.claude-sonnet-5-5",
+        "databricks-claude-sonnet-5-5",
+        "ca.anthropic.claude-sonnet-5-5",
         "us.anthropic.claude-sonnet-5-5",
-        "au.anthropic.claude-sonnet-5-5"
+        "au.anthropic.claude-sonnet-5-5",
+        "anthropic.claude-sonnet-5-5",
+        "global.anthropic.claude-sonnet-5-5",
+        "eu.anthropic.claude-sonnet-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-09-28",
@@ -4590,7 +4815,7 @@
       "name": "doubao-seed-2-1-pro-260628",
       "media_type": "text",
       "display_name": "Seed 2.1 Pro",
-      "context_length": 1024000,
+      "context_length": 256000,
       "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
@@ -4980,9 +5205,8 @@
       "aliases": [
         "doubao-seed-2-0-pro-260215"
       ],
-      "discontinued": true,
       "release_date": "2026-02-14",
-      "shutdown_date": "2026-11-24",
+      "shutdown_date": "2027-01-22",
       "successor": "bytedance/doubao-seed-2.1-lite",
       "facts": {
         "image_input": true,
@@ -5130,8 +5354,8 @@
       "aliases": [
         "doubao-seed-2-1-pro-260915"
       ],
-      "release_date": "2026-09-15",
       "context_length": 1048576,
+      "release_date": "2026-09-15",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -5178,12 +5402,12 @@
       "name": "doubao-seed-character-260628",
       "media_type": "text",
       "display_name": "Seed Character",
-      "context_length": 256000,
+      "context_length": 128000,
       "release_date": "2026-06-23",
       "facts": {
         "image_input": true,
         "structured_output": true,
-        "max_output_tokens": 256000
+        "max_output_tokens": 32000
       },
       "price": {
         "currency": "CNY",
@@ -5871,10 +6095,38 @@
       "media_type": "image",
       "display_name": "Seedream 4.0",
       "aliases": [
-        "doubao-seedream-4-0-250828"
+        "doubao-seedream-4-0-260415",
+        "doubao-seedream-4-0-20260415"
       ],
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "max_reference_images": 14
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
+      "name": "doubao-seedream-4-0-250828",
+      "media_type": "image",
+      "display_name": "Seedream 4.0 (250828)",
       "discontinued": true,
       "shutdown_date": "2026-11-24",
+      "successor": "bytedance/doubao-seedream-4-0",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -6259,13 +6511,25 @@
       }
     },
     {
+      "maker": "deepseek",
+      "name": "deepseek-v4.1-flash-economy",
+      "media_type": "text",
+      "display_name": "DeepSeek V4.1 Flash Economy",
+      "context_length": 1048576,
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 393216
+      },
+      "aliases": [
+        "deepseek-v4-1-flash-economy-261017"
+      ]
+    },
+    {
       "maker": "google",
       "name": "gemini-2.5-flash",
       "media_type": "text",
       "display_name": "Gemini 2.5 Flash",
-      "aliases": [
-        "databricks-gemini-2-5-flash"
-      ],
       "context_length": 1048576,
       "release_date": "2025-06-17",
       "shutdown_date": "2026-12-01",
@@ -6315,6 +6579,38 @@
               {
                 "when": {},
                 "price": 1.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-2.5-flash-image",
+      "media_type": "image",
+      "display_name": "Gemini 2.5 Flash Image",
+      "release_date": "2025-10-02",
+      "shutdown_date": "2027-03-15",
+      "successor": "google/gemini-3.1-flash-lite-image",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K"
+        ],
+        "max_reference_images": 3
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.039
               }
             ]
           }
@@ -6381,12 +6677,73 @@
     },
     {
       "maker": "google",
+      "name": "gemini-2.5-flash-lite-preview-tts",
+      "media_type": "audio",
+      "display_name": "Gemini 2.5 Flash-Lite Preview TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-2.5-flash-tts",
+      "media_type": "audio",
+      "display_name": "Gemini 2.5 Flash TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
       "name": "gemini-2.5-pro",
       "media_type": "text",
       "display_name": "Gemini 2.5 Pro",
-      "aliases": [
-        "databricks-gemini-2-5-pro"
-      ],
       "context_length": 1048576,
       "release_date": "2025-06-17",
       "shutdown_date": "2026-12-01",
@@ -6456,6 +6813,38 @@
                   "context_tier": 200000
                 },
                 "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-2.5-pro-tts",
+      "media_type": "audio",
+      "display_name": "Gemini 2.5 Pro TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20
               }
             ]
           }
@@ -6635,6 +7024,9 @@
       "name": "gemini-3.1-flash-lite",
       "media_type": "text",
       "display_name": "Gemini 3.1 Flash Lite",
+      "aliases": [
+        "databricks-gemini-3-1-flash-lite"
+      ],
       "context_length": 1048576,
       "release_date": "2026-05-07",
       "facts": {
@@ -6946,6 +7338,9 @@
       "name": "gemini-3.5-flash-lite",
       "media_type": "text",
       "display_name": "Gemini 3.5 Flash Lite",
+      "aliases": [
+        "databricks-gemini-3-5-flash-lite"
+      ],
       "context_length": 1048576,
       "release_date": "2026-07-21",
       "facts": {
@@ -7052,6 +7447,9 @@
       "name": "gemini-3.7-flash",
       "media_type": "text",
       "display_name": "Gemini 3.7 Flash",
+      "aliases": [
+        "databricks-gemini-3-7-flash"
+      ],
       "context_length": 1048576,
       "release_date": "2026-08-13",
       "shutdown_date": "2027-01-28",
@@ -7112,6 +7510,9 @@
       "name": "gemini-3.8-flash",
       "media_type": "text",
       "display_name": "Gemini 3.8 Flash",
+      "aliases": [
+        "databricks-gemini-3-8-flash"
+      ],
       "context_length": 1048576,
       "release_date": "2026-09-02",
       "facts": {
@@ -7236,6 +7637,9 @@
       "name": "gemini-4-argon",
       "media_type": "text",
       "display_name": "Gemini 4 Argon",
+      "aliases": [
+        "databricks-gemini-4-argon"
+      ],
       "context_length": 1048576,
       "release_date": "2026-10-13",
       "facts": {
@@ -7294,6 +7698,9 @@
       "name": "gemini-4-carbon",
       "media_type": "text",
       "display_name": "Gemini 4 Carbon",
+      "aliases": [
+        "system.ai.gemini-4-carbon"
+      ],
       "context_length": 1048576,
       "release_date": "2026-11-10",
       "facts": {
@@ -7352,6 +7759,9 @@
       "name": "gemini-4-hydrogen",
       "media_type": "text",
       "display_name": "Gemini 4 Hydrogen",
+      "aliases": [
+        "system.ai.gemini-4-hydrogen"
+      ],
       "context_length": 1048576,
       "release_date": "2026-11-12",
       "facts": {
@@ -7469,7 +7879,7 @@
       "media_type": "text",
       "display_name": "Gemini Flash Latest",
       "context_length": 1048576,
-      "release_date": "2026-08-13",
+      "release_date": "2026-09-02",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -7563,6 +7973,16 @@
               {
                 "when": {},
                 "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
               }
             ]
           }
@@ -8674,7 +9094,8 @@
             ]
           }
         ]
-      }
+      },
+      "release_date": "2025-12-15"
     },
     {
       "maker": "kuaishou",
@@ -9139,7 +9560,8 @@
             }
           }
         ]
-      }
+      },
+      "release_date": "2025-12-15"
     },
     {
       "maker": "minimax",
@@ -10397,9 +10819,6 @@
       "name": "kimi-k2.7-code",
       "media_type": "text",
       "display_name": "Kimi K2.7 Code",
-      "aliases": [
-        "databricks-kimi-k2-7-code"
-      ],
       "context_length": 262144,
       "release_date": "2026-06-12",
       "facts": {
@@ -10493,13 +10912,26 @@
     },
     {
       "maker": "moonshot",
+      "name": "kimi-k2.8-preview",
+      "media_type": "text",
+      "display_name": "Kimi K2.8 Preview",
+      "context_length": 1048576,
+      "facts": {
+        "max_output_tokens": 1048576
+      }
+    },
+    {
+      "maker": "moonshot",
       "name": "kimi-k3",
       "media_type": "text",
       "display_name": "Kimi K3",
       "aliases": [
         "morph-kimik3",
-        "global.moonshotai.kimi-k3",
-        "us.moonshotai.kimi-k3"
+        "fw-kimi-k3",
+        "databricks-kimi-k3",
+        "us.moonshotai.kimi-k3",
+        "in.moonshotai.kimi-k3",
+        "global.moonshotai.kimi-k3"
       ],
       "context_length": 1048576,
       "release_date": "2026-07-16",
@@ -10560,6 +10992,8 @@
       "media_type": "text",
       "display_name": "Kimi K3.1 Pro",
       "aliases": [
+        "fw-kimi-k3.1-pro",
+        "databricks-kimi-k3-1-pro",
         "umans-kimi-k3.1-pro"
       ],
       "context_length": 1048576,
@@ -11055,8 +11489,8 @@
       "media_type": "text",
       "display_name": "GPT-5",
       "aliases": [
-        "openai-gpt-5",
-        "databricks-gpt-5"
+        "databricks-gpt-5",
+        "openai-gpt-5"
       ],
       "context_length": 400000,
       "release_date": "2025-08-07",
@@ -11110,8 +11544,8 @@
       "display_name": "GPT-5 Mini",
       "aliases": [
         "duo-chat-gpt-5-mini",
-        "openai-gpt-5-mini",
-        "databricks-gpt-5-mini"
+        "databricks-gpt-5-mini",
+        "openai-gpt-5-mini"
       ],
       "context_length": 400000,
       "release_date": "2025-08-07",
@@ -11164,8 +11598,8 @@
       "media_type": "text",
       "display_name": "GPT-5 Nano",
       "aliases": [
-        "openai-gpt-5-nano",
-        "databricks-gpt-5-nano"
+        "databricks-gpt-5-nano",
+        "openai-gpt-5-nano"
       ],
       "context_length": 400000,
       "release_date": "2025-08-07",
@@ -11324,9 +11758,9 @@
       "display_name": "GPT-5.2",
       "aliases": [
         "duo-chat-gpt-5-2",
+        "databricks-gpt-5-2",
         "openai-gpt-5.2",
-        "openai-gpt-52",
-        "databricks-gpt-5-2"
+        "openai-gpt-52"
       ],
       "context_length": 400000,
       "release_date": "2025-12-11",
@@ -11429,8 +11863,9 @@
       "display_name": "GPT-5.3-Codex",
       "aliases": [
         "duo-chat-gpt-5-3-codex",
-        "openai-gpt-5.3-codex",
-        "openai-gpt-53-codex"
+        "databricks-gpt-5-3-codex",
+        "openai-gpt-53-codex",
+        "openai-gpt-5.3-codex"
       ],
       "release_date": "2026-02-05",
       "shutdown_date": "2027-04-01",
@@ -11517,62 +11952,14 @@
     },
     {
       "maker": "openai",
-      "name": "gpt-5.3-codex-spark",
-      "media_type": "text",
-      "display_name": "GPT-5.3 Codex Spark",
-      "context_length": 128000,
-      "release_date": "2026-02-05",
-      "facts": {
-        "image_input": true,
-        "structured_output": true,
-        "max_output_tokens": 32000
-      },
-      "price": {
-        "currency": "USD",
-        "meters": [
-          {
-            "meter": "uncached_input_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 1.75
-              }
-            ]
-          },
-          {
-            "meter": "cache_read_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.175
-              }
-            ]
-          },
-          {
-            "meter": "output_tokens",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 14.0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "openai",
       "name": "gpt-5.4",
       "media_type": "text",
       "display_name": "GPT-5.4",
       "aliases": [
         "duo-chat-gpt-5-4",
+        "databricks-gpt-5-4",
         "openai-gpt-5.4",
-        "openai-gpt-54",
-        "databricks-gpt-5-4"
+        "openai-gpt-54"
       ],
       "release_date": "2026-03-05",
       "facts": {
@@ -11734,9 +12121,9 @@
       "display_name": "GPT-5.4 Mini",
       "aliases": [
         "duo-chat-gpt-5-4-mini",
-        "openai-gpt-5.4-mini",
+        "databricks-gpt-5-4-mini",
         "openai-gpt-54-mini",
-        "databricks-gpt-5-4-mini"
+        "openai-gpt-5.4-mini"
       ],
       "release_date": "2026-03-17",
       "facts": {
@@ -11844,8 +12231,8 @@
       "display_name": "GPT-5.4 Nano",
       "aliases": [
         "duo-chat-gpt-5-4-nano",
-        "openai-gpt-5.4-nano",
-        "databricks-gpt-5-4-nano"
+        "databricks-gpt-5-4-nano",
+        "openai-gpt-5.4-nano"
       ],
       "release_date": "2026-03-17",
       "shutdown_date": "2027-04-01",
@@ -11936,8 +12323,8 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Pro",
       "aliases": [
-        "openai-gpt-5.4-pro",
-        "openai-gpt-54-pro"
+        "openai-gpt-54-pro",
+        "openai-gpt-5.4-pro"
       ],
       "context_length": 1050000,
       "release_date": "2026-03-05",
@@ -12018,11 +12405,11 @@
       "media_type": "text",
       "display_name": "GPT-5.5",
       "aliases": [
-        "duo-chat-gpt-5-5",
-        "openai-gpt-5.5",
-        "openai-gpt-55",
         "xpersona-gpt-5.5",
-        "databricks-gpt-5-5"
+        "duo-chat-gpt-5-5",
+        "databricks-gpt-5-5",
+        "openai-gpt-5.5",
+        "openai-gpt-55"
       ],
       "release_date": "2026-04-23",
       "facts": {
@@ -12183,6 +12570,7 @@
       "media_type": "text",
       "display_name": "GPT-5.5 Pro",
       "aliases": [
+        "databricks-gpt-5-5-pro",
         "openai-gpt-55-pro"
       ],
       "release_date": "2026-04-23",
@@ -12401,12 +12789,12 @@
       "display_name": "GPT-5.6 Luna",
       "aliases": [
         "duo-chat-gpt-5-6-luna",
+        "databricks-gpt-5-6-luna",
         "openai-gpt-5.6-luna",
-        "openai-gpt-56-luna",
-        "global.openai.gpt-5.6-luna",
         "us.openai.gpt-5.6-luna",
         "in.openai.gpt-5.6-luna",
-        "databricks-gpt-5-6-luna"
+        "global.openai.gpt-5.6-luna",
+        "openai-gpt-56-luna"
       ],
       "context_length": 1050000,
       "release_date": "2026-07-09",
@@ -12508,11 +12896,11 @@
       "display_name": "GPT-5.6 Sol",
       "aliases": [
         "duo-chat-gpt-5-6-sol",
+        "databricks-gpt-5-6-sol",
         "openai-gpt-5.6-sol",
-        "openai-gpt-56-sol",
         "us.openai.gpt-5.6-sol",
         "global.openai.gpt-5.6-sol",
-        "databricks-gpt-5-6-sol"
+        "openai-gpt-56-sol"
       ],
       "context_length": 1050000,
       "release_date": "2026-07-09",
@@ -12614,12 +13002,12 @@
       "display_name": "GPT-5.6 Terra",
       "aliases": [
         "duo-chat-gpt-5-6-terra",
+        "databricks-gpt-5-6-terra",
         "openai-gpt-5.6-terra",
-        "openai-gpt-56-terra",
-        "global.openai.gpt-5.6-terra",
         "us.openai.gpt-5.6-terra",
+        "global.openai.gpt-5.6-terra",
         "in.openai.gpt-5.6-terra",
-        "databricks-gpt-5-6-terra"
+        "openai-gpt-56-terra"
       ],
       "context_length": 1050000,
       "release_date": "2026-07-09",
@@ -12721,7 +13109,8 @@
       "display_name": "GPT-6 Astra",
       "aliases": [
         "duo-chat-gpt-6-astra",
-        "openai-gpt-6-astra",
+        "databricks-gpt-6-astra",
+        "openai.gpt-6-astra",
         "global.openai.gpt-6-astra",
         "us.openai.gpt-6-astra"
       ],
@@ -12820,14 +13209,93 @@
     },
     {
       "maker": "openai",
+      "name": "gpt-6-astra-healthcare",
+      "media_type": "text",
+      "display_name": "GPT-6 Astra Healthcare",
+      "context_length": 1050000,
+      "release_date": "2026-11-24",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 10.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 20.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 50.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 75.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
       "name": "gpt-6-luna",
       "media_type": "text",
       "display_name": "GPT-6 Luna",
       "aliases": [
         "duo-chat-gpt-6-luna",
-        "openai-gpt-6-luna",
-        "us.openai.gpt-6-luna",
-        "global.openai.gpt-6-luna"
+        "databricks-gpt-6-luna",
+        "global.openai.gpt-6-luna",
+        "openai.gpt-6-luna",
+        "us.openai.gpt-6-luna"
       ],
       "context_length": 1050000,
       "release_date": "2026-09-22",
@@ -12929,9 +13397,10 @@
       "display_name": "GPT-6 Sol",
       "aliases": [
         "duo-chat-gpt-6-sol",
-        "openai-gpt-6-sol",
-        "us.openai.gpt-6-sol",
-        "global.openai.gpt-6-sol"
+        "databricks-gpt-6-sol",
+        "global.openai.gpt-6-sol",
+        "openai.gpt-6-sol",
+        "us.openai.gpt-6-sol"
       ],
       "context_length": 1050000,
       "release_date": "2026-09-22",
@@ -13033,10 +13502,11 @@
       "display_name": "GPT-6.1 Sol",
       "aliases": [
         "duo-chat-gpt-6-1-sol",
-        "openai-gpt-6-1-sol",
-        "openai-gpt-61-sol",
+        "databricks-gpt-6-1-sol",
+        "us.openai.gpt-6.1-sol",
         "global.openai.gpt-6.1-sol",
-        "us.openai.gpt-6.1-sol"
+        "openai.gpt-6.1-sol",
+        "openai-gpt-61-sol"
       ],
       "context_length": 1050000,
       "release_date": "2026-09-29",
@@ -13133,14 +13603,93 @@
     },
     {
       "maker": "openai",
+      "name": "gpt-6.1-sol-healthcare",
+      "media_type": "text",
+      "display_name": "GPT-6.1 Sol Healthcare",
+      "context_length": 1050000,
+      "release_date": "2026-11-24",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.1
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 10.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
       "name": "gpt-6.1-terra",
       "media_type": "text",
       "display_name": "GPT-6.1 Terra",
       "aliases": [
-        "openai-gpt-6.1-terra",
-        "openai-gpt-61-terra",
+        "databricks-gpt-6-1-terra",
         "us.openai.gpt-6.1-terra",
-        "global.openai.gpt-6.1-terra"
+        "global.openai.gpt-6.1-terra",
+        "openai.gpt-6.1-terra",
+        "openai-gpt-61-terra"
       ],
       "context_length": 1050000,
       "release_date": "2026-10-26",
@@ -13241,13 +13790,112 @@
       "media_type": "text",
       "display_name": "GPT-6.2 Astra",
       "aliases": [
-        "openai-gpt-6.2-astra",
-        "openai-gpt-62-astra",
+        "system.ai.gpt-6-2-astra",
         "us.openai.gpt-6.2-astra",
-        "global.openai.gpt-6.2-astra"
+        "global.openai.gpt-6.2-astra",
+        "openai.gpt-6.2-astra",
+        "openai-gpt-62-astra"
       ],
       "context_length": 1050000,
       "release_date": "2026-11-17",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 8.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 16.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.4
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 10.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 20.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 40.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 60.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-6.2-astra-healthcare",
+      "media_type": "text",
+      "display_name": "GPT-6.2 Astra Healthcare",
+      "context_length": 1050000,
+      "release_date": "2026-11-24",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -13345,13 +13993,112 @@
       "media_type": "text",
       "display_name": "GPT-6.2 Sol",
       "aliases": [
-        "openai-gpt-6.2-sol",
-        "openai-gpt-62-sol",
+        "system.ai.gpt-6-2-sol",
+        "openai.gpt-6.2-sol",
         "global.openai.gpt-6.2-sol",
-        "us.openai.gpt-6.2-sol"
+        "us.openai.gpt-6.2-sol",
+        "openai-gpt-62-sol"
       ],
       "context_length": 1050000,
       "release_date": "2026-11-17",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.1
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 10.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-6.2-sol-healthcare",
+      "media_type": "text",
+      "display_name": "GPT-6.2 Sol Healthcare",
+      "context_length": 1050000,
+      "release_date": "2026-11-24",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -14090,9 +14837,6 @@
       "name": "o1",
       "media_type": "text",
       "display_name": "o1",
-      "aliases": [
-        "openai-o1"
-      ],
       "discontinued": true,
       "context_length": 200000,
       "release_date": "2024-12-05",
@@ -14248,9 +14992,6 @@
       "name": "o3-mini",
       "media_type": "text",
       "display_name": "o3-mini",
-      "aliases": [
-        "openai-o3-mini"
-      ],
       "discontinued": true,
       "context_length": 200000,
       "release_date": "2024-12-20",
@@ -15744,7 +16485,8 @@
             }
           }
         ]
-      }
+      },
+      "release_date": "2026-04-13"
     },
     {
       "maker": "shengshu",
@@ -15948,7 +16690,8 @@
         "first_frame": false,
         "last_frame": false,
         "reference_audio": false
-      }
+      },
+      "release_date": "2026-04-13"
     },
     {
       "maker": "shengshu",
@@ -16680,6 +17423,7 @@
       "display_name": "Grok 4.6",
       "aliases": [
         "xai.grok-4.6",
+        "databricks-grok-4-6",
         "global.xai.grok-4.6",
         "us.xai.grok-4.6"
       ],
@@ -16762,8 +17506,10 @@
       "media_type": "text",
       "display_name": "Grok 4.7",
       "aliases": [
-        "us.xai.grok-4.7",
-        "global.xai.grok-4.7"
+        "xai.grok-4.7",
+        "databricks-grok-4-7",
+        "global.xai.grok-4.7",
+        "us.xai.grok-4.7"
       ],
       "context_length": 500000,
       "release_date": "2026-09-21",
@@ -17551,8 +18297,8 @@
       "media_type": "text",
       "display_name": "GLM-4.7",
       "aliases": [
-        "zai-org-glm-4.7",
-        "zai.glm-4.7"
+        "zai.glm-4.7",
+        "zai-org-glm-4.7"
       ],
       "context_length": 204800,
       "release_date": "2025-12-22",
@@ -17772,8 +18518,8 @@
       "media_type": "text",
       "display_name": "GLM-5",
       "aliases": [
-        "zai-org-glm-5",
-        "zai.glm-5"
+        "zai.glm-5",
+        "zai-org-glm-5"
       ],
       "context_length": 204800,
       "release_date": "2026-02-12",
@@ -17874,10 +18620,10 @@
       "media_type": "text",
       "display_name": "GLM-5.1",
       "aliases": [
-        "zai-glm-5-1",
         "zai-org-glm-5-1",
-        "alicloud-glm-5.1",
-        "coding-glm-5.1"
+        "zai-glm-5.1",
+        "coding-glm-5.1",
+        "alicloud-glm-5.1"
       ],
       "context_length": 200000,
       "release_date": "2026-04-07",
@@ -17979,9 +18725,9 @@
       "display_name": "GLM-5.2",
       "aliases": [
         "zai-glm-5-2",
-        "glm5.2",
+        "databricks-glm-5-2",
         "zai-org-glm-5-2",
-        "databricks-glm-5-2"
+        "glm5.2"
       ],
       "context_length": 1000000,
       "release_date": "2026-06-13",
@@ -18045,11 +18791,13 @@
         "zai-glm-5-3",
         "glm5.3",
         "open-glm-5-3",
-        "z-ai-glm-5-3",
+        "fw-glm-5.3",
         "oathbreaker-glm-5.3",
+        "databricks-glm-5-3",
         "umans-glm-5.3",
         "global.zai.glm-5.3",
-        "us.zai.glm-5.3"
+        "us.zai.glm-5.3",
+        "z-ai-glm-5-3"
       ],
       "context_length": 1000000,
       "release_date": "2026-08-14",
@@ -18114,7 +18862,9 @@
         "morph-glm53flash",
         "glm5.3-flash",
         "z-ai-glm-5-3-flash",
+        "fw-glm-5.3-flash",
         "oathbreaker-glm-5.3-flash",
+        "databricks-glm-5-3-flash",
         "umans-glm-5.3-flash"
       ],
       "context_length": 1000000,
@@ -18226,6 +18976,30 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "maker": "zhipu",
+      "name": "glm-5.3-flashx-legal",
+      "media_type": "text",
+      "display_name": "GLM-5.3-FlashX-Legal",
+      "context_length": 1000000,
+      "release_date": "2026-11-02",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 131072
+      }
+    },
+    {
+      "maker": "zhipu",
+      "name": "glm-5.4",
+      "media_type": "text",
+      "display_name": "GLM-5.4",
+      "context_length": 1048576,
+      "facts": {
+        "image_input": true,
+        "max_output_tokens": 131072
       }
     },
     {
@@ -18537,6 +19311,21 @@
           "endpoint": "gemini-tts"
         },
         {
+          "api_model_name": "gemini-2.5-flash-tts",
+          "entry": "google/gemini-2.5-flash-tts",
+          "endpoint": "gemini-tts"
+        },
+        {
+          "api_model_name": "gemini-2.5-pro-tts",
+          "entry": "google/gemini-2.5-pro-tts",
+          "endpoint": "gemini-tts"
+        },
+        {
+          "api_model_name": "gemini-2.5-flash-lite-preview-tts",
+          "entry": "google/gemini-2.5-flash-lite-preview-tts",
+          "endpoint": "gemini-tts"
+        },
+        {
           "api_model_name": "gemini-3.1-flash-lite",
           "entry": "google/gemini-3.1-flash-lite",
           "endpoint": "gemini-generate"
@@ -18634,8 +19423,9 @@
         },
         {
           "api_model_name": "doubao-seedream-4-0-250828",
-          "entry": "bytedance/doubao-seedream-4-0",
-          "endpoint": "ark-seedream-4"
+          "entry": "bytedance/doubao-seedream-4-0-250828",
+          "endpoint": "ark-seedream-4",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "doubao-seedance-2-0-260128",
@@ -18671,6 +19461,17 @@
         {
           "api_model_name": "doubao-seed-2-0-code-preview-260215",
           "entry": "bytedance/doubao-seed-2-0-code-preview-260215",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seedream-4-0-260415",
+          "entry": "bytedance/doubao-seedream-4-0",
+          "endpoint": "ark-seedream-4",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "deepseek-v4-1-flash-economy-261017",
+          "entry": "deepseek/deepseek-v4.1-flash-economy",
           "endpoint": "ark-chat"
         },
         {
@@ -18759,6 +19560,33 @@
           "min_app_version": "0.36.1"
         },
         {
+          "api_model_name": "doubao-seedream-5.5",
+          "entry": "bytedance/doubao-seedream-5-5",
+          "endpoint": "ark-seedream-4",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "doubao-seedance-2.5-flash",
+          "entry": "bytedance/doubao-seedance-2.5-flash",
+          "endpoint": "ark-seedance-2-5",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "glm-5.4",
+          "entry": "zhipu/glm-5.4",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "kimi-k2.8-preview",
+          "entry": "moonshot/kimi-k2.8-preview",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4.1-flash-economy",
+          "entry": "deepseek/deepseek-v4.1-flash-economy",
+          "endpoint": "ark-chat"
+        },
+        {
           "api_model_name": "doubao-seed-2.1-pro",
           "entry": "bytedance/doubao-seed-2.1-pro",
           "endpoint": "ark-chat"
@@ -18769,28 +19597,18 @@
           "endpoint": "ark-chat"
         },
         {
-          "api_model_name": "glm-5.3-flash",
-          "entry": "zhipu/glm-5.3-flash",
-          "endpoint": "ark-chat"
-        },
-        {
           "api_model_name": "glm-5.3",
           "entry": "zhipu/glm-5.3",
           "endpoint": "ark-chat"
         },
         {
-          "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3",
+          "api_model_name": "glm-5.3-flash",
+          "entry": "zhipu/glm-5.3-flash",
           "endpoint": "ark-chat"
         },
         {
-          "api_model_name": "deepseek-v4-flash",
-          "entry": "deepseek/deepseek-v4-flash",
-          "endpoint": "ark-chat"
-        },
-        {
-          "api_model_name": "kimi-k3.1-pro",
-          "entry": "moonshot/kimi-k3.1-pro",
+          "api_model_name": "deepseek-v4.1-flash",
+          "entry": "deepseek/deepseek-flash",
           "endpoint": "ark-chat"
         },
         {
@@ -18799,8 +19617,13 @@
           "endpoint": "ark-chat"
         },
         {
-          "api_model_name": "deepseek-v4.1-flash",
-          "entry": "deepseek/deepseek-flash",
+          "api_model_name": "kimi-k3.1-pro",
+          "entry": "moonshot/kimi-k3.1-pro",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4-flash",
+          "entry": "deepseek/deepseek-v4-flash",
           "endpoint": "ark-chat"
         }
       ],
@@ -18979,6 +19802,11 @@
           "endpoint": "openai-responses"
         },
         {
+          "api_model_name": "gpt-6-astra-healthcare",
+          "entry": "openai/gpt-6-astra-healthcare",
+          "endpoint": "openai-responses"
+        },
+        {
           "api_model_name": "gpt-6-luna",
           "entry": "openai/gpt-6-luna",
           "endpoint": "openai-responses"
@@ -18994,6 +19822,11 @@
           "endpoint": "openai-responses"
         },
         {
+          "api_model_name": "gpt-6.1-sol-healthcare",
+          "entry": "openai/gpt-6.1-sol-healthcare",
+          "endpoint": "openai-responses"
+        },
+        {
           "api_model_name": "gpt-6.1-terra",
           "entry": "openai/gpt-6.1-terra",
           "endpoint": "openai-responses"
@@ -19004,8 +19837,18 @@
           "endpoint": "openai-responses"
         },
         {
+          "api_model_name": "gpt-6.2-astra-healthcare",
+          "entry": "openai/gpt-6.2-astra-healthcare",
+          "endpoint": "openai-responses"
+        },
+        {
           "api_model_name": "gpt-6.2-sol",
           "entry": "openai/gpt-6.2-sol",
+          "endpoint": "openai-responses"
+        },
+        {
+          "api_model_name": "gpt-6.2-sol-healthcare",
+          "entry": "openai/gpt-6.2-sol-healthcare",
           "endpoint": "openai-responses"
         }
       ],
@@ -19292,13 +20135,8 @@
           "endpoint": "openai-chat"
         },
         {
-          "api_model_name": "glm-5.1",
-          "entry": "zhipu/glm-5.1",
-          "endpoint": "openai-chat"
-        },
-        {
-          "api_model_name": "glm-5",
-          "entry": "zhipu/glm-5",
+          "api_model_name": "qwen4-max",
+          "entry": "alibaba/qwen4-max",
           "endpoint": "openai-chat"
         },
         {
@@ -19312,13 +20150,18 @@
           "endpoint": "openai-chat"
         },
         {
+          "api_model_name": "kimi-k2.6",
+          "entry": "moonshot/kimi-k2.6",
+          "endpoint": "openai-chat"
+        },
+        {
           "api_model_name": "glm-5.2",
           "entry": "zhipu/glm-5.2",
           "endpoint": "openai-chat"
         },
         {
-          "api_model_name": "kimi-k2.6",
-          "entry": "moonshot/kimi-k2.6",
+          "api_model_name": "deepseek-v4.1-flash",
+          "entry": "deepseek/deepseek-flash",
           "endpoint": "openai-chat"
         },
         {
@@ -19327,8 +20170,18 @@
           "endpoint": "openai-chat"
         },
         {
-          "api_model_name": "deepseek-v4.1-flash",
-          "entry": "deepseek/deepseek-flash",
+          "api_model_name": "glm-5",
+          "entry": "zhipu/glm-5",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "kimi-k3.1-pro",
+          "entry": "moonshot/kimi-k3.1-pro",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "glm-5.1",
+          "entry": "zhipu/glm-5.1",
           "endpoint": "openai-chat"
         }
       ],
@@ -19523,6 +20376,21 @@
           "api_model_name": "agnes-video-v2.0",
           "entry": "agnes/agnes-video-v2.0",
           "endpoint": "agnes-video-2"
+        },
+        {
+          "api_model_name": "agnes-3.0-pro",
+          "entry": "agnes/agnes-3.0-pro",
+          "endpoint": "agnes-chat"
+        },
+        {
+          "api_model_name": "agnes-2.5-pro-beta",
+          "entry": "agnes/agnes-2.5-pro-beta",
+          "endpoint": "agnes-chat"
+        },
+        {
+          "api_model_name": "agnes-2.5-pro-theta",
+          "entry": "agnes/agnes-2.5-pro-theta",
+          "endpoint": "agnes-chat"
         }
       ],
       "defaults": {
