@@ -6,4 +6,4 @@ status: accepted
 
 多张图内联发送容易超出网关的请求体限制。使用一套保守的上传预算和降档顺序，避免为不同供应商、中转站维护一批可能过时的字节上限。提交明确返回 HTTP 413 时，可以再降一档重试。达到压缩下限仍过大时返回请求体超限错误。
 
-压缩只处理上传用的临时副本。多图输入优先降低分辨率，再降低 JPEG 质量。首尾帧保留原像素尺寸，只在超出单图预算时重编码，以免改变对尺寸敏感的生成输入。预算、透传和降档规则由 [压缩实现](../../lib/references/reference_compression.py) 承载。参考图的张数限制由 [ADR 0104](0104-capability-sources-split-by-dimension.md) 决定，超量应在付费提交前拒绝。
+压缩只处理上传用的临时副本。多图输入优先降低分辨率，再降低 JPEG 质量。首尾帧保留原像素尺寸，只在超出单图预算时重编码，以免改变对尺寸敏感的生成输入。预算、透传和降档规则由 [压缩实现](../../lib/references/reference_compression.py) 承载。参考图的张数限制由 [ADR 0104](0104-capability-sources-split-by-dimension.md) 决定，超量应在付费提交前拒绝。通过外部图片 URL 传入的槽位不受请求体内联体积限制，跳过内联降档压缩与 413 压缩重提，见 [ADR 0131](0131-external-image-url-supply-and-generation-url-inputs.md)。
