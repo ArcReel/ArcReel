@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.39.0](https://github.com/ArcReel/ArcReel/compare/v0.38.0...v0.39.0) (2026-11-28)
+
+
+### ✨ 新功能
+
+* **ark:** 接入官方方舟 Seedance 2.5 普通版 4K 能力与计量 ([842f2c3](https://github.com/ArcReel/ArcReel/commit/842f2c37f13dc5ddbcad29959cc11fd23c4154a0)), closes [#4142](https://github.com/ArcReel/ArcReel/issues/4142)
+* **episode:** 迁移归一化分集源文文件名并收口运行时别名兼容 ([e1a2781](https://github.com/ArcReel/ArcReel/commit/e1a2781af2c714bdb4de5702505c16d5cdfcebb4)), closes [#4088](https://github.com/ArcReel/ArcReel/issues/4088)
+* **kling:** 支持 Kling Image 4.0 新版普通单图调用端点 ([9e8bd3d](https://github.com/ArcReel/ArcReel/commit/9e8bd3d8205ad38772303695505eff9271ac89cc)), closes [#4067](https://github.com/ArcReel/ArcReel/issues/4067)
+
+
+### 🐛 Bug 修复
+
+* **backends:** 补齐网关提交失败的重试边界与核对提示 ([fc2e85b](https://github.com/ArcReel/ArcReel/commit/fc2e85bdff7c03127e4526a4c895a0c34b997f9b))
+* **backends:** 非幂等媒体提交收到 502/504 时停止自动重试 ([ff65e22](https://github.com/ArcReel/ArcReel/commit/ff65e221b8895916a75f0a6b88dc623db18ecb8d)), closes [#4223](https://github.com/ArcReel/ArcReel/issues/4223)
+* **catalog:** 供应商模型列表价格摘要与 unpriced 标记随渠道分辨率收窄同步裁剪 ([3ca5d5b](https://github.com/ArcReel/ArcReel/commit/3ca5d5bb8b6f3004c3fee481f93df51a08db18bc)), closes [#4221](https://github.com/ArcReel/ArcReel/issues/4221)
+* **diagnostics:** preserve four-slash sqlite url when no credentials or query ([cd1c450](https://github.com/ArcReel/ArcReel/commit/cd1c4503387d1de411a1f6f9cfccca65ac8ddb5c)), closes [#4108](https://github.com/ArcReel/ArcReel/issues/4108)
+* **frontend:** 从空白开始丢弃规划前补接离开拦截与资源占用守卫 ([8e1a69e](https://github.com/ArcReel/ArcReel/commit/8e1a69e08d1694c4f97b53ec29a1a8bb77dea388)), closes [#4098](https://github.com/ArcReel/ArcReel/issues/4098)
+* **generation:** recover submitted videos after the last model is disabled ([c38f3f5](https://github.com/ArcReel/ArcReel/commit/c38f3f5935212800db32e7de0252e537dffaa503)), closes [#4101](https://github.com/ArcReel/ArcReel/issues/4101)
+* **image:** validate catalog and i2i capability before image edit enqueue ([c6edf47](https://github.com/ArcReel/ArcReel/commit/c6edf475d78fbfeaaca0796bf95759e062fb51b3)), closes [#4103](https://github.com/ArcReel/ArcReel/issues/4103)
+* **market-core:** require keyword arguments for VideoGenerationRequest ([c91cc1c](https://github.com/ArcReel/ArcReel/commit/c91cc1c3b6813385c9f36f737704cb631a31ff8b)), closes [#4192](https://github.com/ArcReel/ArcReel/issues/4192)
+* **migrations:** 收口 v22 迁移边界、诊断 URL 脱敏与测试基线 ([505787e](https://github.com/ArcReel/ArcReel/commit/505787e621fb46e32b53e43dc0a10d3cf867fe67))
+* **project:** preserve newer style uploads and language edits ([b02e26e](https://github.com/ArcReel/ArcReel/commit/b02e26e6b196ee92c60cedfff61444d862ece6e8)), closes [#4111](https://github.com/ArcReel/ArcReel/issues/4111)
+* **script-plan:** 脚本规划成功后同步刷新分集状态以自动进入内容确认 ([7dca7f7](https://github.com/ArcReel/ArcReel/commit/7dca7f7f5e59fd028f72e0043728c744e94648fa)), closes [#4184](https://github.com/ArcReel/ArcReel/issues/4184)
+* **skills:** eliminate shell rm cleanup in AFK and review-loop scripts ([0d0e99f](https://github.com/ArcReel/ArcReel/commit/0d0e99ff3e1efbb4ad01b918a349329357c421ee)), closes [#4078](https://github.com/ArcReel/ArcReel/issues/4078)
+* **skills:** surface cleanup errors and keep round show python-free ([83b73b1](https://github.com/ArcReel/ArcReel/commit/83b73b14f244d58421cf8d87834f938b4a837768))
+* **stage-4:** 收口审查发现的兄弟控件占用同步、资源 ID 编解码与测试规范 ([d052c7d](https://github.com/ArcReel/ArcReel/commit/d052c7d781408808fda1611b1f6f20434a7d6d74))
+* **stage-5:** 收口渠道分辨率计价收窄、鉴权错误结构化与测试契约边界 ([2014225](https://github.com/ArcReel/ArcReel/commit/201422505ce8cac6d02e79b35369df8a69c0058d))
+* **stage-6:** 补齐排队初载草稿保护、价格与 unpriced 单一派生、时间线索引兜底及回归测试 ([083258d](https://github.com/ArcReel/ArcReel/commit/083258d481878ffbe02a6b455235c25b9c0fbd38))
+* **system-config:** skip custom models with unresolvable endpoints ([d057dd3](https://github.com/ArcReel/ArcReel/commit/d057dd3c70bfc7c8b1c4288a86cffb1f96efbd24)), closes [#4100](https://github.com/ArcReel/ArcReel/issues/4100)
+* **video:** block pending_authoring entries across video admission ([8e88150](https://github.com/ArcReel/ArcReel/commit/8e8815028447201a828c22f08074963855423537)), closes [#4069](https://github.com/ArcReel/ArcReel/issues/4069)
+* **video:** enforce pending_authoring at execution and restore candidate fallback ([9a4dc08](https://github.com/ArcReel/ArcReel/commit/9a4dc0843dfd727b090d38fee09f66c9ec1db094))
+* **video:** 可灵新版视频端点 JWT 鉴权拒绝改为结构化能力错误与四语文案 ([93bf113](https://github.com/ArcReel/ArcReel/commit/93bf1139c432a77c90ecc41ee8d7d4aaf1260b92)), closes [#4222](https://github.com/ArcReel/ArcReel/issues/4222)
+
+
+### ⚡ 性能优化
+
+* **workspace:** 减少打开工作台首页时的全项目读取 ([c044c66](https://github.com/ArcReel/ArcReel/commit/c044c6698ff9bb2471f4693d583485ed70b40142)), closes [#4195](https://github.com/ArcReel/ArcReel/issues/4195)
+
+
+### 📚 文档
+
+* **adr:** 记录对象存储 S3 统一、外部图片 URL 供给与媒体定位解耦决策 ([ed07a45](https://github.com/ArcReel/ArcReel/commit/ed07a454d97d0c7874d75885e6cca08c41fb8f91)), closes [#4204](https://github.com/ArcReel/ArcReel/issues/4204) [#4205](https://github.com/ArcReel/ArcReel/issues/4205) [#4206](https://github.com/ArcReel/ArcReel/issues/4206)
+
 ## [0.38.0](https://github.com/ArcReel/ArcReel/compare/v0.37.0...v0.38.0) (2026-11-27)
 
 
