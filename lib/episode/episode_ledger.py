@@ -39,6 +39,7 @@ LedgerStatus = Literal["planned", "consumed", "stale"]
 LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
+_CANONICAL_EPISODE_FILE_RE = re.compile(r"episode_([1-9][0-9]*)\.txt")
 _SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
 
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
@@ -249,45 +250,22 @@ def mismatched_source_fingerprints(recorded: Any, sources: list[SourceDoc]) -> l
     return sorted(mismatched)
 
 
-def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
-    """枚举派生集文件的全部别名 source/episode_N.txt → {集号: [路径, ...]}（按文件名排序）。
+def discover_episode_files(project_dir: Path, *, include_symlinks: bool = False) -> dict[int, Path]:
+    """枚举规范集原文文件 ``source/episode_N.txt`` → ``{集号: 路径}``（仅正整数且无前导零）。
 
-    同一集号可能因命名 padding 不同（``episode_1.txt`` / ``episode_01.txt``）产生多个
-    别名文件。大多数调用方只需其中一个代表路径（见 ``discover_episode_files``）；需要
-    完整处置某集号全部派生文件的场景（如重置清理）用本函数取全部。
-
-    悬空符号链接（目标不存在）同样纳入：``Path.is_file()`` 会因链接目标缺失而返回
-    False，导致这类文件对发现逻辑完全不可见——处置类调用方（如重置）因此漏清它，
-    残留的悬空链接会在下一次派生文件写入时被 ``EpisodePlanner`` 的符号链接校验硬
-    拦截。``unlink()``/``rename()`` 只作用于链接条目本身、不跟随最终一段的链接目标，
-    纳入悬空链接不会引入跟随写入的风险。
+    正常业务只识别唯一规范路径（ADR 0131）；补零旧别名在 v21→v22 迁移边界统一整理。
+    默认只返回可读的普通文件；需要处置规范路径上悬空符号链接的入口（如重置）传入 ``include_symlinks=True``。
     """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
         return {}
-    result: dict[int, list[Path]] = {}
-    for path in sorted(source_dir.iterdir()):
-        match = _EPISODE_FILE_RE.fullmatch(path.name)
-        if match and (path.is_file() or path.is_symlink()):
-            result.setdefault(int(match.group(1)), []).append(path)
-    return result
-
-
-def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个可读的代表路径）。
-
-    代表路径只从该集号别名中选可读的普通文件；全部别名都是悬空符号链接（无真实
-    内容）时该集号整体不出现在结果里，而不是退而返回一个读不到内容的路径——
-    ``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若悬空别名
-    （如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，直接取
-    排序首个会让按内容读派生文件的调用方读到空内容，也会给纯悬空、毫无真实内容
-    的集号凭空补建一个幽灵条目。
-    """
     result: dict[int, Path] = {}
-    for num, paths in discover_episode_file_aliases(project_dir).items():
-        readable = next((p for p in paths if p.is_file()), None)
-        if readable is not None:
-            result[num] = readable
+    for path in sorted(source_dir.iterdir()):
+        match = _CANONICAL_EPISODE_FILE_RE.fullmatch(path.name)
+        if not match:
+            continue
+        if path.is_file() or (include_symlinks and path.is_symlink()):
+            result[int(match.group(1))] = path
     return result
 
 

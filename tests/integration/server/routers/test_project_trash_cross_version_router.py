@@ -21,6 +21,7 @@ from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.workflow.workflow_state import WorkflowStateService
 from server.error_handlers import register_error_handlers
 from server.routers import project_trash as trash_router
@@ -237,7 +238,7 @@ def test_legacy_quarantine_files_survive_upgrade_and_public_restore(
     report = load_migration_report(project_dir)
     assert report is not None
     assert report.complete
-    assert report.to_schema_version == 21
+    assert report.to_schema_version == CURRENT_PROJECT_SCHEMA_VERSION
     expected = {
         "script_plan_normalized_script.invalid.json": b'{"content":{"scenes":[{"characters_in_scene":["ALICE"]}]}}',
         "script_plan_segments.invalid.json": b"corrupt\xff",

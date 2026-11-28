@@ -536,18 +536,18 @@ class TestSummaryAndText:
         assert "{" not in texts["text"] + texts["delete_text"]
 
 
-async def test_adoption_then_reset_preserves_padded_old_file(tmp_path: Path):
+async def test_adoption_then_reset_preserves_unregistered_canonical_file(tmp_path: Path):
     project_dir = _project_dir(tmp_path, [_cut(1, 0)])
     candidate = await _generate(project_dir, 1, ["重逢离别。"])
     source = project_dir / "source"
-    alias = source / "episode_02.txt"
-    alias.write_bytes(b"legacy")
+    stray = source / "episode_2.txt"
+    stray.write_bytes(b"legacy")
 
     assert _adopt(project_dir, candidate).episodes == [2]
-    assert not alias.exists()
     assert (source / "episode_2.txt").read_text(encoding="utf-8") == SOURCE
     reset_episode_planning(project_dir)
-    assert (source / "_episode_02.txt.bak").read_bytes() == b"legacy"
+    assert not (source / "episode_2.txt").exists()
+    assert (source / "_episode_2.txt.bak").read_bytes() == b"legacy"
 
 
 @pytest.mark.parametrize("operation", ["manual_split", "replan", "planner", "reset"])
@@ -558,10 +558,8 @@ async def test_snapshot_failure_restores_ledger_files_and_backups(
     source = project_dir / "source"
     episode = 2 if operation == "replan" else 1
     canonical = source / f"episode_{episode}.txt"
-    alias = source / f"episode_{episode:02}.txt"
-    alias.write_bytes(b"legacy\r\n")
-    canonical.write_bytes(b"other legacy")
-    (source / f"_{alias.name}.bak").write_bytes(b"older backup")
+    canonical.write_bytes(b"legacy\r\n")
+    (source / f"_{canonical.name}.bak").write_bytes(b"older backup")
     snapshots_dir = source / "snapshots"
     snapshots_dir.mkdir(exist_ok=True)
     stale_snapshot = snapshots_dir / "stale.txt"
@@ -575,8 +573,7 @@ async def test_snapshot_failure_restores_ledger_files_and_backups(
     real_sync = module.sync_source_snapshots
 
     def fail_sync(*args, **kwargs):
-        assert not alias.exists()
-        assert (source / f"_{alias.name}.1.bak").read_bytes() == b"legacy\r\n"
+        assert (source / f"_{canonical.name}.1.bak").read_bytes() == b"legacy\r\n"
         real_sync(*args, **kwargs)
         assert not stale_snapshot.exists()
         raise OSError("snapshot failure")

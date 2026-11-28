@@ -20,7 +20,6 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
-    discover_episode_file_aliases,
     discover_episode_files,
 )
 from lib.episode.episode_reset import (
@@ -521,28 +520,25 @@ def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path)
     assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.1.bak")]
 
 
-def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: Path) -> None:
-    """代表路径在悬空别名恰好排序在前时仍优先选可读文件，避免按内容读派生文件的调用方
-    读到悬空链接而误判该集无内容。"""
+def test_discover_episode_files_ignores_padded_aliases(tmp_path: Path) -> None:
+    """正常业务只识别规范文件名 source/episode_N.txt，忽略补零别名（ADR 0131）。"""
     project_dir = _write_project(tmp_path)
     valid = project_dir / "source" / "episode_1.txt"
     valid.write_text(SOURCE[:10], encoding="utf-8")
-    dangling = project_dir / "source" / "episode_01.txt"
-    dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
+    (project_dir / "source" / "episode_01.txt").write_text("旧补零别名", encoding="utf-8")
+    (project_dir / "source" / "episode_02.txt").write_text("仅有补零别名", encoding="utf-8")
 
-    assert discover_episode_files(project_dir)[1] == valid
+    assert discover_episode_files(project_dir) == {1: valid}
 
 
-def test_discover_episode_files_skips_episode_with_only_dangling_alias(tmp_path: Path) -> None:
-    """某集号全部别名都是悬空符号链接（无真实内容）时，代表路径映射里不出现该集号，
-    而不是返回一个读不到内容的路径——否则孤儿条目登记会为纯悬空、无真实内容的集号
-    凭空补建一个幽灵条目。"""
+def test_discover_episode_files_skips_dangling_symlink_unless_requested(tmp_path: Path) -> None:
+    """规范路径是悬空符号链接时默认不返回，仅在 include_symlinks=True 时交给重置清理。"""
     project_dir = _write_project(tmp_path)
     dangling = project_dir / "source" / "episode_9.txt"
     dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
 
     assert 9 not in discover_episode_files(project_dir)
-    assert discover_episode_file_aliases(project_dir)[9] == [dangling]
+    assert discover_episode_files(project_dir, include_symlinks=True)[9] == dangling
 
 
 def test_empty_drafts_dir_does_not_require_confirmation(tmp_path: Path) -> None:
@@ -609,28 +605,28 @@ def test_orphan_draft_dir_requires_confirmation(tmp_path: Path) -> None:
     assert result.consumed_episodes == [1]
 
 
-def test_reset_processes_all_padding_aliases_of_same_episode(tmp_path: Path) -> None:
-    """同一集号的多个 padding 别名（episode_1.txt / episode_01.txt）全部被处置，
-    否则未处理的别名会被孤儿条目登记重新补建账本条目。"""
+def test_reset_only_processes_canonical_episode_files_and_preserves_unproven_bytes(tmp_path: Path) -> None:
+    """重置只按规范路径 source/episode_N.txt 逐文件核验：字节匹配切片的删除，不匹配的留底（ADR 0125、0131）。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
     )
-    alias_a = project_dir / "source" / "episode_1.txt"
-    alias_a.write_text(SOURCE[:10], encoding="utf-8")
-    alias_b = project_dir / "source" / "episode_01.txt"
-    alias_b.write_bytes(b"legacy")
-    matching_alias = project_dir / "source" / "episode_001.txt"
-    matching_alias.write_bytes(alias_a.read_bytes())
+    ep1 = project_dir / "source" / "episode_1.txt"
+    ep1.write_text(SOURCE[:10], encoding="utf-8")
+    ep2 = project_dir / "source" / "episode_2.txt"
+    ep2.write_bytes(b"edited-by-user")
 
     result = reset_episode_planning(project_dir)
 
     assert isinstance(result, EpisodeResetResult)
-    assert not alias_a.exists()
-    assert not alias_b.exists()
-    assert result.deleted_files == ["source/episode_001.txt", "source/episode_1.txt"]
-    assert result.archived_files == [("source/episode_01.txt", "source/_episode_01.txt.bak")]
-    assert (project_dir / result.archived_files[0][1]).read_bytes() == b"legacy"
+    assert not ep1.exists()
+    assert not ep2.exists()
+    assert result.deleted_files == ["source/episode_1.txt"]
+    assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.bak")]
+    assert (project_dir / result.archived_files[0][1]).read_bytes() == b"edited-by-user"
     assert discover_episode_files(project_dir) == {}
 
 

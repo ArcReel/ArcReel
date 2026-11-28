@@ -38,7 +38,7 @@ from typing import Any
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
-    discover_episode_file_aliases,
+    discover_episode_files,
     discover_product_episode_nums,
     has_downstream_products,
     mismatched_source_fingerprints,
@@ -146,7 +146,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
     _assert_source_directory_safe(project_dir)
     texts = {doc.rel_path: doc.text for doc in discover_sources(project_dir, project)}
     order = whole_source_files(project)
-    episode_file_aliases = discover_episode_file_aliases(project_dir)
+    episode_files = discover_episode_files(project_dir, include_symlinks=True)
     product_nums = discover_product_episode_nums(project_dir)
     consumed: list[int] = []
     deletes: list[Path] = []
@@ -160,7 +160,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         """
         return num not in retained
 
-    for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
+    for num in sorted(set(entries) | set(episode_files) | product_nums):
         if not _in_scope(num):
             continue
         dupes = entries_by_num.get(num) or [{}]
@@ -171,16 +171,15 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         )
         if is_consumed:
             consumed.append(num)
-        paths = episode_file_aliases.get(num) or []
-        if not paths:
+        path = episode_files.get(num)
+        if path is None:
             continue
         spans = {parse_source_range(entry) for entry in dupes}
         span = spans.pop() if len(spans) == 1 else None
         content = span_text(texts, order, span) if span is not None else None
         expected = content.encode("utf-8") if content is not None else None
-        for path in paths:
-            target = deletes if _matches_derived_bytes(path, expected) else archives
-            target.append(path)
+        target = deletes if _matches_derived_bytes(path, expected) else archives
+        target.append(path)
     episode_nums = [num for num in sorted(entries) if _in_scope(num)]
     return _ResetPlan(episode_nums=episode_nums, consumed=consumed, deletes=deletes, archives=archives)
 

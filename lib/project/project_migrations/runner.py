@@ -71,6 +71,7 @@ from lib.project.project_migrations.v20_to_v21_retired_drafts import (
     migrate_v20_to_v21,
     prepare_legacy_history,
 )
+from lib.project.project_migrations.v21_to_v22_episode_source_names import migrate_v21_to_v22
 from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
     SQLITE_HISTORY_SCHEMA_VERSION,
@@ -84,7 +85,7 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
 MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
-_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14, 20})
+_MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14, 20, 21})
 
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
@@ -198,7 +199,7 @@ def migrate_project_dir(
     if version >= CURRENT_SCHEMA_VERSION:
         changed = False
         if (
-            version == SQLITE_HISTORY_SCHEMA_VERSION
+            version >= SQLITE_HISTORY_SCHEMA_VERSION
             and not restoring_snapshot
             and _current_history_needs_activation(project_dir)
         ):
@@ -221,7 +222,10 @@ def migrate_project_dir(
             if preflight:
                 preflight(project_dir)
             if version == initial_version:
-                prepare_legacy_history(project_dir, version, adjusted)
+                if version < SQLITE_HISTORY_SCHEMA_VERSION:
+                    prepare_legacy_history(project_dir, version, adjusted)
+                elif not restoring_snapshot and _current_history_needs_activation(project_dir):
+                    activate_current_history(project_dir, record=adjusted)
             if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
                 normalize_legacy_shapes(project_dir, schema_version=version, record=adjusted)
                 normalized = True
@@ -242,6 +246,8 @@ def migrate_project_dir(
                 step_outcome = migrate_v19_to_v20(project_dir, bare_provider_models=bare_provider_models)
             elif migrator is migrate_v20_to_v21:
                 step_outcome = migrate_v20_to_v21(project_dir, record=adjusted, restoring_snapshot=restoring_snapshot)
+            elif migrator is migrate_v21_to_v22:
+                step_outcome = migrate_v21_to_v22(project_dir, record=adjusted)
             else:
                 step_outcome = migrator(project_dir)
             if step_outcome is not None:
@@ -374,7 +380,7 @@ def run_project_migrations(
             continue
         try:
             if version >= CURRENT_SCHEMA_VERSION and not (
-                version == SQLITE_HISTORY_SCHEMA_VERSION and _current_history_needs_activation(child)
+                version >= SQLITE_HISTORY_SCHEMA_VERSION and _current_history_needs_activation(child)
             ):
                 clear_migration_failure(child)
                 _finish_unfinished_report(child)
@@ -461,3 +467,4 @@ MIGRATORS[17] = migrate_v17_to_v18
 MIGRATORS[18] = migrate_v18_to_v19
 MIGRATORS[19] = migrate_v19_to_v20
 MIGRATORS[20] = migrate_v20_to_v21
+MIGRATORS[21] = migrate_v21_to_v22

@@ -205,6 +205,8 @@ export interface WorkflowMigrationSkippedArtifact {
 }
 
 export type WorkflowMigrationAdjustmentCode =
+  | "episode_source_canonicalized"
+  | "episode_source_alias_preserved"
   | "history_conflict_preserved"
   | "retired_draft_trashed"
   | "draft_name_conflict_resolved"

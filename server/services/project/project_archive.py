@@ -96,6 +96,7 @@ from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
     migrate_project_dict as freeze_bare_provider_models,
 )
 from lib.project.project_schema import (
+    CURRENT_PROJECT_SCHEMA_VERSION,
     SQLITE_HISTORY_SCHEMA_VERSION,
     parse_project_schema_version,
     project_schema_is_current,
@@ -784,7 +785,15 @@ class ProjectArchiveService:
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
                     try:
-                        if project_schema_is_current(self._load_project_file(staging_dir / "project.json")):
+                        staged_version = parse_project_schema_version(
+                            self._load_project_file(staging_dir / "project.json")
+                        )
+                        if staged_version > CURRENT_PROJECT_SCHEMA_VERSION:
+                            raise ValueError(
+                                f"schema_version {staged_version} is newer than supported version "
+                                f"{CURRENT_PROJECT_SCHEMA_VERSION}"
+                            )
+                        if staged_version >= SQLITE_HISTORY_SCHEMA_VERSION:
                             source = staging_dir / "versions/versions.json"
                             SQLiteHistory(staging_dir).create(SQLiteHistory.read_exchange(source))
                             source.unlink()  # hard-delete: temp -- exchange payload in import staging

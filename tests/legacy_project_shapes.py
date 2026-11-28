@@ -1994,7 +1994,40 @@ def _write_released_tts_project(root: Path, *, shape: str) -> Path:
     return project_dir
 
 
+def write_legacy_padded_episode_sources_project(root: Path, name: str = "legacy-padded-episode-sources") -> Path:
+    """schema 21 项目：集 1 同时有规范集文件、可重建补零别名与不可重建补零旧稿，集 2 仅有补零集文件。"""
+    project_dir = write_legacy_storyboard_project(root, name=name)
+    advance_project_schema(project_dir, to_version=21)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_bytes())
+    novel = "第一段旁白。第二段旁白。"
+    (project_dir / "source/1-7-0227.txt").write_text(novel, encoding="utf-8")
+    project["whole_source_files"] = [{"source_file": "source/1-7-0227.txt"}]
+    project["episodes"][0].update(
+        {
+            "source_origin": "whole_source",
+            "source_range": {"source_file": "source/1-7-0227.txt", "start": 0, "end": len(novel)},
+        }
+    )
+    project["episodes"].append(
+        {
+            "episode": 2,
+            "title": "第二集",
+            "script_file": "scripts/episode_2.json",
+            "source_origin": "own",
+            "ledger_status": "planned",
+        }
+    )
+    _write_json(project_path, project)
+    (project_dir / "source/episode_1.txt").write_text(novel, encoding="utf-8")
+    (project_dir / "source/episode_01.txt").write_bytes(b"unproven-old-draft")
+    (project_dir / "source/episode_001.txt").write_text(novel, encoding="utf-8")
+    (project_dir / "source/episode_02.txt").write_text("自带原文第二集。", encoding="utf-8")
+    return project_dir
+
+
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
+    "padded-episode-sources": write_legacy_padded_episode_sources_project,
     "v15-tts": partial(_write_released_tts_project, shape="v15-tts"),
     "v20-tts-exports": partial(_write_released_tts_project, shape="v20-tts-exports"),
     "storyboard": write_legacy_storyboard_project,

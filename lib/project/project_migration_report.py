@@ -98,6 +98,8 @@ def skipped_artifact_identity(key: ArtifactKey) -> SkippedArtifactIdentity:
 
 
 MigrationAdjustmentCode = Literal[
+    "episode_source_canonicalized",
+    "episode_source_alias_preserved",
     "history_conflict_preserved",
     "retired_draft_trashed",
     "draft_name_conflict_resolved",

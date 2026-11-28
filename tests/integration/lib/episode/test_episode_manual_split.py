@@ -507,10 +507,10 @@ def test_confirmation_text_counts_words_for_projects_counted_by_words():
     assert text.splitlines()[0] == "两集之间有 1 词未切分的原文，合并后会并入这一集。"
 
 
-def test_cut_then_reset_preserves_padded_old_file(tmp_path: Path):
+def test_cut_then_reset_preserves_unregistered_canonical_file(tmp_path: Path):
     project_dir = _project_dir(tmp_path, [])
     source = project_dir / "source"
-    (source / "episode_01.txt").write_bytes(b"legacy")
+    (source / "episode_1.txt").write_bytes(b"legacy")
 
     cut_unsplit_source(project_dir, source_file="source/a.txt", end=CH2)
 
@@ -518,4 +518,4 @@ def test_cut_then_reset_preserves_padded_old_file(tmp_path: Path):
     assert _episode_text(project_dir, 1) == A[:CH2]
     reset_episode_planning(project_dir)
     assert not (source / "episode_1.txt").exists()
-    assert (source / "_episode_01.txt.bak").read_bytes() == b"legacy"
+    assert (source / "_episode_1.txt.bak").read_bytes() == b"legacy"

@@ -94,7 +94,7 @@ def allocate_kept_copy_path(source: Path, from_version: int) -> Path:
     """Pick a non-existing kept-copy path beside ``source`` for ``from_version``."""
     ts = int(time.time())
     target = source.with_name(kept_copy_name(source.name, from_version, ts))
-    while target.exists():
+    while target.exists() or target.is_symlink():
         ts += 1
         target = source.with_name(kept_copy_name(source.name, from_version, ts))
     return target

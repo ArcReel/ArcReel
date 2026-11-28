@@ -37,7 +37,7 @@ from lib.episode.episode_ids import (
     episode_ids_in_names,
     item_id_episode,
 )
-from lib.episode.episode_ledger import discover_episode_file_aliases, parse_positive_episode_num
+from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.episode.episode_management import EpisodeManagementError
 from lib.episode.episode_paths import episode_drafts_dir, episode_source_path
 from lib.episode.episode_sources import (
@@ -245,7 +245,6 @@ def episode_content(project_dir: Path, project: Mapping[str, Any], episode: int)
     files: list[Path] = []
     leftovers: list[Path] = []
     source_dir = project_dir / "source"
-    files.extend(discover_episode_file_aliases(project_dir).get(episode, []))
     files.append(episode_source_path(project_dir, episode))
     for pattern in (f"_episode_{episode}.txt*.bak", f"raw/episode_{episode}.*"):
         files.extend(sorted(source_dir.glob(pattern)))

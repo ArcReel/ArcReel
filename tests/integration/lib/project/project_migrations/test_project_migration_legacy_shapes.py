@@ -22,7 +22,9 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_planner import plan_artifact_target_state
+from lib.artifacts.sqlite_history import SQLiteHistory
 from lib.infra.path_safety import safe_resolve
+from lib.infra.project_write_journal import is_history_database_name
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import (
@@ -34,7 +36,7 @@ from lib.project.project_migration_report import (
 from lib.project.project_migrations import legacy_shapes, runner, v6_to_v7_ad_reference_video_units
 from lib.project.project_migrations.legacy_shapes import normalize_legacy_shapes
 from lib.project.project_migrations.runner import migrate_project_with_verdict
-from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, SQLITE_HISTORY_SCHEMA_VERSION
 from lib.project.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
     END_FRAME_RESOURCE_TYPE,
@@ -93,6 +95,13 @@ def _commits_a_rebind(path: Path, payload: Any) -> bool:
 def _migrate(project_dir: Path) -> None:
     assert migrate_project_with_verdict(project_dir) is None
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+
+
+def _ensure_history_for_schema(project_dir: Path, schema_version: int) -> None:
+    if schema_version >= SQLITE_HISTORY_SCHEMA_VERSION:
+        history = SQLiteHistory(project_dir)
+        if not history.is_enabled():
+            history.create({})
 
 
 def _adjusted(project_dir: Path) -> list[tuple[str, int | None, dict[str, str]]]:
@@ -259,6 +268,7 @@ def test_absolute_shared_reference_through_parent_alias_keeps_its_bytes(tmp_path
     project["characters"]["Bob"]["reference_image"] = str(aliased_project_dir / "characters/refs/Alice.png")
     project["products"] = {}
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
 
     _migrate(aliased_project_dir)
 
@@ -301,6 +311,7 @@ def test_dangling_alias_reference_colliding_with_planned_copy_target_is_not_rebo
     orphan = project_dir / "characters/refs/Charlie.png"
     orphan.write_bytes(b"charlie-orphan")
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     assert safe_resolve(aliased_project_dir, reference) is None
 
     _migrate(aliased_project_dir)
@@ -324,6 +335,7 @@ def test_swapped_shared_references_keep_each_original_content(
     project["characters"]["Alice"]["reference_image"] = "characters/refs/Bob.png"
     project["products"] = {}
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     (project_dir / "characters/refs/Bob.png").write_bytes(b"bob-image")
     write = legacy_shapes.atomic_write_json
 
@@ -354,6 +366,7 @@ def test_shared_reference_copy_failure_keeps_the_displaced_original_in_the_retry
     project = _read_json(project_path)
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     target = project_dir / "characters/refs/Bob.png"
     target.write_bytes(b"displaced-original")
     write = legacy_shapes.atomic_write_bytes
@@ -509,6 +522,7 @@ def test_a_sheet_copy_preserves_the_original_image_referencing_its_target(tmp_pa
     project = _read_json(project_path)
     project["schema_version"] = from_version
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, from_version)
 
     _migrate(project_dir)
 
@@ -535,6 +549,7 @@ def test_reference_copy_targets_preserve_all_fields_and_sheet_currency(
     project = _read_json(project_path)
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     key = ArtifactKey.asset_sheet("character", "Bob")
     adapter = ProjectArtifactManifestAdapter(project_dir)
     claim = plan_artifact_target_state(project_dir).entries[key]
@@ -574,6 +589,7 @@ def test_product_reference_lists_keep_distinct_reserved_copy_targets(tmp_path: P
     }
     (project_dir / "products/Tea.png").write_bytes(b"Tea-reference")
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
 
     _migrate(project_dir)
 
@@ -602,6 +618,7 @@ def test_a_copy_does_not_become_the_content_of_an_unreadable_reference(tmp_path:
     project = _read_json(project_path)
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
 
     _migrate(project_dir)
 
@@ -634,6 +651,7 @@ def test_a_missing_reference_stays_missing_when_its_own_target_is_occupied(
     if referenced:
         project["characters"]["Alice"]["reference_image"] = target
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, from_version)
 
     _migrate(project_dir)
 
@@ -669,6 +687,7 @@ def test_clearing_a_missing_references_target_rolls_back_on_commit_failure(
     project = _read_json(project_path)
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     before = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
     write_json = legacy_shapes.atomic_write_json
 
@@ -706,6 +725,7 @@ def test_a_differently_spelled_reference_to_the_copy_target_keeps_its_content(tm
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project["characters"]["Bob"]["reference_image"] = spelling
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
 
     _migrate(project_dir)
 
@@ -726,6 +746,7 @@ def test_a_list_copy_skips_the_sequence_slot_of_a_missing_sibling(tmp_path: Path
         "Tea": {"description": "Tea", "reference_images": ["products/refs/Tea_1.png", "characters/Bob.png"]}
     }
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
 
     _migrate(project_dir)
 
@@ -747,10 +768,16 @@ def test_colliding_copy_targets_roll_back_every_file_and_retry_cleanly(
     project = _read_json(project_path)
     project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     key = ArtifactKey.asset_sheet("character", "Bob")
     claim = plan_artifact_target_state(project_dir).entries[key]
     assert ProjectArtifactManifestAdapter(project_dir).put_entry(key, claim)
-    before = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+    before = {
+        path.relative_to(project_dir): path.read_bytes()
+        for path in project_dir.rglob("*")
+        if path.is_file() and not is_history_database_name(path.name)
+    }
+    history_before = read_version_history(project_dir)
     write_json, write_bytes = legacy_shapes.atomic_write_json, legacy_shapes.atomic_write_bytes
 
     def fail_on_project(path: Path, payload: Any) -> None:
@@ -771,6 +798,7 @@ def test_colliding_copy_targets_roll_back_every_file_and_retry_cleanly(
         with pytest.raises(OSError, match="disk full"):
             runner.migrate_project_dir(project_dir)
     assert all((project_dir / rel).read_bytes() == data for rel, data in before.items())
+    assert read_version_history(project_dir) == history_before
     assert not (project_dir / "characters/Bob.png").exists()
     assert not (project_dir / "characters/refs/Bob.png").exists()
     assert not list(project_dir.rglob("*.kept.*"))
@@ -973,6 +1001,7 @@ def test_a_sheet_copy_does_not_write_through_a_symlink_directory(tmp_path: Path)
     project["characters"] = {"Bob": {"description": "Bob", "character_sheet": "props/Umbrella.png"}}
     project["props"] = {"Umbrella": {"description": "Umbrella", "prop_sheet": "props/Umbrella.png"}}
     project_path.write_text(json.dumps(project), encoding="utf-8")
+    _ensure_history_for_schema(project_dir, project["schema_version"])
     (project_dir / "props/Umbrella.png").write_bytes(b"source")
     outside = tmp_path / "outside"
     (project_dir / "characters").rename(outside)
@@ -1255,8 +1284,6 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
             basis=ArtifactBasis.build("test/derivative-sheet", kind_version=1, inputs={"sheet": sheet}),
         )
     hat_claim = ProjectArtifactManifestAdapter(project_dir).get_entry(hat_key)
-    versions_path = project_dir / "versions" / "versions.json"
-    versions = _read_json(versions_path) if versions_path.is_file() else {}
     hat_history = {
         "current_version": 1,
         "versions": [
@@ -1268,11 +1295,22 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
             }
         ],
     }
-    versions.setdefault(CHARACTER_DERIVATIVE_RESOURCE_TYPE, {}).update(
-        {f"{variant}/Hat": hat_history, f"{variant}/Coat": hat_history}
-    )
-    versions_path.parent.mkdir(parents=True, exist_ok=True)
-    versions_path.write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
+    sqlite_history = SQLiteHistory(project_dir)
+    if sqlite_history.is_enabled():
+        batch = sqlite_history.resources(())
+        batch[CHARACTER_DERIVATIVE_RESOURCE_TYPE] = {
+            f"{variant}/Hat": hat_history,
+            f"{variant}/Coat": hat_history,
+        }
+        sqlite_history.save(batch)
+    else:
+        versions_path = project_dir / "versions" / "versions.json"
+        versions = _read_json(versions_path) if versions_path.is_file() else {}
+        versions.setdefault(CHARACTER_DERIVATIVE_RESOURCE_TYPE, {}).update(
+            {f"{variant}/Hat": hat_history, f"{variant}/Coat": hat_history}
+        )
+        versions_path.parent.mkdir(parents=True, exist_ok=True)
+        versions_path.write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
     refer_to_asset_in_episode(project_dir, 1, "characters_in_segment", f"{variant}/Coat")
     refer_to_asset_in_episode(project_dir, 1, "characters_in_segment", f"{variant}/Hat")
 
