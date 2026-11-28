@@ -46,10 +46,14 @@ from lib.backends.providers import PROVIDER_VIDU
 
 register_backend(PROVIDER_VIDU, ViduImageBackend)
 
-from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.dashscope import (
+    VIDU_IMAGE_ENDPOINT_KEY as DASHSCOPE_VIDU_IMAGE_ENDPOINT,
+)
+from lib.backends.image_backends.dashscope import DashScopeImageBackend, DashScopeViduImageBackend
 from lib.backends.providers import PROVIDER_DASHSCOPE
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeImageBackend)
+register_backend(DASHSCOPE_VIDU_IMAGE_ENDPOINT, DashScopeViduImageBackend)
 
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.providers import PROVIDER_MINIMAX

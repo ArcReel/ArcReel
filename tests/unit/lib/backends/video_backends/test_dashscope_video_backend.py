@@ -1364,10 +1364,10 @@ class TestGenericEndpointAudio:
         from arcreel_market_core.video_backend_contract import VideoAudioMode
 
         backend_cls = DASHSCOPE_VIDEO_BACKENDS[endpoint]
-        image = _ref(tmp_path, "ref.png")
+        refs = [_ref(tmp_path, "ref.png")] if backend_cls.endpoint.reference_required else None
         payload = backend_cls(api_key="sk", model="opaque-model")._build_payload(
             VideoGenerationRequest(
-                prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True, reference_images=[image]
+                prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True, reference_images=refs
             )
         )
         controllable = backend_cls.video_capabilities_for_model("opaque-model").audio_track

@@ -35,7 +35,13 @@ from lib.backends.endpoint_prefill import infer_endpoint as infer_endpoint
 from lib.backends.endpoint_prefill import infer_media_type as infer_media_type
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
+from lib.backends.image_backends.dashscope import (
+    ASYNC_IMAGE_ENDPOINT as DASHSCOPE_ASYNC_IMAGE_PATH,
+)
+from lib.backends.image_backends.dashscope import (
+    DASHSCOPE_IMAGE_BACKENDS,
+    DashScopeViduImageBackend,
+)
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS
 from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
@@ -626,6 +632,11 @@ _KLING_MODEL_PATH_VIDEO_REQUESTS = _python_requests(
 _DASHSCOPE_GENERATION_REQUESTS = _python_requests(
     "dashscope_api_v1", ("generate", "cp_request_generate", "/services/aigc/multimodal-generation/generation")
 )
+_DASHSCOPE_ASYNC_IMAGE_REQUESTS = _python_requests(
+    "dashscope_api_v1",
+    ("submit", "cp_request_submit", DASHSCOPE_ASYNC_IMAGE_PATH),
+    ("poll", "cp_request_poll", "/tasks/{{ task_id }}"),
+)
 _DASHSCOPE_SPEECH_SYNTHESIZER_REQUESTS = _python_requests(
     "dashscope_api_v1", ("generate", "cp_request_generate", SPEECH_SYNTHESIZER_PATH)
 )
@@ -783,6 +794,22 @@ def _build_dashscope_image(
         model_id,
     )
     delegate = DASHSCOPE_IMAGE_BACKENDS[endpoint](
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_dashscope_vidu_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
+    layer = path_override_layer(
+        _DASHSCOPE_ASYNC_IMAGE_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeViduImageBackend(
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -1083,6 +1110,18 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         )
         for key, backend_class in DASHSCOPE_IMAGE_BACKENDS.items()
     },
+    "dashscope-vidu-image": EndpointSpec(
+        key="dashscope-vidu-image",
+        media_type="image",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_vidu_image_display",
+        request_method="POST",
+        request_path_template=f"/api/v1{DASHSCOPE_ASYNC_IMAGE_PATH}",
+        image_capabilities=DashScopeViduImageBackend.CHANNEL_CAPABILITIES,
+        build_backend=_build_dashscope_vidu_image,
+        requests=_DASHSCOPE_ASYNC_IMAGE_REQUESTS,
+        metering_backend=DashScopeViduImageBackend,
+    ),
     "openai-tts": EndpointSpec(
         key="openai-tts",
         media_type="audio",

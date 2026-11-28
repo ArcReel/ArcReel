@@ -111,3 +111,17 @@ def test_kling_image_model_path_endpoint_carries_0_38_1_start_version_floor():
         endpoint_version_floor("kling", "image", "kling-image-model-path", include_declaration_version=False)
         == "0.38.1"
     )
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "media_type", "endpoint"),
+    [
+        ("dashscope", "video", "dashscope-pixverse-video"),
+        ("dashscope", "image", "dashscope-vidu-image"),
+    ],
+)
+def test_dashscope_pixverse_and_vidu_endpoints_carry_0_38_1_start_version_floor(
+    provider_id: str, media_type: str, endpoint: str
+):
+    assert endpoint_version_floor(provider_id, media_type, endpoint) == "0.38.1"
+    assert endpoint_version_floor(provider_id, media_type, endpoint, include_declaration_version=False) == "0.38.1"

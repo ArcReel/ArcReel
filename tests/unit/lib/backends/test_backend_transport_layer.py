@@ -22,7 +22,7 @@ from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.ark import ArkImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
-from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.dashscope import DashScopeImageBackend, DashScopeViduImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
@@ -37,7 +37,7 @@ from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.ark import Seedance2VideoBackend
-from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.dashscope import DashScopePixVerseVideoBackend, DashScopeVideoBackend
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
@@ -92,6 +92,9 @@ _CALLS: dict[str, Call] = {
     "dashscope-qwen-image": lambda layer, tmp_path: DashScopeImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
+    "dashscope-vidu-image": lambda layer, tmp_path: DashScopeViduImageBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
+    ).generate(_image(tmp_path)),
     "minimax-image": lambda layer, tmp_path: MiniMaxImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
@@ -138,6 +141,9 @@ _CALLS: dict[str, Call] = {
         api_key="k", base_url=f"{BASE}/ent/v2", transport_layer=layer
     ).generate(_video(tmp_path)),
     "dashscope-video": lambda layer, tmp_path: DashScopeVideoBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
+    ).generate(_video(tmp_path)),
+    "dashscope-pixverse-video": lambda layer, tmp_path: DashScopePixVerseVideoBackend(
         api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_video(tmp_path)),
     "kling-video-pro-silent": lambda layer, tmp_path: KlingVideoBackend(

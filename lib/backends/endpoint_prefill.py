@@ -98,6 +98,8 @@ def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
     if provider_id == "dashscope":
         if lowered.startswith("wan"):
             return "dashscope-wan-image"
+        if "vidu" in lowered:
+            return "dashscope-vidu-image"
         return "dashscope-qwen-image-edit" if "qwen-image-edit" in lowered else "dashscope-qwen-image"
     return "agnes-image-tier" if model_id.startswith("agnes-image-2.5") else "agnes-image-pixels"
 
@@ -105,6 +107,8 @@ def image_endpoint_for_name(provider_id: str, model_id: str) -> str:
 def dashscope_video_endpoint_for_name(name: str) -> str:
     """按名字预填百炼请求契约；执行时只读取已经选定的端点。"""
     normalized = name.strip().lower()
+    if "pixverse" in normalized:
+        return "dashscope-pixverse-video"
     if re.search(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", normalized):
         return "dashscope-wan3-video"
     wan27 = re.search(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", normalized)
@@ -300,6 +304,10 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         return dashscope_video_endpoint_for_name(model_id)
     if is_wan_family and not wan_image_variant and not wan_unsupported_modality:
         return dashscope_video_endpoint_for_name(model_id)
+    if "pixverse" in lowered:
+        return "dashscope-pixverse-video"
+    if re.search(r"(?<![a-z0-9])vidu/[^\s]*image", lowered):
+        return "dashscope-vidu-image"
 
     canonical = re.split(r"[/:]", lowered)[-1]
     if "hailuo" in lowered:

@@ -219,6 +219,26 @@ class TestMediaRegistryRouting:
         built = _built(get_provider_spec("dashscope", "video"), config, "wan3.0-video")
         assert "wan3_base_url" not in built["kwargs"]
 
+    def test_dashscope_vidu_image_passes_wan3_base_url(self):
+        config = _loaded(
+            credentials={"api_key": "sk-test", "wan3_base_url": "https://ws-1.cn-beijing.maas.aliyuncs.com"},
+            provider_id="dashscope",
+        )
+        spec = get_provider_spec("dashscope", "image", "dashscope-vidu-image")
+        built = _built(spec, config, "vidu/viduq3.1-fast_reference2image")
+        assert built["backend"] == "dashscope-vidu-image"
+        assert built["kwargs"]["wan3_base_url"] == "https://ws-1.cn-beijing.maas.aliyuncs.com"
+
+    def test_dashscope_pixverse_video_spec_and_wan3_base_url(self):
+        config = _loaded(
+            credentials={"api_key": "sk-test", "wan3_base_url": "https://ws-1.cn-beijing.maas.aliyuncs.com"},
+            provider_id="dashscope",
+        )
+        spec = get_provider_spec("dashscope", "video", "dashscope-pixverse-video")
+        built = _built(spec, config, "pixverse/pixverse-v6-max-t2v")
+        assert built["backend"] == "dashscope-pixverse-video"
+        assert built["kwargs"]["wan3_base_url"] == "https://ws-1.cn-beijing.maas.aliyuncs.com"
+
     def test_dashscope_audio_uses_audio_registry(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
         assert _built(get_provider_spec("dashscope", "audio"), config, "qwen3-tts-flash") == {

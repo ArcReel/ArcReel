@@ -109,7 +109,12 @@ _specs: list[ProviderSpec] = [
 _IMAGE_ENDPOINTS = {
     "ark": ("ark-seedream-3", "ark-seedream-4"),
     "ark-agent-plan": ("ark-seedream-3", "ark-seedream-4"),
-    "dashscope": ("dashscope-qwen-image", "dashscope-wan-image", "dashscope-qwen-image-edit"),
+    "dashscope": (
+        "dashscope-qwen-image",
+        "dashscope-wan-image",
+        "dashscope-qwen-image-edit",
+        "dashscope-vidu-image",
+    ),
     "agnes": ("agnes-image-pixels", "agnes-image-tier"),
 }
 _specs += [
@@ -156,6 +161,7 @@ for _provider, _endpoints in (
             "dashscope-reference-video",
             "dashscope-reference-voice-video",
             "dashscope-wan3-video",
+            "dashscope-pixverse-video",
         ),
     ),
     ("agnes", ("agnes-video-2", "agnes-video-2-5")),

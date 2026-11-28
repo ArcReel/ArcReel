@@ -1645,6 +1645,48 @@
         ]
       },
       {
+        "key": "dashscope-vidu-image",
+        "media_type": "image",
+        "family": "dashscope",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_dashscope_vidu_image_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v1/services/aigc/image-generation/generation",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/services/aigc/image-generation/generation",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/tasks/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          }
+        ]
+      },
+      {
         "key": "openai-tts",
         "media_type": "audio",
         "family": "openai",
@@ -2045,6 +2087,45 @@
         "request_path_template": "/api/v1/services/aigc/video-generation/video-synthesis",
         "image_capabilities": null,
         "end_image_capable": true,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/services/aigc/video-generation/video-synthesis",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/tasks/{{ task_id }}",
+            "placeholders": [
+              "model",
+              "task_id"
+            ],
+            "base_url_rule": "dashscope_api_v1"
+          }
+        ]
+      },
+      {
+        "key": "dashscope-pixverse-video",
+        "media_type": "video",
+        "family": "dashscope",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_dashscope_pixverse_video_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v1/services/aigc/video-generation/video-synthesis",
+        "image_capabilities": null,
+        "end_image_capable": false,
         "size_fixed": false,
         "duration_fixed": false,
         "duration_frame_rate_missing": false,

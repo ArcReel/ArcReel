@@ -162,6 +162,8 @@ def build_builtin_image(
         kwargs["api_key"] = api_key
     if base_url:
         kwargs["base_url"] = base_url
+    if provider_id == "dashscope" and credentials.get("wan3_base_url"):
+        kwargs["wan3_base_url"] = credentials["wan3_base_url"]
     return image_backends.create_backend(registry, **kwargs)
 
 

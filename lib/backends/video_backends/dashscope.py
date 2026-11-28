@@ -112,15 +112,31 @@ _WAN27_MAX_PROMPT_CHARS = 5000
 
 _WAN3_MAX_PROMPT_CHARS = 20000
 
+_DEFAULT_PROTOCOL_SLOTS: frozenset[str] = frozenset(
+    {"text_to_video", "first_frame", "last_frame", "reference_images", "reference_audio"}
+)
+_PIXVERSE_PROTOCOL_SLOTS: frozenset[str] = frozenset({"text_to_video", "first_frame"})
+_PIXVERSE_RESOLUTIONS: tuple[str, ...] = ("360P", "540P", "720P", "1080P")
+_PIXVERSE_ASPECT_RATIOS: tuple[str, ...] = ("16:9", "4:3", "1:1", "3:4", "9:16", "3:2", "2:3", "21:9")
+_PIXVERSE_DURATION_RANGE: tuple[int, int] = (1, 15)
+_PIXVERSE_MAX_PROMPT_CHARS = 5000
+
 
 @dataclass(frozen=True)
 class DashScopeVideoEndpoint:
-    """同一异步 API 下不同的音轨、参考图与音色挂载契约。"""
+    """同一异步 API 下不同的音轨、参考图、首帧形态与域名契约。"""
 
     audio_switch: bool = False
     reference_required: bool = False
     reference_audio_per_image: bool = False
     wan3_host: bool = False
+    first_frame_media_type: str = "first_frame"
+    aspect_ratio_param: str = "ratio"
+    protocol_slots: frozenset[str] = _DEFAULT_PROTOCOL_SLOTS
+    allowed_resolutions: tuple[str, ...] | None = None
+    allowed_aspect_ratios: tuple[str, ...] | None = None
+    duration_range: tuple[int, int] | None = None
+    default_max_prompt_chars: int | None = None
 
     @property
     def audio_track(self) -> VideoAudioMode:
@@ -185,7 +201,8 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
-        self._wan3_base_url = (wan3_base_url or "").strip().rstrip("/") or None
+        cleaned_maas = (wan3_base_url or "").strip()
+        self._wan3_base_url = dashscope_native_base_url(cleaned_maas) if cleaned_maas else None
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
         self._transport_layer = transport_layer
@@ -200,17 +217,21 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
 
     @classmethod
     def describe_video_endpoint(cls, model: str, entry: CatalogEntry | EllipsisType | None = ...) -> Endpoint:
-        if entry is None:
-            profile = _match_profile_key(model)
+        if cls.endpoint.default_max_prompt_chars is not None:
+            max_prompt_chars: int | None = cls.endpoint.default_max_prompt_chars
         else:
-            profile = _profile_key_for_model(model, None if isinstance(entry, EllipsisType) else entry)
+            if entry is None:
+                profile = _match_profile_key(model)
+            else:
+                profile = _profile_key_for_model(model, None if isinstance(entry, EllipsisType) else entry)
+            max_prompt_chars = _MODEL_PROFILES.get(profile or "")
         return Endpoint(
             "video",
-            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images", "reference_audio"}),
+            cls.endpoint.protocol_slots,
             audio=audio_protocol(cls.endpoint.audio_track),
             defaults={
                 "reference_audio_per_image": cls.endpoint.reference_audio_per_image,
-                "max_prompt_chars": _MODEL_PROFILES.get(profile or ""),
+                "max_prompt_chars": max_prompt_chars,
             },
         )
 
@@ -277,28 +298,59 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         )
 
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
+        caps = request.video_capabilities or self.video_capabilities
+        resolution = _sent_resolution(request)
+        if self.endpoint.allowed_resolutions is not None and resolution not in self.endpoint.allowed_resolutions:
+            raise VideoCapabilityError(
+                "video_resolution_not_supported",
+                model=self._model,
+                resolution=request.resolution,
+                supported=", ".join(self.endpoint.allowed_resolutions),
+            )
+        if self.endpoint.duration_range is not None:
+            min_duration, max_duration = self.endpoint.duration_range
+            duration: object = request.duration_seconds
+            if type(duration) is not int:
+                raise VideoCapabilityError("video_duration_invalid", duration=duration)
+            if not (min_duration <= duration <= max_duration):
+                raise VideoCapabilityError(
+                    "video_duration_not_supported",
+                    duration=duration,
+                    supported=f"{min_duration}-{max_duration}s",
+                )
+
         media = self._build_media(request)
+        if not media and not caps.text_to_video:
+            raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
         input_block: dict = {"prompt": request.prompt}
         if media:
             input_block["media"] = media
 
         parameters: dict = {
-            "resolution": _sent_resolution(request),
+            "resolution": resolution,
             "duration": request.duration_seconds,
             "watermark": False,
         }
-        has_first_frame = any(m.get("type") == "first_frame" for m in media)
+        has_first_frame = any(m.get("type") == self.endpoint.first_frame_media_type for m in media)
         if request.aspect_ratio and not has_first_frame:
-            parameters["ratio"] = request.aspect_ratio
+            if (
+                self.endpoint.allowed_aspect_ratios is not None
+                and request.aspect_ratio not in self.endpoint.allowed_aspect_ratios
+            ):
+                raise VideoCapabilityError(
+                    "video_aspect_ratio_not_supported",
+                    model=self._model,
+                    aspect_ratio=request.aspect_ratio,
+                    supported=", ".join(self.endpoint.allowed_aspect_ratios),
+                )
+            parameters[self.endpoint.aspect_ratio_param] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
         if self.endpoint.audio_switch:
             parameters["audio"] = request.generate_audio
         elif (
             not request.generate_audio
-            and (request.video_capabilities or self.video_capabilities)
-            .audio_track_for_route("r2v" if request.reference_images else "i2v")
-            .has_audio_track
+            and caps.audio_track_for_route("r2v" if request.reference_images else "i2v").has_audio_track
         ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
@@ -332,7 +384,10 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
                 count=len(provided),
             )
         images = read_video_images(request, self.model)
-        for role, path in (("first_frame", request.start_image), ("last_frame", request.end_image)):
+        for role, path in (
+            (self.endpoint.first_frame_media_type, request.start_image),
+            ("last_frame", request.end_image),
+        ):
             if path is not None:
                 media.append({"type": role, "url": images[Path(path)].data_uri()})
         reference_items = [{"type": "reference_image", "url": images[Path(p)].data_uri()} for p in provided]
@@ -547,10 +602,27 @@ class DashScopeWan3VideoBackend(DashScopeVideoBackend):
     endpoint = DashScopeVideoEndpoint(audio_switch=True, wan3_host=True)
 
 
+class DashScopePixVerseVideoBackend(DashScopeVideoBackend):
+    """百炼 PixVerse 视频（文生/首帧图生）：aspect_ratio 比例、image_url 首帧、可选音轨与 MaaS 域名。"""
+
+    endpoint = DashScopeVideoEndpoint(
+        audio_switch=True,
+        wan3_host=True,
+        first_frame_media_type="image_url",
+        aspect_ratio_param="aspect_ratio",
+        protocol_slots=_PIXVERSE_PROTOCOL_SLOTS,
+        allowed_resolutions=_PIXVERSE_RESOLUTIONS,
+        allowed_aspect_ratios=_PIXVERSE_ASPECT_RATIOS,
+        duration_range=_PIXVERSE_DURATION_RANGE,
+        default_max_prompt_chars=_PIXVERSE_MAX_PROMPT_CHARS,
+    )
+
+
 DASHSCOPE_VIDEO_BACKENDS = {
     "dashscope-video": DashScopeVideoBackend,
     "dashscope-always-on-video": DashScopeAlwaysOnVideoBackend,
     "dashscope-reference-video": DashScopeReferenceVideoBackend,
     "dashscope-reference-voice-video": DashScopeReferenceVoiceVideoBackend,
     "dashscope-wan3-video": DashScopeWan3VideoBackend,
+    "dashscope-pixverse-video": DashScopePixVerseVideoBackend,
 }

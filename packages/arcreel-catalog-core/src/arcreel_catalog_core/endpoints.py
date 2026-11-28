@@ -116,6 +116,8 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "vidu-video-q3-ad": BuiltinEndpoint("video", since="0.37.1"),
         "minimax-h3-image": BuiltinEndpoint("image", since="0.37.1"),
         "kling-image-model-path": BuiltinEndpoint("image", since="0.38.1"),
+        "dashscope-pixverse-video": BuiltinEndpoint("video", since="0.38.1"),
+        "dashscope-vidu-image": BuiltinEndpoint("image", since="0.38.1"),
     }
 )
 
@@ -139,7 +141,13 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
         "dashscope": {
             "text": _single("openai-chat"),
             "image": ProviderEndpointOptions(
-                ("dashscope-qwen-image", "dashscope-wan-image", "dashscope-qwen-image-edit"), "dashscope-qwen-image"
+                (
+                    "dashscope-qwen-image",
+                    "dashscope-wan-image",
+                    "dashscope-qwen-image-edit",
+                    "dashscope-vidu-image",
+                ),
+                "dashscope-qwen-image",
             ),
             "video": ProviderEndpointOptions(
                 (
@@ -148,6 +156,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
                     "dashscope-reference-video",
                     "dashscope-reference-voice-video",
                     "dashscope-wan3-video",
+                    "dashscope-pixverse-video",
                 ),
                 "dashscope-always-on-video",
             ),

@@ -177,17 +177,28 @@ def extract_billing_duration(payload: dict) -> int | None:
     return value if value > 0 else None
 
 
+def extract_image_url_or_none(payload: dict) -> str | None:
+    """从图像响应 output.choices[0].message.content[*].image 提取首个 URL；缺失时返回 None。"""
+    choices = _as_dict(payload.get("output")).get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    content = _as_dict(_as_dict(choices[0]).get("message")).get("content")
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and isinstance((url := item.get("image")), str) and url:
+                return url
+    return None
+
+
 def extract_image_url(payload: dict) -> str:
     """从同步图像响应 output.choices[0].message.content[*].image 提取首个 URL。"""
     choices = _as_dict(payload.get("output")).get("choices")
     if not isinstance(choices, list) or not choices:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
-    content = _as_dict(_as_dict(choices[0]).get("message")).get("content")
-    if isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict) and (url := item.get("image")):
-                return url
+    url = extract_image_url_or_none(payload)
+    if url is not None:
+        return url
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
 
@@ -201,7 +212,19 @@ def extract_audio_url(payload: dict) -> str:
 
 
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
-    {"model", "size", "resolution", "ratio", "duration", "n", "watermark", "prompt_extend", "seed"}
+    {
+        "model",
+        "size",
+        "resolution",
+        "ratio",
+        "aspect_ratio",
+        "duration",
+        "audio",
+        "n",
+        "watermark",
+        "prompt_extend",
+        "seed",
+    }
 )
 
 

@@ -20,13 +20,13 @@ from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.dashscope_speech_synthesizer import DashScopeSpeechSynthesizerBackend
 from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
-from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.dashscope import DashScopeImageBackend, DashScopeViduImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
 from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.video_backends.agnes import AgnesVideoBackend
-from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.dashscope import DashScopePixVerseVideoBackend, DashScopeVideoBackend
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from tests.fakes import bounded_poll_clock
@@ -58,6 +58,9 @@ _CALLS: dict[str, Call] = {
     "dashscope-qwen-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
+    "dashscope-vidu-image": lambda tmp_path: DashScopeViduImageBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).generate(_image(tmp_path)),
     "kling-image": lambda tmp_path: KlingImageBackend(
         auth_mode="bearer", api_key="k", base_url=f"{METADATA_BASE_URL}/v1"
     ).generate(_image(tmp_path)),
@@ -83,6 +86,12 @@ _CALLS: dict[str, Call] = {
         _video(tmp_path)
     ),
     "dashscope-video-resume": lambda tmp_path: DashScopeVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).resume_video("job-1", _video(tmp_path)),
+    "dashscope-pixverse-video": lambda tmp_path: DashScopePixVerseVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).generate(_video(tmp_path)),
+    "dashscope-pixverse-video-resume": lambda tmp_path: DashScopePixVerseVideoBackend(
         api_key="k", base_url=METADATA_BASE_URL
     ).resume_video("job-1", _video(tmp_path)),
     "vidu-video-q3-turbo": lambda tmp_path: ViduVideoBackend(
