@@ -505,9 +505,13 @@ class TestKlingSpec:
         assert backend._base_url == "https://api-beijing.klingai.com"
 
     def test_model_path_endpoint_refuses_dual_secret(self):
+        from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
         spec = get_provider_spec("kling", "video", "kling-video-model-path")
-        with pytest.raises(ValueError, match="只支持 API Key"):
+        with pytest.raises(VideoCapabilityError) as caught:
             build_builtin_backend(spec, self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
+        assert caught.value.code == "video_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0"}
 
     def test_image_model_path_endpoint_uses_api_key_without_version_segment(self):
         from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend

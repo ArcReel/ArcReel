@@ -646,6 +646,7 @@ MESSAGES = {
     "image_edit_i2i_unavailable": "Не настроен ни один провайдер изображений с поддержкой image-to-image (i2i); сначала настройте его в разделе «Настройки → Провайдеры»",
     "image_edit_task_submitted": "Задача редактирования изображения для «{id}» отправлена",
     "video_duration_invalid": "Длительность видео {duration} не является целым числом секунд",
+    "video_kling_api_key_required": "Модель {model} поддерживает только аутентификацию по API-ключу (без Access Key / Secret Key JWT); укажите API-ключ Kling на странице системных настроек и повторите попытку",
     "video_duration_not_supported": "Длительность видео {duration} с не входит в поддерживаемые этой моделью ({supported})",
     "video_end_frame_durations_incompatible": "При текущих настройках нет доступной длительности видео с конечным кадром. Измените настройки видео или уберите конечный кадр.",
     "video_duration_end_frame_not_supported": "Длительность {duration} с недоступна с конечным кадром; доступно: {supported}. Измените длительность или уберите конечный кадр.",

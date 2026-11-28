@@ -593,6 +593,7 @@ MESSAGES = {
     "image_edit_i2i_unavailable": "当前未配置支持图生图（i2i）的图片供应商，请先在设置中配置",
     "image_edit_task_submitted": "「{id}」图片编辑任务已提交",
     "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
+    "video_kling_api_key_required": "模型 {model} 仅支持 API Key 鉴权，不支持 Access Key / Secret Key（JWT）；请在系统配置页填写可灵 Kling 的 API Key 后重试",
     "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",
     "video_end_frame_durations_incompatible": "当前配置下没有可用的首尾帧视频时长，请修改视频配置或移除尾帧",
     "video_duration_end_frame_not_supported": "视频时长 {duration}s 在首尾帧路径下不可用，可选时长：{supported}；请修改时长或移除尾帧",
