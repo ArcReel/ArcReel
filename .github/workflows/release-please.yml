@@ -47,6 +47,8 @@ jobs:
         if: ${{ steps.release.outputs.pr }}
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
+          version: latest-known
+          require-checksums: true
           # 本 job 持有可写 token 并向 release PR 分支推送提交，恢复的缓存条目会带着
           # 该写权限执行，故不启用缓存
           enable-cache: false

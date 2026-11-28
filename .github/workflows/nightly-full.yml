@@ -27,6 +27,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
+          version: latest-known
+          require-checksums: true
           enable-cache: true
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -141,6 +143,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
+          version: latest-known
+          require-checksums: true
           enable-cache: true
           python-version: "3.12"
 
