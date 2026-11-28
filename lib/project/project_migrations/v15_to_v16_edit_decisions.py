@@ -81,6 +81,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,7 +114,6 @@ from lib.episode.episode_ids import episode_ids_on_disk, raise_episode_id_high_w
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SOURCE_TEXT_SUFFIXES,
-    discover_episode_files,
     has_downstream_products,
     is_derived_episode_name,
     normalize_source_text,
@@ -365,7 +365,23 @@ def _legacy_whole_source_paths(project_dir: Path) -> list[Path]:
     ]
 
 
-def _legacy_origin(entry: Mapping[str, Any], episode_files: Mapping[int, Path], has_whole_source: bool) -> str:
+_LEGACY_EPISODE_FILE_RE = re.compile(r"episode_0*([1-9][0-9]*)\.txt")
+
+
+def _legacy_episode_file_nums(project_dir: Path) -> set[int]:
+    """旧口径下 ``source/`` 中可读的集文件集号（含补零别名，供 v15→v16 登记后由 v21→v22 统一改名）。"""
+    source_dir = project_dir / "source"
+    if source_dir.is_symlink() or source_dir.is_junction() or not source_dir.is_dir():
+        return set()
+    nums: set[int] = set()
+    for path in sorted(source_dir.iterdir()):
+        match = _LEGACY_EPISODE_FILE_RE.fullmatch(path.name)
+        if match and path.is_file():
+            nums.add(int(match.group(1)))
+    return nums
+
+
+def _legacy_origin(entry: Mapping[str, Any], episode_files: set[int], has_whole_source: bool) -> str:
     if parse_source_range(entry) is not None:
         return SourceOrigin.WHOLE_SOURCE.value
     episode = parse_positive_episode_num(entry.get("episode"))
@@ -380,7 +396,7 @@ def _with_explicit_episode_sources(
     """补记集原文来源、整本源文清单，删除规划游标；返回迁移后的项目与待写快照的规范化全文。"""
     migrated = dict(project)
     whole_source = _legacy_whole_source_paths(project_dir)
-    episode_files = discover_episode_files(project_dir)
+    episode_files = _legacy_episode_file_nums(project_dir)
 
     raw_episodes = project.get("episodes")
     if isinstance(raw_episodes, list):

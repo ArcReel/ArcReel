@@ -157,4 +157,45 @@ describe("MigrationReportContent", () => {
       screen.getByText("角色「ALICE」的衍生「Coat」与「Alice」已有的衍生「coat」重名，已并入「coat」。"),
     ).toBeInTheDocument();
   });
+
+  it("describes canonicalized and preserved legacy episode source aliases", () => {
+    render(
+      <MigrationReportContent
+        report={report([
+          {
+            code: "episode_source_canonicalized",
+            episode: 1,
+            file: "source/episode_1.txt",
+            backup: null,
+            params: { from: "source/episode_01.txt", to: "source/episode_1.txt" },
+          },
+          {
+            code: "episode_source_alias_preserved",
+            episode: 2,
+            file: "source/episode_02.txt",
+            backup: "source/episode_02.txt.kept.v21-1",
+            params: {},
+          },
+          {
+            code: "episode_source_alias_preserved",
+            episode: null,
+            file: "source/episode_0.txt",
+            backup: "source/episode_0.txt.kept.v21-2",
+            params: {},
+          },
+        ])}
+        episodes={EPISODES}
+      />,
+    );
+
+    expect(screen.getByText("开端的集原文从 source/episode_01.txt 改名为 source/episode_1.txt。")).toBeInTheDocument();
+    expect(
+      screen.getByText("雨夜的旧命名原文 source/episode_02.txt 不再作为活动集文件，已另存为保留副本。"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("备份：source/episode_02.txt.kept.v21-1")).toBeInTheDocument();
+    expect(
+      screen.getByText("未归属任何集的旧命名原文 source/episode_0.txt 不再作为活动集文件，已另存为保留副本。"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("备份：source/episode_0.txt.kept.v21-2")).toBeInTheDocument();
+  });
 });

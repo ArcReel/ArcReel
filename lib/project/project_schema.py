@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-CURRENT_PROJECT_SCHEMA_VERSION = 21
+CURRENT_PROJECT_SCHEMA_VERSION = 22
 SQLITE_HISTORY_SCHEMA_VERSION = 21
 
 

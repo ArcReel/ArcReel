@@ -23,6 +23,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     encode_artifact_manifest_payload,
 )
+from lib.artifacts.sqlite_history import SQLiteHistory
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.path_safety import try_safe_join
 from lib.infra.project_write_journal import is_history_database_name
@@ -148,11 +149,20 @@ def _write_enveloped_archive(project_dir: Path, archive_path: Path, *, full_mani
     digests = {key: read_artifact_content_digest(adapter, entry.artifact_path) for key, entry in entries.items()}
     manifest = ArtifactManifestArchiveSnapshot(entries=entries, content_digests=digests)
     envelope = {"project_name": project_dir.name, "artifact_manifest": encode_artifact_manifest_payload(manifest)}
+    history = SQLiteHistory(project_dir)
+    sqlite_history = history.is_enabled()
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr(ARCHIVE_MANIFEST_NAME, json.dumps(envelope))
+        if sqlite_history:
+            archive.writestr("versions/versions.json", json.dumps(history.snapshot(), ensure_ascii=False))
         for path in sorted(project_dir.rglob("*")):
             relative = path.relative_to(project_dir)
-            if relative.parts[0] != "renders" and all(not part.startswith(".") for part in relative.parts):
+            if (
+                relative.parts[0] != "renders"
+                and all(not part.startswith(".") for part in relative.parts)
+                and not (sqlite_history and relative.parts[0] == "versions" and is_history_database_name(path.name))
+                and not (sqlite_history and relative.as_posix() == "versions/versions.json")
+            ):
                 archive.write(path, relative.as_posix())
 
 
@@ -540,6 +550,85 @@ def test_upgrade_restores_only_quarantined_draft(contents: list[bytes]) -> None:
             assert active_files() == before
             assert read_version_history(root) == history
         assert project_trash.list_records(root) == []
+
+
+@pytest.mark.invariant
+@_project_examples
+@given(
+    canonical_present=st.booleans(),
+    origin=st.sampled_from(("whole_source", "own", "none")),
+    alias_contents=st.lists(st.binary(min_size=1, max_size=24), min_size=1, max_size=3),
+    matching_mask=st.lists(st.booleans(), min_size=3, max_size=3),
+)
+@example(canonical_present=True, origin="whole_source", alias_contents=[b"old"], matching_mask=[False, False, False])
+@example(
+    canonical_present=False, origin="own", alias_contents=[b"draft-a", b"draft-b"], matching_mask=[False, False, False]
+)
+def test_episode_source_normalization_preserves_unrecreatable_bytes(
+    canonical_present: bool, origin: str, alias_contents: list[bytes], matching_mask: list[bool]
+) -> None:
+    import re
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve() / "demo"
+        source_dir = root / "source"
+        source_dir.mkdir(parents=True)
+        slice_text = "第一章正文内容。"
+        slice_bytes = slice_text.encode("utf-8")
+        (source_dir / "novel.txt").write_text(slice_text, encoding="utf-8")
+        entry: dict[str, Any] = {
+            "episode": 1,
+            "title": "第一集",
+            "script_file": "scripts/episode_1.json",
+            "source_origin": origin,
+            "ledger_status": "planned",
+        }
+        if origin == "whole_source":
+            entry["source_range"] = {"source_file": "source/novel.txt", "start": 0, "end": len(slice_text)}
+        (root / "project.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 21,
+                    "title": "Demo",
+                    "content_mode": "narration",
+                    "generation_mode": "storyboard",
+                    "whole_source_files": [{"source_file": "source/novel.txt"}],
+                    "episodes": [entry],
+                }
+            ),
+            encoding="utf-8",
+        )
+        SQLiteHistory(root).create({})
+        canonical_bytes = b"canonical-content"
+        if canonical_present:
+            (source_dir / "episode_1.txt").write_bytes(canonical_bytes)
+        expected_unrecreatable: list[bytes] = []
+        for idx, (raw, should_match) in enumerate(zip(alias_contents, matching_mask, strict=False), start=1):
+            payload = slice_bytes if (origin == "whole_source" and should_match) else raw
+            (source_dir / f"episode_{'0' * idx}1.txt").write_bytes(payload)
+            recreatable = origin == "whole_source" and payload == slice_bytes
+            duplicate_canonical = canonical_present and payload == canonical_bytes
+            if not recreatable and not duplicate_canonical:
+                expected_unrecreatable.append(payload)
+
+        assert migrate_project_dir(root)
+        assert _read_json(root / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        if canonical_present:
+            assert (source_dir / "episode_1.txt").read_bytes() == canonical_bytes
+        remaining_legacy = [
+            p.name
+            for p in source_dir.iterdir()
+            if re.fullmatch(r"episode_([0-9]+)\.txt", p.name) and p.name != "episode_1.txt"
+        ]
+        assert remaining_legacy == []
+        preserved_payloads = {
+            p.read_bytes()
+            for p in source_dir.iterdir()
+            if p.is_file() and (p.name == "episode_1.txt" or ".kept.v21-" in p.name)
+        }
+        for payload in expected_unrecreatable:
+            assert payload in preserved_payloads
+        _assert_second_upgrade_stable(root)
 
 
 @pytest.mark.invariant

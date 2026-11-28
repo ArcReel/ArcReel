@@ -164,7 +164,7 @@ def migrate_v20_to_v21(
         atomic_write_json(project_file, {**project, "schema_version": SQLITE_HISTORY_SCHEMA_VERSION})
 
 
-def activate_current_history(project_dir: Path) -> bool:
+def activate_current_history(project_dir: Path, *, record: list[MigrationAdjustment] | None = None) -> bool:
     history = SQLiteHistory(project_dir)
     source = history.path.with_name("versions.json")
     with project_metadata_lock(project_dir, journal=False):
@@ -183,17 +183,17 @@ def activate_current_history(project_dir: Path) -> bool:
                 duplicate = False
             if not duplicate:
                 kept = set_aside_as_kept_copy(source, SQLITE_HISTORY_SCHEMA_VERSION)
+                adjustment = MigrationAdjustment(
+                    code="history_conflict_preserved",
+                    file=source.relative_to(project_dir).as_posix(),
+                    backup=kept.relative_to(project_dir).as_posix(),
+                )
+                if record is not None:
+                    if adjustment not in record:
+                        record.append(adjustment)
+                    return True
                 try:
-                    extend_migration_report(
-                        project_dir,
-                        adjusted=[
-                            MigrationAdjustment(
-                                code="history_conflict_preserved",
-                                file=source.relative_to(project_dir).as_posix(),
-                                backup=kept.relative_to(project_dir).as_posix(),
-                            )
-                        ],
-                    )
+                    extend_migration_report(project_dir, adjusted=[adjustment])
                 except Exception:
                     kept.replace(source)
                     raise

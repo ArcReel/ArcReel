@@ -32,6 +32,21 @@ function adjustmentText(t: TFunction, item: WorkflowMigrationAdjustment, episode
   const episode = item.episode === null ? "" : episodeDisplayName(episodes, item.episode, t);
   const params = item.params;
   switch (item.code) {
+    case "episode_source_canonicalized":
+      return t("dashboard:migration_adjustment_episode_source_canonicalized", {
+        episode,
+        from: params.from ?? "",
+        to: params.to ?? "",
+      });
+    case "episode_source_alias_preserved":
+      return item.episode !== null
+        ? t("dashboard:migration_adjustment_episode_source_alias_preserved", {
+            episode,
+            file: item.file ?? "",
+          })
+        : t("dashboard:migration_adjustment_episode_source_alias_preserved_unassigned", {
+            file: item.file ?? "",
+          });
     case "history_conflict_preserved":
       return t("dashboard:migration_adjustment_history_conflict_preserved");
     case "retired_draft_trashed":

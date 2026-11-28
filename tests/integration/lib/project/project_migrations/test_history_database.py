@@ -9,6 +9,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations import v20_to_v21_retired_drafts as step
 from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.project.project_archive import ProjectArchiveService, ProjectArchiveValidationError
 
 
@@ -48,7 +49,10 @@ def test_history_is_verified_and_installed_before_the_schema_commit(tmp_path, mo
             migrate_project_dir(tmp_path)
     assert json.loads(project.read_bytes())["schema_version"] == 20
     assert migrate_project_dir(tmp_path)
-    assert json.loads(project.read_bytes()) == {"schema_version": 21, "metadata": {"updated_at": "2020-06-01"}}
+    assert json.loads(project.read_bytes()) == {
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+        "metadata": {"updated_at": "2020-06-01"},
+    }
     assert store.snapshot() == records
     report = load_migration_report(tmp_path)
     assert report is not None
@@ -102,7 +106,7 @@ def test_current_archive_requires_valid_exchange_history(tmp_path, history):
 
 
 def test_current_native_project_prefers_its_database_and_retires_conflicting_exchange(tmp_path, monkeypatch):
-    (tmp_path / "project.json").write_text('{"schema_version":21}')
+    (tmp_path / "project.json").write_text(json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION}))
     store = SQLiteHistory(tmp_path)
     store.path.parent.mkdir()
     source = store.path.with_name("versions.json")

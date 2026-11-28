@@ -29,14 +29,13 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     SourceSpan,
     compute_source_fingerprints,
-    discover_episode_file_aliases,
     is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
     parse_source_range,
 )
-from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_paths import episode_source_path, episode_source_relpath
 
 logger = logging.getLogger(__name__)
 
@@ -493,10 +492,11 @@ class EpisodeFileArchives:
         source_dir = self.project_dir / "source"
         if not self.episode_ids or source_dir.is_symlink() or source_dir.is_junction():
             return [*self.other_paths, *snapshot_paths]
-        aliases = discover_episode_file_aliases(self.project_dir)
-        self.targets = {
-            path: archive_episode_file_path(path) for episode in self.episode_ids for path in aliases.get(episode, ())
-        }
+        self.targets = {}
+        for episode in self.episode_ids:
+            path = episode_source_path(self.project_dir, episode)
+            if path.is_file() or path.is_symlink():
+                self.targets[path] = archive_episode_file_path(path)
         return [*self.other_paths, *snapshot_paths, *self.targets, *self.targets.values()]
 
     def apply(self) -> None:
