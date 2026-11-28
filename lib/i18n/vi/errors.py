@@ -50,6 +50,7 @@ MESSAGES = {
     "prompt_preview_invalid": "Không thể kết xuất lời nhắc, hãy kiểm tra định dạng",
     "prompt_preview_pending": "Lời nhắc của phân cảnh này đang chờ tạo: để Agent viết, hoặc tự điền trong trình soạn",
     "script_prompt_pending": "Lời nhắc của phân cảnh '{segment_id}' đang chờ tạo; hãy để Agent viết hoặc tự điền trước khi tạo",
+    "style_upload_superseded": "Đã tải lên ảnh phong cách mới hơn. Kết quả phân tích này đã bị loại bỏ.",
     "script_conversion_conflict": "Kịch bản chính thức đã bị bên khác sửa trong lúc chuyển đổi, lần này không ghi đè; hãy tải lại rồi thử lại",
     "scene_not_found": "Cảnh '{id}' không tồn tại",
     "segment_not_found": "Đoạn '{id}' không tồn tại",

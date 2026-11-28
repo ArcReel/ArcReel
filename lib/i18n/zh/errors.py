@@ -50,6 +50,7 @@ MESSAGES = {
     "prompt_preview_invalid": "提示词无法渲染，请检查其格式",
     "prompt_preview_pending": "该分镜的提示词待生成：让 Agent 补写，或在编辑器里自行填写",
     "script_prompt_pending": "分镜 '{segment_id}' 的提示词待生成，请先让 Agent 补写或自行填写后再生成",
+    "style_upload_superseded": "已有更新的风格图上传，本次分析结果已丢弃。",
     "script_conversion_conflict": "正式脚本在转换期间被其他写入方修改，本次未覆盖；请刷新后重试",
     "scene_not_found": "场景 '{id}' 不存在",
     "segment_not_found": "分镜 '{id}' 不存在",
