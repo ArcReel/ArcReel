@@ -274,6 +274,7 @@ async def _commit_generated_plan(
     formal_baseline: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
+    before_register: Callable[[], None] | None = None,
 ) -> tuple[ScriptPlanValidation, str]:
     latest = await run_noninterruptible_sync(projects.load_project, project_name)
     capability_inputs = plan_capability_inputs(latest)
@@ -350,6 +351,7 @@ async def _commit_generated_plan(
                     generated_from=project,
                     project_check=check_capabilities,
                     project_update=project_update,
+                    before_register=before_register,
                 )
             except TextGenerationError:
                 raise
@@ -807,6 +809,7 @@ async def generate_drama_script_plan(
     project_name: str,
     projects: ProjectManager,
     config_resolver: ConfigResolver,
+    before_register: Callable[[], None] | None = None,
 ) -> TextGenerationResult:
     episode = request.episode
     instructions = _instructions(request.instructions)
@@ -881,6 +884,7 @@ async def generate_drama_script_plan(
             config_resolver,
             formal_baseline,
             script_plan_basis,
+            before_register=before_register,
         )
         return TextGenerationResult(
             drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes) + report,
@@ -1038,6 +1042,7 @@ async def generate_reference_script_plan(
     projects: ProjectManager,
     config_resolver: ConfigResolver,
     before_commit: Callable[[], None] | None = None,
+    before_register: Callable[[], None] | None = None,
 ) -> TextGenerationResult:
     episode = request.episode
     instructions = _instructions(request.instructions)
@@ -1126,6 +1131,7 @@ async def generate_reference_script_plan(
             formal_baseline,
             script_plan_basis,
             before_commit,
+            before_register=before_register,
         )
         soft_violations = render_soft_violation_lines(validation.soft_violations)
         return TextGenerationResult(
@@ -1158,6 +1164,7 @@ async def generate_narration_script_plan(
     project_name: str,
     projects: ProjectManager,
     config_resolver: ConfigResolver,
+    before_register: Callable[[], None] | None = None,
 ) -> TextGenerationResult:
     episode = request.episode
     instructions = _instructions(request.instructions)
@@ -1236,6 +1243,7 @@ async def generate_narration_script_plan(
             config_resolver,
             formal_baseline,
             script_plan_basis,
+            before_register=before_register,
         )
         return TextGenerationResult(
             narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments) + report,

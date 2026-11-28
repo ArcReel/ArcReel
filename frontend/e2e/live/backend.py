@@ -8,6 +8,7 @@ import json
 import os
 import signal
 import tempfile
+import threading
 import wave
 from collections import deque
 from collections.abc import AsyncIterator
@@ -82,8 +83,33 @@ def serve(port: int, data_dir: str) -> None:
         raise RuntimeError("Playwright backend data directory is not isolated")
 
     releases: dict[str, asyncio.Future[str]] = {}
+    script_plan_register_gates: dict[str, tuple[threading.Event, threading.Event]] = {}
     text_responses: deque[str] = deque()
     control = APIRouter(prefix="/__playwright", include_in_schema=False)
+
+    @control.post("/script-plan-register-gate/{project_name}")
+    async def arm_script_plan_register_gate(project_name: str) -> None:
+        previous = script_plan_register_gates.pop(project_name, None)
+        if previous is not None:
+            previous[1].set()
+        script_plan_register_gates[project_name] = (threading.Event(), threading.Event())
+
+    @control.post("/script-plan-register-gate/{project_name}/wait-entered")
+    async def wait_script_plan_register_gate(project_name: str) -> None:
+        gate = script_plan_register_gates.get(project_name)
+        if gate is None:
+            raise HTTPException(status_code=404, detail=f"No script_plan register gate armed for {project_name}")
+        entered, _release = gate
+        if not await asyncio.to_thread(entered.wait, 15.0):
+            raise HTTPException(
+                status_code=504, detail=f"Timed out waiting for script_plan register gate: {project_name}"
+            )
+
+    @control.post("/script-plan-register-gate/{project_name}/release")
+    async def release_script_plan_register_gate(project_name: str) -> None:
+        gate = script_plan_register_gates.pop(project_name, None)
+        if gate is not None:
+            gate[1].set()
 
     @control.post("/text-responses/{project_name}")
     async def queue_text_responses(project_name: str, request: TextResponses) -> None:
@@ -176,7 +202,19 @@ def serve(port: int, data_dir: str) -> None:
 
     async def execute(task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
         if str(task.get("task_type") or "").startswith("text_"):
-            return await execute_queued_text_task(task)
+            gate = script_plan_register_gates.get(str(task.get("project_name") or ""))
+
+            def before_register() -> None:
+                if gate is None:
+                    return
+                entered, allow = gate
+                entered.set()
+                allow.wait(timeout=30.0)
+
+            return await execute_queued_text_task(
+                task,
+                before_script_plan_register=before_register if gate is not None else None,
+            )
         task_id = task["task_id"]
         outcome = await release_signal(task_id)
         if outcome == "failure":
@@ -197,6 +235,8 @@ def serve(port: int, data_dir: str) -> None:
             try:
                 yield
             finally:
+                for _entered, allow in script_plan_register_gates.values():
+                    allow.set()
                 for signal in releases.values():
                     if not signal.done():
                         signal.set_result("failure")

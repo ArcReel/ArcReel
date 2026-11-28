@@ -39,7 +39,7 @@ def build_task_terminal_change(event: dict[str, Any]) -> dict[str, Any] | None:
     if not task_id:
         return None
 
-    return {
+    change: dict[str, Any] = {
         "entity_type": TASK_ENTITY_TYPE,
         "action": action,
         "entity_id": task_id,
@@ -48,6 +48,10 @@ def build_task_terminal_change(event: dict[str, Any]) -> dict[str, Any] | None:
         "important": False,
         "task_type": str(event.get("task_type") or ""),
     }
+    episode = event.get("episode")
+    if type(episode) is int and episode >= 1:
+        change["episode"] = episode
+    return change
 
 
 def emit_task_terminal_events(events: Iterable[dict[str, Any]]) -> None:

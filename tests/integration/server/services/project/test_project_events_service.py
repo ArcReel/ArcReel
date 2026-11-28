@@ -1278,3 +1278,108 @@ async def test_first_episode_snapshot_samples_after_baseline_read(tmp_path):
             assert snapshot["episode_script"] == {"episode": 1, "filename": filename, "file_version": version}
     finally:
         await service.shutdown()
+
+
+async def test_script_plan_manifest_registration_after_mid_transaction_scan_emits_refresh(tmp_path):
+    """正文与条目高水位落盘后、产物清单登记前若已触发扫描并读到 none，登记完成后须再次发出刷新事件。"""
+    from lib.artifacts.artifact_provenance import build_script_plan_request
+    from lib.script import script_review
+    from lib.script.item_ids import raise_item_id_high_water
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "", "narration", extras={"generation_mode": "reference_video"})
+    pm.add_episode("demo", 1, "第一集", "")
+    project_path = pm.get_project_path("demo")
+    source_path = project_path / "source" / "episode_1.txt"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text("山雨初歇，林夕推开茶馆木窗。", encoding="utf-8")
+    project = pm.load_project("demo")
+    plan_path = script_review.official_reference_script_plan_path(project_path, 1)
+    _, basis = build_script_plan_request(
+        "山雨初歇，林夕推开茶馆木窗。",
+        episode=1,
+        project=project,
+        expected_variant="reference_video",
+    )
+    content = {
+        "units": [
+            {
+                "unit_id": "E1U1",
+                "duration_seconds": 4,
+                "source_text": "山雨初歇，林夕推开茶馆木窗。",
+                "text": "林夕推开茶馆木窗。",
+            }
+        ]
+    }
+
+    entered_before_register = threading.Event()
+    allow_register = threading.Event()
+    writer_error: list[BaseException] = []
+
+    def before_register() -> None:
+        entered_before_register.set()
+        assert allow_register.wait(timeout=5.0), "timed out waiting to release manifest registration"
+
+    def write_plan() -> None:
+        try:
+            with script_review.formal_script_plan_lock(project_path, 1, plan_path):
+                script_review.write_formal_script_plan_locked(
+                    project_path,
+                    1,
+                    plan_path,
+                    content,
+                    expected_fingerprint=None,
+                    basis=basis,
+                    project_update=lambda current: raise_item_id_high_water(current["episodes"][0], 2),
+                    before_register=before_register,
+                )
+        except BaseException as exc:
+            writer_error.append(exc)
+
+    service = ProjectEventService(tmp_path, poll_interval=30.0)
+    await service.start()
+    writer = threading.Thread(target=write_plan, daemon=True)
+    try:
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            assert (await anext(stream))[0] == "snapshot"
+
+            writer.start()
+            assert await asyncio.to_thread(entered_before_register.wait, 5.0)
+
+            emit_project_change_hint("demo")
+            event_name, mid_payload = await _next_event(stream, timeout=2.0)
+            assert event_name == "changes"
+            assert any(c["entity_type"] == "episode" and c.get("episode") == 1 for c in mid_payload["changes"])
+
+            mid_summary = await asyncio.to_thread(
+                WorkflowStateService(pm).get_project_summary,
+                "demo",
+                currency="registered",
+                workspace=True,
+                episode_numbers=[1],
+            )
+            assert mid_summary.episodes[0].script_status == "none"
+
+            allow_register.set()
+            await asyncio.to_thread(writer.join, 5.0)
+            assert not writer.is_alive()
+            assert not writer_error
+
+            event_name, post_payload = await _next_event(stream, timeout=2.0)
+            assert event_name == "changes"
+            assert any(c["entity_type"] == "script_plan" and c.get("episode") == 1 for c in post_payload["changes"])
+
+            post_summary = await asyncio.to_thread(
+                WorkflowStateService(pm).get_project_summary,
+                "demo",
+                currency="registered",
+                workspace=True,
+                episode_numbers=[1],
+            )
+            assert post_summary.episodes[0].script_status == "segmented"
+    finally:
+        allow_register.set()
+        if writer.is_alive():
+            await asyncio.to_thread(writer.join, 5.0)
+        await service.shutdown()

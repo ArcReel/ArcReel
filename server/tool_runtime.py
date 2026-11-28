@@ -3135,6 +3135,7 @@ async def execute_queued_text_task(
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
     services: Services | None = None,
+    before_script_plan_register: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Execute one durable text task through the same host-independent handlers.
 
@@ -3190,6 +3191,12 @@ async def execute_queued_text_task(
             operation, handler = handlers[task_type]
         except KeyError as exc:
             raise ValueError(f"unsupported text task_type: {task_type}") from exc
+        if before_script_plan_register is not None and task_type in {
+            _TEXT_DRAMA_SCRIPT_PLAN,
+            _TEXT_NARRATION_SCRIPT_PLAN,
+            _TEXT_REFERENCE_SCRIPT_PLAN,
+        }:
+            handler = functools.partial(handler, before_register=before_script_plan_register)
         outcome = await _execute_text_handler(operation, handler, request, scope, services)
     if outcome.problem is not None:
         raise QueuedGenerationError(_queued_generation_problem(outcome.problem))

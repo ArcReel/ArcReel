@@ -1330,6 +1330,120 @@ describe("useProjectEventsSSE", () => {
       expect(getProjectSpy).not.toHaveBeenCalled();
     });
 
+    it("脚本规划任务成功在先读到 none 后重拉分集工作台并更新 script_status", async () => {
+      const baseProject = makeGetWorkspaceResult("Demo").project;
+      const noneWorkspace = makeWorkspaceResponse({
+        ...baseProject,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+      });
+      const segmentedWorkspace = makeWorkspaceResponse({
+        ...baseProject,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "segmented" }],
+      });
+      useProjectsStore.getState().setCurrentProject("demo", {
+        ...noneWorkspace.project,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+      } as never);
+      const stream = mockProjectEventStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const getWorkspaceSpy = vi
+        .spyOn(API, "getWorkspace")
+        .mockResolvedValueOnce(noneWorkspace)
+        .mockResolvedValueOnce(segmentedWorkspace);
+
+      renderHarness("/episodes/1");
+      const beforeRevision = useAppStore.getState().getEntityRevision("script_plan:episode_1");
+
+      emit(stream, [
+        {
+          entity_type: "episode",
+          action: "updated",
+          entity_id: "1",
+          label: "第 1 集",
+          episode: 1,
+          focus: null,
+          important: false,
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(getWorkspaceSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("none");
+
+      emit(stream, [
+        taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan", episode: 1 }),
+      ]);
+
+      await waitFor(() => {
+        expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+      });
+      expect(getWorkspaceSpy).toHaveBeenLastCalledWith("demo", {
+        signal: expect.any(AbortSignal),
+        episodes: [1],
+      });
+      expect(useAppStore.getState().getEntityRevision("script_plan:episode_1")).toBeGreaterThan(beforeRevision);
+    });
+
+    it("脚本规划任务成功未附带 episode 时同样重拉当前项目的分集状态", async () => {
+      const segmentedWorkspace = makeWorkspaceResponse({
+        ...makeGetWorkspaceResult("Demo").project,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "segmented" }],
+      });
+      useProjectsStore.getState().setCurrentProject("demo", {
+        ...segmentedWorkspace.project,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+      } as never);
+      const stream = mockProjectEventStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const getWorkspaceSpy = vi.spyOn(API, "getWorkspace").mockResolvedValue(segmentedWorkspace);
+
+      renderHarness("/episodes/1");
+      emit(stream, [taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan" })]);
+
+      await waitFor(() => {
+        expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+      });
+      expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", {
+        signal: expect.any(AbortSignal),
+        episodes: [1],
+      });
+    });
+
+    it("标签页隐藏期间收到脚本规划任务成功，恢复可见后补拉分集状态", async () => {
+      const segmentedWorkspace = makeWorkspaceResponse({
+        ...makeGetWorkspaceResult("Demo").project,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "segmented" }],
+      });
+      useProjectsStore.getState().setCurrentProject("demo", {
+        ...segmentedWorkspace.project,
+        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+      } as never);
+      const stream = mockProjectEventStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const getWorkspaceSpy = vi.spyOn(API, "getWorkspace").mockResolvedValue(segmentedWorkspace);
+
+      const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      try {
+        renderHarness("/episodes/1");
+        emit(stream, [
+          taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan", episode: 1 }),
+        ]);
+        expect(getWorkspaceSpy).not.toHaveBeenCalled();
+
+        visibility.mockReturnValue("visible");
+        act(() => {
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+
+        await waitFor(() => {
+          expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+        });
+      } finally {
+        visibility.mockRestore();
+      }
+    });
+
     it("批次混有项目实体变更时照常重拉项目数据", async () => {
       const stream = mockProjectEventStream();
       const refreshTasksSpy = vi
