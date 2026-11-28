@@ -2,6 +2,45 @@ export type ObjectStorageKind = "s3";
 
 export type ObjectStorageAddressingStyle = "auto" | "virtual" | "path";
 
+export type ObjectStorageProbeStepName =
+  | "head_bucket"
+  | "put_object"
+  | "head_object"
+  | "presigned_get"
+  | "delete_object";
+
+export type ObjectStorageProbeStepStatus = "passed" | "failed" | "skipped";
+
+export type ObjectStorageProbeErrorKind =
+  | "auth"
+  | "not_found"
+  | "denied"
+  | "network"
+  | "invalid_config"
+  | "provider"
+  | "metadata_mismatch"
+  | "digest_mismatch";
+
+export interface ObjectStorageProbeDiagnostic {
+  code?: string;
+  status?: number | null;
+  message?: string;
+}
+
+export interface ObjectStorageProbeStep {
+  step: ObjectStorageProbeStepName;
+  status: ObjectStorageProbeStepStatus;
+  error_kind?: ObjectStorageProbeErrorKind | null;
+  message?: string | null;
+  diagnostic?: ObjectStorageProbeDiagnostic | null;
+}
+
+export interface ObjectStorageTestResult {
+  success: boolean;
+  steps: ObjectStorageProbeStep[];
+  residual_object_key?: string | null;
+}
+
 export interface ObjectStorageConnection {
   kind: ObjectStorageKind;
   region: string;

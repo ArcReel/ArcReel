@@ -143,8 +143,13 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
   }
 
   const { panel } = state;
-  const settingsLink = (
+  const assetLibrarySettingsLink = (
     <Button variant="outline" size="sm" render={<Link href={`~${settingsSectionPath("asset-library")}`} />}>
+      {t("provider_asset_open_settings")}
+    </Button>
+  );
+  const mediaStorageSettingsLink = (
+    <Button variant="outline" size="sm" render={<Link href={`~${settingsSectionPath("media-storage")}`} />}>
       {t("provider_asset_open_settings")}
     </Button>
   );
@@ -162,7 +167,7 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
       <DialogBody>
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center">
           <p className="text-sm text-muted-foreground">{t("provider_asset_upload_no_account")}</p>
-          {settingsLink}
+          {assetLibrarySettingsLink}
         </div>
       </DialogBody>
     );
@@ -178,7 +183,7 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
         {!panel.object_storage_configured && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2">
             <p className="text-sm">{t("provider_asset_upload_no_storage")}</p>
-            {settingsLink}
+            {mediaStorageSettingsLink}
           </div>
         )}
         <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">

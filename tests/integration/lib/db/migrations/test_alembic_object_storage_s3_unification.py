@@ -10,7 +10,9 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+import respx
 import sqlalchemy as sa
 from alembic.config import Config
 from fastapi import FastAPI
@@ -382,6 +384,15 @@ def test_upgraded_legacy_tos_connection_works_end_to_end_via_high_level_apis(
         def head_bucket(self, **kwargs: Any) -> dict[str, Any]:
             return {}
 
+        def put_object(self, *, Bucket: str, Key: str, Body: bytes, **_kwargs: Any) -> dict[str, Any]:
+            bucket_objects[(Bucket, Key)] = Body
+            return {"ETag": '"etag"'}
+
+        def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+            if (Bucket, Key) not in bucket_objects:
+                raise s3_client_error(404, "NoSuchKey")
+            return {"ContentLength": len(bucket_objects[(Bucket, Key)]), "ETag": '"etag"'}
+
         def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
             if (Bucket, Key) not in bucket_objects:
                 raise s3_client_error(404, "NoSuchKey")
@@ -417,13 +428,22 @@ def test_upgraded_legacy_tos_connection_works_end_to_end_via_high_level_apis(
         register_error_handlers(app)
 
         try:
-            with TestClient(app) as api:
+            with TestClient(app) as api, respx.mock(assert_all_called=False) as http_mock:
+                http_mock.get(url__regex=r"^https://legacy-bucket\.tos-s3-cn-beijing\.volces\.com/.*").mock(
+                    side_effect=lambda req: httpx.Response(
+                        200,
+                        content=bucket_objects.get(("legacy-bucket", req.url.path.lstrip("/")), b""),
+                    )
+                )
                 envelope = api.get("/api/v1/object-storage/connection").json()
                 assert envelope["connection"]["kind"] == "s3"
                 assert envelope["connection"]["endpoint"] == "https://tos-s3-cn-beijing.volces.com"
                 assert envelope["connection"]["addressing_style"] == "virtual"
                 assert envelope["connection"]["needs_endpoint_review"] is False
-                assert api.post("/api/v1/object-storage/connection/test").json() == {"success": True}
+                probe = api.post("/api/v1/object-storage/connection/test").json()
+                assert probe["success"] is True
+                assert [step["status"] for step in probe["steps"]] == ["passed"] * 5
+                assert probe["residual_object_key"] is None
 
                 fetched = await fetch_object_content(
                     ObjectLocator(legacy_id, "legacy-bucket", stored_key), session_factory=sessions

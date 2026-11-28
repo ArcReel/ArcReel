@@ -29,4 +29,4 @@
 - 用 `get_provider_asset_links` 查询图片当前版本的关联关系、入库状态与可用账号；用 `list_provider_library_assets` 浏览指定账号下的素材。用户选定图片后，用 `select_provider_library_asset` 将其保存为资产图或角色衍生图的新版本并建立关联；经用户同意后，可用 `release_provider_asset_link` 解除关联，两侧图片都会保留。
 - 收到 `provider_input_image_rejected` 或 `provider_input_image_rejected_at` 时，向用户说明审核拒绝及可选的入库处理。只有用户明确要求上传指定图片时才调用 `upload_to_provider_asset_library`，传入 `user_requested=true`。等待时按用户需要查 `get_provider_asset_links`，不反复轮询。状态为 `active` 后由用户决定是否重新生成。
 - 收到 `provider_asset_link_processing` 或 `provider_asset_link_failed` 时，向用户报告当前正在入库或具体失败原因，再请用户选择继续等待、解除关联后重传，或改发普通图片。禁止自动解除关联、重传、重新生成或更换供应商。
-- 素材库账号、对象存储与推理凭证的绑定由用户在 Web 端「素材库与存储」页面配置，工具结果不会返回密钥。素材重命名和删除则由用户在供应商控制台完成。
+- 对象存储连接由用户在 Web 端「媒体存储」页面配置，素材库账号与推理凭证的绑定由用户在 Web 端「供应商素材库」页面配置，工具结果不会返回密钥。素材重命名和删除则由用户在供应商控制台完成。

@@ -58,6 +58,7 @@ import type {
   SavedObjectStorageConnection,
   ObjectStorageCleanupResult,
   ObjectStorageSettings,
+  ObjectStorageTestResult,
   ProviderAssetImportResult,
   ProviderAssetLink,
   ProviderAssetLinkPanel,
@@ -3112,7 +3113,7 @@ class API {
     return this.request(`/object-storage/connection?delete_remote_objects=${deleteRemoteObjects}`, { method: "DELETE" });
   }
 
-  static async checkObjectStorageConnection(): Promise<{ success: boolean }> {
+  static async checkObjectStorageConnection(): Promise<ObjectStorageTestResult> {
     return this.request("/object-storage/connection/test", { method: "POST" });
   }
 

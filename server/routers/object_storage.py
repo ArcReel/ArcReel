@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from contextlib import AsyncExitStack
 from datetime import timedelta
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt
@@ -29,9 +29,8 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
-from lib.infra.api_errors import BadGatewayError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_noninterruptible_async
-from lib.infra.logging_utils import redact_diagnostic_text
 from lib.material.formal_objects import (
     NewContentTarget,
     connection_change_lock,
@@ -52,7 +51,18 @@ from lib.object_storage.client import (
 )
 from lib.object_storage.connection import config_from_connection
 from lib.object_storage.disposal import dispose_connection_objects, pending_ingest_count
+from lib.object_storage.probe import (
+    PROBE_STEP_ORDER,
+    ObjectStorageProbeResult,
+    ProbeErrorKind,
+    ProbeStepName,
+    ProbeStepResult,
+    ProbeStepStatus,
+    probe_connection,
+    sanitize_probe_diagnostic,
+)
 from lib.project.project_manager import get_project_manager
+from server.i18n import Translator
 
 router = APIRouter(prefix="/object-storage", tags=["Object Storage"])
 
@@ -108,8 +118,18 @@ class SaveConnectionResponse(ObjectStorageConnectionResponse, ConnectionCleanupR
     pass
 
 
+class ObjectStorageProbeStepResponse(BaseModel):
+    step: ProbeStepName
+    status: ProbeStepStatus
+    error_kind: ProbeErrorKind | None = None
+    message: str | None = None
+    diagnostic: dict[str, Any] | None = None
+
+
 class ObjectStorageTestResponse(BaseModel):
     success: bool
+    steps: list[ObjectStorageProbeStepResponse]
+    residual_object_key: str | None = None
 
 
 class WorkCacheCleanupRequest(BaseModel):
@@ -266,33 +286,90 @@ async def delete_connection(
     return await run_noninterruptible_async(apply_change())
 
 
-_TEST_FAILURE_KEYS = {
+_TEST_FAILURE_KEYS: dict[ProbeErrorKind, str] = {
     "auth": "object_storage_test_auth_failed",
     "denied": "object_storage_test_denied",
     "not_found": "object_storage_test_bucket_not_found",
     "network": "object_storage_test_unreachable",
     "invalid_config": "object_storage_invalid_config",
     "provider": "object_storage_test_failed",
+    "metadata_mismatch": "object_storage_probe_metadata_mismatch",
+    "digest_mismatch": "object_storage_probe_digest_mismatch",
+}
+
+_STEP_DENIED_KEYS: dict[ProbeStepName, str] = {
+    "head_bucket": "object_storage_test_denied",
+    "put_object": "object_storage_probe_put_denied",
+    "head_object": "object_storage_probe_head_denied",
+    "presigned_get": "object_storage_probe_presigned_denied",
+    "delete_object": "object_storage_probe_delete_denied",
 }
 
 
+def _probe_step_message_key(step: ProbeStepResult) -> str:
+    if step.error_kind == "denied":
+        return _STEP_DENIED_KEYS[step.step]
+    if step.error_kind is None:
+        return "object_storage_test_failed"
+    return _TEST_FAILURE_KEYS[step.error_kind]
+
+
+def _probe_step_response(step: ProbeStepResult, _t: Translator) -> ObjectStorageProbeStepResponse:
+    if step.status != "failed":
+        return ObjectStorageProbeStepResponse(step=step.step, status=step.status)
+    diagnostic: dict[str, Any] | None = None
+    if step.error_code or step.status_code is not None or step.error_message:
+        diagnostic = {
+            "code": step.error_code,
+            "status": step.status_code,
+            "message": step.error_message,
+        }
+    return ObjectStorageProbeStepResponse(
+        step=step.step,
+        status=step.status,
+        error_kind=step.error_kind,
+        message=_t(_probe_step_message_key(step)),
+        diagnostic=diagnostic,
+    )
+
+
+def _probe_result_response(result: ObjectStorageProbeResult, _t: Translator) -> ObjectStorageTestResponse:
+    return ObjectStorageTestResponse(
+        success=result.success,
+        steps=[_probe_step_response(step, _t) for step in result.steps],
+        residual_object_key=result.residual_object_key,
+    )
+
+
 @router.post("/connection/test", response_model=ObjectStorageTestResponse)
-async def check_connection(session: AsyncSession = Depends(get_async_session)) -> ObjectStorageTestResponse:
-    """用已保存的连接确认凭证有效、桶存在且可以访问。"""
+async def check_connection(
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ObjectStorageTestResponse:
+    """用已保存的连接执行分级探针（桶探测、写入、元信息、无登录态预签名下载校验与探针清理）。"""
     repo = ObjectStorageConnectionRepository(session)
     conn = await repo.get()
     if conn is None:
         raise NotFoundError("object_storage_not_configured")
     try:
         client = ObjectStorageClient(config_from_connection(conn))
-        await client.check()
     except ObjectStorageError as exc:
-        diagnostic = {"code": exc.code, "status": exc.status_code, "message": redact_diagnostic_text(exc.message)}
-        raise BadGatewayError(_TEST_FAILURE_KEYS[exc.kind]).with_diagnostic(diagnostic) from exc
-    if conn.needs_endpoint_review:
+        failed_head = ProbeStepResult(
+            step="head_bucket",
+            status="failed",
+            error_kind=exc.kind,
+            error_code=exc.code,
+            status_code=exc.status_code,
+            error_message=sanitize_probe_diagnostic(exc.message),
+        )
+        steps = (failed_head, *(ProbeStepResult(step=name, status="skipped") for name in PROBE_STEP_ORDER[1:]))
+        return _probe_result_response(ObjectStorageProbeResult(success=False, steps=steps), _t)
+
+    result = await probe_connection(client)
+    if result.success and conn.needs_endpoint_review:
         await repo.clear_endpoint_review(conn.id)
         await session.commit()
-    return ObjectStorageTestResponse(success=True)
+    return _probe_result_response(result, _t)
 
 
 @router.post("/work-cache/cleanup", response_model=WorkCacheCleanupResponse)

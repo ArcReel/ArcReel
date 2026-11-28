@@ -21,6 +21,7 @@ from lib.object_storage.client import (
     ObjectStorageError,
     normalize_endpoint_url,
 )
+from lib.object_storage.probe import PROBE_PREFIX, probe_connection
 
 AK = "TEST-CONTRACT-AK-0001"
 SK = "TEST-CONTRACT-SK-0001"
@@ -290,6 +291,10 @@ async def test_real_loopback_http_roundtrip_including_unauthenticated_presigned_
 
         def do_HEAD(self) -> None:
             path = urlsplit(self.path).path
+            if path == "/local-bucket":
+                self.send_response(200)
+                self.end_headers()
+                return
             if path not in store:
                 self.send_response(404)
                 self.end_headers()
@@ -359,6 +364,12 @@ async def test_real_loopback_http_roundtrip_including_unauthenticated_presigned_
         with pytest.raises(ObjectStorageError) as missing:
             await client.head(key)
         assert missing.value.kind == "not_found"
+
+        probe_result = await probe_connection(client)
+        assert probe_result.success is True
+        assert [step.status for step in probe_result.steps] == ["passed"] * 5
+        assert probe_result.residual_object_key is None
+        assert not any(PROBE_PREFIX in path for path in store)
     finally:
         server.shutdown()
         server.server_close()

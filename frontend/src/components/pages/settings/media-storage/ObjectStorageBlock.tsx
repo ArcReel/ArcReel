@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type Ref } from "react";
-import { Loader2, Pencil, Plus, Trash2, Wifi } from "lucide-react";
+import { ChevronRight, CircleAlert, CircleCheck, CircleX, Loader2, Minus, Pencil, Plus, Trash2, Wifi } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
@@ -17,8 +17,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogBody,
@@ -36,10 +37,25 @@ import type {
   ObjectStorageAddressingStyle,
   ObjectStorageCleanupResult,
   ObjectStorageConnection,
+  ObjectStorageProbeDiagnostic,
+  ObjectStorageProbeStep,
+  ObjectStorageProbeStepName,
+  ObjectStorageProbeStepStatus,
   ObjectStorageSettings,
+  ObjectStorageTestResult,
   SavedObjectStorageConnection,
 } from "@/types";
 import { errMsg } from "@/utils/async";
+import { cn } from "cn";
+
+import {
+  OBJECT_STORAGE_PRESETS,
+  buildPresetEndpoint,
+  detectPresetForEndpoint,
+  getObjectStoragePreset,
+  hasEndpointPlaceholder,
+  type ObjectStoragePresetId,
+} from "./object-storage-presets";
 
 const LABEL_CLS = "text-sm font-medium text-foreground";
 
@@ -49,12 +65,39 @@ const ADDRESSING_STYLE_LABEL_KEYS: Record<ObjectStorageAddressingStyle, string> 
   path: "object_storage_addressing_style_path",
 };
 
+const PROBE_STEP_LABEL_KEYS: Record<ObjectStorageProbeStepName, string> = {
+  head_bucket: "object_storage_probe_step_head_bucket",
+  put_object: "object_storage_probe_step_put_object",
+  head_object: "object_storage_probe_step_head_object",
+  presigned_get: "object_storage_probe_step_presigned_get",
+  delete_object: "object_storage_probe_step_delete_object",
+};
+
+const PROBE_STATUS_LABEL_KEYS: Record<ObjectStorageProbeStepStatus, string> = {
+  passed: "object_storage_probe_status_passed",
+  failed: "object_storage_probe_status_failed",
+  skipped: "object_storage_probe_status_skipped",
+};
+
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
   | { status: "ready"; settings: ObjectStorageSettings };
 
-type TestState = { status: "idle" } | { status: "testing" } | { status: "ok" } | { status: "failed"; error: unknown };
+type TestState =
+  | { status: "idle" }
+  | { status: "testing" }
+  | { status: "result"; result: ObjectStorageTestResult }
+  | { status: "error"; error: unknown };
+
+function formatProbeDiagnostic(diagnostic: ObjectStorageProbeDiagnostic | null | undefined): string | null {
+  if (!diagnostic) return null;
+  const parts: string[] = [];
+  if (diagnostic.code) parts.push(diagnostic.code);
+  if (typeof diagnostic.status === "number") parts.push(`HTTP ${diagnostic.status}`);
+  if (diagnostic.message) parts.push(diagnostic.message);
+  return parts.length > 0 ? parts.join(": ") : null;
+}
 
 export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -121,9 +164,10 @@ export function ObjectStorageBlock() {
     const generation = ++testGeneration.current;
     setTest({ status: "testing" });
     try {
-      await API.checkObjectStorageConnection();
-      if (generation === testGeneration.current) {
-        setTest({ status: "ok" });
+      const result = await API.checkObjectStorageConnection();
+      if (generation !== testGeneration.current) return;
+      setTest({ status: "result", result });
+      if (result.success) {
         setLoad((prev) =>
           prev.status === "ready" && prev.settings.connection?.needs_endpoint_review
             ? {
@@ -137,7 +181,7 @@ export function ObjectStorageBlock() {
         );
       }
     } catch (error) {
-      if (generation === testGeneration.current) setTest({ status: "failed", error });
+      if (generation === testGeneration.current) setTest({ status: "error", error });
     }
   };
 
@@ -239,7 +283,7 @@ function ConnectionCard({
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-2.5">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border px-3 py-2.5">
       <div className="flex items-center gap-2">
         <dl className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
           <dt className="text-muted-foreground">{t("object_storage_bucket")}</dt>
@@ -275,15 +319,108 @@ function ConnectionCard({
         </div>
       </div>
       {connection.needs_endpoint_review && (
-        <p role="status" className="text-xs text-warn">
-          {t("object_storage_needs_endpoint_review")}
-        </p>
+        <div role="status" className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-2 text-xs text-warn">
+          <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <p className="min-w-0 flex-1 wrap-break-word">{t("object_storage_needs_endpoint_review")}</p>
+        </div>
       )}
       <div aria-live="polite">
-        {test.status === "ok" && <p className="text-xs text-good">{t("object_storage_test_ok")}</p>}
-        {test.status === "failed" && <RequestErrorNotice error={test.error} className="text-xs" />}
+        {test.status === "testing" && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />
+            {t("object_storage_test_running")}
+          </p>
+        )}
+        {test.status === "result" && <ProbeResultPanel result={test.result} />}
+        {test.status === "error" && <RequestErrorNotice error={test.error} className="text-xs" />}
       </div>
     </div>
+  );
+}
+
+function ProbeResultPanel({ result }: { result: ObjectStorageTestResult }) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5 text-xs">
+      <div className="flex flex-col gap-1">
+        {result.success ? (
+          <>
+            <p className="flex items-center gap-1.5 font-medium text-good">
+              <CircleCheck aria-hidden className="size-3.5 shrink-0" />
+              {t("object_storage_test_ok")}
+            </p>
+            <p className="text-muted-foreground">{t("object_storage_test_scope_note")}</p>
+          </>
+        ) : (
+          <p className="flex items-center gap-1.5 font-medium text-destructive">
+            <CircleX aria-hidden className="size-3.5 shrink-0" />
+            {t("object_storage_test_failed_summary")}
+          </p>
+        )}
+      </div>
+
+      <ol className="flex flex-col gap-1.5 border-t border-border/60 pt-2">
+        {result.steps.map((step) => (
+          <ProbeStepRow key={step.step} step={step} />
+        ))}
+      </ol>
+
+      {result.residual_object_key && (
+        <div role="alert" className="flex flex-col gap-1 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-2 text-warn">
+          <p className="font-medium">{t("object_storage_probe_residual_notice")}</p>
+          <p className="font-mono wrap-break-word text-foreground" translate="no">
+            {result.residual_object_key}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProbeStepRow({ step }: { step: ObjectStorageProbeStep }) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  const diagnostic = formatProbeDiagnostic(step.diagnostic);
+  return (
+    <li className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        {step.status === "passed" ? (
+          <CircleCheck aria-hidden className="size-3.5 shrink-0 text-good" />
+        ) : step.status === "failed" ? (
+          <CircleX aria-hidden className="size-3.5 shrink-0 text-destructive" />
+        ) : (
+          <Minus aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <span className="min-w-0 flex-1 font-medium text-foreground">{t(PROBE_STEP_LABEL_KEYS[step.step])}</span>
+        <span
+          className={cn(
+            "shrink-0",
+            step.status === "passed" && "text-good",
+            step.status === "failed" && "text-destructive",
+            step.status === "skipped" && "text-muted-foreground",
+          )}
+        >
+          {t(PROBE_STATUS_LABEL_KEYS[step.status])}
+        </span>
+      </div>
+      {step.status === "failed" && step.message && (
+        <p className="pl-5 wrap-break-word text-destructive">{step.message}</p>
+      )}
+      {step.status === "failed" && diagnostic && (
+        <div className="pl-5">
+          <Collapsible>
+            <CollapsibleTrigger render={<Button variant="ghost" size="xs" className="-ml-2" />}>
+              <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+              {t("common:error_details")}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <p className="font-mono text-xs wrap-break-word text-muted-foreground" translate="no">
+                {diagnostic}
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -441,6 +578,8 @@ function ObjectStorageDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
   const regionRef = useRef<HTMLInputElement>(null);
+  const [presetId, setPresetId] = useState<ObjectStoragePresetId>(() => detectPresetForEndpoint(connection?.endpoint));
+  const [autoSyncEndpoint, setAutoSyncEndpoint] = useState(false);
   const [region, setRegion] = useState(connection?.region ?? "");
   const [endpoint, setEndpoint] = useState(connection?.endpoint ?? "");
   const [bucket, setBucket] = useState(connection?.bucket ?? "");
@@ -454,11 +593,18 @@ function ObjectStorageDialog({
   const [deleteRemote, setDeleteRemote] = useState(true);
   const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const creating = connection === null;
+  const activePreset = getObjectStoragePreset(presetId);
+  const endpointUnresolvedPlaceholder = hasEndpointPlaceholder(endpoint);
   const changesBucket =
     !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
   const requiresKeys = creating || changesBucket;
-  const complete =
-    region.trim() && endpoint.trim() && bucket.trim() && (!requiresKeys || (accessKeyId.trim() && secretAccessKey.trim()));
+  const complete = Boolean(
+    region.trim() &&
+      endpoint.trim() &&
+      !endpointUnresolvedPlaceholder &&
+      bucket.trim() &&
+      (!requiresKeys || (accessKeyId.trim() && secretAccessKey.trim())),
+  );
 
   const dirty =
     region !== (connection?.region ?? "") ||
@@ -467,6 +613,39 @@ function ObjectStorageDialog({
     addressingStyle !== (connection?.addressing_style ?? "auto") ||
     accessKeyId !== "" ||
     secretAccessKey !== "";
+
+  const selectPreset = (nextId: ObjectStoragePresetId) => {
+    setPresetId(nextId);
+    const preset = getObjectStoragePreset(nextId);
+    if (nextId === "custom") {
+      setAutoSyncEndpoint(false);
+      if (creating && !region && !endpoint && !bucket) {
+        setAddressingStyle(preset.defaultAddressingStyle);
+      }
+      return;
+    }
+    setAutoSyncEndpoint(preset.endpointTemplate.includes("{region}"));
+    setRegion(preset.defaultRegion);
+    setEndpoint(buildPresetEndpoint(preset, preset.defaultRegion));
+    setAddressingStyle(preset.defaultAddressingStyle);
+  };
+
+  const handleRegionChange = (nextRegion: string) => {
+    if (autoSyncEndpoint && activePreset.endpointTemplate.includes("{region}")) {
+      const prevDerived = buildPresetEndpoint(activePreset, region);
+      if (endpoint.trim() === prevDerived) {
+        setEndpoint(buildPresetEndpoint(activePreset, nextRegion));
+      } else {
+        setAutoSyncEndpoint(false);
+      }
+    }
+    setRegion(nextRegion);
+  };
+
+  const handleEndpointChange = (nextEndpoint: string) => {
+    setAutoSyncEndpoint(false);
+    setEndpoint(nextEndpoint);
+  };
 
   const addressingStyleItems: { value: ObjectStorageAddressingStyle; label: string }[] = [
     { value: "auto", label: t("object_storage_addressing_style_auto") },
@@ -536,22 +715,24 @@ function ObjectStorageDialog({
     label: string,
     value: string,
     onChange: (value: string) => void,
-    options: { placeholder?: string; secret?: boolean; ref?: Ref<HTMLInputElement> } = {},
+    options: { placeholder?: string; secret?: boolean; mono?: boolean; ref?: Ref<HTMLInputElement>; hint?: string } = {},
   ) => (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={`${idPrefix}-${key}`} className={LABEL_CLS}>
         {label}
       </label>
       <Input
-        mono
+        mono={options.mono}
         ref={options.ref}
         id={`${idPrefix}-${key}`}
         type={options.secret ? "password" : "text"}
         autoComplete="off"
+        spellCheck={false}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={options.placeholder}
       />
+      {options.hint && <p className="text-xs text-warn">{options.hint}</p>}
     </div>
   );
 
@@ -562,7 +743,7 @@ function ObjectStorageDialog({
         if (!open) requestClose();
       }}
     >
-      <DialogContent initialFocus={regionRef}>
+      <DialogContent size="lg" initialFocus={regionRef}>
         <form
           className="flex min-h-0 flex-col"
           onSubmit={(e) => {
@@ -575,15 +756,54 @@ function ObjectStorageDialog({
             <DialogDescription>{t("object_storage_dialog_desc")}</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <div className="flex flex-col gap-4">
-              {field("region", t("object_storage_region"), region, setRegion, {
-                placeholder: "auto",
+            <div className="@container flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <span id={`${idPrefix}-preset`} className={LABEL_CLS}>
+                  {t("object_storage_preset_label")}
+                </span>
+                <div
+                  role="group"
+                  aria-labelledby={`${idPrefix}-preset`}
+                  className="grid grid-cols-2 gap-1.5 @sm:grid-cols-4"
+                >
+                  {OBJECT_STORAGE_PRESETS.map((preset) => {
+                    const selected = preset.id === presetId;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => selectPreset(preset.id)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-1.5 text-left text-xs font-medium transition-colors duration-fast",
+                          selected
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border bg-transparent text-subtle-foreground hover:bg-muted/50 hover:text-foreground",
+                        )}
+                      >
+                        {t(preset.labelKey)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {t(activePreset.hintKey)}
+                </p>
+              </div>
+
+              {field("region", t("object_storage_region"), region, handleRegionChange, {
+                mono: true,
+                placeholder: activePreset.regionPlaceholder,
                 ref: regionRef,
               })}
-              {field("endpoint", t("object_storage_endpoint"), endpoint, setEndpoint, {
-                placeholder: "https://s3.example.com",
+              {field("endpoint", t("object_storage_endpoint"), endpoint, handleEndpointChange, {
+                placeholder: activePreset.endpointPlaceholder,
+                hint: endpointUnresolvedPlaceholder ? t("object_storage_endpoint_placeholder_hint") : undefined,
               })}
-              {field("bucket", t("object_storage_bucket"), bucket, setBucket)}
+              {field("bucket", t("object_storage_bucket"), bucket, setBucket, {
+                mono: true,
+                placeholder: activePreset.bucketPlaceholder,
+              })}
               <div className="flex flex-col gap-1.5">
                 <span id={`${idPrefix}-addressing-style`} className={LABEL_CLS}>
                   {t("object_storage_addressing_style")}
@@ -608,6 +828,7 @@ function ObjectStorageDialog({
                 </Select>
               </div>
               {field("ak", t("object_storage_access_key_id"), accessKeyId, setAccessKeyId, {
+                mono: true,
                 secret: true,
                 placeholder:
                   connection && !changesBucket
@@ -615,12 +836,17 @@ function ObjectStorageDialog({
                     : undefined,
               })}
               {field("sk", t("object_storage_secret_access_key"), secretAccessKey, setSecretAccessKey, {
+                mono: true,
                 secret: true,
                 placeholder:
                   connection && !changesBucket
                     ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
                     : undefined,
               })}
+              <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
+                <p className="min-w-0 flex-1">{t("object_storage_prefix_exclusive_notice")}</p>
+              </div>
               {changesBucket && (
                 <p className="text-xs text-muted-foreground">{t("object_storage_target_keys_required_hint")}</p>
               )}

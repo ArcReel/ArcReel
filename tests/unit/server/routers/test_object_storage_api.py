@@ -8,7 +8,9 @@ from __future__ import annotations
 from collections.abc import Generator
 from typing import Any, ClassVar
 
+import httpx
 import pytest
+import respx
 from botocore.exceptions import ParamValidationError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from lib.db import get_async_session
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.object_storage.client import ObjectStorageClient, ObjectStorageConfig
+from lib.object_storage.probe import PROBE_PREFIX
 from server.error_handlers import register_error_handlers
 from server.routers import object_storage
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
@@ -38,34 +41,86 @@ _BODY = {
 
 
 class FakeS3:
-    """S3 SDK 客户端替身：记录构造参数与调用，``fail`` 设为异常时 head_bucket 抛出它。"""
+    """S3 SDK 客户端替身：在内存中支持分级探针的全部操作，可按方法注入失败。"""
 
     instances: ClassVar[list[FakeS3]] = []
 
-    def __init__(self, config: ObjectStorageConfig, fail: Exception | None = None) -> None:
+    def __init__(
+        self,
+        config: ObjectStorageConfig,
+        failures: dict[str, Exception],
+        objects: dict[tuple[str, str], tuple[bytes, str | None]],
+        *,
+        head_size_override: int | None = None,
+    ) -> None:
         self.config = config
-        self.fail = fail
+        self.failures = failures
+        self.objects = objects
+        self.head_size_override = head_size_override
         self.calls: list[tuple[str, dict[str, Any]]] = []
         FakeS3.instances.append(self)
 
+    def _maybe_fail(self, op: str) -> None:
+        exc = self.failures.get(op)
+        if exc is not None:
+            raise exc
+
     def head_bucket(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("head_bucket", kwargs))
-        if self.fail:
-            raise self.fail
+        self._maybe_fail("head_bucket")
+        return {}
+
+    def put_object(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("put_object", kwargs))
+        self._maybe_fail("put_object")
+        body = kwargs["Body"]
+        raw = body if isinstance(body, bytes) else body.read()
+        self.objects[(kwargs["Bucket"], kwargs["Key"])] = (raw, kwargs.get("ContentType"))
+        return {"ETag": '"fake-etag"'}
+
+    def head_object(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("head_object", kwargs))
+        self._maybe_fail("head_object")
+        item = self.objects.get((kwargs["Bucket"], kwargs["Key"]))
+        if item is None:
+            raise s3_client_error(404, "NoSuchKey", "not found")
+        raw, content_type = item
+        return {
+            "ContentLength": self.head_size_override if self.head_size_override is not None else len(raw),
+            "ETag": '"fake-etag"',
+            "ContentType": content_type,
+        }
+
+    def delete_object(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("delete_object", kwargs))
+        self._maybe_fail("delete_object")
+        self.objects.pop((kwargs["Bucket"], kwargs["Key"]), None)
         return {}
 
     def generate_presigned_url(self, client_method: str, *, Params: dict[str, Any], ExpiresIn: int) -> str:
         self.calls.append(
             ("generate_presigned_url", {"method": client_method, "Params": Params, "ExpiresIn": ExpiresIn})
         )
-        return f"https://{Params['Bucket']}.example/{Params['Key']}?sig"
+        self._maybe_fail("generate_presigned_url")
+        return (
+            f"https://{Params['Bucket']}.example/{Params['Key']}"
+            f"?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeefsecret999"
+        )
 
 
 @pytest.fixture
 def fake_s3(monkeypatch):
     FakeS3.instances = []
-    state: dict[str, Exception | None] = {"fail": None}
-    use_object_storage_sdk(monkeypatch, lambda config: FakeS3(config, state["fail"]))
+    state: dict[str, Any] = {"failures": {}, "objects": {}, "head_size_override": None}
+    use_object_storage_sdk(
+        monkeypatch,
+        lambda config: FakeS3(
+            config,
+            state["failures"],
+            state["objects"],
+            head_size_override=state["head_size_override"],
+        ),
+    )
     return state
 
 
@@ -164,7 +219,24 @@ async def test_save_masks_secrets_rotates_in_place_and_allocates_new_id_on_targe
         assert second_conn is not None
         assert second_conn.id > first_id
 
-    assert storage_api.post("/api/v1/object-storage/connection/test").json() == {"success": True}
+    with respx.mock(assert_all_called=False) as http_mock:
+        http_mock.get(url__regex=r"^https://arcreel-relay-2\.example/.*").mock(
+            side_effect=lambda req: httpx.Response(
+                200,
+                content=fake_s3["objects"][("arcreel-relay-2", req.url.path.lstrip("/"))][0],
+            )
+        )
+        probe = storage_api.post("/api/v1/object-storage/connection/test").json()
+    assert probe["success"] is True
+    assert [(step["step"], step["status"]) for step in probe["steps"]] == [
+        ("head_bucket", "passed"),
+        ("put_object", "passed"),
+        ("head_object", "passed"),
+        ("presigned_get", "passed"),
+        ("delete_object", "passed"),
+    ]
+    assert probe["residual_object_key"] is None
+    assert fake_s3["objects"] == {}
     (s3,) = FakeS3.instances
     assert (
         s3.config.region,
@@ -179,7 +251,16 @@ async def test_save_masks_secrets_rotates_in_place_and_allocates_new_id_on_targe
         NEW_AK,
         NEW_SK,
     )
-    assert s3.calls == [("head_bucket", {"Bucket": "arcreel-relay-2"})]
+    assert [op for op, _ in s3.calls] == [
+        "head_bucket",
+        "put_object",
+        "head_object",
+        "generate_presigned_url",
+        "delete_object",
+    ]
+    probe_key = s3.calls[1][1]["Key"]
+    assert probe_key.startswith(PROBE_PREFIX)
+    assert s3.calls[4][1]["Key"] == probe_key
 
 
 def test_accepts_tos_s3_endpoint_and_rejects_legacy_tos_kind_or_bad_endpoint(storage_api: TestClient):
@@ -200,24 +281,180 @@ def test_accepts_tos_s3_endpoint_and_rejects_legacy_tos_kind_or_bad_endpoint(sto
 
 
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("error", "expected_kind", "expected"),
     [
-        (s3_client_error(403, "AccessDenied", "denied by policy"), "没有这个桶的权限"),
-        (s3_client_error(403, "SignatureDoesNotMatch", "bad sig"), "拒绝了访问凭证"),
-        (s3_client_error(404, "NoSuchBucket", "missing"), "找不到这个桶"),
-        (ParamValidationError(report="invalid bucket"), "连接配置无效"),
+        (s3_client_error(403, "AccessDenied", "denied by policy"), "denied", "没有这个桶的权限"),
+        (s3_client_error(403, "SignatureDoesNotMatch", "bad sig"), "auth", "拒绝了访问凭证"),
+        (s3_client_error(404, "NoSuchBucket", "missing"), "not_found", "找不到这个桶"),
+        (ParamValidationError(report="invalid bucket"), "invalid_config", "连接配置无效"),
     ],
 )
-def test_connection_test_failure_explains_reason(storage_api: TestClient, fake_s3, error, expected):
+def test_connection_test_head_bucket_failure_skips_later_steps(
+    storage_api: TestClient, fake_s3, error, expected_kind, expected
+):
     storage_api.put("/api/v1/object-storage/connection", json=_BODY)
-    fake_s3["fail"] = error
+    fake_s3["failures"]["head_bucket"] = error
 
     resp = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"})
 
-    assert resp.status_code == 502
-    assert expected in resp.json()["detail"]
-    assert "TOS" not in resp.json()["detail"]
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert body["residual_object_key"] is None
+    assert [(step["step"], step["status"]) for step in body["steps"]] == [
+        ("head_bucket", "failed"),
+        ("put_object", "skipped"),
+        ("head_object", "skipped"),
+        ("presigned_get", "skipped"),
+        ("delete_object", "skipped"),
+    ]
+    assert body["steps"][0]["error_kind"] == expected_kind
+    assert expected in body["steps"][0]["message"]
+    assert "TOS" not in body["steps"][0]["message"]
     assert SK not in resp.text
+
+
+def test_connection_test_put_denied_stops_without_cleanup(storage_api: TestClient, fake_s3):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    fake_s3["failures"]["put_object"] = s3_client_error(403, "AccessDenied", "put denied")
+
+    resp = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert [(step["step"], step["status"]) for step in body["steps"]] == [
+        ("head_bucket", "passed"),
+        ("put_object", "failed"),
+        ("head_object", "skipped"),
+        ("presigned_get", "skipped"),
+        ("delete_object", "skipped"),
+    ]
+    assert "PutObject" in body["steps"][1]["message"]
+    assert body["residual_object_key"] is None
+
+
+def test_connection_test_head_mismatch_still_cleans_up_probe(storage_api: TestClient, fake_s3):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    fake_s3["head_size_override"] = 9999
+
+    resp = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert [(step["step"], step["status"]) for step in body["steps"]] == [
+        ("head_bucket", "passed"),
+        ("put_object", "passed"),
+        ("head_object", "failed"),
+        ("presigned_get", "skipped"),
+        ("delete_object", "passed"),
+    ]
+    assert body["steps"][2]["error_kind"] == "metadata_mismatch"
+    assert body["residual_object_key"] is None
+    assert fake_s3["objects"] == {}
+
+
+def test_connection_test_presigned_get_digest_mismatch_and_redacts_query(storage_api: TestClient, fake_s3):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    seen_headers: list[dict[str, str]] = []
+
+    with respx.mock(assert_all_called=False) as http_mock:
+
+        def _tampered(req: httpx.Request) -> httpx.Response:
+            seen_headers.append(dict(req.headers))
+            return httpx.Response(200, content=b"tampered-bytes")
+
+        http_mock.get(url__regex=r"^https://arcreel-relay\.example/.*").mock(side_effect=_tampered)
+        resp = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert [(step["step"], step["status"]) for step in body["steps"]] == [
+        ("head_bucket", "passed"),
+        ("put_object", "passed"),
+        ("head_object", "passed"),
+        ("presigned_get", "failed"),
+        ("delete_object", "passed"),
+    ]
+    assert body["steps"][3]["error_kind"] == "digest_mismatch"
+    assert "摘要" in body["steps"][3]["message"]
+    assert "authorization" not in {k.lower() for k in seen_headers[0]}
+    assert "deadbeefsecret999" not in resp.text
+    assert "X-Amz-Signature" not in resp.text
+    assert fake_s3["objects"] == {}
+
+
+def test_connection_test_presigned_get_network_error_strips_presigned_query(storage_api: TestClient, fake_s3):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+
+    with respx.mock(assert_all_called=False) as http_mock:
+
+        def _network_fail(req: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError(f"failed connecting to {req.url}", request=req)
+
+        http_mock.get(url__regex=r"^https://arcreel-relay\.example/.*").mock(side_effect=_network_fail)
+        resp = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert body["steps"][3]["status"] == "failed"
+    assert body["steps"][3]["error_kind"] == "network"
+    assert body["steps"][4]["status"] == "passed"
+    assert "deadbeefsecret999" not in resp.text
+    assert "X-Amz-Signature" not in resp.text
+
+
+async def test_connection_test_delete_failure_reports_residual_and_keeps_endpoint_review(
+    storage_api: TestClient, storage_sessions: async_sessionmaker, fake_s3
+):
+    storage_api.put("/api/v1/object-storage/connection", json=_BODY)
+    async with storage_sessions() as session:
+        repo = ObjectStorageConnectionRepository(session)
+        conn = await repo.get()
+        assert conn is not None
+        conn.needs_endpoint_review = True
+        await session.commit()
+
+    fake_s3["failures"]["delete_object"] = s3_client_error(403, "AccessDenied", "delete denied")
+    with respx.mock(assert_all_called=False) as http_mock:
+        http_mock.get(url__regex=r"^https://arcreel-relay\.example/.*").mock(
+            side_effect=lambda req: httpx.Response(
+                200,
+                content=fake_s3["objects"][("arcreel-relay", req.url.path.lstrip("/"))][0],
+            )
+        )
+        failed = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"}).json()
+
+    assert failed["success"] is False
+    assert [(step["step"], step["status"]) for step in failed["steps"]] == [
+        ("head_bucket", "passed"),
+        ("put_object", "passed"),
+        ("head_object", "passed"),
+        ("presigned_get", "passed"),
+        ("delete_object", "failed"),
+    ]
+    residual = failed["residual_object_key"]
+    assert isinstance(residual, str)
+    assert residual.startswith(PROBE_PREFIX)
+    assert ("arcreel-relay", residual) in fake_s3["objects"]
+    assert storage_api.get("/api/v1/object-storage/connection").json()["connection"]["needs_endpoint_review"] is True
+
+    fake_s3["failures"].clear()
+    with respx.mock(assert_all_called=False) as http_mock:
+        http_mock.get(url__regex=r"^https://arcreel-relay\.example/.*").mock(
+            side_effect=lambda req: httpx.Response(
+                200,
+                content=fake_s3["objects"][("arcreel-relay", req.url.path.lstrip("/"))][0],
+            )
+        )
+        passed = storage_api.post("/api/v1/object-storage/connection/test", headers={"Accept-Language": "zh"}).json()
+
+    assert passed["success"] is True
+    assert passed["residual_object_key"] is None
+    assert storage_api.get("/api/v1/object-storage/connection").json()["connection"]["needs_endpoint_review"] is False
 
 
 def test_delete_returns_instance_to_local_only(storage_api: TestClient):
@@ -230,5 +467,5 @@ async def test_presigned_download_address_is_a_url_string(fake_s3):
     """客户端签发的预签名 GET 返回下载地址字符串。"""
     config = ObjectStorageConfig("s3", "cn-beijing", "https://tos-s3-cn-beijing.volces.com", "b", AK, SK, "virtual")
     url = await ObjectStorageClient(config).presign_get("relay/a.png", expires_seconds=600)
-    assert url == "https://b.example/relay/a.png?sig"
+    assert url.startswith("https://b.example/relay/a.png?")
     assert FakeS3.instances[0].calls[0][1]["ExpiresIn"] == 600

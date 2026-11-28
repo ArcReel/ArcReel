@@ -9,7 +9,6 @@ import type { AssetLibraryAccountList } from "@/types";
 
 import { AssetLibraryAccountsBlock } from "./AssetLibraryAccountsBlock";
 import { AssetLibraryBindingsBlock } from "./AssetLibraryBindingsBlock";
-import { ObjectStorageBlock } from "./ObjectStorageBlock";
 
 type LoadState = { status: "loading" } | { status: "error"; error: unknown } | { status: "ready"; data: AssetLibraryAccountList };
 
@@ -50,9 +49,6 @@ export function AssetLibrarySection() {
         <h2 className="text-lg font-medium">{t("settings_asset_library")}</h2>
         <p className="max-w-[40em] text-sm text-muted-foreground">{t("asset_library_section_desc")}</p>
       </div>
-
-      <ObjectStorageBlock />
-      <Separator />
 
       {accounts.status === "loading" ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">

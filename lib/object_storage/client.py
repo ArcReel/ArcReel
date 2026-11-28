@@ -42,7 +42,7 @@ class ObjectStorageError(Exception):
         self, kind: ObjectStorageErrorKind, *, code: str = "", message: str = "", status_code: int | None = None
     ) -> None:
         super().__init__(f"{kind}: {code} {message}".strip())
-        self.kind = kind
+        self.kind: ObjectStorageErrorKind = kind
         self.code = code
         self.message = message
         self.status_code = status_code
@@ -78,6 +78,19 @@ _INVALID_CONFIG_CODES = frozenset(
         "IllegalLocationConstraintException",
     }
 )
+
+
+def classify_s3_error(status_code: int | None, code: str) -> ObjectStorageErrorKind:
+    """将 S3 服务端错误码与 HTTP 状态码映射为统一的错误分类。"""
+    if code in _AUTH_CODES or status_code == 401:
+        return "auth"
+    if code in _NOT_FOUND_CODES or status_code == 404:
+        return "not_found"
+    if code in _DENIED_CODES or status_code == 403:
+        return "denied"
+    if code in _INVALID_CONFIG_CODES:
+        return "invalid_config"
+    return "provider"
 
 
 def normalize_endpoint_url(endpoint: str) -> str:
@@ -129,16 +142,7 @@ def _classify(exc: Exception) -> ObjectStorageError:
         code = str(error.get("Code") or "")
         message = str(error.get("Message") or "")
         status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
-        if code in _AUTH_CODES or status == 401:
-            kind: ObjectStorageErrorKind = "auth"
-        elif code in _NOT_FOUND_CODES or status == 404:
-            kind = "not_found"
-        elif code in _DENIED_CODES or status == 403:
-            kind = "denied"
-        elif code in _INVALID_CONFIG_CODES:
-            kind = "invalid_config"
-        else:
-            kind = "provider"
+        kind = classify_s3_error(status, code)
         return ObjectStorageError(kind, code=code, message=message, status_code=status)
     config_errors = (
         ParamValidationError,
