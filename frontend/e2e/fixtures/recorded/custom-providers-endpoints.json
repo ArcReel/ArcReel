@@ -2230,6 +2230,47 @@
         ]
       },
       {
+        "key": "kling-image-model-path",
+        "media_type": "image",
+        "family": "kling",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_kling_image_model_path_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/image-generation/{model}",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "submit",
+            "display_name_key": "cp_request_submit",
+            "default_path": "/image-generation/{{ model }}",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "strip_version"
+          },
+          {
+            "name": "poll",
+            "display_name_key": "cp_request_poll",
+            "default_path": "/tasks",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "strip_version"
+          }
+        ]
+      },
+      {
         "key": "kling-video-pro-silent",
         "media_type": "video",
         "family": "kling",

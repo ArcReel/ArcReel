@@ -509,6 +509,19 @@ class TestKlingSpec:
         with pytest.raises(ValueError, match="只支持 API Key"):
             build_builtin_backend(spec, self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
 
+    def test_image_model_path_endpoint_uses_api_key_without_version_segment(self):
+        from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
+
+        spec = get_provider_spec("kling", "image", "kling-image-model-path")
+        backend = build_builtin_backend(spec, self._kling_config(api_key="sk-api-1"), "kling-4.0")
+        assert isinstance(backend, KlingModelPathImageBackend)
+        assert backend._base_url == "https://api-beijing.klingai.com"
+
+    def test_image_model_path_endpoint_refuses_dual_secret(self):
+        spec = get_provider_spec("kling", "image", "kling-image-model-path")
+        with pytest.raises(ValueError, match="只支持 API Key"):
+            build_builtin_backend(spec, self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
+
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self):
         """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""
         config = self._kling_config(api_key="sk-api-1", access_key="ak-1", secret_key="sk-1")

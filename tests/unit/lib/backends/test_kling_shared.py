@@ -12,6 +12,7 @@ from lib.backends.kling_shared import (
     KLING_BASE_URL,
     KlingJWTManager,
     extract_kling_image_urls,
+    extract_kling_model_path_image_urls,
     extract_kling_model_path_video_url,
     extract_kling_task_id,
     extract_kling_video_url,
@@ -20,6 +21,7 @@ from lib.backends.kling_shared import (
     kling_auth_mode,
     kling_bearer_headers,
     kling_model_path_failure_reason,
+    kling_model_path_image_urls,
     kling_model_path_output_duration,
     kling_model_path_task_id,
     kling_response_error,
@@ -285,6 +287,24 @@ class TestModelPathResponses:
     def test_video_url_missing_raises(self):
         with pytest.raises(RuntimeError, match="缺少视频 URL"):
             extract_kling_model_path_video_url(_tasks(id="t", status="succeeded", outputs=[]))
+
+    def test_image_urls_skip_non_image_and_blank_entries(self):
+        payload = _tasks(
+            id="t",
+            status="succeeded",
+            outputs=[
+                {"type": "video", "url": "https://x/v.mp4"},
+                {"type": "image", "url": "", "watermark_url": "https://x/wm.png"},
+                {"type": "image", "url": "https://x/1.png", "watermark_url": "https://x/1-wm.png"},
+                {"type": "image", "url": "https://x/2.png"},
+            ],
+        )
+        assert kling_model_path_image_urls(payload) == ["https://x/1.png", "https://x/2.png"]
+        assert extract_kling_model_path_image_urls(payload) == ["https://x/1.png", "https://x/2.png"]
+
+    def test_image_urls_missing_raises(self):
+        with pytest.raises(RuntimeError, match="缺少图片 URL"):
+            extract_kling_model_path_image_urls(_tasks(id="t", status="succeeded", outputs=[]))
 
     @pytest.mark.parametrize(
         ("raw", "expected"),

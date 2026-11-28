@@ -1772,6 +1772,7 @@ export default {
   'endpoint_minimax_h3_image_display': 'MiniMax H3 (Ảnh)',
   'endpoint_kling_image_display': 'Kling (Ảnh)',
   'endpoint_kling_image_single_display': 'Kling (Một ảnh tham chiếu)',
+  'endpoint_kling_image_model_path_display': 'Kling Image (API mới)',
   'endpoint_kling_video_display': 'Kling (Video)',
   'endpoint_kling_video_pro_silent_display': 'Kling Video (Khung cuối Pro, im lặng)',
   'endpoint_kling_video_pro_audio_display': 'Kling Video (Khung cuối và âm thanh Pro)',

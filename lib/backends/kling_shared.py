@@ -11,7 +11,7 @@
   （submitted/processing/succeed/failed）、``data.task_result.{videos,images}[].url``。
 - 新版 API（模型名写在路径里，只收 API Key）：``KLING_MODEL_PATH_BASE_URL`` 不带 ``/v1``；提交响应取 ``data.id``，
   ``GET /tasks?task_ids=`` 的 ``data[]`` 里取 ``status``（submitted/processing/succeeded/failed）、
-  ``outputs[type=video].url`` 与计费时长 ``usage.output_duration``。
+  ``outputs[type=video|image].url`` 与计费时长 ``usage.output_duration``。
 """
 
 from __future__ import annotations
@@ -322,6 +322,28 @@ def extract_kling_model_path_video_url(payload: dict) -> str:
                 return url
     reason = kling_response_error(payload)
     raise RuntimeError(reason or f"Kling 视频任务完成但缺少视频 URL: {payload}")
+
+
+def kling_model_path_image_urls(payload: dict) -> list[str]:
+    """从新版 API 查询响应的 ``outputs[]`` 按序提取全部 ``type=image`` 的无水印 ``url``。"""
+    outputs = kling_model_path_task(payload).get("outputs")
+    urls: list[str] = []
+    if isinstance(outputs, list):
+        for item in outputs:
+            output = _as_dict(item)
+            url = output.get("url")
+            if output.get("type") == "image" and isinstance(url, str) and url:
+                urls.append(url)
+    return urls
+
+
+def extract_kling_model_path_image_urls(payload: dict) -> list[str]:
+    """从 succeeded 的新版 API 查询响应提取 ``outputs[type=image].url`` 列表；为空时 fail-loud。"""
+    urls = kling_model_path_image_urls(payload)
+    if urls:
+        return urls
+    reason = kling_response_error(payload)
+    raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")
 
 
 def kling_model_path_output_duration(payload: dict) -> int | None:

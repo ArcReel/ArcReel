@@ -103,3 +103,11 @@ def test_stage_0_37_1_endpoints_carry_their_start_version_floor(provider_id: str
 def test_minimax_baseline_image_endpoint_only_counts_declaration_version():
     assert endpoint_version_floor("minimax", "image", "minimax-image") == "0.35.1"
     assert endpoint_version_floor("minimax", "image", "minimax-image", include_declaration_version=False) is None
+
+
+def test_kling_image_model_path_endpoint_carries_0_38_1_start_version_floor():
+    assert endpoint_version_floor("kling", "image", "kling-image-model-path") == "0.38.1"
+    assert (
+        endpoint_version_floor("kling", "image", "kling-image-model-path", include_declaration_version=False)
+        == "0.38.1"
+    )

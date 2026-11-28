@@ -57,9 +57,14 @@ from lib.backends.providers import PROVIDER_MINIMAX
 register_backend(PROVIDER_MINIMAX, MiniMaxImageBackend)
 
 from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS, KlingImageBackend
+from lib.backends.image_backends.kling_model_path import (
+    ENDPOINT_KEY as KLING_IMAGE_MODEL_PATH_ENDPOINT,
+)
+from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
 from lib.backends.providers import PROVIDER_KLING
 
 register_backend(PROVIDER_KLING, KlingImageBackend)
+register_backend(KLING_IMAGE_MODEL_PATH_ENDPOINT, KlingModelPathImageBackend)
 
 from lib.backends.image_backends.agnes import AgnesTierImageBackend
 from lib.backends.providers import PROVIDER_AGNES

@@ -1781,6 +1781,7 @@ export default {
   'endpoint_minimax_h3_image_display': 'MiniMax H3 (Image)',
   'endpoint_kling_image_display': 'Kling (Image)',
   'endpoint_kling_image_single_display': 'Kling (Single reference image)',
+  'endpoint_kling_image_model_path_display': 'Kling Image (new API)',
   'endpoint_kling_video_display': 'Kling (Video)',
   'endpoint_kling_video_pro_silent_display': 'Kling Video (Pro end frame, silent)',
   'endpoint_kling_video_pro_audio_display': 'Kling Video (Pro end frame and audio)',

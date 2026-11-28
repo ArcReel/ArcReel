@@ -22,6 +22,7 @@ from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
 from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.video_backends.agnes import AgnesVideoBackend
@@ -59,6 +60,9 @@ _CALLS: dict[str, Call] = {
     ),
     "kling-image": lambda tmp_path: KlingImageBackend(
         auth_mode="bearer", api_key="k", base_url=f"{METADATA_BASE_URL}/v1"
+    ).generate(_image(tmp_path)),
+    "kling-image-model-path": lambda tmp_path: KlingModelPathImageBackend(
+        api_key="k", base_url=METADATA_BASE_URL
     ).generate(_image(tmp_path)),
     "minimax-image": lambda tmp_path: MiniMaxImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)

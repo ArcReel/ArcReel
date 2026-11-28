@@ -104,6 +104,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-image",
             "kling-image-single",
+            "kling-image-model-path",
             "kling-video-pro-silent",
             "kling-video-pro-audio",
             "kling-video-audio",
@@ -351,6 +352,7 @@ class TestRegistry:
             "minimax-h3-image",
             "kling-image",
             "kling-image-single",
+            "kling-image-model-path",
             "ark-seedream-3",
             "ark-seedream-4",
         }
@@ -590,6 +592,9 @@ class TestInferEndpoint:
             ("kling-v3-omni", "openai", "kling-video-audio"),
             ("kling-4.0", "openai", "kling-video-model-path"),
             ("proxy/kling-3.0-turbo", "openai", "kling-video-model-path"),
+            ("kling-4.0-image", "openai", "kling-image-model-path"),
+            ("kling-image-4.0", "openai", "kling-image-model-path"),
+            ("proxy/kling-4.0-image", "openai", "kling-image-model-path"),
             ("kling-image-o1", "openai", "kling-image"),
             ("kling-v3-omni-image", "openai", "kling-image"),
             ("proxy/kling-image-o1", "openai", "kling-image"),
@@ -697,6 +702,7 @@ def test_image_endpoint_registry_entries():
         "minimax-h3-image",
         "kling-image",
         "kling-image-single",
+        "kling-image-model-path",
         "ark-seedream-3",
         "ark-seedream-4",
     }

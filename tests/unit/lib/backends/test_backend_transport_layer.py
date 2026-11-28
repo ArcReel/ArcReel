@@ -25,6 +25,7 @@ from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
 from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
@@ -102,6 +103,9 @@ _CALLS: dict[str, Call] = {
     ).generate(_image(tmp_path)),
     "kling-image": lambda layer, tmp_path: KlingImageBackend(
         auth_mode="bearer", api_key="k", base_url=f"{BASE}/v1", transport_layer=layer
+    ).generate(_image(tmp_path)),
+    "kling-image-model-path": lambda layer, tmp_path: KlingModelPathImageBackend(
+        api_key="k", base_url=BASE, transport_layer=layer
     ).generate(_image(tmp_path)),
     "openrouter-images": lambda layer, tmp_path: OpenRouterImageBackend(
         api_key="k", base_url=f"{BASE}/api/v1", transport_layer=layer

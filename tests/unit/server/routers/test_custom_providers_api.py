@@ -240,6 +240,7 @@ class TestEndpointCatalog:
             "minimax-h3",
             "kling-image",
             "kling-image-single",
+            "kling-image-model-path",
             "kling-video-pro-silent",
             "kling-video-pro-audio",
             "kling-video-audio",

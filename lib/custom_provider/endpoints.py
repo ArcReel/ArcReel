@@ -38,6 +38,7 @@ from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS
+from lib.backends.image_backends.kling_model_path import KlingModelPathImageBackend
 from lib.backends.image_backends.minimax import H3_EDITS_PATH as MINIMAX_H3_EDITS_PATH
 from lib.backends.image_backends.minimax import H3_GENERATIONS_PATH as MINIMAX_H3_GENERATIONS_PATH
 from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
@@ -602,6 +603,11 @@ _KLING_IMAGE_REQUESTS = _python_requests(
     ("submit", "cp_request_submit", "/images/generations"),
     ("poll", "cp_request_poll", "/images/generations/{{ task_id }}"),
 )
+_KLING_MODEL_PATH_IMAGE_REQUESTS = _python_requests(
+    "strip_version",
+    ("submit", "cp_request_submit", "/image-generation/{{ model }}"),
+    ("poll", "cp_request_poll", "/tasks"),
+)
 _KLING_VIDEO_REQUESTS = _python_requests(
     "ensure_v1",
     ("submit_text2video", "cp_request_submit_text2video", "/videos/text2video"),
@@ -841,6 +847,21 @@ def _build_kling_image(
         model=model_id,
         transport_layer=path_override_layer(
             _KLING_IMAGE_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_kling_model_path_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
+    base_url = kling_model_path_base_url(provider.base_url)
+    delegate = KlingModelPathImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_MODEL_PATH_IMAGE_REQUESTS, path_overrides, provider.base_url, base_url, model_id
         ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -1198,6 +1219,18 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         )
         for key, backend in KLING_IMAGE_BACKENDS.items()
     },
+    "kling-image-model-path": EndpointSpec(
+        key="kling-image-model-path",
+        media_type="image",
+        family="kling",
+        display_name_key="endpoint_kling_image_model_path_display",
+        request_method="POST",
+        request_path_template="/image-generation/{model}",
+        image_capabilities=KlingModelPathImageBackend.CHANNEL_CAPABILITIES,
+        build_backend=_build_kling_model_path_image,
+        requests=_KLING_MODEL_PATH_IMAGE_REQUESTS,
+        metering_backend=KlingModelPathImageBackend,
+    ),
     **{
         key: EndpointSpec(
             key=key,

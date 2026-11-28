@@ -271,7 +271,7 @@ Choose a call endpoint that the provider supports. If a private gateway implemen
 - **OpenRouter Images**. Select OpenRouter Images for OpenRouter image models. This endpoint supports both text-to-image and image-to-image.
 - **Ark**. Choose Seedream (1K) or Seedream (2K) by generation. For Seedance, choose the endpoint for 1.x, 2.0, or 2.5. Confirm the endpoint if the model ID omits the generation, for example with an Ark inference endpoint ID.
 - **Gemini Video**. Gemini Omni uses the Interactions API and has a separate endpoint from Veo. For compatible Interactions API services, select Gemini Video (Omni) and override the submission and polling paths as needed. Vertex AI endpoints are reserved for built-in providers.
-- **Kling Video**. Choose the endpoint for the model's API version. The new API uses Kling Video (New API, Always With Audio) and requires an API key.
+- **Kling Image and Video**. Choose the endpoint for the model's API version. The new API uses Kling Image (new API) and Kling Video (new API, always with audio); both require an API key.
 - **ComfyUI**. Import an API-format workflow and select its endpoint for the provider model. See [Connect a ComfyUI Workflow](./comfyui.md). Node bindings determine which inputs are supported.
 - **Other APIs**. Look in the [Market](./market.md) for an endpoint first. If the provider uses JSON requests and responses, you can start from an example template to create a declarative image or video definition under Call Endpoints.
 

@@ -131,7 +131,11 @@ _specs += [
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
     for endpoint in (by_backend_type[backend_type],)
 ]
-_specs += [_image_spec("kling", "kling-image", "kling"), _image_spec("kling", "kling-image-single")]
+_specs += [
+    _image_spec("kling", "kling-image", "kling"),
+    _image_spec("kling", "kling-image-single"),
+    _image_spec("kling", "kling-image-model-path"),
+]
 _specs.append(_image_spec("minimax", "minimax-h3-image"))
 _specs += [
     _video_spec(provider, endpoint)

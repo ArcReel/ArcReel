@@ -28,6 +28,7 @@
 - [gemini-video](gemini-video.md)
 - [gemini-interactions-video](gemini-interactions-video.md)
 - [kling-image](kling-image.md)
+- [kling-image-model-path](kling-image-model-path.md)
 - [kling-image-single](kling-image-single.md)
 - [kling-video-audio](kling-video-audio.md)
 - [kling-video-model-path](kling-video-model-path.md)
