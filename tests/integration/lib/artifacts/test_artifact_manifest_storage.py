@@ -1631,3 +1631,128 @@ def test_project_adapter_streams_hashed_chunks_to_the_observer(tmp_path: Path, i
     assert len(seen) > 1
     assert b"".join(seen) == payload
     assert observation.content_digest == hashlib.sha256(payload).hexdigest()
+
+
+@pytest.mark.invariant
+@pytest.mark.skipif(os.name != "posix", reason="batch_inspect caches POSIX dir_fd handles")
+def test_batch_inspect_matches_direct_inspect_across_artifact_states() -> None:
+    import tempfile
+
+    from hypothesis import given
+    from hypothesis import strategies as st
+
+    states_strategy = st.tuples(
+        st.sampled_from(("present", "missing_file", "missing_dir", "symlink_file", "symlink_dir")),
+        st.sampled_from(("present", "missing_file", "missing_dir", "symlink_file", "symlink_dir")),
+        st.sampled_from(("present", "missing_file", "missing_dir", "symlink_file", "symlink_dir")),
+    )
+
+    @given(states=states_strategy)
+    def _check(states: tuple[str, str, str]) -> None:
+        with tempfile.TemporaryDirectory() as raw_dir:
+            root = Path(raw_dir)
+            project = root / "project"
+            outside = root / "outside"
+            project.mkdir()
+            outside.mkdir()
+            outside_file = outside / "leak.txt"
+            outside_file.write_text("outside", encoding="utf-8")
+
+            paths: list[str] = []
+            for idx, state in enumerate(states):
+                bucket = f"bucket_{idx}"
+                rel = f"{bucket}/nested/item.bin"
+                paths.append(rel)
+                if state == "present":
+                    target = project / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(b"ok")
+                elif state == "missing_file":
+                    (project / bucket / "nested").mkdir(parents=True, exist_ok=True)
+                elif state == "missing_dir":
+                    pass
+                elif state == "symlink_file":
+                    target = project / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.symlink_to(outside_file)
+                elif state == "symlink_dir":
+                    (project / bucket).symlink_to(outside, target_is_directory=True)
+
+            adapter = ProjectArtifactManifestAdapter(project)
+            direct = [adapter.inspect_artifact(path) for path in paths]
+            with adapter.batch_inspect():
+                batched_first = [adapter.inspect_artifact(path) for path in paths]
+                batched_second = [adapter.inspect_artifact(path) for path in paths]
+
+            def _signature(obs: list) -> list[tuple[str, bool, str | None]]:
+                return [(item.artifact_path, item.present, item.blocker.code if item.blocker else None) for item in obs]
+
+            assert _signature(batched_first) == _signature(direct)
+            assert _signature(batched_second) == _signature(direct)
+
+    _check()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="batch_inspect caches POSIX dir_fd handles")
+def test_batch_inspect_lifecycle_fd_cleanup_nesting_and_fallbacks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    (project / "videos").mkdir(parents=True)
+    (project / "videos" / "E1U1.mp4").write_bytes(b"video-1")
+    (project / "videos" / "E1U2.mp4").write_bytes(b"video-2")
+    outside.mkdir()
+    (outside / "secret.mp4").write_bytes(b"outside")
+    (project / "bad_dir").symlink_to(outside, target_is_directory=True)
+
+    from tests.integration.lib.content_read_support import observe_os_fds
+
+    adapter = ProjectArtifactManifestAdapter(project)
+    opened_fds: set[int] = set()
+    observe_os_fds(monkeypatch, on_open=opened_fds.add, on_close=opened_fds.discard)
+
+    with adapter.batch_inspect():
+        assert adapter.inspect_artifact("videos/E1U1.mp4").present is True
+        active_before_nested = set(opened_fds)
+        assert active_before_nested
+        with adapter.batch_inspect():
+            assert adapter.inspect_artifact("videos/E1U2.mp4").present is True
+        assert active_before_nested.issubset(opened_fds)
+        blocked = adapter.inspect_artifact("bad_dir/secret.mp4")
+        assert not blocked.present
+        assert blocked.blocker is not None
+        assert blocked.blocker.code == "artifact_symlink"
+        assert not adapter.inspect_artifact("absent/file.mp4").present
+    assert opened_fds == set()
+
+    def _inspect_then_raise() -> None:
+        with adapter.batch_inspect():
+            assert adapter.inspect_artifact("videos/E1U1.mp4").present is True
+            assert opened_fds
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _inspect_then_raise()
+    assert opened_fds == set()
+
+    fallback_adapter = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
+    with fallback_adapter.batch_inspect():
+        assert fallback_adapter.inspect_artifact("videos/E1U1.mp4").present is True
+        assert opened_fds == set()
+        blocked_fallback = fallback_adapter.inspect_artifact("bad_dir/secret.mp4")
+        assert not blocked_fallback.present
+        assert blocked_fallback.blocker is not None
+        assert blocked_fallback.blocker.code == "artifact_symlink"
+    assert opened_fds == set()
+
+    moved = tmp_path / "moved-project"
+    project.rename(moved)
+    project.symlink_to(outside, target_is_directory=True)
+    with adapter.batch_inspect():
+        assert opened_fds == set()
+        swapped_obs = adapter.inspect_artifact("videos/E1U1.mp4")
+        assert not swapped_obs.present
+        assert swapped_obs.blocker is not None
+    assert opened_fds == set()

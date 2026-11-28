@@ -1003,10 +1003,10 @@ def test_workspace_reuses_script_for_strict_completion(tmp_path, monkeypatch):
 
 
 def test_workspace_summary_avoids_duplicate_artifact_checks_and_supports_overview_only(tmp_path, monkeypatch):
-    from unittest.mock import Mock
+    import os
 
-    from lib.artifacts.artifact_currency import RegisteredArtifactResolver
     from lib.workflow.workflow_state import WorkflowRequestError
+    from tests.integration.lib.content_read_support import observe_builtin_open, observe_os_fds
 
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source(pm, project_path, "完整原文")
@@ -1015,29 +1015,77 @@ def test_workspace_summary_avoids_duplicate_artifact_checks_and_supports_overvie
     _episode_with_media(pm, project_path)
     service = WorkflowStateService(pm)
 
-    compares: list[tuple[ArtifactKey, str]] = []
-    orig_compare = RegisteredArtifactResolver.compare
+    script_file = project_path / "scripts" / "episode_1.json"
+    sheet_file = project_path / "characters" / "小明.png"
+    media_files = [*((project_path / "videos").glob("*")), *((project_path / "storyboards").glob("*"))]
+    assert media_files
+    tracked = {
+        "script": (script_file.stat().st_dev, script_file.stat().st_ino),
+        "sheet": (sheet_file.stat().st_dev, sheet_file.stat().st_ino),
+        **{f"media:{path.name}": (path.stat().st_dev, path.stat().st_ino) for path in media_files},
+    }
+    by_identity = {identity: label for label, identity in tracked.items()}
+    opens: dict[str, int] = dict.fromkeys(tracked, 0)
 
-    def _recording_compare(self, key: ArtifactKey, *, artifact_path: str):
-        compares.append((key, artifact_path))
-        return orig_compare(self, key, artifact_path=artifact_path)
+    def _record_fd(fd: int) -> None:
+        info = os.fstat(fd)
+        label = by_identity.get((info.st_dev, info.st_ino))
+        if label is not None:
+            opens[label] += 1
 
-    monkeypatch.setattr(RegisteredArtifactResolver, "compare", _recording_compare)
+    observe_os_fds(monkeypatch, on_open=_record_fd)
+    observe_builtin_open(monkeypatch, lambda _file, stream: _record_fd(stream.fileno()))
+
     full = service.get_project_summary("demo", currency="registered", workspace=True)
     assert full.episodes[0].status == "completed"
-    assert len(compares) == len(set(compares))
+    assert opens["sheet"] == 1
+    assert all(opens[f"media:{path.name}"] == 1 for path in media_files)
 
-    compares.clear()
-    script_reader = Mock(wraps=pm.load_script_readonly)
-    monkeypatch.setattr(pm, "load_script_readonly", script_reader)
+    for key in opens:
+        opens[key] = 0
     overview = service.get_project_summary("demo", currency="registered", workspace=True, include_episodes=False)
     assert overview.episodes == []
     assert overview.assets["character"].available == 1
     assert overview.assets["character"].total == 1
-    assert script_reader.call_count == 0
-    assert all(key.kind.value == "asset-sheet" for key, _ in compares)
+    assert opens["sheet"] == 1
+    assert opens["script"] == 0
+    assert all(opens[f"media:{path.name}"] == 0 for path in media_files)
 
     with pytest.raises(WorkflowRequestError):
         service.get_project_summary(
             "demo", currency="registered", workspace=True, episode_numbers=[1], include_episodes=False
         )
+
+
+def test_workspace_summary_falls_back_when_timeline_index_scandir_raises(tmp_path: Path, monkeypatch) -> None:
+    """时间线目录预索引遇到 OSError 时退回单集受保护读取，不让工作区请求 500，也不误当作空目录。"""
+    import os
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source(pm, project_path, "完整原文")
+    _episode_with_media(pm, project_path)
+    service = WorkflowStateService(pm)
+
+    timelines_root = project_path / "edit_timelines"
+    real_scandir = os.scandir
+    fail_once = True
+
+    def _flaky_scandir(path="."):
+        nonlocal fail_once
+        if Path(path) == timelines_root and fail_once:
+            fail_once = False
+            raise FileNotFoundError(str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", _flaky_scandir)
+    summary = service.get_project_summary("demo", currency="registered", workspace=True)
+    assert summary.episodes[0].status == "completed"
+
+    def _always_fail_scandir(path="."):
+        if Path(path) == timelines_root:
+            raise FileNotFoundError(str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", _always_fail_scandir)
+    degraded = service.get_project_summary("demo", currency="registered", workspace=True)
+    assert degraded.episodes[0].status == "in_production"

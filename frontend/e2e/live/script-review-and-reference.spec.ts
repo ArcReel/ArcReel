@@ -531,25 +531,32 @@ test("workbench home renders before full workspace, and in-app switch keeps epis
     new_assets: [],
   });
 
-  const fullWorkspaceUrl = `**/api/v1/projects/${project}/workspace`;
+  const isFullWorkspaceRequest = (url: URL) =>
+    url.pathname === `${API}/projects/${project}/workspace` && url.search === "";
   let releaseHomeFull!: () => void;
   const homeFullHeld = new Promise<void>((resolve) => { releaseHomeFull = resolve; });
-  await page.route(fullWorkspaceUrl, async (route) => {
+  const fullHomeTitle = "首页预加载与切集回归 · 全量到达";
+  await page.route(isFullWorkspaceRequest, async (route) => {
     const response = await route.fetch();
+    const body = await response.json() as { project: { title: string } };
+    body.project.title = fullHomeTitle;
     await homeFullHeld;
-    await route.fulfill({ response });
+    await route.fulfill({ response, json: body });
   }, { times: 1 });
 
+  const fullHomeHeading = page.getByRole("heading", { level: 1, name: fullHomeTitle, exact: true });
   const synopsis = page.getByRole("textbox", { name: "梗概" });
   const typedSynopsis = "冷开工作台首页在全量返回前输入的梗概";
   try {
     await page.goto(`/app/projects/${project}`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { level: 1, name: "首页预加载与切集回归" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "首页预加载与切集回归", exact: true })).toBeVisible();
     await expect(page.getByText("资产图")).toBeVisible();
     await synopsis.fill(typedSynopsis);
+    await expect(fullHomeHeading).toHaveCount(0);
   } finally {
     releaseHomeFull();
   }
+  await expect(fullHomeHeading).toBeVisible();
   await expect(synopsis).toHaveValue(typedSynopsis);
 
   const saveOverview = page.waitForResponse(
@@ -558,10 +565,12 @@ test("workbench home renders before full workspace, and in-app switch keeps epis
   await page.getByRole("button", { name: "保存", exact: true }).click();
   expect((await saveOverview).ok()).toBe(true);
 
+  await page.goto("about:blank");
+
   let releaseSwitchFull!: () => void;
   const switchFullHeld = new Promise<void>((resolve) => { releaseSwitchFull = resolve; });
   const fullEp2Title = "第二集 · 全量到达";
-  await page.route(fullWorkspaceUrl, async (route) => {
+  await page.route(isFullWorkspaceRequest, async (route) => {
     const response = await route.fetch();
     const body = await response.json() as { project: { episodes: { title: string }[] } };
     body.project.episodes[1].title = fullEp2Title;
@@ -572,7 +581,7 @@ test("workbench home renders before full workspace, and in-app switch keeps epis
   const fullEp2Heading = page.getByRole("heading", { name: fullEp2Title, exact: true });
   const novelEditor = page.getByRole("textbox", { name: "小说原文" });
   try {
-    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.goto(`/app/projects/${project}`, { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: /^2\s+第二集/ }).click();
     await expect(novelEditor).toBeVisible();
     await novelEditor.fill(ep2Updated);

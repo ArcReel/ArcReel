@@ -182,7 +182,7 @@ function StudioWorkspace() {
       }
       if (isOverviewRoute && !currentProjectData && store.projectDetailLoading) {
         void store.hydrateOverviewWorkspace(projectName);
-        return () => useProjectsStore.getState().cancelEpisodeWorkspaceHydration();
+        return () => useProjectsStore.getState().cancelWorkspacePreviewHydration();
       }
       return;
     }
@@ -197,7 +197,7 @@ function StudioWorkspace() {
         onError: (error) =>
           useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(error) }), "error"),
       });
-      return () => useProjectsStore.getState().cancelEpisodeWorkspaceHydration();
+      return () => useProjectsStore.getState().cancelWorkspacePreviewHydration();
     }
     const boundFile = normalizeScriptFile(epMeta?.script_file);
     if (!epMeta || !shouldLoadEpisodeScript(epMeta) || !boundFile) {

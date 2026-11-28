@@ -381,13 +381,10 @@ async def reload_user_added_models(session: AsyncSession) -> None:
     )
 
 
-def _has_priceable_rows(price: PriceTable | None) -> bool:
-    return price is not None and price.is_priceable and any(meter.rows for meter in price.meters)
-
-
 def _flags(
     entry: CatalogEntry | None,
-    price: PriceTable | None,
+    *,
+    priced: bool,
     multiplier: float,
     state: Lifecycle,
 ) -> list[ModelFlag]:
@@ -396,7 +393,7 @@ def _flags(
         flags.append("discontinued")
     elif state.status == "retiring":
         flags.append("retiring")
-    if not _has_priceable_rows(price) and multiplier != 0:
+    if not priced and multiplier != 0:
         flags.append("unpriced")
     if entry is not None and catalog.entry_source(entry.key) == "modified":
         flags.append("modified")
@@ -429,6 +426,7 @@ def _builtin_view_item(
     view: catalog.ProviderModelView, provider_multiplier: float, *, enabled: bool, is_default: bool
 ) -> ProviderModelItem:
     media_type = cast("MediaType", view.model.media_type)
+    price = _price(view.price, media_type)
     return ProviderModelItem(
         model_id=view.model_id,
         api_model_name=view.api_model_name,
@@ -437,8 +435,13 @@ def _builtin_view_item(
         enabled=enabled,
         is_default=is_default,
         official=view.official,
-        flags=_flags(view.entry, view.price, provider_multiplier * view.multiplier, view.lifecycle),
-        price=_price(view.price, media_type),
+        flags=_flags(
+            view.entry,
+            priced=price is not None,
+            multiplier=provider_multiplier * view.multiplier,
+            state=view.lifecycle,
+        ),
+        price=price,
         lifecycle=_lifecycle(view.lifecycle),
         min_app_version=view.min_app_version,
         min_app_version_satisfied=view.min_app_version_satisfied,
@@ -466,7 +469,7 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
     )
     display_name = row.display_name.strip() if row.display_name and row.display_name.strip() != row.model_id else None
     state = entry_lifecycle(entry)
-    price = entry.price if entry is not None else None
+    price = _price(entry.price if entry is not None else None, media_type)
     return ProviderModelItem(
         model_id=row.model_id,
         api_model_name=row.model_id,
@@ -475,8 +478,8 @@ def _custom_item(row: CustomProviderModel, media_type: MediaType, provider_multi
         enabled=row.is_enabled,
         is_default=row.is_enabled and row.is_default and not state.discontinued,
         official=False,
-        flags=_flags(entry, price, provider_multiplier * row.multiplier, state),
-        price=_price(price, media_type),
+        flags=_flags(entry, priced=price is not None, multiplier=provider_multiplier * row.multiplier, state=state),
+        price=price,
         lifecycle=_lifecycle(state),
         endpoint=row.endpoint,
     )
