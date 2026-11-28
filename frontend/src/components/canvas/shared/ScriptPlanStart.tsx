@@ -124,6 +124,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
               projectName={projectName}
               episode={episode}
               discardsPlan={false}
+              disabled={submitting || preparing}
               variant="ghost"
               className="ml-auto"
             />
