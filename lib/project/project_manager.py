@@ -4041,6 +4041,7 @@ class ProjectManager:
         from lib.backends.text_generator import TextGenerator
         from lib.prompts.prompt_builders_script import build_overview_prompt
 
+        project_data = await asyncio.to_thread(self.load_project, project_name)
         source_content = await asyncio.to_thread(self._read_source_files, project_name)
         if not source_content:
             raise EmptySourceError("source 目录为空，无法生成概述")
@@ -4049,7 +4050,6 @@ class ProjectManager:
             TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
         )
 
-        project_data = await asyncio.to_thread(self.load_project, project_name)
         source_kind = project_overview_source_kind(project_data)
         raw_source_language = project_data.get("source_language")
         target_language = (
@@ -4072,7 +4072,8 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             project["overview"] = overview_dict
-            project["source_language"] = overview_dict["language"]
+            if project.get("source_language") == raw_source_language:
+                project["source_language"] = overview_dict["language"]
 
         await run_sync_transaction(self.update_project, project_name, _mutate)
 

@@ -11,7 +11,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import AsyncIterator, Callable
-from contextlib import AsyncExitStack, ExitStack
+from contextlib import AsyncExitStack, ExitStack, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 
+from lib.artifacts.formal_write import project_metadata_lock
 from lib.backends.http_status_errors import TextWaitTimeout
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
@@ -53,6 +54,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import GLOBAL_ASSETS_DIRNAME
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import IMAGE_FILE_EXTENSIONS, normalize_uploaded_image, validate_image_bytes
+from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.material.formal_objects import formal_commit
 from lib.material.global_library import ensure_global_image
@@ -1081,13 +1083,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
 
 @router.post("/projects/{project_name}/style-image")
 async def upload_style_image(project_name: str, _t: Translator, file: UploadFile = File(...)):
-    """
-    上传风格参考图并分析风格
-
-    1. 保存图片到 projects/{project_name}/style_reference.png
-    2. 调用文本供应商分析风格
-    3. 更新 project.json 的 style_image 和 style_description 字段
-    """
+    """分析独立的风格参考图，只提交当前上传的图片与描述。被后续上传取代时返回 409。"""
     original_filename = _require_filename(file, _t)
 
     ext = Path(original_filename).suffix.lower()
@@ -1097,20 +1093,34 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
             detail=_t("unsupported_image_type", ext=ext, allowed=".png, .jpg, .jpeg, .webp"),
         )
 
+    cleanup = ExitStack()
     try:
         content = await file.read()
 
         def _sync_prepare():
             project_dir = get_project_manager().get_project_path(project_name)
-            try:
-                content_norm, new_ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
-            style_filename = f"style_reference{new_ext}"
+            marker = project_dir / ".style-upload"
+            with project_metadata_lock(project_dir, journal=False):
+                try:
+                    content_norm, new_ext = normalize_uploaded_image(content, ext)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
+                staging = Path(cleanup.enter_context(tempfile.TemporaryDirectory(dir=project_dir, prefix=".style-")))
+                staged = staging / f"style_reference{new_ext}"
+                staged.write_bytes(content_norm)
+                token = staging.name.encode()
+                atomic_write_bytes(marker, token, journal=False)
 
-            return project_dir / style_filename, style_filename, content_norm
+            def release_marker():
+                with suppress(FileNotFoundError), project_metadata_lock(project_dir, journal=False):
+                    if marker.read_bytes() == token:
+                        marker.unlink()  # hard-delete: temp -- 本次上传的临时版本标记
 
-        output_path, style_filename, content_norm = await asyncio.to_thread(_sync_prepare)
+            cleanup.callback(release_marker)
+            return staged, project_dir / staged.name, marker, token
+
+        staged, output_path, marker, token = await run_sync_transaction(_sync_prepare)
+        style_filename = output_path.name
 
         from lib.backends.providers import CallPurpose
         from lib.backends.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
@@ -1120,16 +1130,20 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         generator = await TextGenerator.create(
             TextTaskType.STYLE_ANALYSIS, project_name, purpose=CallPurpose.STYLE_ANALYSIS
         )
-        await run_sync_transaction(output_path.write_bytes, content_norm)
         result = await generator.generate(
             TextGenerationRequest(
-                prompt=builtin_templates.render("text/style_analysis"), images=[ImageInput(path=output_path)]
+                prompt=builtin_templates.render("text/style_analysis"), images=[ImageInput(path=staged)]
             ),
             project_name=project_name,
         )
         style_description = result.text
 
         def _sync_save():
+            def current_paths():
+                if not marker.exists() or marker.read_bytes() != token:
+                    raise HTTPException(status_code=409, detail=_t("style_upload_superseded"))
+                return (output_path,)
+
             def _mutate(project_data: dict) -> None:
                 project_data["style_image"] = style_filename
                 project_data["style_description"] = style_description
@@ -1137,7 +1151,12 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
                 project_data["style"] = ""
 
             with project_change_source("webui"):
-                get_project_manager().update_project(project_name, _mutate)
+                get_project_manager().update_project(
+                    project_name,
+                    _mutate,
+                    formal_paths=current_paths,
+                    on_commit=lambda _: os.replace(staged, output_path),
+                )
 
         await run_sync_transaction(_sync_save)
 
@@ -1167,3 +1186,5 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+    finally:
+        await run_sync_transaction(cleanup.close)

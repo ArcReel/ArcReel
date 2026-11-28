@@ -315,6 +315,8 @@ Define:
 - Whether narration is needed;
 - Whether further editing in Jianying is needed.
 
+You can change the project language while the overview is being generated. Saving the overview preserves any language change you saved during generation.
+
 ### Stage 2: Content Structure {#stage-content-structure}
 
 Confirm:
@@ -345,6 +347,8 @@ Confirm:
 - Key props;
 - Merchandise;
 - Style references.
+
+You can upload a replacement style reference while analysis is in progress. Only the latest upload can update the reference image and style description. Both are saved when its analysis succeeds.
 
 When a batch of asset sheets finishes, the project sends one summary notification. The summary counts any unavailable results separately. You can switch projects and return to receive the summary for a batch that was still running. After a browser refresh, the project shows tasks in progress again. Summaries for batches submitted before the refresh are no longer sent.
 

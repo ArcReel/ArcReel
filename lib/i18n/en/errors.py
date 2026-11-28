@@ -50,6 +50,7 @@ MESSAGES = {
     "prompt_preview_invalid": "The prompt cannot be rendered: check its format",
     "prompt_preview_pending": "This shot's prompt is pending: let the Agent write it, or fill it in the editor",
     "script_prompt_pending": "The prompt of shot '{segment_id}' is pending; let the Agent write it or fill it in before generating",
+    "style_upload_superseded": "A newer style image was uploaded. This analysis result was discarded.",
     "script_conversion_conflict": "The formal script was changed by another writer during conversion; nothing was overwritten. Refresh and retry",
     "scene_not_found": "Scene '{id}' does not exist",
     "segment_not_found": "Segment '{id}' does not exist",
