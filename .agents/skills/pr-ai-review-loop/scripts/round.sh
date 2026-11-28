@@ -25,7 +25,7 @@ if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
-for tool in gh jq; do
+for tool in gh jq python3; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "ROUND_ERROR: $tool not found on PATH" >&2
     exit 3
@@ -79,7 +79,7 @@ case "$CMD" in
     MARKED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     TMP_FILE=$(mktemp "$SNAP_DIR/rounds.XXXXXX")
-    trap 'rm -f "$TMP_FILE"' EXIT
+    trap 'remove_paths "$TMP_FILE"' EXIT
     if [[ -f "$LEDGER_FILE" ]]; then
       cat "$LEDGER_FILE"
     else

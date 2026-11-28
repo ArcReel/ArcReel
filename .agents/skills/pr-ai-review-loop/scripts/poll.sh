@@ -27,6 +27,10 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "POLL_ERROR: jq not found on PATH" >&2
   exit 3
 fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "POLL_ERROR: python3 not found on PATH" >&2
+  exit 3
+fi
 
 enter_snapshot_dir "POLL_ERROR" || exit $?
 
@@ -38,7 +42,7 @@ enter_snapshot_dir "POLL_ERROR" || exit $?
 # It lives inside SNAP_DIR so staged PR data shares the 0700 protection and the final
 # snapshot rename never crosses a filesystem boundary (mv stays atomic).
 WORKDIR=$(mktemp -d "$SNAP_DIR/tmp.XXXXXX")
-trap 'rm -rf "$WORKDIR"' EXIT
+trap 'remove_paths "$WORKDIR"' EXIT
 
 OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name 2>"$WORKDIR/gh_repo_view.err") || {
   echo "POLL_ERROR: REST repository lookup failed (auth? wrong cwd?)" >&2

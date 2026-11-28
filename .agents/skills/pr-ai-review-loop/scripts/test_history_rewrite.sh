@@ -14,6 +14,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 POLL_SH="$SCRIPT_DIR/poll.sh"
 TESTDATA="$SCRIPT_DIR/testdata"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/repo-context.sh"
 
 fail() {
   echo "FAIL: $*" >&2
@@ -21,7 +23,7 @@ fail() {
 }
 
 TMP_ROOT=$(mktemp -d)
-trap 'rm -rf "$TMP_ROOT"' EXIT
+trap 'remove_paths "$TMP_ROOT"' EXIT
 mkdir "$TMP_ROOT/bin" "$TMP_ROOT/repo"
 git -C "$TMP_ROOT/repo" init -q
 

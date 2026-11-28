@@ -44,9 +44,13 @@ command -v jq >/dev/null 2>&1 || {
   echo "WAIT_ERROR: jq not found on PATH" >&2
   exit 3
 }
+command -v python3 >/dev/null 2>&1 || {
+  echo "WAIT_ERROR: python3 not found on PATH" >&2
+  exit 3
+}
 
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/pr-ai-review-wait.XXXXXX")
-trap 'rm -rf "$WORKDIR"' EXIT
+trap 'remove_paths "$WORKDIR"' EXIT
 WATCHDOG_SEQUENCE=0
 
 STARTED_AT=$(date +%s)
@@ -72,7 +76,7 @@ run_until_deadline() {
     return 124
   }
 
-  rm -f "$WORKDIR/request-timed-out"
+  : > "$WORKDIR/request-timed-out"
   WATCHDOG_SEQUENCE=$((WATCHDOG_SEQUENCE + 1))
   watchdog_fifo="$WORKDIR/watchdog-${WATCHDOG_SEQUENCE}.fifo"
   mkfifo "$watchdog_fifo"
@@ -96,9 +100,8 @@ run_until_deadline() {
   printf '\n' >&9
   wait "$watchdog_pid" 2>/dev/null || true
   exec 9>&-
-  rm -f "$watchdog_fifo"
 
-  if [[ -f "$WORKDIR/request-timed-out" ]]; then
+  if [[ -s "$WORKDIR/request-timed-out" ]]; then
     cat "$WORKDIR/request-timed-out" >> "$error_file"
     return 124
   fi
@@ -491,7 +494,7 @@ probe_once() {
     printf 'GitHub probe could not assemble a complete state fingerprint\n' >> "$LAST_ERROR_FILE"
     FAILURE_KIND="transient"
     RETRY_AFTER=0
-    rm -f "$output_file.next"
+    remove_paths "$output_file.next"
     return 1
   fi
 

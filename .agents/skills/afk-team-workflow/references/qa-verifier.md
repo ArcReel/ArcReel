@@ -14,7 +14,7 @@
 
 ## 2. 准备环境
 
-**本地实例**（全量、复验）：QA worktree 归你独用，与 stage worktree 分开，审查循环同时在后者上修改。fetch 远程后把 QA worktree 检出到目标 commit（detached HEAD），按 [verify-arcreel](../../verify-arcreel/SKILL.md) 及其[本地运行参考](../../verify-arcreel/references/local-run.md)调用 `scripts/local_instance.py` 启动隔离实例（含登录鉴权的验收项加 `--auth`）。需要真实生成的验收项记为「待部署验证」，交给冒烟。
+**本地实例**（全量、复验）：QA worktree 归你独用，与 stage worktree 分开，审查循环同时在后者上修改。fetch 远程后把 QA worktree 检出到目标 commit（detached HEAD），按 [verify-arcreel](../../verify-arcreel/SKILL.md) 及其[本地运行参考](../../verify-arcreel/references/local-run.md)调用 `scripts/local_instance.py` 启动隔离实例（含登录鉴权的验收项加 `--auth`）。需要真实生成的验收项记为「待部署验证」，交给冒烟。QA 过程避免调用 shell `rm` / `rm -rf`；除证据目录外，临时 `ARCREEL_DATA_DIR` 与辅助文件均放在 `/tmp` 独立目录，不在 QA worktree 内遗留临时文件。
 
 **部署实例**（冒烟）：地址与登录凭据在 `~/.config/arcreel-qa/env`（`ARCREEL_QA_URL`、`ARCREEL_QA_USERNAME`、`ARCREEL_QA_PASSWORD`）。轮询 `/health`，返回的构建 commit 等于目标 commit 后开始；文件缺失或 60 分钟内未就绪时，全部冒烟项记为无法验证（环境故障）。新建项目以 `batch-id` 开头命名，全局设置保持原样，需要改全局设置的项记为无法验证。真实生成每项只做一次，选最便宜的模型与最小规格，失败不重试；累计费用以预算为上限。
 
@@ -28,7 +28,7 @@
 
 ## 4. 交付
 
-1. 按 `verify-arcreel` 关闭浏览器会话。若本次启动了本地隔离实例，执行 `uv run python scripts/local_instance.py stop --data-dir <data_dir>` 停止本地实例、确认端口释放并清理临时数据目录。
+1. 按 `verify-arcreel` 关闭浏览器会话。若本次启动了本地隔离实例，执行 `uv run python scripts/local_instance.py stop --data-dir <data_dir>` 停止本地实例、确认端口释放并回收临时数据目录（该命令通过 Python 回收，不调用 shell `rm`）。其余位于 `/tmp` 的临时数据目录或辅助文件在收尾时仅停止进程与释放端口（或按无需 shell `rm` 的安全方式处理），避免调用 shell `rm` / `rm -rf` 触发无人值守终端审批阻塞，并确认 QA worktree 内无遗留临时文件。
 2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
 3. 全量与复验模式按 [handoff.md](handoff.md) 在 stage handoff 中追加「QA」段；对操作路径稳定、无需外部付费调用即可确定判定的成熟验收项，在 follow-up 中登记回补到全栈实机 E2E（`frontend/e2e/live/`）的候选。
 4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。
