@@ -66,10 +66,12 @@ from server.media_tools.context import (
     tool_error,
 )
 from server.services.admission.video_batch_admission import (
+    PromptPendingAuthoringError,
     admit_reference_video_batch,
     admit_storyboard_video_request,
     artifact_state_tickets,
     build_storyboard_video_specs,
+    prompt_pending_ticket,
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_voice_context,
@@ -476,6 +478,9 @@ def _build_reference_specs(
             continue
         try:
             spec = reference_unit_task_spec(unit, script_filename)
+        except PromptPendingAuthoringError as exc:
+            refused.append(prompt_pending_ticket(exc.unit_id or unit_id))
+            continue
         except SpeechAdmissionError as exc:
             refused.append(speech_admission_ticket(unit_id, exc))
             continue

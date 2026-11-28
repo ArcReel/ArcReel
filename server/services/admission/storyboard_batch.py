@@ -93,6 +93,7 @@ from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
     artifact_state_tickets,
     build_storyboard_video_specs,
+    is_pending_authoring,
     resolve_voice_context,
     screen_storyboard_items,
     storyboard_item_id,
@@ -492,6 +493,8 @@ def _video_skip_reason(
 ) -> BatchSkipReason | None:
     if unit_id in generating:
         return BatchSkipReason.GENERATING
+    if is_pending_authoring(item):
+        return None
     if not item.get("video_prompt"):
         return BatchSkipReason.MISSING_PROMPT
     try:

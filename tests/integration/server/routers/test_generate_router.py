@@ -432,6 +432,23 @@ class TestGenerateRouter:
             assert "第 1 集 · S01" in str(response.json()["detail"])
             assert fake_queue.calls == []
 
+    def test_video_refuses_pending_authoring_even_when_video_prompt_is_non_empty(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = "碰巧非空的视频提示词"
+        fake_pm.script["segments"][0]["pending_authoring"] = True
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "duration_seconds": 5, "prompt": "跑"},
+            )
+            assert response.status_code == 409
+            assert "第 1 集 · S01" in str(response.json()["detail"])
+            assert fake_queue.calls == []
+
     def test_video_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

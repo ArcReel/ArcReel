@@ -375,3 +375,61 @@ async def test_generate_reference_units_refuses_a_duplicated_named_unit(
 
     enqueue.assert_not_awaited()
     assert _admission_codes(out) == {duplicated_id: ["generation_unit_request_invalid"]}
+
+
+async def test_generate_reference_videos_blocks_pending_authoring_in_preview_and_submit(
+    fake_ctx: ToolHarness,
+) -> None:
+    """参考生视频待编写单元（非空规划正文）：MCP 预检 submittable=False，正式提交零入队（含单条 scene）。"""
+
+    use_reference_route(fake_ctx)
+    script = reference_video_script()
+    unit_id = script["video_units"][0]["unit_id"]
+    script["video_units"][0]["pending_authoring"] = True
+    fake_ctx.pm.script_payload = script
+    enqueue = AsyncMock(return_value=([], []))
+
+    preview = await run_generate_videos(fake_ctx, _EPISODE_1, preview=True, batch_waiter=enqueue)
+    assert preview.problem is None
+    quote = preview.value["video_quote"]
+    assert quote["submittable"] is False
+    assert quote["units"][0]["unit_id"] == unit_id
+    assert quote["units"][0]["outcome"] == "blocked"
+    assert [p["code"] for p in quote["units"][0]["problems"]] == ["script_prompt_pending"]
+    enqueue.assert_not_awaited()
+
+    submit_ep = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=enqueue)
+    assert submit_ep.value["batch_admission"]["decision"] == "blocked"
+    assert _admission_codes(submit_ep) == {unit_id: ["script_prompt_pending"]}
+    enqueue.assert_not_awaited()
+
+    submit_single = await run_generate_videos(
+        fake_ctx, {"scope": "scene", "ids": [unit_id]}, batch_waiter=enqueue, force=True
+    )
+    assert submit_single.value["batch_admission"]["decision"] == "blocked"
+    assert _admission_codes(submit_single) == {unit_id: ["script_prompt_pending"]}
+    enqueue.assert_not_awaited()
+
+
+async def test_generate_storyboard_videos_blocks_pending_authoring_even_with_non_empty_prompt(
+    fake_ctx: ToolHarness,
+) -> None:
+    """分镜图生视频待编写分镜即使 video_prompt 非空，MCP 预检与正式提交都必须阻断且零入队。"""
+
+    fake_ctx.pm.script_payload["segments"][0]["video_prompt"] = "碰巧非空的视频提示词"
+    fake_ctx.pm.script_payload["segments"][0]["pending_authoring"] = True
+    enqueue = AsyncMock(return_value=([], []))
+
+    preview = await run_generate_videos(fake_ctx, _EPISODE_1, preview=True, batch_waiter=enqueue)
+    assert preview.problem is None
+    quote = preview.value["video_quote"]
+    assert quote["submittable"] is False
+    assert quote["units"][0]["unit_id"] == "E1S01"
+    assert quote["units"][0]["outcome"] == "blocked"
+    assert [p["code"] for p in quote["units"][0]["problems"]] == ["script_prompt_pending"]
+    enqueue.assert_not_awaited()
+
+    submit = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=enqueue)
+    assert submit.value["batch_admission"]["decision"] == "blocked"
+    assert _admission_codes(submit) == {"E1S01": ["script_prompt_pending"]}
+    enqueue.assert_not_awaited()

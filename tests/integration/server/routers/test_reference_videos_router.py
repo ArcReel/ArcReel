@@ -2242,3 +2242,105 @@ def test_unit_writes_return_the_refreshed_capability(reference_videos_client: Te
     assert patched["unit"]["text"] == "镜头1：@[张三] 推门"
     assert patched["unit_capability"]["hydrated_capability"] == "r2v"
     assert patched["unit_capability"]["allowed_durations"] == [9]
+
+
+def test_pending_authoring_reference_unit_blocks_preview_batch_and_single_until_prompt_saved(
+    reference_videos_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """pending_authoring=True 的参考生视频单元（含非空规划正文）在预览、批量提交与单条生成均被阻断；
+    仅改无关字段不解除，手动保存正文后清除标记并恢复合法生成。
+    """
+    from server.routers import reference_videos as router_mod
+
+    pm = router_mod.get_project_manager()
+    script = pm.load_script("demo", "scripts/episode_1.json")
+    script["video_units"] = [
+        {
+            "unit_id": "E1U1",
+            "text": "规划阶段的短文本",
+            "duration_seconds": 4,
+            "pending_authoring": True,
+            "generated_assets": {},
+        },
+        {
+            "unit_id": "E1U2",
+            "text": "历史已编写合法单元",
+            "duration_seconds": 4,
+            "generated_assets": {},
+        },
+    ]
+    pm.save_script("demo", script, "scripts/episode_1.json")
+
+    batch_enqueued = _patch_batch_admission(monkeypatch, durations=[4])
+    single_enqueued: list[dict[str, Any]] = []
+
+    class _RecordingQueue:
+        async def get_active_tasks_for_resources(self, **_kwargs):
+            return []
+
+        async def enqueue_task(self, **kwargs):
+            single_enqueued.append(kwargs)
+            return {"task_id": f"task-{len(single_enqueued)}", "deduped": False}
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _RecordingQueue())
+
+    preview = reference_videos_client.post(f"{BATCH_ENDPOINT}/preview", json={})
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert preview_body["decision"] == "blocked"
+    by_id = {u["unit_id"]: u for u in preview_body["units"]}
+    assert by_id["E1U1"]["admitted"] is False
+    assert [p["code"] for p in by_id["E1U1"]["problems"]] == ["script_prompt_pending"]
+    assert by_id["E1U2"]["withheld"] is True
+
+    submit = reference_videos_client.post(BATCH_ENDPOINT, json={})
+    assert submit.status_code == 200, submit.text
+    submit_body = submit.json()
+    assert submit_body["decision"] == "blocked"
+    assert submit_body["task_ids"] == []
+    assert batch_enqueued == []
+
+    precheck = reference_videos_client.get(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/duration-precheck"
+    )
+    assert precheck.status_code == 409, precheck.text
+    single = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate",
+        json={},
+    )
+    assert single.status_code == 409, single.text
+    assert single_enqueued == []
+
+    unrelated = reference_videos_client.patch(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1",
+        json={"note": "仅改备注"},
+    )
+    assert unrelated.status_code == 200, unrelated.text
+    assert unrelated.json()["unit"].get("pending_authoring") is True
+    assert (
+        reference_videos_client.post(
+            "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate",
+            json={},
+        ).status_code
+        == 409
+    )
+
+    authored = reference_videos_client.patch(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1",
+        json={"prompt": "完整视觉层提示词：中景镜头推进。"},
+    )
+    assert authored.status_code == 200, authored.text
+    assert authored.json()["unit"].get("pending_authoring", False) is False
+
+    preview_after = reference_videos_client.post(f"{BATCH_ENDPOINT}/preview", json={})
+    assert preview_after.status_code == 200, preview_after.text
+    assert preview_after.json()["decision"] == "admitted"
+
+    single_after = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate",
+        json={},
+    )
+    assert single_after.status_code == 202, single_after.text
+    assert len(single_enqueued) == 1
+    assert single_enqueued[0]["resource_id"] == "E1U1"

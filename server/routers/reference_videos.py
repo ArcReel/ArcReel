@@ -15,6 +15,7 @@ from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFil
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver, resolve_artifact_episode
+from lib.artifacts.generation_input import PROMPT_PENDING_CODE
 from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -34,7 +35,7 @@ from lib.generation.generation_result import (
 )
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
-from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
@@ -64,6 +65,7 @@ from server.services.admission.reference_prompt_preview import render_reference_
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     artifact_state_tickets,
+    is_pending_authoring,
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_reference_batch_targets,
@@ -253,6 +255,8 @@ def _build_unit_dict(
 
 
 def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_draft: bool = False) -> None:
+    if is_pending_authoring(unit):
+        raise ConflictError(PROMPT_PENDING_CODE, segment_id=str(unit.get("unit_id") or ""))
     if allow_blank_draft and not str(unit.get("text") or "").strip():
         return
     admission = admit_script_unit("video_units", unit, ignore_marker=ignore_marker)

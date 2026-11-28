@@ -558,3 +558,41 @@ async def test_video_batch_cost_counts_targets_whose_converted_meter_has_no_esti
     assert priced.unpriced_count == 0
     assert priced.total.get("CNY", 0) > 0
     assert (estimated.total, estimated.unpriced_count) == ({}, 2)
+
+
+async def test_video_batch_blocks_pending_authoring_even_when_video_prompt_is_non_empty(
+    board_projects: ProjectManager, board_queue: GenerationQueue
+) -> None:
+    """分镜图生视频批量规划中，pending_authoring=True 的分镜即使 video_prompt 非空也硬阻断整批。"""
+
+    healthy = _with_storyboard(board_projects, "E1S01")
+    pending = _with_storyboard(board_projects, "E1S02")
+    pending["video_prompt"] = "碰巧非空的视频提示词"
+    pending["pending_authoring"] = True
+    _write_episode(board_projects, [healthy, pending])
+    _claim_storyboards(board_projects, "E1S01", "E1S02")
+
+    plan = await load_storyboard_video_batch_plan(
+        board_projects,
+        board_queue,
+        project_name=PROJECT,
+        episode_id=1,
+        user_id=DEFAULT_USER_ID,
+        video_request_facts=make_video_request_facts(),
+    )
+
+    assert plan.admission.decision is BatchAdmissionDecision.BLOCKED
+    refused = {unit.unit_id: [problem.code for problem in unit.problems] for unit in plan.admission.tickets}
+    assert refused["E1S02"] == ["script_prompt_pending"]
+    with pytest.raises(ValueError, match="整批准入未通过"):
+        await submit_storyboard_video_batch(
+            plan, project_name=PROJECT, queue=board_queue, source="webui", user_id=DEFAULT_USER_ID
+        )
+    tasks = await board_queue.get_active_tasks_for_resources(
+        project_name=PROJECT,
+        task_type="video",
+        resource_ids=["E1S01", "E1S02"],
+        script_file="episode_1.json",
+        user_id=DEFAULT_USER_ID,
+    )
+    assert tasks == []

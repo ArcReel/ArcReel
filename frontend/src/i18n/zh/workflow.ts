@@ -267,6 +267,7 @@ export default {
   'problem_generation_unit_not_found': '脚本里已经没有这个单元了。',
   'problem_generation_unit_input_unusable': '这个单元缺少生成所需的输入。',
   'problem_generation_unit_request_invalid': '这个单元的请求参数不合法。',
+  'problem_script_prompt_pending': '这个单元的提示词尚未编写，请先完成提示词编写。',
   'problem_generation_artifact_state_unavailable': '这个单元已有的产物读不出来。',
   'problem_generation_enqueue_failed': '这个单元没能入队。',
   'problem_generation_enqueue_interrupted': '入队中断，这个单元本次没建任务；已建的照常跑。',

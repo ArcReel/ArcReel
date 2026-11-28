@@ -474,3 +474,76 @@ async def test_end_frame_duration_is_refused_without_changing_selected_seconds(m
     assert problem.params["duration"] == 8
     assert problem.action == GenerationAction.FIX_INPUT
     assert item["duration_seconds"] == duration
+
+
+async def test_pending_authoring_reference_unit_with_non_empty_text_blocks_batch(monkeypatch, tmp_path: Path):
+    """参考生视频单元即使带有规划阶段的非空 text，只要 pending_authoring=True 就必须阻断整批且不投影。"""
+
+    _stub_state(monkeypatch)
+    projected: list[str] = []
+
+    async def _project(**kwargs):
+        projected.append(kwargs["unit"]["unit_id"])
+        raise AssertionError("pending_authoring units must not be projected")
+
+    use_reference_projection(monkeypatch, _project)
+
+    with pytest.raises(admission_mod.PromptPendingAuthoringError):
+        admission_mod.reference_unit_task_spec(
+            {"unit_id": "E1U1", "text": "规划阶段正文", "pending_authoring": True},
+            "episode_1.json",
+        )
+    assert admission_mod.reference_unit_task_spec({"unit_id": "E1U2", "text": "历史合法正文"}, "episode_1.json")
+    assert admission_mod.reference_unit_task_spec(
+        {"unit_id": "E1U3", "text": "已编写正文", "pending_authoring": False}, "episode_1.json"
+    )
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="episode_1.json",
+        units=[{"unit_id": "E1U1", "text": "规划阶段正文", "pending_authoring": True}],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        spec_check=lambda unit: admission_mod.reference_unit_task_spec(unit, "episode_1.json"),
+    )
+
+    assert projected == []
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    problem = admission.tickets[0].problems[0]
+    assert problem.code == "script_prompt_pending"
+    assert problem.action is GenerationAction.FIX_INPUT
+    assert problem.params == {"segment_id": "E1U1"}
+
+
+def test_build_storyboard_video_specs_blocks_pending_authoring_even_with_non_empty_prompt(tmp_path: Path):
+    """分镜图生视频条目带 pending_authoring=True 时，即使 video_prompt 非空也必须以 script_prompt_pending 拒绝。"""
+
+    specs, refused = admission_mod.build_storyboard_video_specs(
+        items=[
+            {
+                "segment_id": "E1S01",
+                "novel_text": "第一段",
+                "video_prompt": "碰巧非空的提示词",
+                "pending_authoring": True,
+            }
+        ],
+        id_field="segment_id",
+        content_mode="narration",
+        skeleton_kind="segments",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        project={"schema_version": CURRENT_PROJECT_SCHEMA_VERSION},
+        episode=1,
+    )
+
+    assert specs == []
+    assert len(refused) == 1
+    assert refused[0].unit_id == "E1S01"
+    assert refused[0].problems[0].code == "script_prompt_pending"
+    assert refused[0].problems[0].action is GenerationAction.FIX_INPUT
+    assert refused[0].problems[0].params == {"segment_id": "E1S01"}
