@@ -169,6 +169,13 @@ def _narrow_price_table(price: PriceTable, resolutions: tuple[str, ...]) -> Pric
     return replace(price, meters=tuple(narrowed_meters)) if changed else price
 
 
+def _effective_price(entry: CatalogEntry | None, provider_resolutions: tuple[str, ...] | None) -> PriceTable | None:
+    price = entry.price if entry is not None else None
+    if price is not None and provider_resolutions is not None:
+        return _narrow_price_table(price, provider_resolutions)
+    return price
+
+
 def _to_catalog_model(
     entry: CatalogEntry,
     api_model_name: str,
@@ -624,7 +631,10 @@ def list_models(provider_id: str) -> dict[str, CatalogModel]:
 
 @dataclass(frozen=True)
 class ProviderModelView:
-    """供应商模型列表里的一个模型：目录信息、对应的条目（对应不上时为 ``None``），以及它是官方收录还是用户添加。"""
+    """供应商模型列表里的一个模型：目录信息、对应的条目（对应不上时为 ``None``），以及它是官方收录还是用户添加。
+
+    ``price`` 是该供应商模型的有效价目表（与 :func:`provider_model_price` 同一收窄口径）；``entry`` 保持完整共用条目。
+    """
 
     model_id: str
     api_model_name: str
@@ -632,6 +642,7 @@ class ProviderModelView:
     entry: CatalogEntry | None
     official: bool
     multiplier: float
+    price: PriceTable | None = None
     base_model: CatalogModel | None = None
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
     lifecycle: Lifecycle = AVAILABLE
@@ -648,6 +659,7 @@ def _view(key: str, indexed: _IndexedModel, *, min_app_version_satisfied: bool =
         indexed.entry,
         indexed.official,
         indexed.multiplier,
+        price=_effective_price(indexed.entry, indexed.provider_resolutions),
         base_model=indexed.base_model or indexed.model,
         capability_overrides=indexed.capability_overrides,
         lifecycle=entry_lifecycle(indexed.entry),
@@ -805,9 +817,7 @@ def provider_model_price(provider_id: str, model_id: str, media_type: str) -> Mo
     if indexed is None:
         return None
     entry = indexed.entry
-    price = entry.price if entry is not None else None
-    if price is not None and indexed.provider_resolutions is not None:
-        price = _narrow_price_table(price, indexed.provider_resolutions)
+    price = _effective_price(entry, indexed.provider_resolutions)
     return ModelPrice(price=price, multiplier=indexed.multiplier, entry_found=entry is not None)
 
 
