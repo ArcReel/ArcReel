@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FilePlus2, Loader2 } from "lucide-react";
 import { cn } from "cn";
@@ -26,28 +26,22 @@ import { refreshAfterWrite } from "./refreshAfterWrite";
 import { errMsg } from "@/utils/async";
 
 type BusyReasonKey = "script_plan_busy" | "episode_planning_busy" | "ad_script_busy";
+type BlankScriptBlockingKind = "text_script_plan" | "text_episode_plan" | "text_episode_script";
 
-function busyReasonFromActive(
+function busyReasonFor(
   episode: number,
-  activeEpisodePlans: ReadonlySet<string>,
-  activeScriptPlans: ReadonlySet<string>,
-  activeEpisodeScripts: ReadonlySet<string>,
+  isBusy: (kind: BlankScriptBlockingKind, resourceId: string) => boolean,
 ): BusyReasonKey | null {
-  if (activeScriptPlans.has(scriptPlanResourceId(episode))) return "script_plan_busy";
-  if (EPISODE_PLANNING_SLOTS.some((slot) => activeEpisodePlans.has(slot))) return "episode_planning_busy";
-  if (activeEpisodeScripts.has(promptAuthoringResourceId(episode))) return "ad_script_busy";
+  if (isBusy("text_script_plan", scriptPlanResourceId(episode))) return "script_plan_busy";
+  if (EPISODE_PLANNING_SLOTS.some((slot) => isBusy("text_episode_plan", slot))) {
+    return "episode_planning_busy";
+  }
+  if (isBusy("text_episode_script", promptAuthoringResourceId(episode))) return "ad_script_busy";
   return null;
 }
 
 function latestBusyReasonKey(projectName: string, episode: number): BusyReasonKey | null {
-  if (isResourceBusy("text_script_plan", projectName, scriptPlanResourceId(episode))) return "script_plan_busy";
-  if (EPISODE_PLANNING_SLOTS.some((slot) => isResourceBusy("text_episode_plan", projectName, slot))) {
-    return "episode_planning_busy";
-  }
-  if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episode))) {
-    return "ad_script_busy";
-  }
-  return null;
+  return busyReasonFor(episode, (kind, resourceId) => isResourceBusy(kind, projectName, resourceId));
 }
 
 interface Props {
@@ -57,47 +51,79 @@ interface Props {
   disabled?: boolean;
   variant?: "outline" | "ghost";
   className?: string;
+  onSubmittingChange?: (submitting: boolean) => void;
 }
 
-export function StartBlankScriptButton({
+export function StartBlankScriptButton(props: Props) {
+  return <StartBlankScriptButtonInner key={`${props.projectName}:${props.episode}`} {...props} />;
+}
+
+function StartBlankScriptButtonInner({
   projectName,
   episode,
   discardsPlan,
   disabled = false,
   variant = "outline",
   className,
+  onSubmittingChange,
 }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const confirmLeave = useConfirmLeave();
   const reasonId = useId();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const mountedRef = useRef(true);
+  const submittingRef = useRef(false);
+  const onSubmittingChangeRef = useRef(onSubmittingChange);
 
-  const activeEpisodePlans = useActiveResourceIds("text_episode_plan", projectName);
-  const activeScriptPlans = useActiveResourceIds("text_script_plan", projectName);
-  const activeEpisodeScripts = useActiveResourceIds("text_episode_script", projectName);
-  const busyReasonKey = busyReasonFromActive(episode, activeEpisodePlans, activeScriptPlans, activeEpisodeScripts);
+  useEffect(() => {
+    onSubmittingChangeRef.current = onSubmittingChange;
+  }, [onSubmittingChange]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (submittingRef.current) {
+        submittingRef.current = false;
+        onSubmittingChangeRef.current?.(false);
+      }
+    };
+  }, []);
+
+  const activeByKind: Record<BlankScriptBlockingKind, ReadonlySet<string>> = {
+    text_episode_plan: useActiveResourceIds("text_episode_plan", projectName),
+    text_script_plan: useActiveResourceIds("text_script_plan", projectName),
+    text_episode_script: useActiveResourceIds("text_episode_script", projectName),
+  };
+  const busyReasonKey = busyReasonFor(episode, (kind, resourceId) => activeByKind[kind].has(resourceId));
   const busyReason = busyReasonKey ? t(busyReasonKey) : null;
   const entryDisabled = submitting || disabled || busyReason !== null;
 
   const start = async (): Promise<boolean> => {
-    if (submitting || disabled) return false;
+    if (submittingRef.current || disabled) return false;
     const latestBusy = latestBusyReasonKey(projectName, episode);
     if (latestBusy !== null) {
       useAppStore.getState().pushToast(t(latestBusy), "error");
       return false;
     }
+    submittingRef.current = true;
     setSubmitting(true);
+    onSubmittingChangeRef.current?.(true);
     try {
       await API.startBlankScript(projectName, episode);
-      setConfirmOpen(false);
+      if (mountedRef.current) setConfirmOpen(false);
       await refreshAfterWrite(projectName, t, { scope: { episodes: [episode] } });
       return true;
     } catch (err) {
       useAppStore.getState().pushToast(t("blank_script_failed", { message: errMsg(err) }), "error");
       return false;
     } finally {
-      setSubmitting(false);
+      if (mountedRef.current && submittingRef.current) {
+        submittingRef.current = false;
+        setSubmitting(false);
+        onSubmittingChangeRef.current?.(false);
+      }
     }
   };
 
@@ -181,12 +207,24 @@ export function StartBlankScriptButton({
 export function NoScriptBlankState({ projectName, episode, className }: { projectName: string; episode: number; className?: string }) {
   const { t } = useTranslation("dashboard");
   const { refusedReason } = useAdScriptEntry(projectName, episode);
+  const [blankSubmitting, setBlankSubmitting] = useState(false);
   return (
     <div className={cn("flex flex-col items-center justify-center gap-3 text-muted-foreground", className)}>
       <p>{t("timeline_no_script_blank_hint")}</p>
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <AdScriptButton projectName={projectName} episode={episode} regenerate={false} prominent />
-        <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan={false} />
+        <AdScriptButton
+          projectName={projectName}
+          episode={episode}
+          regenerate={false}
+          prominent
+          disabled={blankSubmitting}
+        />
+        <StartBlankScriptButton
+          projectName={projectName}
+          episode={episode}
+          discardsPlan={false}
+          onSubmittingChange={setBlankSubmitting}
+        />
       </div>
       {refusedReason && (
         <p className="text-sm">

@@ -13,29 +13,39 @@ interface Props {
   episode: number;
   replaces: ScriptPlanReplacement;
   className?: string;
+  disabled?: boolean;
   disabledReason?: string | null;
 }
 
-export function ScriptPlanButton({ projectName, episode, replaces, className, disabledReason }: Props) {
+export function ScriptPlanButton({
+  projectName,
+  episode,
+  replaces,
+  className,
+  disabled = false,
+  disabledReason,
+}: Props) {
   const { t } = useTranslation("dashboard");
   const reasonId = useId();
   const open = useScriptPlanStore((s) => s.open);
   const { busy, latestTask, refusedReason } = useScriptPlanEntry(projectName, episode);
   const reason = busy ? t("script_plan_busy") : (refusedReason ?? disabledReason ?? null);
+  const isDisabled = disabled || reason !== null;
   const firstPlan = replaces === "formal_script";
   const Icon = busy ? Loader2 : firstPlan ? Sparkles : RotateCcw;
   return (
     <>
-      <span className={cn("inline-flex", reason !== null && "cursor-not-allowed opacity-50")}>
+      <span className={cn("inline-flex", isDisabled && "cursor-not-allowed opacity-50")}>
         <Button
           variant="outline"
           size="sm"
           className={className}
-          aria-disabled={reason !== null || undefined}
+          disabled={disabled}
+          aria-disabled={isDisabled || undefined}
           aria-describedby={reason ? reasonId : undefined}
           title={reason ?? undefined}
           onClick={() => {
-            if (reason === null) open({ projectName, episode, replaces });
+            if (!isDisabled) open({ projectName, episode, replaces });
           }}
         >
           <Icon aria-hidden data-icon="inline-start" className={busy ? "animate-spin" : undefined} />

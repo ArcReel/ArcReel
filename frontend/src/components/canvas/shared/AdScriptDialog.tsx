@@ -165,22 +165,32 @@ interface ButtonProps {
   episode: number;
   regenerate: boolean;
   prominent?: boolean;
+  disabled?: boolean;
 }
 
-export function AdScriptButton({ projectName, episode, regenerate, prominent = false }: ButtonProps) {
+export function AdScriptButton({
+  projectName,
+  episode,
+  regenerate,
+  prominent = false,
+  disabled = false,
+}: ButtonProps) {
   const { t } = useTranslation("dashboard");
   const open = useAdScriptStore((s) => s.open);
   const { busy, refusedReason } = useAdScriptEntry(projectName, episode);
   const reasonId = useId();
   const reason = busy ? t("ad_script_busy") : refusedReason;
+  const isDisabled = disabled || reason !== null;
   const Icon = busy ? Loader2 : regenerate ? RotateCcw : Sparkles;
   const button = (
     <Button
       variant={prominent ? "default" : "outline"}
       size={prominent ? "default" : "sm"}
-      disabled={reason !== null}
+      disabled={isDisabled}
       aria-describedby={reason !== null ? reasonId : undefined}
-      onClick={() => open({ projectName, episode, regenerate })}
+      onClick={() => {
+        if (!isDisabled) open({ projectName, episode, regenerate });
+      }}
     >
       <Icon className={busy ? "animate-spin" : undefined} aria-hidden data-icon="inline-start" />
       {regenerate ? t("ad_script_regenerate") : t("ad_script_generate")}

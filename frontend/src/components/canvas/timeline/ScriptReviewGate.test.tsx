@@ -7,7 +7,8 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
+import { createDeferred } from "@/test/deferred";
+import { makeScriptOverwrite, makeScriptOverwriteEntry, makeWorkspaceResponse } from "@/test/factories";
 import type {
   NarrationScriptPlanDraft,
   PlanNewAsset,
@@ -1075,5 +1076,64 @@ describe("ScriptReviewGate item fields", () => {
     expect(screen.queryByLabelText("分镜 1 时长")).not.toBeInTheDocument();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑引用" })).not.toBeInTheDocument();
+  });
+
+  it("keeps sibling confirm, replan, and edit controls disabled while post-discard refresh is pending", async () => {
+    const user = userEvent.setup();
+    const refreshDeferred = createDeferred<Awaited<ReturnType<typeof API.getWorkspace>>>();
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "startBlankScript").mockResolvedValue({ success: true, script_file: "scripts/episode_1.json" });
+    const getWorkspace = vi.spyOn(API, "getWorkspace").mockImplementationOnce(() => refreshDeferred.promise);
+    const confirm = vi.spyOn(API, "confirmScriptReview");
+    useScriptPlanStore.getState().close();
+    onTestFinished(() => {
+      useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+      useScriptPlanStore.getState().close();
+    });
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" durationOptions={[8]} />);
+    const blankButton = await screen.findByRole("button", { name: "从空白开始" });
+    const confirmButton = screen.getByRole("button", { name: "确认并继续" });
+    const replanButton = screen.getByRole("button", { name: "重新规划" });
+    const sourceText = screen.getByRole("textbox", { name: "原文锚（仅供追溯，不朗读）" });
+
+    await user.click(blankButton);
+    const discardDialog = await screen.findByRole("alertdialog", { name: "弃置未确认的脚本规划？" });
+    await user.click(within(discardDialog).getByRole("button", { name: "从空白开始" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(getWorkspace).toHaveBeenCalledTimes(1));
+
+    expect(confirmButton).toBeDisabled();
+    expect(replanButton).toBeDisabled();
+    expect(blankButton).toBeDisabled();
+    expect(sourceText).toBeDisabled();
+
+    fireEvent.click(confirmButton);
+    fireEvent.click(replanButton);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(useScriptPlanStore.getState().request).toBeNull();
+
+    await act(async () => {
+      refreshDeferred.resolve(
+        makeWorkspaceResponse({
+          title: "P",
+          content_mode: "drama",
+          style: "Anime",
+          episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json", script_status: "generated" }],
+          characters: {},
+          scenes: {},
+          props: {},
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(confirmButton).toBeEnabled();
+      expect(replanButton).toBeEnabled();
+      expect(blankButton).toBeEnabled();
+      expect(sourceText).toBeEnabled();
+    });
   });
 });

@@ -5,7 +5,8 @@ import { API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
-import { makePlan, makeStatus, makeTask } from "@/test/factories";
+import { createDeferred } from "@/test/deferred";
+import { makePlan, makeStatus, makeTask, makeWorkspaceResponse } from "@/test/factories";
 import type { TaskProgress } from "@/types";
 import { ScriptPlanStart } from "./ScriptPlanStart";
 
@@ -153,5 +154,73 @@ describe("ScriptPlanStart", () => {
     expect(aiButton).toBeEnabled();
     fireEvent.click(aiButton);
     await waitFor(() => expect(plan).toHaveBeenCalledWith("p", 1, { instructions: null }));
+  });
+
+  it("disables sibling planning actions and instructions while starting a blank script, then restores on settle", async () => {
+    const first = createDeferred<{ success: boolean; script_file: string }>();
+    const second = createDeferred<{ success: boolean; script_file: string }>();
+    const startBlank = vi
+      .spyOn(API, "startBlankScript")
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({
+        title: "Demo",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json", script_status: "generated" }],
+        characters: {},
+        scenes: {},
+        props: {},
+      }),
+    );
+    const plan = vi.spyOn(API, "planScript");
+    const saveInstructions = vi.spyOn(API, "saveScriptPlanInstructions");
+
+    renderStart("已有指令");
+
+    const handOffButton = screen.getByRole("button", { name: "交给 Agent" });
+    const aiPlanButton = screen.getByRole("button", { name: "AI 规划" });
+    const blankButton = screen.getByRole("button", { name: "从空白开始" });
+    const textbox = screen.getByRole("textbox", { name: "附加指令（可选）" });
+
+    fireEvent.click(blankButton);
+    expect(startBlank).toHaveBeenCalledTimes(1);
+    expect(handOffButton).toBeDisabled();
+    expect(aiPlanButton).toBeDisabled();
+    expect(textbox).toBeDisabled();
+
+    fireEvent.click(handOffButton);
+    fireEvent.click(aiPlanButton);
+    expect(plan).not.toHaveBeenCalled();
+    expect(saveInstructions).not.toHaveBeenCalled();
+
+    await act(async () => {
+      first.reject(new Error("network failed"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(handOffButton).toBeEnabled();
+      expect(aiPlanButton).toBeEnabled();
+      expect(textbox).toBeEnabled();
+    });
+
+    fireEvent.click(blankButton);
+    expect(startBlank).toHaveBeenCalledTimes(2);
+    expect(handOffButton).toBeDisabled();
+    expect(aiPlanButton).toBeDisabled();
+    expect(textbox).toBeDisabled();
+
+    await act(async () => {
+      second.resolve({ success: true, script_file: "scripts/episode_1.json" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(handOffButton).toBeEnabled();
+      expect(aiPlanButton).toBeEnabled();
+      expect(textbox).toBeEnabled();
+    });
   });
 });

@@ -1,12 +1,13 @@
 import { seedTasks } from "@/test/task-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Router } from "wouter";
 import { API, ApiRequestError } from "@/api";
 import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
-import { makeContent, makePlan, makeStatus, makeTask } from "@/test/factories";
+import { createDeferred } from "@/test/deferred";
+import { makeContent, makePlan, makeStatus, makeTask, makeWorkspaceResponse } from "@/test/factories";
 import type { ScriptOverwrite } from "@/types";
 import type { WorkflowOperation } from "@/types/workflow";
 import { AdScriptHost, AdScriptProgress } from "./AdScriptDialog";
@@ -74,6 +75,42 @@ describe("没有正式脚本时的广告空状态", () => {
     expect(screen.getByText(/请先填写创作灵感或添加商品/, { selector: "p" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "去填写" })).toHaveAttribute("href", "/");
     expect(screen.getByRole("button", { name: "从空白开始" })).toBeEnabled();
+  });
+
+  it("从空白开始请求在途时同步禁用 AI 生成脚本按钮，结算后恢复可用", async () => {
+    admitGenerateScript({ state: "admitted", reason: null });
+    const startDeferred = createDeferred<{ success: boolean; script_file: string }>();
+    vi.spyOn(API, "startBlankScript").mockImplementationOnce(() => startDeferred.promise);
+    vi.spyOn(API, "getWorkspace").mockResolvedValue(
+      makeWorkspaceResponse({
+        title: "Proj",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [{ episode: 1, title: "第一集", script_file: "scripts/episode_1.json", script_status: "generated" }],
+        characters: {},
+        scenes: {},
+        props: {},
+      }),
+    );
+    renderBlankState();
+
+    const generateButton = screen.getByRole("button", { name: "AI 生成脚本" });
+    const blankButton = screen.getByRole("button", { name: "从空白开始" });
+    expect(generateButton).toBeEnabled();
+
+    fireEvent.click(blankButton);
+    expect(generateButton).toBeDisabled();
+
+    fireEvent.click(generateButton);
+    expect(useAdScriptStore.getState().request).toBeNull();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => {
+      startDeferred.resolve({ success: true, script_file: "scripts/episode_1.json" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(generateButton).toBeEnabled());
   });
 });
 

@@ -1334,7 +1334,7 @@ describe("useProjectEventsSSE", () => {
       const baseProject = makeGetWorkspaceResult("Demo").project;
       const noneWorkspace = makeWorkspaceResponse({
         ...baseProject,
-        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+        episodes: [{ episode: 1, title: "第一集（提前读）", script_file: "", script_status: "none" }],
       });
       const segmentedWorkspace = makeWorkspaceResponse({
         ...baseProject,
@@ -1342,47 +1342,61 @@ describe("useProjectEventsSSE", () => {
       });
       useProjectsStore.getState().setCurrentProject("demo", {
         ...noneWorkspace.project,
-        episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
+        episodes: [{ episode: 1, title: "第一集（初始）", script_file: "", script_status: "none" }],
       } as never);
       const stream = mockProjectEventStream();
-      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const activeTasksSpy = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+      vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+      useTasksStore.setState(useTasksStore.getInitialState(), true);
+      useTasksStore.getState().setRefreshScope({ projectName: "demo" });
       const getWorkspaceSpy = vi
         .spyOn(API, "getWorkspace")
         .mockResolvedValueOnce(noneWorkspace)
         .mockResolvedValueOnce(segmentedWorkspace);
 
-      renderHarness("/episodes/1");
-      const beforeRevision = useAppStore.getState().getEntityRevision("script_plan:episode_1");
+      try {
+        renderHarness("/episodes/1");
+        const beforeRevision = useAppStore.getState().getEntityRevision("script_plan:episode_1");
 
-      emit(stream, [
-        {
-          entity_type: "episode",
-          action: "updated",
-          entity_id: "1",
-          label: "第 1 集",
-          episode: 1,
-          focus: null,
-          important: false,
-        },
-      ]);
+        emit(stream, [
+          {
+            entity_type: "episode",
+            action: "updated",
+            entity_id: "1",
+            label: "第 1 集",
+            episode: 1,
+            focus: null,
+            important: false,
+          },
+        ]);
 
-      await waitFor(() => {
+        await waitFor(() => {
+          expect(useProjectsStore.getState().currentProjectData?.episodes[0]).toMatchObject({
+            title: "第一集（提前读）",
+            script_status: "none",
+          });
+        });
         expect(getWorkspaceSpy).toHaveBeenCalledTimes(1);
-      });
-      expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("none");
 
-      emit(stream, [
-        taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan", episode: 1 }),
-      ]);
+        emit(stream, [
+          taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan", episode: 1 }),
+        ]);
 
-      await waitFor(() => {
-        expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
-      });
-      expect(getWorkspaceSpy).toHaveBeenLastCalledWith("demo", {
-        signal: expect.any(AbortSignal),
-        episodes: [1],
-      });
-      expect(useAppStore.getState().getEntityRevision("script_plan:episode_1")).toBeGreaterThan(beforeRevision);
+        await waitFor(() => {
+          expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+          expect(useTasksStore.getState().connected).toBe(true);
+        });
+        expect(getWorkspaceSpy).toHaveBeenCalledTimes(2);
+        expect(getWorkspaceSpy).toHaveBeenLastCalledWith("demo", {
+          signal: expect.any(AbortSignal),
+          episodes: [1],
+        });
+        expect(activeTasksSpy).toHaveBeenCalledTimes(1);
+        expect(useAppStore.getState().getEntityRevision("script_plan:episode_1")).toBeGreaterThan(beforeRevision);
+      } finally {
+        useTasksStore.getState().setRefreshScope(null);
+      }
     });
 
     it("脚本规划任务成功未附带 episode 时同样重拉当前项目的分集状态", async () => {
@@ -1395,19 +1409,29 @@ describe("useProjectEventsSSE", () => {
         episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
       } as never);
       const stream = mockProjectEventStream();
-      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const activeTasksSpy = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+      vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+      useTasksStore.setState(useTasksStore.getInitialState(), true);
+      useTasksStore.getState().setRefreshScope({ projectName: "demo" });
       const getWorkspaceSpy = vi.spyOn(API, "getWorkspace").mockResolvedValue(segmentedWorkspace);
 
-      renderHarness("/episodes/1");
-      emit(stream, [taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan" })]);
+      try {
+        renderHarness("/episodes/1");
+        emit(stream, [taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan" })]);
 
-      await waitFor(() => {
-        expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
-      });
-      expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", {
-        signal: expect.any(AbortSignal),
-        episodes: [1],
-      });
+        await waitFor(() => {
+          expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+          expect(useTasksStore.getState().connected).toBe(true);
+        });
+        expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", {
+          signal: expect.any(AbortSignal),
+          episodes: [1],
+        });
+        expect(activeTasksSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        useTasksStore.getState().setRefreshScope(null);
+      }
     });
 
     it("标签页隐藏期间收到脚本规划任务成功，恢复可见后补拉分集状态", async () => {
@@ -1420,7 +1444,11 @@ describe("useProjectEventsSSE", () => {
         episodes: [{ episode: 1, title: "第一集", script_file: "", script_status: "none" }],
       } as never);
       const stream = mockProjectEventStream();
-      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const activeTasksSpy = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+      vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+      useTasksStore.setState(useTasksStore.getInitialState(), true);
+      useTasksStore.getState().setRefreshScope({ projectName: "demo" });
       const getWorkspaceSpy = vi.spyOn(API, "getWorkspace").mockResolvedValue(segmentedWorkspace);
 
       const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
@@ -1430,6 +1458,7 @@ describe("useProjectEventsSSE", () => {
           taskChange({ action: "task_succeeded", task_type: "text_reference_script_plan", episode: 1 }),
         ]);
         expect(getWorkspaceSpy).not.toHaveBeenCalled();
+        expect(activeTasksSpy).not.toHaveBeenCalled();
 
         visibility.mockReturnValue("visible");
         act(() => {
@@ -1438,9 +1467,12 @@ describe("useProjectEventsSSE", () => {
 
         await waitFor(() => {
           expect(useProjectsStore.getState().currentProjectData?.episodes[0].script_status).toBe("segmented");
+          expect(useTasksStore.getState().connected).toBe(true);
         });
+        expect(activeTasksSpy).toHaveBeenCalledTimes(1);
       } finally {
         visibility.mockRestore();
+        useTasksStore.getState().setRefreshScope(null);
       }
     });
 
