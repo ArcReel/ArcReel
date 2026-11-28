@@ -265,6 +265,7 @@ export default {
   'problem_generation_unit_not_found': 'This unit is no longer in the script.',
   'problem_generation_unit_input_unusable': 'This unit is missing an input it needs.',
   'problem_generation_unit_request_invalid': 'The request for this unit is not valid.',
+  'problem_script_prompt_pending': "This unit's prompt hasn't been authored yet. Complete prompt authoring first.",
   'problem_generation_artifact_state_unavailable': "This unit's existing file cannot be read.",
   'problem_generation_enqueue_failed': 'This unit could not be queued.',
   'problem_generation_enqueue_interrupted': 'Enqueue stopped before this unit got a task; the ones already queued keep running.',

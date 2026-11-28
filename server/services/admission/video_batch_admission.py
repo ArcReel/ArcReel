@@ -26,6 +26,7 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.generation_input import PROMPT_PENDING_CODE
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -73,7 +74,7 @@ from lib.script.reference_video.request_projection import (
     project_reference_unit_request,
     resolve_reference_assets,
 )
-from lib.script.script_models import get_generated_assets
+from lib.script.script_models import PENDING_AUTHORING_FIELD, get_generated_assets
 from lib.script.storyboard_sequence import StoryboardImageUnavailable
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
 from lib.video_runtime.resolution import read_video_facts_pair, read_video_request_facts
@@ -392,6 +393,37 @@ def resolve_reference_batch_targets(
     return targets, selection, states
 
 
+class PromptPendingAuthoringError(ValueError):
+    """条目仍标记为待编写，不能构造视频生成请求。"""
+
+    def __init__(self, unit_id: str) -> None:
+        self.unit_id = unit_id
+        super().__init__(f"单元 {unit_id} 的提示词待编写，请先完成提示词编写后再生成")
+
+
+def is_pending_authoring(item: object) -> bool:
+    """条目是否显式标记为待编写（缺省或为 false 均视为非待编写，兼容历史条目）。"""
+
+    return isinstance(item, Mapping) and item.get(PENDING_AUTHORING_FIELD) is True
+
+
+def prompt_pending_problem(unit_id: str) -> GenerationProblem:
+    """条目仍处于待编写状态时的统一阻断问题。"""
+
+    return GenerationProblem(
+        code=PROMPT_PENDING_CODE,
+        detail=f"单元 {unit_id} 的提示词待编写，请先完成提示词编写后再生成",
+        action=GenerationAction.FIX_INPUT,
+        params={"segment_id": unit_id},
+    )
+
+
+def prompt_pending_ticket(unit_id: str) -> UnitAdmissionTicket:
+    """条目仍处于待编写状态时的准入拒绝票。"""
+
+    return UnitAdmissionTicket(unit_id=unit_id, problems=(prompt_pending_problem(unit_id),))
+
+
 def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     """单 unit 的 TaskSpec 构造，供整批准入判定、批量入队与时长预检共用同一份结构校验
     （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，几处判断
@@ -401,6 +433,8 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     if not isinstance(unit, dict):
         raise ValueError("unit 必须是对象")
     unit_id = str(unit.get("unit_id") or "")
+    if is_pending_authoring(unit):
+        raise PromptPendingAuthoringError(unit_id)
     if unit.get("needs_replan") is True:
         require_script_unit_admitted("video_units", unit)
     text = unit.get("text")
@@ -627,6 +661,8 @@ async def admit_reference_video_batch(
         if spec_check is not None:
             try:
                 spec_check(unit)
+            except PromptPendingAuthoringError as exc:
+                problems.append(prompt_pending_problem(exc.unit_id or unit_id))
             except SpeechAdmissionError as exc:
                 problems.append(_speech_problem(exc))
             except ValueError as exc:
@@ -896,6 +932,10 @@ def build_storyboard_video_specs(
         if item_id in skip_set:
             continue
 
+        if is_pending_authoring(item):
+            refused.append(prompt_pending_ticket(item_id))
+            continue
+
         try:
             require_script_unit_admitted(skeleton_kind, item)
         except SpeechAdmissionError as exc:
@@ -1055,6 +1095,7 @@ async def admit_storyboard_video_request(
 
 
 __all__ = [
+    "PromptPendingAuthoringError",
     "active_task_problem",
     "admit_reference_video_batch",
     "admit_storyboard_video_batch",
@@ -1062,6 +1103,9 @@ __all__ = [
     "artifact_state_tickets",
     "audio_switch_conflict",
     "build_storyboard_video_specs",
+    "is_pending_authoring",
+    "prompt_pending_problem",
+    "prompt_pending_ticket",
     "reference_unit_task_spec",
     "request_options_for_unit",
     "resolve_reference_batch_targets",

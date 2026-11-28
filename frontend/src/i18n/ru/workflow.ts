@@ -337,6 +337,7 @@ export default {
   'problem_generation_unit_not_found': 'Этого фрагмента больше нет в сценарии.',
   'problem_generation_unit_input_unusable': 'Этому фрагменту не хватает нужных входных данных.',
   'problem_generation_unit_request_invalid': 'Запрос для этого фрагмента некорректен.',
+  'problem_script_prompt_pending': 'Промпт этого фрагмента ещё не написан. Сначала завершите написание промптов.',
   'problem_generation_artifact_state_unavailable': 'Не удаётся прочитать существующий файл этого фрагмента.',
   'problem_generation_enqueue_failed': 'Не удалось поставить этот фрагмент в очередь.',
   'problem_generation_enqueue_interrupted': 'Постановка в очередь прервалась до того, как этот фрагмент получил задачу; уже поставленные задачи продолжают выполняться.',

@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
+import { API, ApiRequestError, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { useAppStore } from "@/stores/app-store";
 
@@ -139,5 +139,25 @@ describe("useReferenceDurationGate", () => {
 
     expect(pushToast).toHaveBeenCalledWith(expect.stringContaining("1 个单元"), "error");
     expect(pushToast).not.toHaveBeenCalledWith("offline", "error");
+  });
+
+  it("surfaces 409 conflict messages such as pending authoring from precheck", async () => {
+    const error = new ApiRequestError(
+      "分镜 'E1U1' 的提示词待生成，请先让 Agent 补写或自行填写后再生成",
+      undefined,
+      409,
+    );
+    vi.spyOn(API, "precheckReferenceVideoDuration").mockRejectedValue(error);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    const commit = vi.fn(async () => {});
+    const { result } = renderHook(() => useReferenceDurationGate({ projectName: "demo", episode: 1 }));
+
+    await act(async () => {
+      await result.current.run(["E1U1"], commit, () => true);
+    });
+
+    expect(pushToast).toHaveBeenCalledWith(error.message, "error");
+    expect(pushToast).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
   });
 });

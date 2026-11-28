@@ -267,6 +267,7 @@ export default {
   'problem_generation_unit_not_found': 'Đơn vị này không còn trong kịch bản.',
   'problem_generation_unit_input_unusable': 'Đơn vị này thiếu dữ liệu đầu vào cần thiết.',
   'problem_generation_unit_request_invalid': 'Yêu cầu của đơn vị này không hợp lệ.',
+  'problem_script_prompt_pending': 'Prompt của đơn vị này chưa được biên soạn. Hãy hoàn thành biên soạn prompt trước.',
   'problem_generation_artifact_state_unavailable': 'Không đọc được tệp sẵn có của đơn vị này.',
   'problem_generation_enqueue_failed': 'Không xếp hàng được đơn vị này.',
   'problem_generation_enqueue_interrupted': 'Việc xếp hàng dừng trước khi đơn vị này có tác vụ; các tác vụ đã xếp vẫn chạy.',

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
+import { API, ApiRequestError, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
@@ -85,7 +85,11 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
                 onClick: () => onEditReferences(result.unitId),
               },
             });
-          } else if (result.error instanceof SpeechAdmissionError || result.error instanceof ReferenceProjectionError) {
+          } else if (
+            result.error instanceof SpeechAdmissionError ||
+            result.error instanceof ReferenceProjectionError ||
+            (result.error instanceof ApiRequestError && result.error.status === 409)
+          ) {
             admissionMessages.add(result.error.message);
           } else {
             failed += 1;
