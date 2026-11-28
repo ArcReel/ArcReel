@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sqlite3
 import unicodedata
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -20,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.artifacts.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
 from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.edit_timeline.errors import EditTimelineError
-from lib.edit_timeline.store import EditTimelineStore
+from lib.edit_timeline.store import EditTimelineStore, episode_timeline_dir_index
 from lib.episode.episode_ledger import (
     SourceDoc,
     normalize_source_text,
@@ -685,6 +686,117 @@ class WorkflowStateService:
             parsed.append((number, entry))
         return parsed
 
+    def _validate_loaded_script(
+        self,
+        project_path: Path,
+        project: dict[str, Any],
+        target_episode: int,
+        path: str,
+        script: Any,
+        issues: list[WorkflowBlocker],
+        *,
+        validator: DataValidator | None = None,
+        reference_catalog: Any | None = None,
+    ) -> tuple[bool, list[dict[str, Any]], str | None]:
+        if not isinstance(script, dict):
+            issues.append(WorkflowBlocker(code="invalid_script", path=path, reason="script must be an object"))
+            return False, [], None
+        script_episode = script.get("episode")
+        if script_episode != target_episode or isinstance(script_episode, bool):
+            issues.append(
+                WorkflowBlocker(
+                    code="script_episode_mismatch",
+                    path=f"{path}.episode",
+                    reason=f"script episode must equal target episode {target_episode}",
+                )
+            )
+            return False, [], None
+        try:
+            kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
+        except ValueError as exc:
+            issues.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
+            return False, [], None
+        raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
+        if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
+            issues.append(
+                WorkflowBlocker(
+                    code="invalid_script_collection",
+                    path=f"{path}.{kind}",
+                    reason=f"{kind} must be an array of objects",
+                )
+            )
+            return False, [], kind
+        seen_ids: set[str] = set()
+        for index, item in enumerate(raw_items):
+            resource_id = item.get(id_field)
+            if not isinstance(resource_id, str) or not resource_id:
+                issues.append(
+                    WorkflowBlocker(
+                        code="invalid_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"{id_field} must be a non-empty string",
+                    )
+                )
+                return False, [], kind
+            if kind != "video_units" and STORYBOARD_ITEM_ID_PATTERN.fullmatch(resource_id) is None:
+                issues.append(
+                    WorkflowBlocker(
+                        code="invalid_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"invalid {id_field}: {resource_id}",
+                    )
+                )
+                return False, [], kind
+            if resource_id in seen_ids:
+                issues.append(
+                    WorkflowBlocker(
+                        code="duplicate_script_id",
+                        path=f"{path}.{kind}[{index}].{id_field}",
+                        reason=f"duplicate {id_field}: {resource_id}",
+                    )
+                )
+                return False, [], kind
+            seen_ids.add(resource_id)
+            duration = item.get("duration_seconds")
+            duration_max = 300 if kind == "video_units" else 60
+            replan_shell = (
+                kind == "video_units"
+                and item.get("needs_replan") is True
+                and not str(item.get("text") or "").strip()
+                and duration == 0
+            )
+            if (
+                duration is not None
+                and not replan_shell
+                and (isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max)
+            ):
+                issues.append(
+                    WorkflowBlocker(
+                        code="invalid_script_structure",
+                        path=f"{path}.{kind}[{index}].duration_seconds",
+                        reason=f"duration_seconds must be an integer between 1 and {duration_max}",
+                    )
+                )
+                return False, [], kind
+        active_validator = DataValidator(str(self.pm.projects_dir)) if validator is None else validator
+        validation = active_validator.validate_episode_payload(
+            project_path,
+            project,
+            script,
+            validate_artifacts=False,
+            reference_catalog=reference_catalog,
+        )
+        if not validation.valid:
+            issues.append(
+                WorkflowBlocker(
+                    code="invalid_script_structure",
+                    path=path,
+                    reason="; ".join(validation.errors),
+                )
+            )
+            return False, [], kind
+        return True, raw_items, kind
+
     def _load_script_artifacts(
         self,
         project_path: Path,
@@ -708,100 +820,10 @@ class WorkflowStateService:
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             issues.append(WorkflowBlocker(code="invalid_script", path=path, reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None
-        if not isinstance(script, dict):
-            issues.append(WorkflowBlocker(code="invalid_script", path=path, reason="script must be an object"))
-            return {"state": "blocked", "path": path}, [], None
-        script_episode = script.get("episode")
-        if script_episode != target.episode or isinstance(script_episode, bool):
-            issues.append(
-                WorkflowBlocker(
-                    code="script_episode_mismatch",
-                    path=f"{path}.episode",
-                    reason=f"script episode must equal target episode {target.episode}",
-                )
-            )
-            return {"state": "blocked", "path": path}, [], None
-        try:
-            kind = ensure_route_skeleton(script, project.get("content_mode"), project.get("generation_mode"))
-        except ValueError as exc:
-            issues.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
-            return {"state": "blocked", "path": path}, [], None
-        raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
-        if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
-            issues.append(
-                WorkflowBlocker(
-                    code="invalid_script_collection",
-                    path=f"{path}.{kind}",
-                    reason=f"{kind} must be an array of objects",
-                )
-            )
-            return {"state": "blocked", "path": path}, [], kind
-        seen_ids: set[str] = set()
-        for index, item in enumerate(raw_items):
-            resource_id = item.get(id_field)
-            if not isinstance(resource_id, str) or not resource_id:
-                issues.append(
-                    WorkflowBlocker(
-                        code="invalid_script_id",
-                        path=f"{path}.{kind}[{index}].{id_field}",
-                        reason=f"{id_field} must be a non-empty string",
-                    )
-                )
-                return {"state": "blocked", "path": path}, [], kind
-            if kind != "video_units" and STORYBOARD_ITEM_ID_PATTERN.fullmatch(resource_id) is None:
-                issues.append(
-                    WorkflowBlocker(
-                        code="invalid_script_id",
-                        path=f"{path}.{kind}[{index}].{id_field}",
-                        reason=f"invalid {id_field}: {resource_id}",
-                    )
-                )
-                return {"state": "blocked", "path": path}, [], kind
-            if resource_id in seen_ids:
-                issues.append(
-                    WorkflowBlocker(
-                        code="duplicate_script_id",
-                        path=f"{path}.{kind}[{index}].{id_field}",
-                        reason=f"duplicate {id_field}: {resource_id}",
-                    )
-                )
-                return {"state": "blocked", "path": path}, [], kind
-            seen_ids.add(resource_id)
-            duration = item.get("duration_seconds")
-            duration_max = 300 if kind == "video_units" else 60
-            replan_shell = (
-                kind == "video_units"
-                and item.get("needs_replan") is True
-                and not str(item.get("text") or "").strip()
-                and duration == 0
-            )
-            if (
-                duration is not None
-                and not replan_shell
-                and (isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= duration_max)
-            ):
-                issues.append(
-                    WorkflowBlocker(
-                        code="invalid_script_structure",
-                        path=f"{path}.{kind}[{index}].duration_seconds",
-                        reason=f"duration_seconds must be an integer between 1 and {duration_max}",
-                    )
-                )
-                return {"state": "blocked", "path": path}, [], kind
-        validation = DataValidator(str(self.pm.projects_dir)).validate_episode_payload(
-            project_path,
-            project,
-            script,
-            validate_artifacts=False,
+        valid, raw_items, kind = self._validate_loaded_script(
+            project_path, project, target.episode, path, script, issues
         )
-        if not validation.valid:
-            issues.append(
-                WorkflowBlocker(
-                    code="invalid_script_structure",
-                    path=path,
-                    reason="; ".join(validation.errors),
-                )
-            )
+        if not valid:
             return {"state": "blocked", "path": path}, [], kind
         return {"state": state, "path": path}, raw_items, kind
 
@@ -976,6 +998,7 @@ class WorkflowStateService:
         project: dict[str, Any] | None = None,
         workspace: bool = False,
         episode_numbers: list[int] | None = None,
+        include_episodes: bool = True,
         media_paths: set[str] | None = None,
         currency: ProjectSummaryCurrency = "verified",
     ) -> ProjectSummary:
@@ -989,9 +1012,11 @@ class WorkflowStateService:
         与在场，不读产物内容（在场检查只探一个字节）。列表页取后者，其余取前者。
         """
 
+        if not include_episodes and episode_numbers is not None:
+            raise WorkflowRequestError("include_episodes=false cannot be combined with episode_numbers")
         project = self.pm.load_project(project_name) if project is None else project
         project_path = self.pm.get_project_path(project_name)
-        episodes = self._episodes(project, [])
+        episodes = [] if not include_episodes else self._episodes(project, [])
         if episode_numbers is not None:
             requested = set(episode_numbers)
             episodes = [pair for pair in episodes if pair[0] in requested]
@@ -1013,34 +1038,51 @@ class WorkflowStateService:
             )
         except (ArtifactManifestError, OSError, RuntimeError, sqlite3.DatabaseError, TypeError, ValueError):
             resolver = None
-        assets = self._asset_counts(project_path, project, resolver) if episode_numbers is None else {}
-        episode_summaries = []
-        for number, entry in episodes:
-            script_file = entry.get("script_file")
-            if detail_scripts is not None and script_file and script_file not in detail_scripts:
-                path = f"scripts/{self.pm.normalize_script_filename(script_file)}"
-                snapshot = resolver.script_snapshot(path) if isinstance(resolver, ArtifactCurrencyResolver) else None
-                try:
-                    detail_scripts[script_file] = self.pm.load_script(
-                        project_name, script_file, snapshot=snapshot.content_bytes if snapshot else None
-                    )
-                except FileNotFoundError:
-                    detail_scripts[script_file] = None
-            episode_summaries.append(
-                self._episode_summary(
-                    project_name,
-                    project,
-                    project_path,
-                    number,
-                    entry,
-                    workspace=workspace,
-                    media_paths=media_paths,
-                    resolver=resolver,
-                    preloaded_scripts=detail_scripts if detail_scripts is not None else preloaded_scripts,
-                )
+        with contextlib.ExitStack() as stack:
+            if isinstance(resolver, RegisteredArtifactResolver):
+                stack.enter_context(resolver.batch_inspect())
+            assets = self._asset_counts(project_path, project, resolver) if episode_numbers is None else {}
+            timeline_store = EditTimelineStore(self.pm, project_name) if episodes else None
+            timeline_dirs = episode_timeline_dir_index(project_path) if workspace and episodes else None
+            validator = DataValidator(str(self.pm.projects_dir)) if workspace and episodes else None
+            reference_catalog = (
+                build_reference_catalog(project)
+                if workspace and episodes and project.get("generation_mode") != "reference_video"
+                else None
             )
-            if isinstance(resolver, ArtifactCurrencyResolver):
-                resolver.release_episode()
+            episode_summaries = []
+            for number, entry in episodes:
+                script_file = entry.get("script_file")
+                if detail_scripts is not None and script_file and script_file not in detail_scripts:
+                    path = f"scripts/{self.pm.normalize_script_filename(script_file)}"
+                    snapshot = (
+                        resolver.script_snapshot(path) if isinstance(resolver, ArtifactCurrencyResolver) else None
+                    )
+                    try:
+                        detail_scripts[script_file] = self.pm.load_script(
+                            project_name, script_file, snapshot=snapshot.content_bytes if snapshot else None
+                        )
+                    except FileNotFoundError:
+                        detail_scripts[script_file] = None
+                episode_summaries.append(
+                    self._episode_summary(
+                        project_name,
+                        project,
+                        project_path,
+                        number,
+                        entry,
+                        workspace=workspace,
+                        media_paths=media_paths,
+                        resolver=resolver,
+                        preloaded_scripts=detail_scripts if detail_scripts is not None else preloaded_scripts,
+                        timeline_store=timeline_store,
+                        timeline_dirs=timeline_dirs.get(number, ()) if timeline_dirs is not None else None,
+                        validator=validator,
+                        reference_catalog=reference_catalog,
+                    )
+                )
+                if isinstance(resolver, ArtifactCurrencyResolver):
+                    resolver.release_episode()
         return ProjectSummary(
             needs_repair=False,
             repair_reason=None,
@@ -1077,6 +1119,10 @@ class WorkflowStateService:
         media_paths: set[str] | None = None,
         resolver: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any] | None] | None,
+        timeline_store: EditTimelineStore | None = None,
+        timeline_dirs: Sequence[Path] | None = None,
+        validator: DataValidator | None = None,
+        reference_catalog: Any | None = None,
     ) -> EpisodeSummary:
         script_status = self._episode_script_status(project, project_path, number, entry, resolver)
         script = None
@@ -1115,29 +1161,82 @@ class WorkflowStateService:
             else ArtifactCount.zero()
         )
         replan = sum(item.get("needs_replan") is True for item in items) if kind == "video_units" else 0
-        videos = ArtifactCount.of(
-            self._media_collection(
-                items,
-                kind,
-                "video_clip",
-                episode=number,
-                resolver=resolver,
-                issues=[],
-                count_replan_as_stale=not workspace,
-            ),
-            total=len(items),
-        )
+        if workspace:
+            video_collection: dict[str, Any] = _empty_collection()
+            complete_available = 0
+            video_blocked = False
+            if kind is not None:
+                id_field = SKELETONS[kind].id_field
+                for item in items:
+                    resource_id = item.get(id_field)
+                    if not isinstance(resource_id, str) or not resource_id:
+                        continue
+                    artifact_path = get_generated_assets(item).get("video_clip")
+                    if resolver is not None and isinstance(artifact_path, str) and artifact_path:
+                        state = self._artifact_state(
+                            resolver,
+                            ArtifactKey.episode_video(number, resource_id),
+                            artifact_path,
+                            [],
+                        )
+                    else:
+                        state = "missing"
+                    if state == "blocked":
+                        video_collection["state"] = "blocked"
+                    else:
+                        video_collection[f"{state}_ids"].append(resource_id)
+                    if kind == "video_units" and item.get("needs_replan") is True:
+                        complete_available += 1
+                    elif state == "blocked":
+                        video_blocked = True
+                    elif state in {"current", "stale"}:
+                        complete_available += 1
+            videos = ArtifactCount.of(video_collection, total=len(items))
+        else:
+            complete_available = 0
+            video_blocked = False
+            videos = ArtifactCount.of(
+                self._media_collection(
+                    items,
+                    kind,
+                    "video_clip",
+                    episode=number,
+                    resolver=resolver,
+                    issues=[],
+                    count_replan_as_stale=True,
+                ),
+                total=len(items),
+            )
+        store = EditTimelineStore(self.pm, project_name) if timeline_store is None else timeline_store
         status = _episode_production_status(
             script_status,
             storyboards,
             videos,
-            has_edit_timeline=not workspace and EditTimelineStore(self.pm, project_name).has_documents(number),
+            has_edit_timeline=not workspace and store.has_documents(number),
         )
-        if workspace and script is not None and items and videos.available + replan >= len(items):
-            active = _ActiveScript(None, path=entry["script_file"], payload=script)
-            facts = self._episode_facts(project_name, project, project_path, (number, entry), resolver, active)
-            if facts.complete:
-                status = "completed"
+        if workspace and script is not None and items and not video_blocked and complete_available >= len(items):
+            target = self._episode_target(number, entry, [])
+            if target is not None:
+                valid, validated_items, _validated_kind = self._validate_loaded_script(
+                    project_path,
+                    project,
+                    number,
+                    target.script,
+                    script,
+                    [],
+                    validator=validator,
+                    reference_catalog=reference_catalog,
+                )
+                if valid and len(validated_items) == len(items):
+                    timelines = self._edit_timeline_ids(
+                        project_name,
+                        number,
+                        [],
+                        timeline_store=store,
+                        episode_dirs=timeline_dirs,
+                    )
+                    if timelines:
+                        status = "completed"
         return EpisodeSummary(
             episode=number,
             script_status=script_status,
@@ -1484,14 +1583,18 @@ class WorkflowStateService:
         project_name: str,
         episode: int,
         issues: list[WorkflowBlocker],
+        *,
+        timeline_store: EditTimelineStore | None = None,
+        episode_dirs: Sequence[Path] | None = None,
     ) -> list[str] | None:
         """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。
 
         目录读取失败或有时间线文件无法解析时记一条 issue 并返回 None。
         """
 
+        store = EditTimelineStore(self.pm, project_name) if timeline_store is None else timeline_store
         try:
-            documents = EditTimelineStore(self.pm, project_name).list_documents(episode, strict=True)
+            documents = store.list_documents(episode, strict=True, episode_dirs=episode_dirs)
         except (OSError, EditTimelineError) as exc:
             issues.append(
                 WorkflowBlocker(

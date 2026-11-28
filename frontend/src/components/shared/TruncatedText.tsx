@@ -8,6 +8,32 @@ interface TruncatedTextProps {
   focusable?: boolean;
 }
 
+let sharedResizeObserver: ResizeObserver | null = null;
+const resizeCallbacks = new WeakMap<Element, () => void>();
+let observedCount = 0;
+
+function observeResize(el: Element, callback: () => void): () => void {
+  if (!sharedResizeObserver) {
+    sharedResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        resizeCallbacks.get(entry.target)?.();
+      }
+    });
+  }
+  resizeCallbacks.set(el, callback);
+  sharedResizeObserver.observe(el);
+  observedCount += 1;
+  return () => {
+    resizeCallbacks.delete(el);
+    sharedResizeObserver?.unobserve(el);
+    observedCount = Math.max(0, observedCount - 1);
+    if (observedCount === 0) {
+      sharedResizeObserver?.disconnect();
+      sharedResizeObserver = null;
+    }
+  };
+}
+
 export function TruncatedText({ text, className, focusable = true }: TruncatedTextProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [truncated, setTruncated] = useState(false);
@@ -17,9 +43,7 @@ export function TruncatedText({ text, className, focusable = true }: TruncatedTe
     if (!el) return;
     const measure = () => setTruncated(el.scrollWidth - el.clientWidth > 1);
     measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    return observeResize(el, measure);
   }, [text]);
 
   return (

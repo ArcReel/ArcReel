@@ -49,6 +49,7 @@ export function SidebarEpisodeList({
   const moving = pendingOrder !== null;
   const byId = new Map(episodes.map((ep) => [ep.episode, ep]));
   const ids = pendingOrder ?? episodes.map((ep) => ep.episode);
+  const indexById = new Map(ids.map((id, idx) => [id, idx]));
   const rows = reorderable
     ? ids.flatMap((id, index) => {
         const ep = byId.get(id);
@@ -87,7 +88,7 @@ export function SidebarEpisodeList({
     >
       <ul className="flex flex-col gap-0.5">
         {rows.map(({ ep, position }) => {
-          const index = ids.indexOf(ep.episode);
+          const index = indexById.get(ep.episode) ?? -1;
           const earlier = stepAnchor(ids, index, "earlier");
           const later = stepAnchor(ids, index, "later");
           const name = nameOf(ep, position);

@@ -531,10 +531,11 @@ class API {
 
   static async getWorkspace(
     name: string,
-    options: { signal?: AbortSignal; episodes?: readonly number[] } = {}
+    options: { signal?: AbortSignal; episodes?: readonly number[]; includeEpisodes?: boolean } = {}
   ): Promise<WorkspaceResponse> {
     const params = new URLSearchParams();
     for (const episode of [...new Set(options.episodes)].sort((a, b) => a - b)) params.append("episodes", String(episode));
+    if (options.includeEpisodes === false) params.set("include_episodes", "false");
     const query = params.size ? `?${params}` : "";
     return this.request(`/projects/${encodeURIComponent(name)}/workspace${query}`, { signal: options.signal });
   }

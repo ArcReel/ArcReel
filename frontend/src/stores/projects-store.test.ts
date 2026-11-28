@@ -772,4 +772,93 @@ describe("projects-store refreshProject", () => {
     });
     expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_1_v2.json"]);
   });
+
+  it("hydrateOverviewWorkspace 写入首页预览资产计数，并在全量刷新到达后清理预览且不重载活动分集脚本", async () => {
+    const project: ProjectData = {
+      ...makeProject("Demo"),
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+    };
+    const full = makeWorkspaceResponse(project, { "reference_videos/E1U1.mp4": 10 });
+    full.summary.assets = {
+      character: { total: 4, available: 3 },
+      scene: { total: 2, available: 1 },
+      prop: { total: 1, available: 1 },
+      product: { total: 0, available: 0 },
+    };
+    const overview = {
+      ...full,
+      project: {
+        ...full.project,
+        episodes: full.project.episodes.map(({ script_status: _s, status: _st, ...ep }) => ep),
+      },
+      summary: { ...full.summary, episodes: [], episodes_summary: null },
+      asset_fingerprints: {},
+    };
+    const ep2Preview = {
+      ...full,
+      project: overview.project,
+      summary: { ...full.summary, episodes: [full.summary.episodes[1]], episodes_summary: null, assets: {} },
+      asset_fingerprints: { "reference_videos/E2U1.mp4": 20 },
+    };
+    const fullDeferred = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockImplementation((_name, options) => {
+      if (options?.includeEpisodes === false) return Promise.resolve(overview);
+      if (options?.episodes?.[0] === 2) return Promise.resolve(ep2Preview);
+      return fullDeferred.promise;
+    });
+    const scriptSpy = vi.spyOn(API, "getScript").mockResolvedValue({
+      script: { episode: 2, segments: [] } as never,
+      revision: "r2",
+    });
+
+    const store = useProjectsStore.getState();
+    store.setProjectDetailLoading(true);
+    store.setCurrentProject("demo", null);
+    const fullPromise = store.refreshProject("demo");
+
+    expect(await store.hydrateOverviewWorkspace("demo")).toBe("success");
+    expect(useProjectsStore.getState().currentProjectData?.status).toBeUndefined();
+    expect(useProjectsStore.getState().previewAssets).toEqual(full.summary.assets);
+    expect(useProjectsStore.getState().projectWideRevisions.demo).toBeUndefined();
+
+    expect(await store.hydrateEpisodeWorkspace("demo", 2)).toBe("success");
+    expect(await store.loadEpisodeScript("demo", 2, "episode_2.json")).toBe("success");
+    expect(scriptSpy).toHaveBeenCalledTimes(1);
+
+    fullDeferred.resolve(full);
+    expect(await fullPromise).toBe("success");
+    const settled = useProjectsStore.getState();
+    expect(settled.currentProjectData?.status?.episodes_summary.total).toBe(2);
+    expect(settled.previewAssets).toBeNull();
+    expect(settled.activeEpisodeScript.episode).toBe(2);
+    expect(Object.keys(settled.currentScripts)).toEqual(["episode_2.json"]);
+    expect(scriptSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("hydrateOverviewWorkspace 在全量失败或待修复状态下丢弃预览", async () => {
+    const project = makeProject("Demo");
+    const repairOverview = makeWorkspaceResponse(project);
+    repairOverview.summary.episodes = [];
+    repairOverview.summary.episodes_summary = null;
+    repairOverview.summary.needs_repair = true;
+    const overviewSpy = vi.spyOn(API, "getWorkspace").mockResolvedValueOnce(repairOverview);
+
+    const store = useProjectsStore.getState();
+    store.setProjectDetailLoading(true);
+    store.setCurrentProject("demo", null);
+    expect(await store.hydrateOverviewWorkspace("demo")).toBe("cancelled");
+    expect(useProjectsStore.getState().currentProjectData).toBeNull();
+    expect(useProjectsStore.getState().previewAssets).toBeNull();
+
+    const normalOverview = makeWorkspaceResponse(project);
+    normalOverview.summary.episodes = [];
+    normalOverview.summary.episodes_summary = null;
+    overviewSpy.mockResolvedValueOnce(normalOverview);
+    store.setProjectDetailLoading(false);
+    expect(await store.hydrateOverviewWorkspace("demo")).toBe("cancelled");
+    expect(useProjectsStore.getState().currentProjectData).toBeNull();
+  });
 });

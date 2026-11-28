@@ -882,6 +882,26 @@ class WorkspaceResponse(BaseModel):
     asset_fingerprints: dict[str, int]
 
 
+def _overview_media_paths(project: dict[str, Any]) -> set[str]:
+    if project.get("content_mode") != "ad":
+        return set()
+    products = project.get("products")
+    if not isinstance(products, dict):
+        return set()
+    paths: set[str] = set()
+    for item in products.values():
+        if not isinstance(item, dict):
+            continue
+        sheet = item.get("product_sheet")
+        if isinstance(sheet, str) and sheet:
+            paths.add(sheet)
+            continue
+        refs = item.get("reference_images")
+        if isinstance(refs, list) and refs and isinstance(refs[0], str) and refs[0]:
+            paths.add(refs[0])
+    return paths
+
+
 @router.get("/projects/{name}/workspace", response_model=WorkspaceResponse)
 async def get_workspace(
     name: str,
@@ -890,7 +910,10 @@ async def get_workspace(
     current_user: CurrentUser,
     coalescer: ProjectReads,
     episodes: Annotated[list[int] | None, Query()] = None,
+    include_episodes: Annotated[bool, Query()] = True,
 ):
+    if not include_episodes and episodes is not None:
+        raise BadRequestError("request_invalid")
     manager = get_project_manager()
 
     def read():
@@ -899,7 +922,12 @@ async def get_workspace(
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=name) from exc
         start = perf_counter()
-        media_paths: set[str] | None = None if episodes is None else set()
+        if episodes is not None:
+            media_paths: set[str] | None = set()
+        elif not include_episodes:
+            media_paths = _overview_media_paths(project)
+        else:
+            media_paths = None
         try:
             summary = summaries.get_project_summary(
                 name,
@@ -907,6 +935,7 @@ async def get_workspace(
                 currency="registered",
                 workspace=True,
                 episode_numbers=episodes,
+                include_episodes=include_episodes,
                 media_paths=media_paths,
             )
         except WorkflowRequestError as exc:
@@ -931,6 +960,7 @@ async def get_workspace(
         current_user.id,
         current_user.role,
         None if episodes is None else tuple(sorted(episodes)),
+        include_episodes,
     )
     project, data, fingerprints, summary_time, fingerprint_time = await coalescer.run(
         key, lambda: run_sync_transaction(read)
@@ -939,7 +969,7 @@ async def get_workspace(
     def present():
         start = perf_counter()
         summary = data.model_dump()
-        if episodes is not None:
+        if episodes is not None or not include_episodes:
             summary["episodes_summary"] = None
         if data.repair_reason:
             summary["repair_reason"] = present_episode_diagnostics(data.repair_reason, project, _t)

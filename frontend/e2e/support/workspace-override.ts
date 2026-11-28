@@ -128,6 +128,13 @@ export function workspaceOverride(
       status: 200,
       body,
     },
+    "GET /api/v1/projects/demo/workspace?include_episodes=false": {
+      status: 200,
+      body: {
+        ...body,
+        summary: { ...body.summary, episodes: [], episodes_summary: null },
+      },
+    },
   };
   for (const row of body.summary.episodes) {
     overrides[`GET /api/v1/projects/demo/workspace?episodes=${row.episode}`] = {

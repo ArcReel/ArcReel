@@ -1000,3 +1000,44 @@ def test_workspace_reuses_script_for_strict_completion(tmp_path, monkeypatch):
     row = summarize()
     assert row.videos.available == 1
     assert row.status == "in_production"
+
+
+def test_workspace_summary_avoids_duplicate_artifact_checks_and_supports_overview_only(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from lib.artifacts.artifact_currency import RegisteredArtifactResolver
+    from lib.workflow.workflow_state import WorkflowRequestError
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _write_source(pm, project_path, "完整原文")
+    _add_character_with_sheet(pm, project_path, "小明")
+    register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "小明"))
+    _episode_with_media(pm, project_path)
+    service = WorkflowStateService(pm)
+
+    compares: list[tuple[ArtifactKey, str]] = []
+    orig_compare = RegisteredArtifactResolver.compare
+
+    def _recording_compare(self, key: ArtifactKey, *, artifact_path: str):
+        compares.append((key, artifact_path))
+        return orig_compare(self, key, artifact_path=artifact_path)
+
+    monkeypatch.setattr(RegisteredArtifactResolver, "compare", _recording_compare)
+    full = service.get_project_summary("demo", currency="registered", workspace=True)
+    assert full.episodes[0].status == "completed"
+    assert len(compares) == len(set(compares))
+
+    compares.clear()
+    script_reader = Mock(wraps=pm.load_script_readonly)
+    monkeypatch.setattr(pm, "load_script_readonly", script_reader)
+    overview = service.get_project_summary("demo", currency="registered", workspace=True, include_episodes=False)
+    assert overview.episodes == []
+    assert overview.assets["character"].available == 1
+    assert overview.assets["character"].total == 1
+    assert script_reader.call_count == 0
+    assert all(key.kind.value == "asset-sheet" for key, _ in compares)
+
+    with pytest.raises(WorkflowRequestError):
+        service.get_project_summary(
+            "demo", currency="registered", workspace=True, episode_numbers=[1], include_episodes=False
+        )
