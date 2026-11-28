@@ -172,9 +172,8 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
 
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
 
-    # TOS SDK 在 INFO 级别记录重试时会带上请求体（上传的对象内容），DEBUG 级别记录签名过程；
-    # 媒体内容与签名不进普通诊断日志，只放行 WARNING 及以上。
-    logging.getLogger("tos").setLevel(max(numeric_level, logging.WARNING))
+    for sdk_logger in ("boto3", "botocore", "s3transfer"):
+        logging.getLogger(sdk_logger).setLevel(max(numeric_level, logging.WARNING))
 
     _install_httpx_url_redaction()
 

@@ -396,7 +396,7 @@ async def test_overwrite_holds_evicted_version_until_purge(trash_client, trash_p
     factory = async_sessionmaker(db_engine, expire_on_commit=False)
     bind_session_factory(monkeypatch, factory)
     async with factory() as session:
-        connection = await ObjectStorageConnectionRepository(session).save(kind="tos", **CONNECTION)
+        connection = await ObjectStorageConnectionRepository(session).save(kind="s3", **CONNECTION)
         await session.commit()
     locator = ObjectLocator(connection_id=connection.id, bucket=connection.bucket, key="original")
     bucket = MemoryBucket()

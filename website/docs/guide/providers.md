@@ -335,7 +335,7 @@ npx skills add ArcReel/skills
 
 ## 11. 对象存储与供应商素材库 {#object-storage-and-asset-library}
 
-在「设置 → 素材库与存储」可以关联供应商审核通过的图片，或将新增图片保存到自己的 TOS 存储桶。见[素材库与对象存储](./asset-storage.md)。
+在「设置 → 媒体存储」与「设置 → 供应商素材库」中可以分别配置 S3 兼容对象存储与供应商审核通过的图片素材库。见[素材库与对象存储](./asset-storage.md)。
 
 - <span id="upload-to-asset-library"></span>[上传图片到素材库](./asset-storage.md#upload-to-asset-library)
 - <span id="select-from-asset-library"></span>[从素材库选择已有图片](./asset-storage.md#select-from-asset-library)

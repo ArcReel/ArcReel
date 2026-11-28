@@ -12,6 +12,7 @@ import functools
 import importlib
 import itertools
 import json
+import os
 import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
@@ -23,6 +24,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import portalocker
 
 if TYPE_CHECKING:
+    import pytest
+
     from lib.artifacts.version_manager import PaidVersionCommit
     from lib.generation.media_generator import MediaGenerator
 
@@ -34,6 +37,10 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+def intercept_file_replace(monkeypatch: pytest.MonkeyPatch, replacement: Callable[..., None]) -> None:
+    monkeypatch.setattr(os, "replace", replacement)
 
 
 @contextmanager
@@ -1218,11 +1225,21 @@ def use_generation_worker_sessions(monkeypatch, factory) -> None:
 
 
 def use_object_storage_sdk(monkeypatch, factory: Callable[..., Any]) -> None:
-    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 TOS SDK 客户端替身）。
+    """对象存储的网络边界：``create_sdk_client`` 改调 *factory*（收 ``ObjectStorageConfig``，返回 S3 SDK 客户端替身）。
 
-    TOS SDK 基于 requests，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
+    boto3 / botocore 基于 urllib3，不经 httpx，respx 拦不到；所有对象存取都经这一处构造客户端。
     """
     monkeypatch.setattr("lib.object_storage.client.create_sdk_client", factory)
+
+
+def s3_client_error(status: int, code: str, message: str = "failed", operation: str = "S3Operation") -> Any:
+    """构造与 botocore 一致的 ``ClientError``，供各对象存储测试复用。"""
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {"Error": {"Code": code, "Message": message}, "ResponseMetadata": {"HTTPStatusCode": status}},
+        operation,
+    )
 
 
 def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:

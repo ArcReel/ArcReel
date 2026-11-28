@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
 import threading
 from collections.abc import Generator
@@ -17,18 +18,17 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 import pytest
+from botocore.exceptions import EndpointConnectionError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.types import Message, Receive, Scope, Send
-from tos.exceptions import TosClientError, TosServerError
 
 from lib.artifacts.artifact_activation import assert_artifact_target_state_plan_unchanged
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
@@ -91,6 +91,7 @@ from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import (
     bind_session_factory,
+    s3_client_error,
     use_assets_router_sessions,
     use_generation_context,
     use_object_storage_sdk,
@@ -113,24 +114,19 @@ from tests.integration.server.routers.projects_router_support import build_proje
 from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 from tests.legacy_project_shapes import read_version_history, use_legacy_history
 
-TOS_SK = "TEST-TOS-SECRET-0066"
+TOS_SK = "TEST-S3-SECRET-0066"
 BUCKET = "formal-bucket"
 CONNECTION = {
     "region": "cn-beijing",
-    "endpoint": "tos-cn-beijing.volces.com",
+    "endpoint": "https://tos-s3-cn-beijing.volces.com",
     "bucket": BUCKET,
-    "access_key_id": "TEST-TOS-AK-0066",
+    "access_key_id": "TEST-S3-AK-0066",
     "secret_access_key": TOS_SK,
 }
 
 
-def _server_error(status: int, code: str) -> TosServerError:
-    resp = SimpleNamespace(request_id="req-1", headers={}, status=status)
-    return TosServerError(resp, "failed", code, "host", f"/{BUCKET}")
-
-
 class MemoryBucket:
-    """TOS SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
+    """S3 SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
@@ -141,29 +137,29 @@ class MemoryBucket:
     def _check(self, op: str, key: str) -> None:
         self.calls.append((op, key))
         if op in self.fail or (op == "delete" and key in self.fail_delete_keys):
-            raise _server_error(503, "ServiceUnavailable")
+            raise s3_client_error(503, "ServiceUnavailable")
 
-    def put_object(self, *, bucket: str, key: str, content: bytes, content_type: str | None = None):
-        self._check("put", key)
-        self.objects[(bucket, key)] = content
-        return SimpleNamespace(etag="etag")
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
+        self._check("put", Key)
+        self.objects[(Bucket, Key)] = Body
+        return {"ETag": "etag"}
 
-    def head_object(self, *, bucket: str, key: str):
-        self._check("head", key)
-        if (bucket, key) not in self.objects:
-            raise _server_error(404, "NoSuchKey")
-        return SimpleNamespace(content_length=len(self.objects[(bucket, key)]), etag="etag", content_type=None)
+    def head_object(self, *, Bucket: str, Key: str):
+        self._check("head", Key)
+        if (Bucket, Key) not in self.objects:
+            raise s3_client_error(404, "NoSuchKey")
+        return {"ContentLength": len(self.objects[(Bucket, Key)]), "ETag": "etag", "ContentType": None}
 
-    def get_object(self, *, bucket: str, key: str):
-        self._check("get", key)
-        if (bucket, key) not in self.objects:
-            raise _server_error(404, "NoSuchKey")
-        data = self.objects[(bucket, key)]
-        return SimpleNamespace(read=lambda: data)
+    def get_object(self, *, Bucket: str, Key: str):
+        self._check("get", Key)
+        if (Bucket, Key) not in self.objects:
+            raise s3_client_error(404, "NoSuchKey")
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
-    def delete_object(self, *, bucket: str, key: str):
-        self._check("delete", key)
-        self.objects.pop((bucket, key), None)
+    def delete_object(self, *, Bucket: str, Key: str):
+        self._check("delete", Key)
+        self.objects.pop((Bucket, Key), None)
+        return {}
 
     def stored_keys(self, prefix: str = "") -> list[str]:
         return sorted(key for _bucket, key in self.objects if key.startswith(prefix))
@@ -233,7 +229,7 @@ async def _target(sessions, target: str) -> None:
 
 async def _remote(sessions) -> None:
     async with sessions() as session:
-        await ObjectStorageConnectionRepository(session).save(kind="tos", **CONNECTION)
+        await ObjectStorageConnectionRepository(session).save(kind="s3", **CONNECTION)
         await session.commit()
     await _target(sessions, "object_storage")
 
@@ -538,15 +534,15 @@ async def test_upload_confirmed_while_another_project_retakes_the_same_object_st
     put = bucket.put_object
     puts = 0
 
-    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+    def put_object(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
         nonlocal puts
         puts += 1
         if puts == 1:
             uploading.set()
             release.wait(10)
         elif puts == 2:
-            raise _server_error(503, "ServiceUnavailable")
-        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+            raise s3_client_error(503, "ServiceUnavailable")
+        return put(Bucket=Bucket, Key=Key, Body=Body, ContentType=ContentType)
 
     monkeypatch.setattr(bucket, "put_object", put_object)
     first = asyncio.create_task(asyncio.to_thread(_upload, api, image))
@@ -574,13 +570,13 @@ async def test_same_object_failed_by_both_concurrent_uploads_is_reclaimed_by_the
     uploading, release = threading.Event(), threading.Event()
     puts = 0
 
-    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+    def put_object(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
         nonlocal puts
         puts += 1
         if puts == 1:
             uploading.set()
             release.wait(10)
-        raise _server_error(503, "ServiceUnavailable")
+        raise s3_client_error(503, "ServiceUnavailable")
 
     monkeypatch.setattr(bucket, "put_object", put_object)
     first = asyncio.create_task(asyncio.to_thread(_upload, api, image))
@@ -611,15 +607,15 @@ async def test_shared_object_confirmed_by_a_commit_that_then_fails_is_reclaimed_
     put = bucket.put_object
     puts = 0
 
-    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+    def put_object(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
         nonlocal puts
         puts += 1
         if puts == 1:
             uploading.set()
             release.wait(10)
         elif puts == 2:
-            raise _server_error(503, "ServiceUnavailable")
-        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+            raise s3_client_error(503, "ServiceUnavailable")
+        return put(Bucket=Bucket, Key=Key, Body=Body, ContentType=ContentType)
 
     def _fail(*_args, **_kwargs):
         raise RuntimeError("injected manifest failure")
@@ -650,10 +646,10 @@ async def test_startup_settlement_skips_a_commit_still_running_in_this_process(
     uploading, release = threading.Event(), threading.Event()
     put = bucket.put_object
 
-    def put_object(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
+    def put_object(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
         uploading.set()
         release.wait(10)
-        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+        return put(Bucket=Bucket, Key=Key, Body=Body, ContentType=ContentType)
 
     monkeypatch.setattr(bucket, "put_object", put_object)
     upload = asyncio.create_task(asyncio.to_thread(_upload, api, image))
@@ -912,7 +908,7 @@ async def test_disposal_does_not_reinterpret_legacy_locations_against_the_curren
         assert list((await session.execute(select(RelayObject))).scalars()) == []
 
 
-UNREACHABLE_ENDPOINT = "tos-cn-beijing.test-unreachable.invalid"
+UNREACHABLE_ENDPOINT = "https://tos-s3-cn-beijing.test-unreachable.invalid"
 
 
 @pytest.fixture
@@ -922,7 +918,7 @@ def unreachable_endpoint(monkeypatch, bucket: MemoryBucket) -> MemoryBucket:
     class _Unreachable:
         def __getattr__(self, _name: str):
             def _fail(**_kwargs):
-                raise TosClientError("connection failed", ConnectionError("Name or service not known"))
+                raise EndpointConnectionError(endpoint_url=UNREACHABLE_ENDPOINT)
 
             return _fail
 
@@ -981,9 +977,9 @@ async def test_unreachable_endpoint_bounds_disposal_network_attempts(api, sessio
     calls: list[str] = []
 
     class _Unreachable:
-        def delete_object(self, *, bucket: str, key: str):
-            calls.append(key)
-            raise TosClientError("connection failed", ConnectionError("timed out"))
+        def delete_object(self, *, Bucket: str, Key: str):
+            calls.append(Key)
+            raise EndpointConnectionError(endpoint_url=CONNECTION["endpoint"])
 
     use_object_storage_sdk(monkeypatch, lambda config: _Unreachable())
     assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
@@ -1109,7 +1105,9 @@ async def test_objects_that_may_still_be_read_keep_blocking_connection_changes(a
         )
         await session.commit()
 
-    moved = api.put("/api/v1/object-storage/connection", json={**CONNECTION, "endpoint": "tos-cn-shanghai.volces.com"})
+    moved = api.put(
+        "/api/v1/object-storage/connection", json={**CONNECTION, "endpoint": "https://tos-s3-cn-shanghai.volces.com"}
+    )
     assert moved.status_code == 409
     assert api.delete("/api/v1/object-storage/connection").status_code == 409
     [kept] = await _objects(sessions)

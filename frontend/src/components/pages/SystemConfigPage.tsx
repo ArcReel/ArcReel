@@ -10,6 +10,7 @@ import {
   HardDrive,
   Info,
   KeyRound,
+  Library,
   Plug,
   ScrollText,
   SlidersHorizontal,
@@ -32,6 +33,7 @@ import { AgentConfigTab } from "./AgentConfigTab";
 import { ProviderSection } from "./ProviderSection";
 import { AboutSection } from "./settings/AboutSection";
 import { AssetLibrarySection } from "./settings/asset-library/AssetLibrarySection";
+import { MediaStorageSection } from "./settings/media-storage/MediaStorageSection";
 import { AccessTokensSection } from "./settings/agent-access/AccessTokensSection";
 import { ExternalAgentSection } from "./settings/agent-access/ExternalAgentSection";
 import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
@@ -51,7 +53,8 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
   providers: { labelKey: "dashboard:providers", icon: Plug, tier: "bleed" },
   "default-models": { labelKey: "dashboard:settings_default_models", icon: Film, tier: "constrained" },
   endpoints: { labelKey: "dashboard:ce_section_title", icon: Waypoints, tier: "bleed" },
-  "asset-library": { labelKey: "dashboard:settings_asset_library", icon: HardDrive, tier: "constrained" },
+  "media-storage": { labelKey: "dashboard:settings_media_storage", icon: HardDrive, tier: "constrained" },
+  "asset-library": { labelKey: "dashboard:settings_asset_library", icon: Library, tier: "constrained" },
   "arcreel-agent": { labelKey: "dashboard:settings_arcreel_agent", icon: Bot, tier: "constrained" },
   "agent-memory": { labelKey: "dashboard:settings_agent_memory", icon: Brain, tier: "bleed" },
   "external-agent": { labelKey: "dashboard:settings_external_agent", icon: Cable, tier: "constrained" },
@@ -64,7 +67,11 @@ const SECTIONS: Record<SettingsSection, SectionDef> = {
 };
 
 const SECTION_GROUPS: { id: string; labelKey?: string; sections: SettingsSection[] }[] = [
-  { id: "generation", labelKey: "dashboard:settings_group_generation", sections: ["providers", "default-models", "endpoints", "asset-library"] },
+  {
+    id: "generation",
+    labelKey: "dashboard:settings_group_generation",
+    sections: ["providers", "default-models", "endpoints", "media-storage", "asset-library"],
+  },
   {
     id: "agent",
     labelKey: "dashboard:settings_group_agent",
@@ -148,6 +155,8 @@ function SectionContent({ section }: { section: SettingsSection }) {
       return <MediaModelSection />;
     case "endpoints":
       return <EndpointsSection />;
+    case "media-storage":
+      return <MediaStorageSection />;
     case "asset-library":
       return <AssetLibrarySection />;
     case "arcreel-agent":

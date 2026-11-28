@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import threading
 from collections.abc import Generator
 from contextlib import asynccontextmanager, nullcontext
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 
@@ -26,7 +26,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
-from tos.exceptions import TosServerError
 
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
 from lib.artifacts.version_manager import VersionManager
@@ -57,6 +56,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import (
     bind_session_factory,
     failing_manifest_replace,
+    s3_client_error,
     use_assets_router_sessions,
     use_object_storage_sdk,
     use_project_manager,
@@ -67,15 +67,15 @@ from tests.integration.server.routers.projects_router_support import build_proje
 BUCKET = "library-bucket"
 CONNECTION = {
     "region": "cn-beijing",
-    "endpoint": "tos-cn-beijing.volces.com",
+    "endpoint": "https://tos-s3-cn-beijing.volces.com",
     "bucket": BUCKET,
-    "access_key_id": "TEST-TOS-AK-3570",
-    "secret_access_key": "TEST-TOS-SECRET-3570",
+    "access_key_id": "TEST-S3-AK-3570",
+    "secret_access_key": "TEST-S3-SECRET-3570",
 }
 
 
 class MemoryBucket:
-    """TOS SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
+    """S3 SDK 客户端替身：对象存在内存里；``fail`` 里列出的操作抛服务端错误。"""
 
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
@@ -85,34 +85,32 @@ class MemoryBucket:
     def _check(self, op: str, key: str) -> None:
         self.calls.append((op, key))
         if op in self.fail:
-            resp = SimpleNamespace(request_id="req-1", headers={}, status=503)
-            raise TosServerError(resp, "failed", "ServiceUnavailable", "host", f"/{BUCKET}")
+            raise s3_client_error(503, "ServiceUnavailable")
 
-    def _missing(self, key: str) -> TosServerError:
-        resp = SimpleNamespace(request_id="req-1", headers={}, status=404)
-        return TosServerError(resp, "failed", "NoSuchKey", "host", f"/{BUCKET}/{key}")
+    def _missing(self, key: str) -> Exception:
+        return s3_client_error(404, "NoSuchKey")
 
-    def put_object(self, *, bucket: str, key: str, content: bytes, content_type: str | None = None):
-        self._check("put", key)
-        self.objects[(bucket, key)] = content
-        return SimpleNamespace(etag="etag")
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
+        self._check("put", Key)
+        self.objects[(Bucket, Key)] = Body
+        return {"ETag": "etag"}
 
-    def head_object(self, *, bucket: str, key: str):
-        self._check("head", key)
-        if (bucket, key) not in self.objects:
-            raise self._missing(key)
-        return SimpleNamespace(content_length=len(self.objects[(bucket, key)]), etag="etag", content_type=None)
+    def head_object(self, *, Bucket: str, Key: str):
+        self._check("head", Key)
+        if (Bucket, Key) not in self.objects:
+            raise self._missing(Key)
+        return {"ContentLength": len(self.objects[(Bucket, Key)]), "ETag": "etag", "ContentType": None}
 
-    def get_object(self, *, bucket: str, key: str):
-        self._check("get", key)
-        if (bucket, key) not in self.objects:
-            raise self._missing(key)
-        data = self.objects[(bucket, key)]
-        return SimpleNamespace(read=lambda: data)
+    def get_object(self, *, Bucket: str, Key: str):
+        self._check("get", Key)
+        if (Bucket, Key) not in self.objects:
+            raise self._missing(Key)
+        return {"Body": io.BytesIO(self.objects[(Bucket, Key)])}
 
-    def delete_object(self, *, bucket: str, key: str):
-        self._check("delete", key)
-        self.objects.pop((bucket, key), None)
+    def delete_object(self, *, Bucket: str, Key: str):
+        self._check("delete", Key)
+        self.objects.pop((Bucket, Key), None)
+        return {}
 
     def stored_keys(self) -> list[str]:
         return sorted(key for _bucket, key in self.objects)
@@ -164,7 +162,7 @@ def library_api(library_sessions, library_projects, monkeypatch) -> Generator[Te
 
 async def _remote(library_sessions) -> None:
     async with library_sessions() as session:
-        await ObjectStorageConnectionRepository(session).save(kind="tos", **CONNECTION)
+        await ObjectStorageConnectionRepository(session).save(kind="s3", **CONNECTION)
         await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, "object_storage")
         await session.commit()
 
@@ -437,11 +435,11 @@ async def test_concurrent_replacements_of_a_library_image_each_retire_the_image_
     uploading, release = threading.Event(), threading.Event()
     put = library_bucket.put_object
 
-    def paused_put(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
-        if content == second:
+    def paused_put(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
+        if Body == second:
             uploading.set()
             release.wait(10)
-        return put(bucket=bucket, key=key, content=content, content_type=content_type)
+        return put(Bucket=Bucket, Key=Key, Body=Body, ContentType=ContentType)
 
     monkeypatch.setattr(library_bucket, "put_object", paused_put)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=library_api.app), base_url="http://test") as client:

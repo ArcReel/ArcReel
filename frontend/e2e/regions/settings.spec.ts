@@ -109,10 +109,13 @@ const REMOTE_STORAGE: ApiOverrides = {
     status: 200,
     body: {
       connection: {
-        kind: "tos",
+        id: 1,
+        kind: "s3",
         region: "cn-beijing",
-        endpoint: "tos-cn-beijing.volces.com",
+        endpoint: "https://tos-s3-cn-beijing.volces.com",
         bucket: "arcreel-production-materials-and-relay-bucket-for-the-north-china-studio-team",
+        addressing_style: "virtual",
+        needs_endpoint_review: false,
         access_key_id_masked: "TEST…0001",
         secret_access_key_masked: "TEST…0001",
         updated_at: "2026-01-01T07:00:00Z",
@@ -123,11 +126,17 @@ const REMOTE_STORAGE: ApiOverrides = {
   },
 };
 
+const MEDIA_STORAGE = settings("media-storage");
 const ASSET_LIBRARY = settings("asset-library");
+
+async function mediaStorageReady(page: Page) {
+  await settingsReady(page);
+  await page.getByRole("radiogroup", { name: "新增图片保存位置" }).waitFor();
+}
 
 async function assetLibraryReady(page: Page) {
   await settingsReady(page);
-  await page.getByRole("radiogroup", { name: "新增图片保存位置" }).waitFor();
+  await page.getByRole("heading", { name: "供应商素材库", level: 2 }).waitFor();
 }
 
 const PROMPT_TEMPLATES = settings("prompt-templates");
@@ -145,7 +154,7 @@ defineRegionScenarios("全局设置", [
     ready: async (page) => {
       await settingsReady(page);
       const sidebar = page.getByRole("navigation", { name: "设置" });
-      await expect(sidebar.getByRole("link", { name: "供应商" })).toHaveAttribute("aria-current", "page");
+      await expect(sidebar.getByRole("link", { name: /^供应商(?:\s|$)/ })).toHaveAttribute("aria-current", "page");
     },
   },
   {
@@ -300,9 +309,9 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "素材库与存储：没有对象存储连接时，新增图片只能保存在本地",
-    path: ASSET_LIBRARY,
-    ready: assetLibraryReady,
+    name: "媒体存储：没有对象存储连接时，新增图片只能保存在本地",
+    path: MEDIA_STORAGE,
+    ready: mediaStorageReady,
     act: async (page) => {
       const targets = page.getByRole("radiogroup", { name: "新增图片保存位置" });
       await expect(targets.getByRole("radio", { name: /^本地/ })).toHaveAttribute("aria-checked", "true");
@@ -310,22 +319,22 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "素材库与存储：新增图片保存到对象存储，长桶名截断不撑宽内容列",
+    name: "媒体存储：新增图片保存到对象存储，长桶名截断不撑宽内容列",
     a11y: true,
-    path: ASSET_LIBRARY,
+    path: MEDIA_STORAGE,
     api: REMOTE_STORAGE,
-    ready: assetLibraryReady,
+    ready: mediaStorageReady,
     act: async (page) => {
       const targets = page.getByRole("radiogroup", { name: "新增图片保存位置" });
       await expect(targets.getByRole("radio", { name: /^对象存储/ })).toHaveAttribute("aria-checked", "true");
     },
   },
   {
-    name: "素材库与存储：改桶时确认清理并提示进行中的入库任务",
+    name: "媒体存储：改桶时确认清理并提示进行中的入库任务",
     viewports: "both",
-    path: ASSET_LIBRARY,
+    path: MEDIA_STORAGE,
     api: REMOTE_STORAGE,
-    ready: assetLibraryReady,
+    ready: mediaStorageReady,
     act: async (page) => {
       await page.getByRole("button", { name: "编辑对象存储" }).click();
       const dialog = page.getByRole("dialog", { name: "编辑对象存储" });
@@ -337,16 +346,27 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "素材库与存储：删除连接时确认清理并提示进行中的入库任务",
-    path: ASSET_LIBRARY,
+    name: "媒体存储：删除连接时确认清理并提示进行中的入库任务",
+    path: MEDIA_STORAGE,
     api: REMOTE_STORAGE,
-    ready: assetLibraryReady,
+    ready: mediaStorageReady,
     act: async (page) => {
       await page.getByRole("button", { name: "删除对象存储连接" }).click();
       const dialog = page.getByRole("alertdialog");
       await expect(dialog.getByRole("checkbox")).toBeChecked();
       await expect(dialog.getByText(/有 12 个入库任务进行中/)).toBeVisible();
       await expect(dialog.getByRole("button", { name: "删除", exact: true })).toBeInViewport();
+    },
+  },
+  {
+    name: "供应商素材库：独立展示素材库账号与推理凭证绑定",
+    a11y: true,
+    path: ASSET_LIBRARY,
+    ready: assetLibraryReady,
+    act: async (page) => {
+      await expect(page.getByRole("heading", { name: "素材库账号", level: 3 })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "推理凭证绑定", level: 3 })).toBeVisible();
+      await expect(page.getByRole("radiogroup", { name: "新增图片保存位置" })).toHaveCount(0);
     },
   },
   {

@@ -63,9 +63,9 @@ ARK_DEFAULT = "https://ark.cn-beijing.volces.com/api/v3"
 def _connection(bucket: str, secret: str) -> dict[str, str]:
     return {
         "region": "cn-beijing",
-        "endpoint": "tos-cn-beijing.volces.com",
+        "endpoint": "https://tos-s3-cn-beijing.volces.com",
         "bucket": bucket,
-        "access_key_id": f"TEST-TOS-AK-{bucket}",
+        "access_key_id": f"TEST-S3-AK-{bucket}",
         "secret_access_key": secret,
     }
 
@@ -117,7 +117,7 @@ def source_sessions(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 async def _use_storage(sessions, target: str, connection: dict[str, str] | None = None) -> None:
     async with sessions() as session:
         if connection is not None:
-            await ObjectStorageConnectionRepository(session).save(kind="tos", **connection)
+            await ObjectStorageConnectionRepository(session).save(kind="s3", **connection)
         await SystemSettingRepository(session).set(MATERIAL_STORAGE_TARGET_SETTING, target)
         await session.commit()
 
@@ -483,11 +483,11 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
         put = bucket.put_object
         uploads: list[str] = []
 
-        def _second_put_fails(*, bucket: str, key: str, content: bytes, content_type: str | None = None):
-            uploads.append(key)
+        def _second_put_fails(*, Bucket: str, Key: str, Body: bytes, ContentType: str | None = None):
+            uploads.append(Key)
             if len(uploads) == 2:
                 memory.fail.add("put")
-            return put(bucket=bucket, key=key, content=content, content_type=content_type)
+            return put(Bucket=Bucket, Key=Key, Body=Body, ContentType=ContentType)
 
         memory = bucket
         monkeypatch.setattr(bucket, "put_object", _second_put_fails)

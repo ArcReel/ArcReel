@@ -14,6 +14,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.project.project_activity import recorded_project_activity
+from tests.fakes import intercept_file_replace
 
 
 @pytest.mark.parametrize("failure", ["acceptance", "replacement", "record"])
@@ -57,9 +58,9 @@ async def test_failed_replacement_never_claims_new_content_as_current(
 
     with monkeypatch.context() as patch:
         if failure == "record":
-            patch.setattr(os, "replace", replace_with_record_failure)
+            intercept_file_replace(patch, replace_with_record_failure)
         if failure == "replacement":
-            patch.setattr(os, "replace", replace_with_formal_failure)
+            intercept_file_replace(patch, replace_with_formal_failure)
         with pytest.raises((OSError, ValueError)):
             await commit_rendered_artifact(
                 tmp_path,

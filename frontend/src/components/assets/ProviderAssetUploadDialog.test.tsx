@@ -151,6 +151,10 @@ describe("ProviderAssetUploadDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "详情" }));
     expect(screen.getByText("InputImageSensitiveContentDetected: image rejected")).toBeInTheDocument();
     expect(screen.getByText(/上传需要经你的对象存储中转/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "前往设置" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("section=media-storage"),
+    );
     expect(screen.getByRole("button", { name: "上传到 BytePlus 素材库" })).toBeDisabled();
   });
 

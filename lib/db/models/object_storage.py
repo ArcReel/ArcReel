@@ -4,20 +4,23 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
 
 CURRENT_CONNECTION_SLOT = 1
+MAX_REGION_LENGTH = 64
+MAX_BUCKET_LENGTH = 255
 
 
 class ObjectStorageConnection(TimestampMixin, Base):
     """用户自有对象存储的连接配置，独立于媒体生成供应商的凭证。
 
-    首期只有 TOS 一种 ``kind``，实例至多一条当前连接：``slot`` 为 1 且唯一，并发首次保存也只能建出一条。
+    统一采用标准 S3 兼容协议（``kind="s3"``），实例至多一条当前连接：``slot`` 为 1 且唯一，并发首次保存也只能建出一条。
     ``slot`` 为空的是退役连接，只在迁移合并历史重复记录时为保留仍被引用的定位而留下，不作为当前连接读出。
-    ``access_key_id`` / ``secret_access_key``
+    ``addressing_style`` 控制虚拟主机/路径/自动寻址风格；``needs_endpoint_review`` 标记升级迁移时未能自动改写的自定义域名，
+    供设置页提示核对。``access_key_id`` / ``secret_access_key``
     明文落库，读出 API 时经 ``mask_secret`` 掩码，与供应商凭证同一规则。删除的连接 ID 不回收：
     之后保存在对象存储里的内容按连接 ID 记录所属连接，复用 ID 会让旧定位指向另一个桶。
     """
@@ -30,9 +33,14 @@ class ObjectStorageConnection(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    region: Mapped[str] = mapped_column(String(64), nullable=False)
+    region: Mapped[str] = mapped_column(String(MAX_REGION_LENGTH), nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
+    addressing_style: Mapped[str] = mapped_column(String(16), nullable=False, default="auto", server_default="auto")
+    needs_endpoint_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    relocating: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    relocate_delete_remote: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+    relocate_mode: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)
     access_key_id: Mapped[str] = mapped_column(Text, nullable=False)
     secret_access_key: Mapped[str] = mapped_column(Text, nullable=False)
     slot: Mapped[int | None] = mapped_column(Integer, nullable=True, default=CURRENT_CONNECTION_SLOT)
@@ -57,7 +65,7 @@ class RelayObject(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     connection_id: Mapped[int] = mapped_column(Integer, nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     link_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="retained")
@@ -89,7 +97,7 @@ class FormalObject(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     connection_id: Mapped[int] = mapped_column(Integer, nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    bucket: Mapped[str] = mapped_column(String(MAX_BUCKET_LENGTH), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

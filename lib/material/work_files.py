@@ -36,7 +36,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.artifacts.legacy_history_index import LegacyHistoryIndex
-from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository, relocation_state_epoch
 from lib.infra.api_errors import BadGatewayError, ConflictError
 from lib.infra.content_digest import sha256_file
 from lib.infra.data_root_layout import list_project_dirs
@@ -76,6 +76,24 @@ class MaterialConnectionUnavailableError(ConflictError):
 _LEASE_GUARD = threading.Lock()
 _LEASES: Counter[str] = Counter()
 _LAST_USED: dict[str, float] = {}
+_RELOCATING_CONNECTIONS: Counter[int] = Counter()
+
+
+def mark_connection_relocating(connection_id: int) -> None:
+    with _LEASE_GUARD:
+        _RELOCATING_CONNECTIONS[connection_id] += 1
+
+
+def unmark_connection_relocating(connection_id: int) -> None:
+    with _LEASE_GUARD:
+        _RELOCATING_CONNECTIONS[connection_id] -= 1
+        if not _RELOCATING_CONNECTIONS[connection_id]:
+            del _RELOCATING_CONNECTIONS[connection_id]
+
+
+def is_connection_relocating_in_process(connection_id: int) -> bool:
+    with _LEASE_GUARD:
+        return connection_id in _RELOCATING_CONNECTIONS
 
 
 def _lease_key(path: Path) -> str:
@@ -121,7 +139,7 @@ class _WorkFile:
     created_at: object = field(default=None, compare=False)
 
 
-def _load_project_json(project_path: Path) -> dict[str, Any]:
+def load_project_json(project_path: Path) -> dict[str, Any]:
     try:
         data = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -132,7 +150,7 @@ def _load_project_json(project_path: Path) -> dict[str, Any]:
 _ASSET_SHEET_FIELDS = {spec.bucket_key: spec.sheet_field for spec in ASSET_SPECS.values()}
 
 
-def _formal_path(project: dict[str, Any], resource_type: str, resource_id: str) -> str | None:
+def formal_path(project: dict[str, Any], resource_type: str, resource_id: str) -> str | None:
     """资源正式文件的项目内路径：资产以 project.json 的资产图字段为准（可能是 .jpg），其余取规范路径。"""
     sheet_field = _ASSET_SHEET_FIELDS.get(resource_type)
     if sheet_field is not None:
@@ -189,7 +207,7 @@ def _work_files_from_rows(rows, project):
                 )
             )
         if current == record.get("version"):
-            formal = _formal_path(project, resource_type, resource_id)
+            formal = formal_path(project, resource_type, resource_id)
             if formal is not None:
                 result.append(
                     _WorkFile(
@@ -241,7 +259,7 @@ def remote_work_file_digests(project_path: Path, *, history: LegacyHistoryIndex 
     if cached is not None and cached[0] == version:
         return cached[1]
     if sqlite:
-        files = _work_files_from_rows(store.rows(remote_only=True), _load_project_json(project_path))
+        files = _work_files_from_rows(store.rows(remote_only=True), load_project_json(project_path))
         index = {item.path: item.digest for item in files}
     else:
         try:
@@ -249,7 +267,7 @@ def remote_work_file_digests(project_path: Path, *, history: LegacyHistoryIndex 
             with contextlib.closing(rows) as stream:
                 first = next(stream, None)
                 files = (
-                    _work_files_from_rows(chain((first,), stream), _load_project_json(project_path))
+                    _work_files_from_rows(chain((first,), stream), load_project_json(project_path))
                     if first is not None
                     else ()
                 )
@@ -316,7 +334,7 @@ def material_file_digest(path: Path) -> str:
 def _locked_work_files(project_path: Path) -> list[_WorkFile]:
     from lib.artifacts.version_manager import VersionManager
 
-    project = _load_project_json(project_path)
+    project = load_project_json(project_path)
     manager = VersionManager(project_path)
     if manager.sqlite.is_enabled():
         return _work_files_from_rows(manager.sqlite.rows(remote_only=True), project)
@@ -342,7 +360,7 @@ def locked_remote_work_files(project_path: Path) -> list[RemoteWorkFile]:
 
 def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> bool:
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
-    return work_file in _work_files_from_rows(data, _load_project_json(project_path))
+    return work_file in _work_files_from_rows(data, load_project_json(project_path))
 
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
@@ -391,9 +409,13 @@ def in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: float
         return _in_use_or_recent(path, stat_result, idle_before)
 
 
-def evict_idle_work_file(path: Path, stat_result: os.stat_result, idle_before: float) -> tuple[int, int, int]:
+def evict_idle_work_file(
+    path: Path, stat_result: os.stat_result, idle_before: float, connection_id: int | None = None
+) -> tuple[int, int, int]:
     """调用方确认远端已存储且摘要一致后，原子复核使用登记并删除本地缓存。"""
     with _LEASE_GUARD:
+        if connection_id in _RELOCATING_CONNECTIONS:
+            return 0, 0, 0
         if _in_use_or_recent(path, stat_result, idle_before):
             return 0, 0, 1
         path.unlink()  # hard-delete: derived -- 远端已确认保存的图片工作文件，可从对象存储取回
@@ -566,6 +588,8 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
     except FileNotFoundError:
         return 0, 0, 0
     with VersionManager(project_path).locked_rows(remote_only=True) as data:
+        if is_connection_relocating_in_process(work_file.stored.connection_id):
+            return 0, 0, 0
         try:
             stat_result = target.stat()
         except OSError:
@@ -574,7 +598,7 @@ def _evict(project_path: Path, work_file: _WorkFile, idle_before: float) -> tupl
             return 0, 0, 1
         if not _same_work_file(project_path, work_file, data) or sha256_file(target) != work_file.digest:
             return 0, 0, 0
-        return evict_idle_work_file(target, stat_result, idle_before)
+        return evict_idle_work_file(target, stat_result, idle_before, work_file.stored.connection_id)
 
 
 async def cleanup_work_cache(
@@ -595,10 +619,20 @@ async def cleanup_work_cache(
         work_files = await asyncio.to_thread(_locked_work_files, project_path)
         if not work_files:
             continue
+        epoch = relocation_state_epoch()
         async with session_factory() as session:
             stored = await stored_object_keys(session, {item.stored for item in work_files})
+            active_conn = await ObjectStorageConnectionRepository(session).get()
         for work_file in work_files:
             if work_file.stored not in stored:
+                continue
+            if epoch != relocation_state_epoch():
+                if not await asyncio.to_thread((project_path / work_file.path).exists):
+                    continue
+                epoch = relocation_state_epoch()
+                async with session_factory() as session:
+                    active_conn = await ObjectStorageConnectionRepository(session).get()
+            if active_conn and active_conn.relocating and work_file.stored.connection_id == active_conn.id:
                 continue
             count, size, in_use = await asyncio.to_thread(_evict, project_path, work_file, idle_before)
             removed += count
@@ -621,9 +655,11 @@ __all__ = [
     "ensure_work_file",
     "evict_idle_work_file",
     "fetch_object_content",
+    "formal_path",
     "held_work_files",
     "hold_work_file",
     "in_use_or_recent",
+    "load_project_json",
     "local_work_files",
     "locked_remote_work_files",
     "material_file_digest",

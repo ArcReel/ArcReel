@@ -55,7 +55,6 @@ updates:
           - "google-genai"
           - "openai"
           - "volcengine-python-sdk*"
-          - "tos"
           - "xai-sdk"
         update-types:
           - "minor"
@@ -91,6 +90,8 @@ updates:
         patterns:
           - "Jinja2"
           - "PyYAML"
+          - "boto3"
+          - "botocore"
           - "httpx"
           - "jsonpath-rfc9535"
           - "jsonschema"

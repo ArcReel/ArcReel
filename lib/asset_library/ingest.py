@@ -46,6 +46,7 @@ from lib.infra.task_cancel import raise_if_cancel_absorbed
 from lib.material.formal_objects import (
     INGEST_HOLDER_PREFIX,
     REF_ACTIVE,
+    ObjectStorageRelocatingError,
     add_reference,
     connection_change_lock,
     release_holder,
@@ -256,6 +257,10 @@ async def _content_bytes(
         return await asyncio.to_thread(path.read_bytes)
 
 
+class _ConnectionRelocatingError(Exception):
+    """对象存储连接正在收敛回本地，当前轮次跳过旧连接上的写入与签名。"""
+
+
 async def _submit(
     session_factory: async_sessionmaker[AsyncSession],
     link: _LinkSnapshot,
@@ -277,6 +282,14 @@ async def _submit(
     if connection is None:
         await _fail(session_factory, link.id, now, "object_storage_missing")
         return
+    if connection.relocating:
+        await _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "pending",
+            next_check_at=now + CHECK_INITIAL_DELAY,
+        )
+        return
 
     try:
         project_path = await asyncio.to_thread(project_path_of, link.project_name)
@@ -288,6 +301,14 @@ async def _submit(
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
         return
+    except ObjectStorageRelocatingError:
+        await _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "pending",
+            next_check_at=now + CHECK_INITIAL_DELAY,
+        )
+        return
     except (OSError, ValueError, ApiError):
         await _fail(session_factory, link.id, now, "content_unavailable")
         return
@@ -296,6 +317,14 @@ async def _submit(
         url = await run_noninterruptible_async(
             _prepare_download(session_factory, connection, link, formal_key, data, now)
         )
+    except _ConnectionRelocatingError:
+        await _update(
+            session_factory,
+            link.id,
+            ProviderAssetLink.state == "pending",
+            next_check_at=now + CHECK_INITIAL_DELAY,
+        )
+        return
     except ObjectStorageError as exc:
         await _fail(session_factory, link.id, now, "relay_upload_failed", f"{exc.kind}:{exc.code}")
         return
@@ -371,6 +400,8 @@ async def _prepare_download(
             job = await session.get(ProviderAssetLink, link.id)
         if current is None or job is None or job.state != "pending":
             return None
+        if current.relocating:
+            raise _ConnectionRelocatingError()
         if (current.id, current.endpoint, current.bucket) != (connection.id, connection.endpoint, connection.bucket):
             return None
         client = ObjectStorageClient(config_from_connection(current))

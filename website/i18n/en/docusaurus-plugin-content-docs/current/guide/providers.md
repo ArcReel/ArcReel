@@ -335,7 +335,7 @@ Recommended key rotation procedure:
 
 ## 11. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
 
-Under Settings → Asset Library & Storage, you can link images reviewed by the provider or save new images to your TOS bucket. See [Asset Libraries and Object Storage](./asset-storage.md).
+Under Settings → Media storage and Settings → Provider asset library, you can configure your own S3-compatible object storage bucket or link images reviewed by the provider. See [Asset Libraries and Object Storage](./asset-storage.md).
 
 - <span id="upload-to-asset-library"></span>[Upload Images to an Asset Library](./asset-storage.md#upload-to-asset-library)
 - <span id="select-from-asset-library"></span>[Select an Existing Image from an Asset Library](./asset-storage.md#select-from-asset-library)

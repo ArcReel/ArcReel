@@ -126,7 +126,7 @@ describe("SystemConfigPage", () => {
         within(list).getAllByRole("link").map((link) => link.textContent),
       ]);
     expect(groups).toEqual([
-      ["生成", ["供应商", "默认模型", "调用端点", "素材库与存储"]],
+      ["生成", ["供应商", "默认模型", "调用端点", "媒体存储", "供应商素材库"]],
       ["Agent", ["ArcReel Agent", "Agent 记忆", "外部 Agent 接入", "访问令牌"]],
       [null, ["市场", "使用记录"]],
       ["系统", ["通用", "提示词模板", "关于"]],

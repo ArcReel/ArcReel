@@ -8,6 +8,7 @@ export const SETTINGS_SECTIONS = [
   "providers",
   "default-models",
   "endpoints",
+  "media-storage",
   "asset-library",
   "arcreel-agent",
   "agent-memory",
