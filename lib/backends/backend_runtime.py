@@ -204,19 +204,26 @@ _NON_RETRYABLE_LOCAL_ERRORS: tuple[type[Exception], ...] = (
     httpx.UnsupportedProtocol,
 )
 
+_AMBIGUOUS_SUBMIT_HTTP_STATUS_CODES: frozenset[int] = frozenset({502, 504})
 
-def should_retry_submit(exc: Exception) -> bool:
+
+def should_retry_submit(exc: Exception, *, idempotent: bool = False) -> bool:
     """创建/提交阶段（非幂等「创建 + 计费」POST）重试谓词。
 
     与 ``should_retry_poll`` 的关键区别：传输错误只重试「请求确定未送达」的子集
     （``_NOT_SENT_TRANSPORT_ERRORS``：连接建立失败 / 从未取得连接 / 代理握手失败），重试不会重复建
     任务、不会重复计费。歧义态（ReadTimeout 等「请求可能已被服务端处理」）由
     ``submit_post`` 包成 ``AmbiguousSubmitError`` 终态失败，本谓词对其（及一切业务异常）
-    返回 False。HTTPStatusError 按 status_code 显式闸门：5xx/408/425/429 重试（服务端
-    明示创建失败），404 与确定性 4xx 快速失败。
+    返回 False。HTTPStatusError 按 status_code 显式闸门：408/425/429 与 500/503 等瞬态码重试，
+    404 与确定性 4xx 快速失败；非幂等提交收到网关歧义码 502/504 时同样不自动重试（与 ReadTimeout
+    同源，上游业务服务可能已受理并计费，由用户确认后手动重试）。未来支持幂等键的提交端点可显式传
+    ``idempotent=True`` 放开 502/504 的自动重试。
     """
     if isinstance(exc, httpx.HTTPStatusError):
-        return is_retryable_http_status(exc.response.status_code, retry_not_found=False)
+        status_code = exc.response.status_code
+        if not idempotent and status_code in _AMBIGUOUS_SUBMIT_HTTP_STATUS_CODES:
+            return False
+        return is_retryable_http_status(status_code, retry_not_found=False)
     return isinstance(exc, _NOT_SENT_TRANSPORT_ERRORS)
 
 
