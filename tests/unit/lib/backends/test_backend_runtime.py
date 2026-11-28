@@ -47,6 +47,7 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import AmbiguousSubmitError, ProviderRejectedError
+from lib.infra.retry import with_retry_async
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -444,6 +445,19 @@ class TestRetryPredicates:
             assert should_retry_submit(err) is True
             assert should_retry_poll(err) is True
 
+    def test_ambiguous_gateway_statuses_fail_fast_on_submit_but_retry_on_poll(self):
+        for code in (502, 504):
+            err = _http_status_error(code)
+            assert should_retry_submit(err) is False
+            assert should_retry_submit(err, idempotent=True) is True
+            assert should_retry_poll(err) is True
+
+    def test_idempotent_submit_still_fails_fast_on_4xx_and_ambiguous_transport(self):
+        for code in (400, 404, 422):
+            assert should_retry_submit(_http_status_error(code), idempotent=True) is False
+        assert should_retry_submit(httpx.ReadTimeout("read timed out"), idempotent=True) is False
+        assert should_retry_submit(AmbiguousSubmitError(provider="v2"), idempotent=True) is False
+
     def test_submit_retries_only_not_sent_transport_errors(self):
         for exc in (
             httpx.ConnectError("refused"),
@@ -535,7 +549,7 @@ class TestShouldRetrySignedDownload:
             assert should_retry_signed_download(_http_status_error(code)) is False
 
     def test_transient_codes_still_retry(self):
-        for code in (408, 425, 429, 500, 503):
+        for code in (408, 425, 429, 500, 502, 503, 504):
             assert should_retry_signed_download(_http_status_error(code)) is True
 
     def test_transport_errors_retry_and_local_protocol_errors_fail_fast(self):
@@ -741,6 +755,48 @@ class TestSubmitPost:
             await submit_post(_post, provider="v2")
 
         assert type(excinfo.value) is httpx.HTTPStatusError
+
+    @pytest.mark.parametrize("status", [502, 504])
+    async def test_retry_wrapper_stops_immediately_on_ambiguous_gateway_status(self, status: int):
+        attempts = 0
+        request = httpx.Request("POST", "https://x/v2")
+
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0), retry_if=should_retry_submit)
+        async def _submit() -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+
+            async def _post() -> httpx.Response:
+                return httpx.Response(status, request=request, text="gateway failure")
+
+            return await submit_post(_post, provider="v2")
+
+        with pytest.raises(httpx.HTTPStatusError) as excinfo:
+            await _submit()
+
+        assert excinfo.value.response.status_code == status
+        assert attempts == 1
+
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    async def test_retry_wrapper_retries_non_ambiguous_transient_statuses(self, status: int):
+        attempts = 0
+        request = httpx.Request("POST", "https://x/v2")
+
+        @with_retry_async(max_attempts=3, backoff_seconds=(0, 0), retry_if=should_retry_submit)
+        async def _submit() -> httpx.Response:
+            nonlocal attempts
+            attempts += 1
+
+            async def _post() -> httpx.Response:
+                if attempts == 1:
+                    return httpx.Response(status, request=request, text="transient failure")
+                return httpx.Response(200, request=request, json={"id": "ok"})
+
+            return await submit_post(_post, provider="v2")
+
+        resp = await _submit()
+        assert resp.status_code == 200
+        assert attempts == 2
 
 
 class TestProviderReasonSummary:
