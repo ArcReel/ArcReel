@@ -69,7 +69,7 @@ Site search is available in the built site. Run `pnpm serve` after building to p
 
 Run `uv run python scripts/gate.py --changed` during development. Add `--full` before pushing to run the complete checks for each affected domain. For domain and test selection, see "工具链与校验" (Toolchain and checks) in [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) and [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md).
 
-Pull requests and pushes to `main` run CI checks for the affected domains. Frontend or backend changes require `e2e-live` to pass. Skipping this job fails `ci-required`. Nightly runs the full live E2E suite, collects coverage, and reports the results of deep checks. Weekly and release-candidate runs cover all domains, including container health and database compatibility. After changing shared configuration, run **Weekly and release verification** manually in GitHub Actions to check it before the next scheduled run.
+Pull requests and pushes to `main` run CI checks for the affected domains. Frontend or backend changes require `e2e-live` to pass. Skipping this job fails `ci-required`. Nightly runs the full live E2E suite and reports the results of deep checks. Weekly and release-candidate runs cover all domains, including container health and database compatibility. After changing shared configuration, run **Weekly and release verification** manually in GitHub Actions to check it before the next scheduled run.
 
 ### Frontend Page-Level Tests {#frontend-page-tests}
 

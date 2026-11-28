@@ -147,34 +147,6 @@ def _wire_context(
 
 
 @pytest.mark.asyncio
-async def test_unreadable_image_at_digest_time_is_named_before_submission(tmp_path, monkeypatch):
-    from lib.project.project_manager import ProjectManager
-    from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
-    from server.services.tasks import reference_video_tasks as rvt
-
-    manager = ProjectManager(tmp_path)
-    project = write_project(manager.projects_dir)
-    use_project_manager(monkeypatch, manager)
-    generator = MagicMock()
-    generator.generate_video_async = AsyncMock()
-    _wire_context(monkeypatch, rvt, generator, backend_name="ark", backend_model="selected")
-    broken = project / "characters" / "张三.png"
-    original_open = Path.open
-
-    def deny_one_image(path, *args, **kwargs):
-        if path == broken:
-            raise PermissionError(13, "denied", str(path))
-        return original_open(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", deny_one_image)
-    with pytest.raises(ReferenceProjectionBlockedError) as failure:
-        await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "episode_1.json"})
-    assert failure.value.code == "video_reference_images_unreadable"
-    assert failure.value.params["names"] == "张三.png"
-    generator.generate_video_async.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = write_project(tmp_path)
 

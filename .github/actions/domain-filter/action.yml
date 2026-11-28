@@ -16,7 +16,7 @@ outputs:
     description: 录制器、种子、归一化或录制环境输入变更
     value: ${{ inputs.full == 'true' || steps.filter.outputs.recording == 'true' }}
   workflow:
-    description: CI 配置域（.github/、.codecov.yml、.gitignore）是否变更
+    description: CI 配置域（.github/、.gitignore）是否变更
     value: ${{ steps.gate.outputs.workflow }}
   backend:
     description: 后端域（server/lib/tests/alembic/workspace 子包/依赖文件/agent_runtime_profile）是否变更
@@ -54,7 +54,6 @@ runs:
             - 'frontend/package.json'
           workflow:
             - '.github/**'
-            - '.codecov.yml'
             - '.gitignore'
           backend:
             - 'server/**'

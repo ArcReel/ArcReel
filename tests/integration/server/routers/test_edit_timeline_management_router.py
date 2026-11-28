@@ -25,7 +25,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import edit_timelines
 from server.routers import project_trash as trash_router
 from tests.auth_deps import override_auth
-from tests.factories import install_current_video, make_test_clip
+from tests.factories import install_current_video, install_uploaded_video, make_test_clip
 from tests.fakes import use_project_manager
 
 AGENT = RevisionAuthor(kind="arcreel_agent")
@@ -35,6 +35,7 @@ AGENT = RevisionAuthor(kind="arcreel_agent")
 async def timeline_client(
     file_db_factory, timeline_project: ProjectManager, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[AsyncClient]:
+    install_uploaded_video(timeline_project.get_project_path("demo"), "reference_videos", "E1U1", seconds=0.5)
     use_project_manager(monkeypatch, timeline_project)
     app = FastAPI()
     register_error_handlers(app)

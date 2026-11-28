@@ -62,7 +62,7 @@ pnpm build                 # 构建中英文版本并检查链接和锚点
 
 开发时运行 `uv run python scripts/gate.py --changed`，push 前追加 `--full` 以完整验证受影响域。选域与测试说明见 [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) 的「工具链与校验」一节以及 [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md)。
 
-PR 和 `main` 推送按改动选择 CI 检查。前端或后端域变更时，`e2e-live` 必须通过，跳过该作业会导致 `ci-required` 失败。Nightly 每次运行全部实机用例，采集覆盖率并汇总深度检查结果。每周巡检和发布候选运行全部域，包括容器健康检查与数据库兼容矩阵。共享配置变更后，可在 GitHub Actions 中手动运行 **Weekly and release verification** 提前验证。
+PR 和 `main` 推送按改动选择 CI 检查。前端或后端域变更时，`e2e-live` 必须通过，跳过该作业会导致 `ci-required` 失败。Nightly 每次运行全部实机用例并汇总深度检查结果。每周巡检和发布候选运行全部域，包括容器健康检查与数据库兼容矩阵。共享配置变更后，可在 GitHub Actions 中手动运行 **Weekly and release verification** 提前验证。
 
 ### 前端页面级测试
 

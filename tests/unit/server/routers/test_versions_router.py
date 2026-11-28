@@ -81,14 +81,20 @@ def _write_minimal_project(project_path: Path) -> None:
 
 class _FakePM:
     def __init__(self, project_root):
+        from lib.project.project_manager import ProjectManager
+
         self.updated = []
-        self.project_root = Path(project_root)
+        self._real = ProjectManager(project_root)
+        self.project_root = self._real.projects_dir
 
     def get_project_path(self, project_name):
         project_path = self.project_root / project_name
         if not project_path.is_dir():
             _write_minimal_project(project_path)
         return project_path
+
+    def load_project(self, project_name):
+        return self._real.load_project(project_name)
 
     def _update_asset_sheet(self, asset_type, *args, on_commit=None):
         self.updated.append((asset_type, args))

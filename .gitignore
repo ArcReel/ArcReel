@@ -59,9 +59,6 @@ htmlcov/
 .coverage
 coverage/
 coverage.xml
-coverage-pg.xml
-coverage-backend.xml
-raw.coverage
 .testmondata*
 
 **/*.lock
