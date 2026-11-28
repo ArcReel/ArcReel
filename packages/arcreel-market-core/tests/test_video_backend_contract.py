@@ -40,6 +40,10 @@ class TestVideoGenerationRequest:
         assert req.seed == 42
         assert req.service_tier == "flex"
 
+    def test_rejects_positional_arguments(self):
+        with pytest.raises(TypeError, match="positional"):
+            VideoGenerationRequest("test", Path("/tmp/out.mp4"))  # type: ignore[misc]
+
 
 class TestVideoGenerationResult:
     def test_required_fields(self):

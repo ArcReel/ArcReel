@@ -309,7 +309,7 @@ class VideoCapabilities:
         return self.audio_track
 
 
-@dataclass
+@dataclass(kw_only=True)
 class VideoGenerationRequest:
     """通用视频生成请求。各 Backend 忽略不支持的字段。"""
 
