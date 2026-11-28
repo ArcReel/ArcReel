@@ -60,6 +60,7 @@ export default {
   "video_end_image_requires_start_image": "Mô hình {{model}} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
   "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {{model}} không đọc được; đã hủy tạo: {{name}}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
   "video_first_frame_unsupported": "{{provider}}/{{model}} không hỗ trợ khung hình đầu với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình đầu của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
+  "video_kling_api_key_required": "Mô hình {{model}} chỉ hỗ trợ xác thực bằng API Key (không hỗ trợ Access Key / Secret Key JWT); hãy điền API Key của Kling trong trang cấu hình hệ thống rồi thử lại",
   "video_last_frame_requires_pro": "{{provider}}/{{model}} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
   "video_last_frame_unsupported": "{{provider}}/{{model}} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
   "video_prompt_too_long": "{{provider}}/{{model}} chỉ chấp nhận câu lệnh tối đa {{limit}} ký tự nhưng nhận được {{count}}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",

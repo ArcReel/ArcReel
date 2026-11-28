@@ -651,6 +651,7 @@ MESSAGES = {
     "image_edit_i2i_unavailable": "Chưa cấu hình nhà cung cấp ảnh hỗ trợ image-to-image (i2i); hãy cấu hình trong Cài đặt trước",
     "image_edit_task_submitted": "Đã gửi tác vụ chỉnh sửa ảnh cho '{id}'",
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
+    "video_kling_api_key_required": "Mô hình {model} chỉ hỗ trợ xác thực bằng API Key (không hỗ trợ Access Key / Secret Key JWT); hãy điền API Key của Kling trong trang cấu hình hệ thống rồi thử lại",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",
     "video_end_frame_durations_incompatible": "Không có thời lượng video với khung hình cuối phù hợp với cấu hình hiện tại. Đổi cấu hình video hoặc bỏ khung hình cuối.",
     "video_duration_end_frame_not_supported": "Thời lượng {duration}s không khả dụng khi có khung hình cuối; khả dụng: {supported}. Đổi thời lượng hoặc bỏ khung hình cuối.",

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -28,8 +29,12 @@ from lib.backends.video_backends.registry import (
     metered_usage_for_model,
     video_capabilities_for_model,
 )
+from lib.generation.task_failure import parse_failure, render_failure
+from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.i18n import SUPPORTED_LOCALES
+from lib.i18n import _ as translate_message
 from tests.custom_backend_support import create_custom_backend
-from tests.factories import image_bytes
+from tests.factories import image_bytes, make_display_names
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -99,8 +104,33 @@ class TestConstructionAndCapabilities:
         assert _backend(base_url=configured)._base_url == expected
 
     def test_access_key_secret_key_is_rejected(self):
-        with pytest.raises(ValueError, match="只支持 API Key"):
+        with pytest.raises(VideoCapabilityError) as caught:
             KlingModelPathVideoBackend(auth_mode="jwt", access_key="ak", secret_key="sk")
+        assert caught.value.code == "video_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0"}
+
+    def test_jwt_capability_error_encodes_and_renders_in_all_locales(self):
+        with pytest.raises(VideoCapabilityError) as caught:
+            KlingModelPathVideoBackend(auth_mode="jwt", access_key="ak", secret_key="sk", model="kling-4.0-flash")
+        assert caught.value.code == "video_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0-flash"}
+
+        stored = encode_task_failure_message(caught.value)
+        assert parse_failure(stored) == ("video_kling_api_key_required", {"model": "kling-4.0-flash"})
+
+        messages = [
+            render_failure(stored, partial(translate_message, locale=locale), make_display_names(locale))
+            for locale in SUPPORTED_LOCALES
+        ]
+        assert len(set(messages)) == len(SUPPORTED_LOCALES)
+        for message in messages:
+            assert message
+            assert "kling-4.0-flash" in message
+            assert "video_kling_api_key_required" not in message
+
+    def test_unknown_auth_mode_is_rejected_with_value_error(self):
+        with pytest.raises(ValueError, match="auth_mode"):
+            KlingModelPathVideoBackend(auth_mode="oauth", api_key="static-key")
 
     def test_missing_api_key_is_rejected(self):
         with pytest.raises(ValueError, match="API Key"):

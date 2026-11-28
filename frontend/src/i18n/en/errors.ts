@@ -59,6 +59,7 @@ export default {
   "video_end_image_requires_start_image": "Model {{model}} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
   "video_end_image_unreadable": "The last-frame image for model {{model}} is unreadable; generation aborted: {{name}}; check the last-frame image path",
   "video_first_frame_unsupported": "{{provider}}/{{model}} does not support a first frame under the current configuration; generation aborted. Remove the shot's first frame, or switch to a model or tier that supports it",
+  "video_kling_api_key_required": "Model {{model}} only supports API Key authentication (not Access Key / Secret Key JWT); enter your Kling API Key in system settings and try again",
   "video_last_frame_requires_pro": "{{provider}}/{{model}} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
   "video_last_frame_unsupported": "{{provider}}/{{model}} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
   "video_prompt_too_long": "{{provider}}/{{model}} accepts prompts of at most {{limit}} characters but received {{count}}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",

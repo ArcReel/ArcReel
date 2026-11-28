@@ -114,14 +114,17 @@ class KlingModelPathVideoBackend(
         http_timeout: float = 60.0,
         transport_layer: TransportLayer | None = None,
     ) -> None:
+        resolved_model = model or DEFAULT_MODEL
+        if auth_mode == "jwt":
+            raise VideoCapabilityError("video_kling_api_key_required", model=resolved_model)
         if auth_mode != "bearer":
-            raise ValueError("可灵新版 API 只支持 API Key 鉴权，请到系统配置页填写可灵 Kling 的 API Key")
+            raise ValueError(f"未知 Kling auth_mode: {auth_mode}")
         super().__init__(
             auth_mode=auth_mode,
             access_key=access_key,
             secret_key=secret_key,
             api_key=api_key,
-            model=model or DEFAULT_MODEL,
+            model=resolved_model,
             base_url=base_url,
             http_timeout=http_timeout,
             transport_layer=transport_layer,
