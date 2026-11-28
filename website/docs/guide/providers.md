@@ -271,7 +271,7 @@ Grok TTS 的配音语速范围是 0.7～1.5。超出范围时合成任务在提�
 - **OpenRouter 图片**：为 OpenRouter 图像模型选择「OpenRouter 图片」，以便用同一个端点进行文生图与图生图。
 - **火山方舟**：Seedream 区分「Seedream (1K)」与「Seedream (2K)」。Seedance 按 1.x、2.0 或 2.5 选择对应端点。模型 ID 没写明代际时，例如方舟推理接入点 ID，请手动核对。
 - **Gemini 视频**：Gemini Omni 使用 Interactions API，与 Veo 调用端点分开。对兼容 Interactions API 的服务，可用「Gemini 视频 (Omni)」并分别覆盖提交与轮询路径。Vertex AI 的调用端点只用于内置供应商。
-- **可灵视频**：按模型支持的 API 版本选择端点。新版 API 使用「Kling 视频（新版 API，固定有声）」，需要 API Key。
+- **可灵图片与视频**：按模型支持的 API 版本选择端点。新版 API 分别使用「Kling 图片（新版 API）」与「Kling 视频（新版 API，固定有声）」，均需要 API Key。
 - **ComfyUI**：导入 API 格式 workflow，再为供应商模型选择该端点，见[接入 ComfyUI workflow](./comfyui.md)。可用输入取决于节点绑定。
 - **其他接口**：先到[市场](./market.md)查找已有端点。供应商使用 JSON 请求与响应时，也可以在「调用端点」中从示例模板新建图片或视频声明式定义。
 

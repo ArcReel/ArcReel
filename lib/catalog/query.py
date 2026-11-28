@@ -64,6 +64,7 @@ ModelCapability = Literal[
 _LEGACY_MODEL_KEYS: Mapping[tuple[str, str, str], str] = {
     ("kling", "kling-v3", "image"): "kling-v3-image",
     ("kling", "kling-v3-omni", "image"): "kling-v3-omni-image",
+    ("kling", "kling-4.0", "image"): "kling-4.0-image",
 }
 
 

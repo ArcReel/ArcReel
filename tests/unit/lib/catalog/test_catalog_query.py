@@ -299,7 +299,7 @@ def test_user_copy_price_table_is_used_for_pricing(acme_catalog):
         catalog.install_user_entries(())
 
 
-@pytest.mark.parametrize("api_name", ["kling-v3", "kling-v3-omni"])
+@pytest.mark.parametrize("api_name", ["kling-v3", "kling-v3-omni", "kling-4.0"])
 @pytest.mark.parametrize("image_first", [False, True])
 def test_kling_amphibious_models_are_readable_in_both_media(monkeypatch, api_name, image_first):
     models = [

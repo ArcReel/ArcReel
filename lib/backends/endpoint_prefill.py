@@ -67,6 +67,14 @@ _KLING_PROFILES = {
     "kling-4.0-flash": "model-path",
     "kling-3.0-turbo": "model-path",
 }
+_KLING_MODEL_PATH_IMAGE_NAMES = frozenset(
+    {"kling-4.0", "kling-4.0-image", "kling-image-4.0", "kling-4-0", "kling-4-0-image", "kling-image-4-0"}
+)
+
+
+def _kling_image_endpoint_for_name(model_id: str) -> str:
+    canonical = model_id.replace(":", "/").rsplit("/", 1)[-1].strip().lower()
+    return "kling-image-model-path" if canonical in _KLING_MODEL_PATH_IMAGE_NAMES else "kling-image"
 
 
 def request_profile_endpoint_for_name(provider_id: str, name: str) -> str | None:
@@ -223,6 +231,8 @@ def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None 
                 return _seedance_endpoint(model_id)
             if token == "seedream":
                 return image_endpoint_for_name("ark", model_id)
+            if media_type == "image" and token == "kling":
+                return _kling_image_endpoint_for_name(model_id)
             if media_type == "video" and ("kling" in token or "vidu" in token):
                 return _request_profile_endpoint("kling" if "kling" in token else "vidu", model_id)
             return endpoints[media_type]
@@ -306,7 +316,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     if "kling" in lowered:
         if "video" in lowered:
             return _request_profile_endpoint("kling", model_id)
-        return "kling-image" if is_image else _request_profile_endpoint("kling", model_id)
+        return _kling_image_endpoint_for_name(model_id) if is_image else _request_profile_endpoint("kling", model_id)
 
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 

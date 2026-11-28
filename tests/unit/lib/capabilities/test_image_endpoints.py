@@ -60,6 +60,7 @@ def test_image_reference_limit_soft_override_vs_openrouter_hard_cap():
     [
         ("openrouter-images", 16),
         ("kling-image-single", 1),
+        ("kling-image-model-path", 10),
         ("minimax-image", 1),
         ("minimax-h3-image", 16),
     ],

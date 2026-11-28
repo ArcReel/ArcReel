@@ -243,7 +243,7 @@ def build_builtin_backend(spec: ProviderSpec, config: LoadedConfig, model: str |
         if spec.provider_id == "kling" and model:
             from lib.catalog import query as catalog
 
-            model_info = catalog.get_model("kling", model)
+            model_info = catalog.get_model("kling", model, media_type="image")
             if model_info is not None and model_info.api_model_name:
                 api_model_name = model_info.api_model_name
         return build_builtin_image(

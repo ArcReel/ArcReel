@@ -115,6 +115,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "vidu-video-q3-mix": BuiltinEndpoint("video", since="0.37.1"),
         "vidu-video-q3-ad": BuiltinEndpoint("video", since="0.37.1"),
         "minimax-h3-image": BuiltinEndpoint("image", since="0.37.1"),
+        "kling-image-model-path": BuiltinEndpoint("image", since="0.38.1"),
     }
 )
 
@@ -173,7 +174,9 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
             "audio": _single("grok-tts"),
         },
         "kling": {
-            "image": ProviderEndpointOptions(("kling-image", "kling-image-single"), "kling-image"),
+            "image": ProviderEndpointOptions(
+                ("kling-image", "kling-image-single", "kling-image-model-path"), "kling-image"
+            ),
             "video": ProviderEndpointOptions(
                 (
                     "kling-video-pro-silent",
