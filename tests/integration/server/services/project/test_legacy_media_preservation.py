@@ -19,6 +19,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestArchiveSnapshot,
+    ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
     encode_artifact_manifest_payload,
@@ -132,20 +133,29 @@ def _media_snapshot(
     return media
 
 
-def _write_enveloped_archive(project_dir: Path, archive_path: Path, *, full_manifest: bool = False) -> None:
-    adapter = ProjectArtifactManifestAdapter(project_dir)
-    media_kinds = {
-        ArtifactKind.ASSET_SHEET,
-        ArtifactKind.EPISODE_GRID,
-        ArtifactKind.EPISODE_STORYBOARD,
-        ArtifactKind.EPISODE_VIDEO,
-        ArtifactKind.EPISODE_AUDIO,
-    }
-    entries = {
+def _exportable_manifest_entries(project_dir: Path) -> dict[ArtifactKey, ArtifactManifestEntry]:
+    return {
         key: entry
-        for key, entry in adapter.snapshot_entries().items()
-        if (full_manifest or key.kind in media_kinds) and not entry.artifact_path.startswith("renders/")
+        for key, entry in ProjectArtifactManifestAdapter(project_dir).snapshot_entries().items()
+        if not entry.artifact_path.startswith("renders/")
     }
+
+
+def _manifest_currency_snapshot(project_dir: Path) -> dict[ArtifactKey, tuple[str, str, ArtifactStatus]]:
+    resolver = ArtifactCurrencyResolver(project_dir)
+    return {
+        key: (
+            entry.artifact_path,
+            entry.basis_digest,
+            resolver.compare(key, artifact_path=entry.artifact_path).status,
+        )
+        for key, entry in _exportable_manifest_entries(project_dir).items()
+    }
+
+
+def _write_enveloped_archive(project_dir: Path, archive_path: Path) -> None:
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    entries = _exportable_manifest_entries(project_dir)
     digests = {key: read_artifact_content_digest(adapter, entry.artifact_path) for key, entry in entries.items()}
     manifest = ArtifactManifestArchiveSnapshot(entries=entries, content_digests=digests)
     envelope = {"project_name": project_dir.name, "artifact_manifest": encode_artifact_manifest_payload(manifest)}
@@ -216,8 +226,10 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
             alias.symlink_to(extraction_root, target_is_directory=True)
             extraction_root = alias
         monkeypatch.setattr(tempfile, "tempdir", str(extraction_root))
+        source_dir = project_dir
+        has_registered_manifest = bool(_exportable_manifest_entries(source_dir))
         archive_path = tmp_path / "legacy.zip"
-        _write_enveloped_archive(project_dir, archive_path, full_manifest=tts_snapshot)
+        _write_enveloped_archive(source_dir, archive_path)
         target = ProjectManager(tmp_path / "imported")
         service = ProjectArchiveService(target)
         if shape in {"missing-character-original", "dangling-alias-reference"}:
@@ -229,7 +241,7 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
                 )
             else:
                 key, field = "val_path_traversal", "characters[Bob].reference_image"
-                reference = _read_json(project_dir / "project.json")["characters"]["Bob"]["reference_image"]
+                reference = _read_json(source_dir / "project.json")["characters"]["Bob"]["reference_image"]
             with pytest.raises(ProjectArchiveValidationError) as rejected:
                 service.import_project_archive(archive_path, confirm_report=True)
             assert [(error.key, error.params) for error in rejected.value.errors] == [
@@ -241,6 +253,12 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
         except ProjectArchiveValidationError as exc:
             pytest.fail(f"Archive import failed: {exc.render_errors()}")
         project_dir = target.get_project_path(result.project_name)
+        if has_registered_manifest:
+            migrate_project_dir(source_dir)
+            imported_currency = _manifest_currency_snapshot(project_dir)
+            assert imported_currency
+            assert imported_currency == _manifest_currency_snapshot(source_dir)
+            assert all(status is not ArtifactStatus.MISSING for _, _, status in imported_currency.values())
 
     project = _read_json(project_dir / "project.json")
     assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -328,7 +346,7 @@ def test_import_rejects_changed_json_even_when_migration_would_rewrite_it(tmp_pa
     project_dir = LEGACY_PROJECT_SHAPES["v15-tts"](tmp_path / "source")
     original = tmp_path / "original.zip"
     modified = tmp_path / "modified.zip"
-    _write_enveloped_archive(project_dir, original, full_manifest=True)
+    _write_enveloped_archive(project_dir, original)
     with zipfile.ZipFile(original) as source, zipfile.ZipFile(modified, "w") as target:
         for info in source.infolist():
             data = source.read(info)
