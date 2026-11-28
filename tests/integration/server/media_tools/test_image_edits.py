@@ -403,3 +403,140 @@ async def test_i2i_unavailable_problem_model_not_in_catalog_guides_reselect() ->
     assert problem.code == "model_not_in_provider_catalog"
     assert problem.action == "configure_provider"
     assert problem.params == {"provider": "ark", "model": "old-img"}
+
+
+async def test_edit_images_blocks_builtin_model_removed_from_catalog(
+    fake_ctx: ToolHarness,
+    concurrent_session_factory,
+) -> None:
+    from lib.config.resolver import ConfigResolver
+
+    _give_zhangsan_a_sheet(fake_ctx)
+    fake_ctx.pm.project_payload["default_image_backend"] = "ark/retired-image-model"
+    fake_ctx.config_resolver = ConfigResolver(concurrent_session_factory)
+    fake_ctx.pm.mirror_to_disk()
+    enqueue = AsyncMock(return_value=([], []))
+
+    out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=enqueue)
+
+    result = read_generation_result(out)
+    assert result.blocked == ["张三"]
+    problem = result.items[0].problem
+    assert problem is not None
+    assert problem.code == "model_not_in_provider_catalog"
+    assert problem.action == "configure_provider"
+    assert problem.params == {"provider": "ark", "model": "retired-image-model"}
+    enqueue.assert_not_awaited()
+
+
+async def test_edit_images_blocks_builtin_model_without_i2i_capability(
+    fake_ctx: ToolHarness,
+    concurrent_session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lib.catalog import query as catalog_query
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_query.factory_snapshot(),
+            "ark",
+            "doubao-seedream-4-5-251128",
+            image_to_image=False,
+        ),
+    )
+    _give_zhangsan_a_sheet(fake_ctx)
+    fake_ctx.pm.project_payload["default_image_backend"] = "ark/doubao-seedream-4-5-251128"
+    fake_ctx.config_resolver = ConfigResolver(concurrent_session_factory)
+    fake_ctx.pm.mirror_to_disk()
+    enqueue = AsyncMock(return_value=([], []))
+
+    out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=enqueue)
+
+    result = read_generation_result(out)
+    assert result.blocked == ["张三"]
+    problem = result.items[0].problem
+    assert problem is not None
+    assert problem.code == "image_capability_missing_i2i"
+    assert problem.action == "configure_provider"
+    assert problem.params == {"provider": "ark", "model": "doubao-seedream-4-5-251128"}
+    enqueue.assert_not_awaited()
+
+
+async def test_edit_images_allows_builtin_i2i_model_without_credentials(
+    fake_ctx: ToolHarness,
+    concurrent_session_factory,
+) -> None:
+    from lib.config.resolver import ConfigResolver
+
+    _give_zhangsan_a_sheet(fake_ctx)
+    fake_ctx.pm.project_payload["default_image_backend"] = "ark/doubao-seedream-4-5-251128"
+    fake_ctx.config_resolver = ConfigResolver(concurrent_session_factory)
+    fake_ctx.pm.mirror_to_disk()
+
+    out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=_succeed_every_spec)
+
+    assert read_generation_result(out).succeeded == ["张三"]
+
+
+async def test_edit_images_preserves_custom_provider_semantics(
+    fake_ctx: ToolHarness,
+    concurrent_session_factory,
+) -> None:
+    from lib.config.resolver import ConfigResolver
+    from lib.custom_provider import make_provider_id
+    from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+    async with concurrent_session_factory() as session:
+        provider = CustomProvider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.example.com",
+            api_key="",
+        )
+        session.add(provider)
+        await session.flush()
+        session.add_all(
+            [
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="custom-edit-model",
+                    display_name="Custom Edit",
+                    endpoint="openai-images-edits",
+                    is_default=True,
+                    is_enabled=True,
+                ),
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="custom-t2i-only",
+                    display_name="Custom T2I Only",
+                    endpoint="openai-images-generations",
+                    is_default=False,
+                    is_enabled=True,
+                ),
+            ]
+        )
+        await session.commit()
+        provider_id = make_provider_id(provider.id)
+
+    _give_zhangsan_a_sheet(fake_ctx)
+    fake_ctx.config_resolver = ConfigResolver(concurrent_session_factory)
+
+    fake_ctx.pm.project_payload["image_provider_i2i"] = f"{provider_id}/custom-edit-model"
+    fake_ctx.pm.mirror_to_disk()
+    ok_out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=_succeed_every_spec)
+    assert read_generation_result(ok_out).succeeded == ["张三"]
+
+    fake_ctx.pm.project_payload["image_provider_i2i"] = f"{provider_id}/custom-t2i-only"
+    fake_ctx.pm.mirror_to_disk()
+    enqueue = AsyncMock(return_value=([], []))
+    blocked_out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=enqueue)
+    result = read_generation_result(blocked_out)
+    assert result.blocked == ["张三"]
+    problem = result.items[0].problem
+    assert problem is not None
+    assert problem.code == "image_capability_missing_i2i"
+    assert problem.params == {"provider": provider_id, "model": "custom-t2i-only"}
+    enqueue.assert_not_awaited()

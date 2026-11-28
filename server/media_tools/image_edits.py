@@ -23,7 +23,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactManifestError
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ImageBucketCapabilityError
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
@@ -74,7 +74,11 @@ async def _i2i_unavailable_problem(
     from lib.video_runtime.image_resolution import ImageRuntime
 
     try:
-        await ImageRuntime(config_resolver).read_identity(project, "i2i")
+        await ImageRuntime(config_resolver).read_bucket(project, "i2i")
+    except ImageBucketCapabilityError as exc:
+        return GenerationProblem(
+            code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
+        )
     except ModelNotInCatalogError as exc:
         return GenerationProblem(
             code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)

@@ -671,7 +671,7 @@ class FakeConfigResolver:
         generation_type_errors: Mapping[str, BaseException] | None = None,
         error: BaseException | None = None,
         generate_audio_error: BaseException | None = None,
-        image_backend: tuple[str, str] = ("fake", "fake-image"),
+        image_backend: tuple[str, str] = ("gemini-aistudio", "gemini-3-pro-image"),
         image_backend_error: BaseException | None = None,
         reference_payload_limits: tuple[int, int] | None = None,
         image_resolution: str = "1080p",
@@ -1288,6 +1288,13 @@ def use_video_read_bucket(monkeypatch, handler: Callable[..., Any]) -> None:
     from lib.video_runtime.resolution import VideoRuntime
 
     monkeypatch.setattr(VideoRuntime, "read_bucket", handler)
+
+
+def use_image_read_bucket(monkeypatch, handler: Callable[..., Any]) -> None:
+    """将 ``ImageRuntime.read_bucket`` 替换为 *handler*。"""
+    from lib.video_runtime.image_resolution import ImageRuntime
+
+    monkeypatch.setattr(ImageRuntime, "read_bucket", handler)
 
 
 def use_image_read_identity(monkeypatch, handler: Callable[..., Any]) -> None:
