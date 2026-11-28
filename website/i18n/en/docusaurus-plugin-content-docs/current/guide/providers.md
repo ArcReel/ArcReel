@@ -110,6 +110,8 @@ If there is no matching catalog entry and you use the default provider parameter
 
 You can enable or disable officially listed provider models. Official data maintains their provider parameters. For a custom provider model or a model you added to a built-in provider, you can change the endpoint and supported parameters. Switching video endpoints clears incompatible capability overrides and resets request paths. Save and then check the new endpoint. When you change a custom provider model ID, ArcReel updates saved global and project references. Check the existing selections after changing the ID of a manually added model under a built-in provider.
 
+Disabling the last video model on a custom provider stops new video submissions to that provider. After a restart, ArcReel can still poll and download videos that already have a provider job ID, provided the credentials are valid and the endpoint remains compatible.
+
 **Maintain shared model information**
 
 You can edit the display name, capabilities, durations, resolutions, maximum output length, and prices. Set prices by billing item, currency, and condition. A missing price or condition can show as Unpriced in usage records.

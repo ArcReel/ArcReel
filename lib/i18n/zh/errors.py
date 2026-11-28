@@ -87,7 +87,7 @@ MESSAGES = {
     "task_fail_restart_lost_checkpoint_no_job_id": "任务已越过提交边界但未保存供应商任务编号，不能自动重试以免重复计费",
     "task_fail_execution_identity_unrecoverable": "任务的提交身份无法恢复：{detail}",
     "task_fail_resume_unsupported_provider": "供应商 {provider_id} 不支持任务接续，请手动重试以避免重复计费",
-    "task_fail_resume_unsupported_capacity_zero": "供应商 {provider_id} 的视频容量为 0，无法接续任务，请手动重试",
+    "task_fail_resume_unsupported_capacity_zero": "此任务恢复时，供应商 {provider_id} 的视频容量为 0，任务已失败",
     "task_fail_resume_unsupported_detail": "任务无法接续：{detail}",
     "task_fail_resume_expired_detail": "任务接续凭据已过期：{detail}",
     "task_fail_resume_endpoint_changed_detail": "该模型的接口已更换，无法接续提交前发起的生成：{detail}",

@@ -279,10 +279,13 @@ async def resolve_video_execution_for_queued_task(
     execution_payload = (
         without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
-    from lib.config.resolver import ProviderModel
+    from lib.config.resolver import ProviderModel, VideoBucketCapabilityError
     from lib.video_runtime.resolution import VideoRuntime
 
-    read = await VideoRuntime(resolver).read_bucket(project, generation_type, payload=execution_payload or {})
+    try:
+        read = await VideoRuntime(resolver).read_bucket(project, generation_type, payload=execution_payload or {})
+    except VideoBucketCapabilityError as exc:
+        return ProviderModel(exc.provider_id, exc.model_id), generation_type
     resolved = ProviderModel(read.snapshot.provider_id, read.snapshot.model_id)
     return resolved, generation_type
 

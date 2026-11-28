@@ -98,7 +98,6 @@ class RestartRecovery:
         capacity: CapacityTable,
         slots: SlotTable,
         stop_event: asyncio.Event,
-        reload_limits: Callable[[], Awaitable[None]],
         provider_projection: ProviderProjection,
         resume: VideoResumeRunner,
         settle_interrupted_calls: InterruptedCallSettler,
@@ -107,7 +106,6 @@ class RestartRecovery:
         self._capacity = capacity
         self._slots = slots
         self._stop_event = stop_event
-        self._reload_limits = reload_limits
         self._provider_projection = provider_projection
         self._resume = resume
         self._settle_interrupted_calls = settle_interrupted_calls
@@ -355,8 +353,7 @@ class RestartRecovery:
     ) -> None:
         """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
-        - ``cap <= 0``：fail-fast mark_failed[resume_unsupported]，不进 ``Semaphore(0)``
-          死锁；reload 一次兜底，避免启动期 capability 抖动误判。
+        - 新提交容量为 0 时，已提交任务在本批次内串行续查。
         - sub-task 由父协程同步预先以 PENDING 登记到占用台账——避免 ``create_task``
           异步调度还未触发时主循环 ``has_room`` 看占用=0 误判可有容量。
         - sem acquire 成功后 ``promote`` 把该占用翻成 INFLIGHT（同一 sub-task，只翻标志）；
@@ -367,12 +364,6 @@ class RestartRecovery:
         remaining = dict(pre_acquired or {})
         try:
             cap = self._capacity.get(provider_id, "video")
-            if cap <= 0:
-                try:
-                    await self._reload_limits()
-                except Exception:
-                    logger.warning("reload_limits 兜底失败", exc_info=True)
-                cap = self._capacity.get(provider_id, "video")
             sem = asyncio.Semaphore(max(cap, 1))
 
             async def _run_one(t: dict[str, Any]) -> None:
@@ -386,15 +377,6 @@ class RestartRecovery:
                     if await self._restore_committed(t):
                         return
                     if self._stop_event.is_set() and not accepted_retry:
-                        return
-                    if cap <= 0:
-                        await self._writes.failed(
-                            task_id, encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id)
-                        )
-                        await self._resume.settle_unresumable_call(
-                            t, failure=f"resume unsupported: provider {provider_id} has no video capacity"
-                        )
-                        await cleanup_video_staging(t)
                         return
                     self._slots.promote(provider_id, "video", task_id)
                     logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
