@@ -46,6 +46,7 @@ export default {
   "image_resolution_not_supported": "模型 {{model}} 不支持 {{resolution}} 分辨率（仅支持 {{supported}}）；请选择支持的分辨率",
   "image_aspect_ratio_not_supported": "模型 {{model}} 不支持 {{aspect_ratio}} 比例（仅支持 {{supported}}）；请选择支持的比例",
   "image_seedream_edits_unavailable": "模型 {{model}} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
+  "image_kling_api_key_required": "模型 {{model}} 仅支持 API Key 鉴权，不支持 Access Key / Secret Key（JWT）；请在系统配置页填写可灵 Kling 的 API Key 后重试",
   "narration_tts_speed_out_of_range": "所选 TTS 模型的配音语速范围是 {{minimum}}～{{maximum}}，当前为 {{speed}}。请调整或清空配音语速",
   "ark_agent_plan_tts_access_denied": "火山方舟 Agent Plan 拒绝了语音合成请求（错误码 {{code}}）。可能是 API Key 无效、套餐未开通语音合成、额度或并发已用尽，或音色未授权。在方舟控制台确认套餐状态与音色后重试；ArcReel 不会改用按量付费接口",
   "ark_agent_plan_tts_failed": "火山方舟 Agent Plan 语音合成失败（错误码 {{code}}），没有生成音频。稍后重试；问题持续时，在方舟控制台查看套餐状态",

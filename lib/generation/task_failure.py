@@ -37,6 +37,7 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "image_dashscope_4k_t2i_only",
         "image_endpoint_mismatch_no_i2i",
         "image_endpoint_mismatch_no_t2i",
+        "image_kling_api_key_required",
         "image_reference_images_exceeded",
         "image_reference_images_unreadable",
         "image_resolution_not_supported",

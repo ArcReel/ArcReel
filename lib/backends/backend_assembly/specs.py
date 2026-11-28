@@ -270,14 +270,16 @@ def builtin_video_snapshot_from_view(
     elif view is not None and entry is not None:
         base = view.base_model or view.model
         if tuple(base.resolutions) != facts.resolutions:
-            kept = set(base.resolutions)
+            kept = {res.casefold() for res in base.resolutions}
             facts = replace(
                 facts,
                 resolutions=tuple(base.resolutions),
                 duration_constraints=replace(
                     facts.duration_constraints,
                     by_resolution={
-                        res: allowed for res, allowed in facts.duration_constraints.by_resolution.items() if res in kept
+                        res: allowed
+                        for res, allowed in facts.duration_constraints.by_resolution.items()
+                        if res.casefold() in kept
                     },
                 ),
             )

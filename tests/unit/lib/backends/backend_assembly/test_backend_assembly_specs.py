@@ -518,9 +518,13 @@ class TestKlingSpec:
         assert backend._base_url == "https://api-beijing.klingai.com"
 
     def test_image_model_path_endpoint_refuses_dual_secret(self):
+        from lib.backends.image_errors import ImageCapabilityError
+
         spec = get_provider_spec("kling", "image", "kling-image-model-path")
-        with pytest.raises(ValueError, match="只支持 API Key"):
+        with pytest.raises(ImageCapabilityError) as caught:
             build_builtin_backend(spec, self._kling_config(access_key="ak-1", secret_key="sk-1"), "kling-4.0")
+        assert caught.value.code == "image_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0"}
 
     def test_api_key_takes_priority_over_dual_secret_when_both_set(self):
         """两者都填时 api_key 优先（不透传 access_key/secret_key）。"""

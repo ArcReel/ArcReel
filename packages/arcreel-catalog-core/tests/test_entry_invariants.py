@@ -9,7 +9,7 @@ from catalog_factories import amphibious_image_entry, audio_entry, text_entry, v
 from hypothesis import given
 from hypothesis import strategies as st
 
-from arcreel_catalog_core import check_entry, dump_entry, parse_entry
+from arcreel_catalog_core import check_catalog, check_entry, dump_entry, parse_catalog, parse_entry
 
 
 @pytest.mark.invariant
@@ -74,3 +74,34 @@ def test_entry_json_round_trip(
     assert dumped == expected
     assert check_entry(dumped) == []
     assert parse_entry(dumped) == entry
+
+
+@pytest.mark.invariant
+@given(
+    target_media=st.sampled_from(("video", "image")),
+    chosen=st.lists(st.sampled_from(("720p", "1080p", "1K", "2K", "4k", "8K")), min_size=0, max_size=4, unique=True),
+)
+def test_provider_model_resolutions_subset_invariant(target_media: str, chosen: list[str]) -> None:
+    from catalog_factories import catalog as sample_catalog
+
+    data = sample_catalog()
+    model_index = 0 if target_media == "video" else 1
+    model_raw = data["builtin_providers"]["kling"]["models"][model_index]
+    model_raw["resolutions"] = chosen
+    entry_resolutions = set(
+        next(
+            entry["facts"]["resolutions"]
+            for entry in data["entries"]
+            if f"{entry['maker']}/{entry['name']}" == model_raw["entry"] and entry["media_type"] == target_media
+        )
+    )
+
+    codes = {issue.code for issue in check_catalog(data)}
+    if not chosen:
+        assert "empty_provider_resolutions" in codes
+    elif set(chosen) <= entry_resolutions:
+        assert codes == set()
+        parsed = parse_catalog(data)
+        assert parsed.builtin_providers["kling"].models[model_index].resolutions == tuple(chosen)
+    else:
+        assert "unknown_provider_resolution" in codes

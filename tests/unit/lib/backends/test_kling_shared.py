@@ -12,7 +12,6 @@ from lib.backends.kling_shared import (
     KLING_BASE_URL,
     KlingJWTManager,
     extract_kling_image_urls,
-    extract_kling_model_path_image_urls,
     extract_kling_model_path_video_url,
     extract_kling_task_id,
     extract_kling_video_url,
@@ -300,11 +299,7 @@ class TestModelPathResponses:
             ],
         )
         assert kling_model_path_image_urls(payload) == ["https://x/1.png", "https://x/2.png"]
-        assert extract_kling_model_path_image_urls(payload) == ["https://x/1.png", "https://x/2.png"]
-
-    def test_image_urls_missing_raises(self):
-        with pytest.raises(RuntimeError, match="缺少图片 URL"):
-            extract_kling_model_path_image_urls(_tasks(id="t", status="succeeded", outputs=[]))
+        assert kling_model_path_image_urls(_tasks(id="t", status="succeeded", outputs=[])) == []
 
     @pytest.mark.parametrize(
         ("raw", "expected"),

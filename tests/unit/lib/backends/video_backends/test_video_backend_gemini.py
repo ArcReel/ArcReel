@@ -962,29 +962,69 @@ class TestVertexVeo31Fast4KContract:
         assert cost.amount == pytest.approx(expected_usd)
 
     @pytest.mark.parametrize("generate_audio", [True, False])
-    async def test_vertex_4k_request_passes_resolution_and_audio_switch(self, tmp_path, generate_audio: bool):
-        from lib.backends.video_backends.gemini import VertexVideoBackend
+    async def test_vertex_4k_request_passes_resolution_and_audio_switch(
+        self, mock_rate_limiter, tmp_path, generate_audio: bool
+    ):
+        creds_file = tmp_path / "vertex_credentials.json"
+        creds_file.write_text('{"project_id": "test-project"}', encoding="utf-8")
+        captured: dict[str, object] = {}
 
-        backend = VertexVideoBackend.__new__(VertexVideoBackend)
-        backend._rate_limiter = None
-        backend._video_model = "veo-3.1-fast-generate-001"
-        backend._backend_type = "vertex"
-        backend._types = MagicMock()
-        backend._client = MagicMock()
-        backend._client.aio.models.generate_videos = AsyncMock(side_effect=RuntimeError("stop"))
+        class _FakeTypes:
+            @staticmethod
+            def GenerateVideosConfig(**kwargs):
+                captured["config"] = kwargs
+                return kwargs
 
-        req = VideoGenerationRequest(
-            prompt="p",
-            output_path=tmp_path / "out.mp4",
-            aspect_ratio="16:9",
-            duration_seconds=8,
-            resolution="4k",
-            generate_audio=generate_audio,
-        )
-        with pytest.raises(RuntimeError, match="stop"):
-            await backend._create_task(req)
+            @staticmethod
+            def GenerateVideosSource(**kwargs):
+                captured["source"] = kwargs
+                return kwargs
 
-        kwargs = backend._types.GenerateVideosConfig.call_args.kwargs
-        assert kwargs["resolution"] == "4k"
-        assert kwargs["duration_seconds"] == "8"
-        assert kwargs["generate_audio"] is generate_audio
+        class _FakeModels:
+            @staticmethod
+            async def generate_videos(*, model, source, config):
+                captured["model"] = model
+                captured["source"] = source
+                captured["config_passed"] = config
+                return _make_done_operation()
+
+        fake_client = SimpleNamespace(aio=SimpleNamespace(models=_FakeModels()))
+
+        with (
+            patch("google.genai") as genai_mock,
+            patch("google.genai.types", new=_FakeTypes),
+            patch(
+                "lib.backends.video_backends.gemini.resolve_vertex_credentials_path",
+                return_value=creds_file,
+            ),
+            captured_vertex_credentials(),
+        ):
+            genai_mock.Client.return_value = fake_client
+            from lib.backends.video_backends.gemini import VertexVideoBackend
+
+            backend = VertexVideoBackend(
+                backend_type="vertex",
+                video_model="veo-3.1-fast-generate-001",
+                rate_limiter=mock_rate_limiter,
+            )
+            req = VideoGenerationRequest(
+                prompt="p",
+                output_path=tmp_path / "out.mp4",
+                aspect_ratio="16:9",
+                duration_seconds=8,
+                resolution="4k",
+                generate_audio=generate_audio,
+            )
+            result = await backend.generate(req)
+
+        assert captured["model"] == "veo-3.1-fast-generate-001"
+        assert captured["source"] == {"prompt": "p", "image": None}
+        assert captured["config"] == {
+            "aspect_ratio": "16:9",
+            "duration_seconds": "8",
+            "resolution": "4k",
+            "generate_audio": generate_audio,
+        }
+        assert captured["config_passed"] == captured["config"]
+        assert result.generate_audio is generate_audio
+        assert result.video_path.read_bytes() == b"fake-video-bytes"

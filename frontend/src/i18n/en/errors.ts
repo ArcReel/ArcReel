@@ -45,6 +45,7 @@ export default {
   "image_resolution_not_supported": "Model {{model}} does not support {{resolution}} resolution (only {{supported}}); choose a supported resolution",
   "image_aspect_ratio_not_supported": "Model {{model}} does not support aspect ratio {{aspect_ratio}} (only {{supported}}); choose a supported aspect ratio",
   "image_seedream_edits_unavailable": "The current call endpoint for model {{model}} does not support generation with reference images; change it to “Seedream (1K) / Seedream (2K)” in model settings and try again",
+  "image_kling_api_key_required": "Model {{model}} only supports API Key authentication (not Access Key / Secret Key JWT); enter your Kling API Key in system settings and try again",
   "narration_tts_speed_out_of_range": "The selected TTS model supports voice speeds from {{minimum}} to {{maximum}}, but the current value is {{speed}}. Change or clear the voice speed",
   "ark_agent_plan_tts_access_denied": "Volcengine Ark Agent Plan rejected the speech synthesis request (error code {{code}}). The API key may be invalid, the plan may not include speech synthesis, the quota or concurrency limit may be used up, or the voice may not be authorized. Check the plan status and voice in the Ark console, then retry; ArcReel does not fall back to pay-as-you-go speech synthesis",
   "ark_agent_plan_tts_failed": "Volcengine Ark Agent Plan speech synthesis failed (error code {{code}}) and no audio was generated. Retry later; if the problem persists, check the plan status in the Ark console",

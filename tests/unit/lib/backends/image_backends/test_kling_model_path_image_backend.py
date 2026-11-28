@@ -15,8 +15,8 @@ from __future__ import annotations
 import base64
 from collections.abc import Generator
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -46,9 +46,14 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.endpoints import endpoint_reference_image_limit, get_endpoint_spec
 from lib.custom_provider.metering import custom_image_estimate
+from lib.db.models.custom_provider import CustomProvider
+from lib.generation.task_failure import parse_failure, render_failure
+from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.i18n import SUPPORTED_LOCALES
+from lib.i18n import _ as translate_message
 from lib.video_runtime.builtin import build_builtin_backend
 from tests.custom_backend_support import create_custom_backend
-from tests.factories import image_bytes
+from tests.factories import image_bytes, make_display_names
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -122,27 +127,60 @@ class TestConstructionAndCapabilities:
         backend = _backend()
         assert backend.name == PROVIDER_KLING
         assert backend.model == "kling-4.0"
-        assert backend._base_url == _BASE
         assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
         assert KlingModelPathImageBackend.CHANNEL_REFERENCE_LIMIT == 10
         assert KlingModelPathImageBackend.CHANNEL_REFERENCE_LIMIT_HARD is True
         assert endpoint_reference_image_limit(get_endpoint_spec(_ENDPOINT)) == 10
 
     @pytest.mark.parametrize(
-        ("configured", "expected"),
+        ("configured", "expected_base"),
         [
+            (None, _BASE),
             ("https://api-beijing.klingai.com/v1", "https://api-beijing.klingai.com"),
             ("https://api-singapore.klingai.com/v1/", "https://api-singapore.klingai.com"),
             ("relay.test", "https://relay.test"),
             ("https://relay.test/kling", "https://relay.test/kling"),
         ],
     )
-    def test_base_url_strips_trailing_version(self, configured: str, expected: str):
-        assert _backend(base_url=configured)._base_url == expected
+    async def test_base_url_strips_trailing_version(self, tmp_path: Path, configured: str | None, expected_base: str):
+        with _routes(expected_base) as (submit, poll, download):
+            submit.mock(return_value=_submitted("t-base"))
+            poll.mock(return_value=_succeeded(task_id="t-base"))
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend(base_url=configured).generate(_request(tmp_path))
+
+        assert str(only_request(submit).url) == f"{expected_base}/image-generation/kling-4.0"
+        assert str(only_request(poll).url).startswith(f"{expected_base}/tasks?")
 
     def test_access_key_secret_key_is_rejected(self):
-        with pytest.raises(ValueError, match="只支持 API Key"):
+        with pytest.raises(ImageCapabilityError) as caught:
             KlingModelPathImageBackend(auth_mode="jwt", access_key="ak", secret_key="sk")
+        assert caught.value.code == "image_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0"}
+
+    def test_jwt_capability_error_encodes_and_renders_in_all_locales(self):
+        with pytest.raises(ImageCapabilityError) as caught:
+            KlingModelPathImageBackend(auth_mode="jwt", access_key="ak", secret_key="sk", model="kling-4.0-image")
+        assert caught.value.code == "image_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0-image"}
+
+        stored = encode_task_failure_message(caught.value)
+        assert parse_failure(stored) == ("image_kling_api_key_required", {"model": "kling-4.0-image"})
+
+        messages = [
+            render_failure(stored, partial(translate_message, locale=locale), make_display_names(locale))
+            for locale in SUPPORTED_LOCALES
+        ]
+        assert len(set(messages)) == len(SUPPORTED_LOCALES)
+        for message in messages:
+            assert message
+            assert "kling-4.0-image" in message
+            assert "image_kling_api_key_required" not in message
+
+    def test_unknown_auth_mode_is_rejected_with_value_error(self):
+        with pytest.raises(ValueError, match="auth_mode"):
+            KlingModelPathImageBackend(auth_mode="oauth", api_key="static-key")
 
     def test_missing_api_key_is_rejected(self):
         with pytest.raises(ValueError, match="API Key"):
@@ -155,10 +193,17 @@ class TestConstructionAndCapabilities:
 
 
 class TestPayloadAndValidation:
-    def test_text_to_image_payload_uses_contents_and_single_settings(self, tmp_path: Path):
-        path, payload = _backend()._build_payload(_request(tmp_path, image_size="4K", aspect_ratio="3:4"))
-        assert path == "image-generation/kling-4.0"
-        assert payload == {
+    async def test_text_to_image_payload_uses_contents_and_single_settings(self, tmp_path: Path):
+        with _routes() as (submit, poll, download):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend().generate(_request(tmp_path, image_size="4K", aspect_ratio="3:4"))
+
+        sent = only_request(submit)
+        assert str(sent.url) == f"{_BASE}/image-generation/kling-4.0"
+        assert request_json(sent) == {
             "contents": [{"type": "prompt", "text": "a film still in natural daylight"}],
             "settings": {
                 "result_type": "single",
@@ -168,27 +213,43 @@ class TestPayloadAndValidation:
             },
         }
 
-    def test_amphibious_alias_sends_api_model_name_in_path(self, tmp_path: Path):
+    async def test_amphibious_alias_sends_api_model_name_in_path(self, tmp_path: Path):
         backend = _backend(model="kling-4.0-image", api_model_name="kling-4.0")
-        path, _payload = backend._build_payload(_request(tmp_path))
+        with _routes(model="kling-4.0") as (submit, poll, download):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            result = await backend.generate(_request(tmp_path))
+
         assert backend.model == "kling-4.0-image"
-        assert path == "image-generation/kling-4.0"
+        assert result.model == "kling-4.0-image"
+        assert str(only_request(submit).url) == f"{_BASE}/image-generation/kling-4.0"
 
     @pytest.mark.parametrize(
         ("image_size", "expected"),
         [(None, "2k"), ("", "2k"), ("2K", "2k"), ("2k", "2k"), ("4K", "4k"), ("8K", "8k"), ("8k", "8k")],
     )
-    def test_supported_resolutions_normalize_to_lowercase(self, tmp_path: Path, image_size: str | None, expected: str):
-        _path, payload = _backend()._build_payload(_request(tmp_path, image_size=image_size))
-        assert payload["settings"]["resolution"] == expected
+    async def test_supported_resolutions_normalize_to_lowercase(
+        self, tmp_path: Path, image_size: str | None, expected: str
+    ):
+        with _routes() as (submit, poll, download):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend().generate(_request(tmp_path, image_size=image_size))
+
+        assert request_json(only_request(submit))["settings"]["resolution"] == expected
 
     @pytest.mark.parametrize("bad_size", ["1K", "1k", "512px", "3K", "1024x1024", "1080p"])
-    def test_unsupported_resolution_is_rejected_before_submission(self, tmp_path: Path, bad_size: str):
-        with pytest.raises(ImageCapabilityError) as caught:
-            _backend()._build_payload(_request(tmp_path, image_size=bad_size))
+    async def test_unsupported_resolution_is_rejected_before_submission(self, tmp_path: Path, bad_size: str):
+        with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+            await _backend().generate(_request(tmp_path, image_size=bad_size))
         assert caught.value.code == "image_resolution_not_supported"
         assert caught.value.params["resolution"] == bad_size
         assert caught.value.params["supported"] == "2K, 4K, 8K"
+        assert not router.calls
 
     @pytest.mark.parametrize(
         ("aspect_ratio", "expected"),
@@ -206,20 +267,34 @@ class TestPayloadAndValidation:
             ("", "auto"),
         ],
     )
-    def test_supported_aspect_ratios(self, tmp_path: Path, aspect_ratio: str, expected: str):
-        _path, payload = _backend()._build_payload(_request(tmp_path, aspect_ratio=aspect_ratio))
-        assert payload["settings"]["aspect_ratio"] == expected
+    async def test_supported_aspect_ratios(self, tmp_path: Path, aspect_ratio: str, expected: str):
+        with _routes() as (submit, poll, download):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend().generate(_request(tmp_path, aspect_ratio=aspect_ratio))
+
+        assert request_json(only_request(submit))["settings"]["aspect_ratio"] == expected
 
     @pytest.mark.parametrize("bad_ratio", ["4:5", "5:4", "1:4", "10:1", "invalid"])
-    def test_unsupported_aspect_ratio_is_rejected_before_submission(self, tmp_path: Path, bad_ratio: str):
-        with pytest.raises(ImageCapabilityError) as caught:
-            _backend()._build_payload(_request(tmp_path, aspect_ratio=bad_ratio))
+    async def test_unsupported_aspect_ratio_is_rejected_before_submission(self, tmp_path: Path, bad_ratio: str):
+        with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+            await _backend().generate(_request(tmp_path, aspect_ratio=bad_ratio))
         assert caught.value.code == "image_aspect_ratio_not_supported"
         assert caught.value.params["aspect_ratio"] == bad_ratio
+        assert not router.calls
 
-    def test_multi_reference_preserves_order_unique_ids_and_pure_base64(self, tmp_path: Path):
+    async def test_multi_reference_preserves_order_unique_ids_and_pure_base64(self, tmp_path: Path):
         refs = _refs(tmp_path, 10)
-        _path, payload = _backend()._build_payload(_request(tmp_path, reference_images=refs, image_size="8K"))
+        with _routes() as (submit, poll, download):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend().generate(_request(tmp_path, reference_images=refs, image_size="8K"))
+
+        payload = request_json(only_request(submit))
         contents = payload["contents"]
         assert len(contents) == 11
         assert contents[0] == {"type": "prompt", "text": "a film still in natural daylight"}
@@ -227,7 +302,7 @@ class TestPayloadAndValidation:
         assert [item["type"] for item in ref_items] == ["refer_image"] * 10
         assert len({item["id"] for item in ref_items}) == 10
         assert [item["url"] for item in ref_items] == [
-            base64.b64encode(Path(ref.path).read_bytes()).decode("ascii") for ref in refs
+            base64.b64encode(image_bytes(index + 1)).decode("ascii") for index in range(len(refs))
         ]
         assert all(not item["url"].startswith("data:") for item in ref_items)
         assert payload["settings"]["resolution"] == "8k"
@@ -249,27 +324,38 @@ class TestPayloadAndValidation:
         assert caught.value.params["count"] == 11
         assert not router.calls
 
-    def test_missing_reference_image_raises_unreadable(self, tmp_path: Path):
+    async def test_missing_reference_image_raises_unreadable(self, tmp_path: Path):
         missing = ReferenceImage(path=str(tmp_path / "missing.png"))
-        with pytest.raises(ImageCapabilityError) as caught:
-            _backend()._build_payload(_request(tmp_path, reference_images=[missing]))
+        with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+            await _backend().generate(_request(tmp_path, reference_images=[missing]))
         assert caught.value.code == "image_reference_images_unreadable"
+        assert not router.calls
 
-    def test_safe_log_view_omits_prompt_and_base64(self, tmp_path: Path):
-        backend = _backend()
-        path, payload = backend._build_payload(_request(tmp_path, reference_images=_refs(tmp_path, 2)))
-        view = backend._safe_log_view(path, payload)
-        assert view == {
-            "endpoint": "image-generation/kling-4.0",
-            "result_type": "single",
-            "n": 1,
-            "resolution": "2k",
-            "aspect_ratio": "16:9",
-            "reference_count": 2,
-            "prompt_len": len("a film still in natural daylight"),
-        }
-        assert "contents" not in view
-        assert "prompt" not in view
+    async def test_generate_log_omits_prompt_text_and_reference_base64(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ):
+        secret_prompt = "unique-prompt-sentinel-value"
+        refs = _refs(tmp_path, 2)
+        raw_b64 = base64.b64encode(image_bytes(1)).decode("ascii")
+        with (
+            caplog.at_level("INFO", logger="lib.backends.image_backends.kling_model_path"),
+            _routes() as (
+                submit,
+                poll,
+                download,
+            ),
+        ):
+            submit.mock(return_value=_submitted())
+            poll.mock(return_value=_succeeded())
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+
+            await _backend().generate(_request(tmp_path, prompt=secret_prompt, reference_images=refs))
+
+        logged = "\n".join(record.getMessage() for record in caplog.records)
+        assert "'reference_count': 2" in logged
+        assert f"'prompt_len': {len(secret_prompt)}" in logged
+        assert secret_prompt not in logged
+        assert raw_b64 not in logged
 
 
 class TestGenerateFlow:
@@ -387,11 +473,6 @@ class TestGenerateFlow:
                 await _backend().generate(_request(tmp_path))
 
         assert submit.call_count == 1
-
-    async def test_invalid_input_never_reaches_upstream(self, tmp_path: Path):
-        with _routes() as (submit, _poll, _download), pytest.raises(ImageCapabilityError):
-            await _backend().generate(_request(tmp_path, image_size="1K"))
-        assert submit.call_count == 0
 
 
 def _kling_image_4_entry(*, currency: str, input_price: float, output_prices: dict[str, float]) -> dict:
@@ -546,17 +627,18 @@ class TestMeteringAndRegionalPricing:
         )
 
 
-def _custom_provider(base_url: str) -> MagicMock:
-    provider = MagicMock()
-    provider.base_url = base_url
-    provider.api_key = "sk-relay"
-    provider.provider_id = "custom-42"
-    provider.id = 42
-    return provider
+def _custom_provider(base_url: str) -> CustomProvider:
+    return CustomProvider(
+        id=42,
+        display_name="Kling Relay",
+        discovery_format="openai",
+        base_url=base_url,
+        api_key="sk-relay",
+    )
 
 
 class TestAssemblyAndCustomProvider:
-    def test_builtin_assembly_builds_bearer_backend_and_rejects_jwt(self):
+    async def test_builtin_assembly_builds_bearer_backend_and_rejects_jwt(self, tmp_path: Path):
         spec = get_provider_spec("kling", "image", _ENDPOINT)
         backend = build_builtin_backend(
             spec,
@@ -566,9 +648,17 @@ class TestAssemblyAndCustomProvider:
             "kling-4.0",
         )
         assert isinstance(backend, KlingModelPathImageBackend)
-        assert backend._base_url == _BASE
+        with _routes(_BASE) as (submit, poll, download):
+            submit.mock(return_value=_submitted("t-builtin"))
+            poll.mock(return_value=_succeeded(task_id="t-builtin"))
+            download.mock(return_value=httpx.Response(200, content=_IMAGE_BYTES))
+            result = await backend.generate(_request(tmp_path))
 
-        with pytest.raises(ValueError, match="只支持 API Key"):
+        assert only_request(submit).headers["Authorization"] == "Bearer sk-api-1"
+        assert str(only_request(submit).url) == f"{_BASE}/image-generation/kling-4.0"
+        assert result.image_path.read_bytes() == _IMAGE_BYTES
+
+        with pytest.raises(ImageCapabilityError) as caught:
             build_builtin_backend(
                 spec,
                 LoadedConfig(
@@ -578,6 +668,8 @@ class TestAssemblyAndCustomProvider:
                 ),
                 "kling-4.0",
             )
+        assert caught.value.code == "image_kling_api_key_required"
+        assert caught.value.params == {"model": "kling-4.0"}
 
     async def test_custom_provider_strips_v1_and_supports_international_host(self, tmp_path: Path):
         backend = create_custom_backend(
