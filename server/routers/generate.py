@@ -24,7 +24,12 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
+from lib.config.resolver import (
+    ConfigResolver,
+    ImageBucketCapabilityError,
+    NoAvailableProviderError,
+    video_bucket_for_generation_mode,
+)
 from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
@@ -887,12 +892,14 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
     from lib.video_runtime.image_resolution import ImageRuntime
 
     try:
-        resolved, _ = await ImageRuntime(ConfigResolver(async_session_factory)).read_identity(project, "i2i")
+        snapshot = await ImageRuntime(ConfigResolver(async_session_factory)).read_bucket(project, "i2i")
+    except ImageBucketCapabilityError as exc:
+        raise BadRequestError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:
         raise
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
-    return resolved.provider_id
+    return snapshot.provider_id
 
 
 @router.post("/projects/{project_name}/edit/image")

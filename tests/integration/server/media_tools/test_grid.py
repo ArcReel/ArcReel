@@ -101,7 +101,9 @@ async def test_generate_grid_list_only_respects_4k_gate(
         {"segment_id": f"E1S{i:02d}", "image_prompt": "p", "segment_break": False} for i in range(1, 13)
     ]
     use_fake_caps(fake_ctx)
-    fake_ctx.pm.project_payload["model_settings"] = {"fake/fake-image": {"resolution": image_resolution}}
+    fake_ctx.pm.project_payload["model_settings"] = {
+        "gemini-aistudio/gemini-3-pro-image": {"resolution": image_resolution}
+    }
 
     out = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json", "list_only": True})
     assert isinstance(out.value, GridPlanPreview)

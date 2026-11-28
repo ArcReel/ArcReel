@@ -75,7 +75,14 @@ class ImageRuntime:
             if is_custom_provider(selected.provider_id):
                 async with resolver._open_session() as (session, _):
                     return (await _custom_image_spec(session, selected, bucket=bucket)).snapshot
-            return _builtin_image_snapshot(selected)[0]
+            snapshot = _builtin_image_snapshot(selected)[0]
+            if bucket in bucket_fit("image", snapshot):
+                raise ImageBucketCapabilityError(
+                    generation_type=bucket,
+                    provider_id=selected.provider_id,
+                    model_id=selected.model_id,
+                )
+            return snapshot
 
     async def read_identity(
         self, project: dict | None, bucket: ImageGenerationType, *, payload: dict | None = None

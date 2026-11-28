@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
-from lib.config.resolver import ProviderModel
+from lib.backends.image_capabilities import builtin_image_snapshot
 from lib.project.asset_derivatives import (
     derivative_artifact_key,
     derivative_sheet_dir,
@@ -50,15 +50,15 @@ class _FakeQueue:
 
 
 def _client(monkeypatch, pm, *, queue: _FakeQueue | None = None) -> TestClient:
-    from tests.fakes import use_image_read_identity
+    from tests.fakes import use_image_read_bucket
 
-    async def _read_identity(self, project, bucket, *, payload=None):
+    async def _read_bucket(self, project, bucket, *, payload=None):
         del self, project, bucket, payload
-        return ProviderModel("dashscope", "qwen-image-2.0"), None
+        return builtin_image_snapshot("dashscope", "qwen-image-2.0")
 
     for module in (characters, generate, versions):
         monkeypatch.setattr(module, "get_project_manager", lambda: pm)
-    use_image_read_identity(monkeypatch, _read_identity)
+    use_image_read_bucket(monkeypatch, _read_bucket)
     use_generation_queue(monkeypatch, queue or _FakeQueue())
     app = FastAPI()
     register_error_handlers(app)
