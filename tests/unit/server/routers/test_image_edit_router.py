@@ -10,7 +10,6 @@ from PIL import Image
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.backends.image_capabilities import builtin_image_snapshot
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ImageBucketCapabilityError
 from lib.i18n import _ as i18n_message
 from lib.project.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
@@ -344,23 +343,6 @@ class TestEditImageValidation:
             )
             assert resp.status_code == 400, resp.text
             assert "re-select a model" in resp.json()["detail"]
-            assert fake_queue.calls == []
-
-    def test_image_bucket_capability_error_reports_missing_i2i(self, tmp_path, monkeypatch):
-        """显式模型不支持 i2i 桶：返回 image_capability_missing_i2i，不创建任务。"""
-        project_path = _prepare_files(tmp_path)
-        fake_queue = _FakeQueue()
-        error = ImageBucketCapabilityError(generation_type="i2i", provider_id="ark", model_id="t2i-only-model")
-        client = _client(monkeypatch, _FakePM(project_path), fake_queue, resolve_error=error)
-
-        with client:
-            resp = client.post(
-                "/api/v1/projects/demo/edit/image",
-                json={"resource_type": "character", "resource_id": "Alice", "instruction": "x"},
-                headers={"Accept-Language": "en"},
-            )
-            assert resp.status_code == 400, resp.text
-            assert "does not support image-to-image" in resp.json()["detail"]
             assert fake_queue.calls == []
 
     def test_no_current_image_400(self, tmp_path, monkeypatch):

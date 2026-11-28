@@ -30,6 +30,7 @@ from lib.artifacts.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.artifacts.generation_input import (
+    PROMPT_PENDING_CODE,
     AssetSheetInput,
     FrozenGenerationInput,
     StoryboardImageInput,
@@ -68,6 +69,7 @@ from lib.generation.video_request_facts import (
     require_video_request_facts,
 )
 from lib.generation.video_result import build_video_task_result
+from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -101,7 +103,7 @@ from lib.script.reference_video.execution_checkpoint import (
     staged_source_paths,
 )
 from lib.script.script_editor import resolve_items
-from lib.script.script_models import resolve_content_mode
+from lib.script.script_models import is_pending_authoring, resolve_content_mode
 from lib.script.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS, resolve_script_kind
 from lib.script.storyboard_sequence import (
     find_storyboard_item,
@@ -1013,6 +1015,8 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode, script_kind, _script, script_input = await run_sync_transaction(_load)
+    if is_pending_authoring(item):
+        raise ConflictError(PROMPT_PENDING_CODE, segment_id=resource_id)
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
     prompt = current_prompt if task_id is not None else payload.get("prompt", current_prompt)
     if prompt is None:

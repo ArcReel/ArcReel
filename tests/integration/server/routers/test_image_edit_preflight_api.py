@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
@@ -80,13 +80,13 @@ def _seed_project(tmp_path: Path, **project_overrides: Any) -> Path:
     return project_path
 
 
-def _build_client(
+def _build_app(
     monkeypatch: pytest.MonkeyPatch,
     session_factory,
     set_error_handler_sessions,
     project_path: Path,
     queue: _FakeQueue,
-) -> TestClient:
+) -> FastAPI:
     bind_session_factory(monkeypatch, session_factory)
     set_error_handler_sessions(session_factory)
     use_project_manager(monkeypatch, _FakePM(project_path))
@@ -95,11 +95,12 @@ def _build_client(
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    return TestClient(app, raise_server_exceptions=False)
+    return app
 
 
 class TestEditImagePreflightIntegration:
-    def test_builtin_model_removed_from_catalog_returns_400_reselect(
+    @pytest.mark.asyncio
+    async def test_builtin_model_removed_from_catalog_returns_400_reselect(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -108,10 +109,10 @@ class TestEditImagePreflightIntegration:
     ) -> None:
         project_path = _seed_project(tmp_path, default_image_backend="ark/retired-image-model")
         queue = _FakeQueue()
-        client = _build_client(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
+        app = _build_app(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
 
-        with client:
-            resp = client.post(
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
                 headers={"Accept-Language": "en"},
@@ -121,7 +122,8 @@ class TestEditImagePreflightIntegration:
         assert "re-select a model" in resp.json()["detail"]
         assert queue.calls == []
 
-    def test_builtin_model_lacking_i2i_returns_400_missing_i2i(
+    @pytest.mark.asyncio
+    async def test_builtin_model_lacking_i2i_returns_400_missing_i2i(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -139,10 +141,10 @@ class TestEditImagePreflightIntegration:
         )
         project_path = _seed_project(tmp_path, default_image_backend="ark/doubao-seedream-4-5-251128")
         queue = _FakeQueue()
-        client = _build_client(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
+        app = _build_app(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
 
-        with client:
-            resp = client.post(
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
                 headers={"Accept-Language": "en"},
@@ -152,7 +154,8 @@ class TestEditImagePreflightIntegration:
         assert "does not support image-to-image" in resp.json()["detail"]
         assert queue.calls == []
 
-    def test_builtin_i2i_model_without_credentials_enqueues(
+    @pytest.mark.asyncio
+    async def test_builtin_i2i_model_without_credentials_enqueues(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -161,10 +164,10 @@ class TestEditImagePreflightIntegration:
     ) -> None:
         project_path = _seed_project(tmp_path, default_image_backend="ark/doubao-seedream-4-5-251128")
         queue = _FakeQueue()
-        client = _build_client(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
+        app = _build_app(monkeypatch, concurrent_session_factory, set_error_handler_sessions, project_path, queue)
 
-        with client:
-            resp = client.post(
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
             )
@@ -215,11 +218,9 @@ class TestEditImagePreflightIntegration:
 
         ok_path = _seed_project(tmp_path / "ok", image_provider_i2i=f"{provider_id}/custom-edit-model")
         ok_queue = _FakeQueue()
-        ok_client = _build_client(
-            monkeypatch, concurrent_session_factory, set_error_handler_sessions, ok_path, ok_queue
-        )
-        with ok_client:
-            ok_resp = ok_client.post(
+        ok_app = _build_app(monkeypatch, concurrent_session_factory, set_error_handler_sessions, ok_path, ok_queue)
+        async with AsyncClient(transport=ASGITransport(app=ok_app), base_url="http://test") as ok_client:
+            ok_resp = await ok_client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
             )
@@ -228,11 +229,9 @@ class TestEditImagePreflightIntegration:
 
         bad_path = _seed_project(tmp_path / "bad", image_provider_i2i=f"{provider_id}/custom-t2i-only")
         bad_queue = _FakeQueue()
-        bad_client = _build_client(
-            monkeypatch, concurrent_session_factory, set_error_handler_sessions, bad_path, bad_queue
-        )
-        with bad_client:
-            bad_resp = bad_client.post(
+        bad_app = _build_app(monkeypatch, concurrent_session_factory, set_error_handler_sessions, bad_path, bad_queue)
+        async with AsyncClient(transport=ASGITransport(app=bad_app), base_url="http://test") as bad_client:
+            bad_resp = await bad_client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "换发色"},
                 headers={"Accept-Language": "en"},

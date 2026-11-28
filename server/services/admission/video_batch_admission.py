@@ -74,7 +74,7 @@ from lib.script.reference_video.request_projection import (
     project_reference_unit_request,
     resolve_reference_assets,
 )
-from lib.script.script_models import PENDING_AUTHORING_FIELD, get_generated_assets
+from lib.script.script_models import get_generated_assets, is_pending_authoring
 from lib.script.storyboard_sequence import StoryboardImageUnavailable
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
 from lib.video_runtime.resolution import read_video_facts_pair, read_video_request_facts
@@ -399,12 +399,6 @@ class PromptPendingAuthoringError(ValueError):
     def __init__(self, unit_id: str) -> None:
         self.unit_id = unit_id
         super().__init__(f"单元 {unit_id} 的提示词待编写，请先完成提示词编写后再生成")
-
-
-def is_pending_authoring(item: object) -> bool:
-    """条目是否显式标记为待编写（缺省或为 false 均视为非待编写，兼容历史条目）。"""
-
-    return isinstance(item, Mapping) and item.get(PENDING_AUTHORING_FIELD) is True
 
 
 def prompt_pending_problem(unit_id: str) -> GenerationProblem:

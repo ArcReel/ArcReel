@@ -16,7 +16,7 @@ from lib.generation.generation_worker import (
 from lib.project.task_project_claim import revoke_task_project_claims
 from lib.script.script_editor import ScriptEditError
 from tests.factories import activate_reference_project
-from tests.fakes import bind_safe_session_factory, bind_session_factory
+from tests.fakes import bind_safe_session_factory, bind_session_factory, use_generation_worker_sessions
 from tests.integration.lib.generation.worker_support import (
     FakeWorkerQueue,
     capacity_table,
@@ -55,7 +55,7 @@ async def patch_empty_db(db_factory, monkeypatch):
     它们读真实 dev 库，本机一旦配了其它 ready 供应商，回退断言就被污染。
     """
     bind_session_factory(monkeypatch, db_factory)
-    monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", db_factory)
+    use_generation_worker_sessions(monkeypatch, db_factory)
     return db_factory
 
 

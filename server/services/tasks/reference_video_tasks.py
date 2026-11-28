@@ -16,6 +16,7 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_episode_script_input,
 )
 from lib.artifacts.artifact_manifest import ArtifactInputClaim, compose_video_artifact_basis
+from lib.artifacts.generation_input import PROMPT_PENDING_CODE
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import build_reference_video_visual_basis, resolve_video_aspect_ratio
@@ -40,6 +41,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
 )
 from lib.generation.video_result import build_video_task_result
+from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -76,7 +78,7 @@ from lib.script.reference_video.request_projection import (
 from lib.script.reference_video.units import reference_video_bucket
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
-from lib.script.script_models import ReferenceResource
+from lib.script.script_models import ReferenceResource, is_pending_authoring
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit, video_unit_replan_problems
 from server.services.currency.video_artifact_currency import (
@@ -319,6 +321,8 @@ async def execute_reference_video_task(
         unit = next((u for u in units if isinstance(u, dict) and u.get("unit_id") == resource_id), None)
         if unit is None:
             raise ValueError(f"unit not found: {resource_id}")
+        if is_pending_authoring(unit):
+            raise ConflictError(PROMPT_PENDING_CODE, segment_id=resource_id)
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
         declared_references = unit_reference_declarations(project, unit)

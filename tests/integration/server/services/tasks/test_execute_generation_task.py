@@ -6,7 +6,8 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.generation.generation_queue import DispatchProviderChanged
-from lib.infra.api_errors import BadRequestError
+from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.infra.api_errors import BadRequestError, ConflictError
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
 from server.services.tasks import generation_tasks
 from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
@@ -322,3 +323,28 @@ class TestGenerationTasks:
         assert seen[0]["video"] is not None
         assert seen[0]["image"] is None
         assert seen[0]["audio"] is None
+
+    async def test_execute_video_task_blocks_pending_authoring_before_provider_call(self, tmp_path, monkeypatch):
+        """已入队的分镜图生视频任务若当前分镜标记 pending_authoring=True，即使 video_prompt 非空也在执行期阻断。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["video_prompt"] = {"action": "跑", "camera_motion": "Static"}
+        fake_pm.script["segments"][0]["pending_authoring"] = True
+        fake_generator = FakeGenerator(project_path)
+        seen: list[dict] = []
+
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, seen_lane_requests=seen))
+
+        with pytest.raises(ConflictError) as excinfo:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json"},
+                task_id="task-pending",
+            )
+
+        assert excinfo.value.key == "script_prompt_pending"
+        assert excinfo.value.params == {"segment_id": "E1S01"}
+        assert encode_task_failure_message(excinfo.value) == '[script_prompt_pending] {"segment_id": "E1S01"}'
+        assert seen == []
