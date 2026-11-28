@@ -299,3 +299,62 @@ def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypat
         ]
         assert client.get("/api/v1/projects/demo").status_code == 200
         assert [counter["content_reads"] for counter in script_reads] == [1, 1]
+
+
+def test_workspace_include_episodes_false_skips_scripts_and_full_fingerprints(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    from lib.workflow.workflow_state import WorkflowStateService
+    from tests.integration.lib.project.test_project_summary import (
+        _make_project,
+        _plan_one_episode,
+        _valid_video_unit,
+        _write_artifact,
+        _write_registered_script,
+        _write_source,
+    )
+
+    manager, project_dir = _make_project(tmp_path, "drama", generation_mode="reference_video")
+    _write_source(manager, project_dir, "原文")
+    _plan_one_episode(manager, project_dir, "原文")
+    _write_artifact(project_dir, "characters/林夕.png")
+    _write_artifact(project_dir, "reference_videos/E1U1.mp4")
+    manager.update_project(
+        "demo",
+        lambda project: project["characters"].update(
+            {"林夕": {"description": "主角", "character_sheet": "characters/林夕.png"}}
+        ),
+    )
+    _write_registered_script(
+        project_dir,
+        {
+            "episode": 1,
+            "title": "第1集",
+            "content_mode": "drama",
+            "video_units": [_valid_video_unit()],
+        },
+    )
+
+    with build_projects_client(monkeypatch, manager, WorkflowStateService(manager)) as client:
+        reads = _ArrivalSpy()
+        override(client, project_reads, lambda: reads)
+        script_reader = Mock(wraps=manager.load_script_readonly)
+        monkeypatch.setattr(manager, "load_script_readonly", script_reader)
+
+        overview = client.get("/api/v1/projects/demo/workspace", params={"include_episodes": "false"})
+        assert overview.status_code == 200
+        body = overview.json()
+        assert body["summary"]["episodes"] == []
+        assert body["summary"]["episodes_summary"] is None
+        assert body["summary"]["assets"]["character"]["total"] == 1
+        assert body["asset_fingerprints"] == {}
+        assert script_reader.call_count == 0
+
+        full = client.get("/api/v1/projects/demo/workspace")
+        assert full.status_code == 200
+        assert reads.keys[-2] != reads.keys[-1]
+        assert len(full.json()["summary"]["episodes"]) == 1
+        assert "reference_videos/E1U1.mp4" in full.json()["asset_fingerprints"]
+
+        invalid = client.get("/api/v1/projects/demo/workspace", params={"episodes": 1, "include_episodes": "false"})
+        assert invalid.status_code == 400

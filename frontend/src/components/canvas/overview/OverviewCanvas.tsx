@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SourceUploadDialog, type SourceUploadResult } from "@/components/canvas/episodes/SourceUploadDialog";
 import { useCostStore } from "@/stores/cost-store";
 import { useOverviewGenerateStore } from "@/stores/overview-generate-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData, ProjectOverview } from "@/types";
 
 import { AdBrief } from "./AdBrief";
@@ -28,11 +29,12 @@ function hasStorySetting(overview: ProjectOverview | undefined): boolean {
 export function OverviewCanvas({ projectName, projectData, readOnly = false }: OverviewCanvasProps) {
   const isAd = projectData?.content_mode === "ad";
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
+  const projectDetailLoading = useProjectsStore((s) => s.projectDetailLoading);
 
   useEffect(() => {
-    if (!projectName) return;
+    if (!projectName || projectDetailLoading) return;
     debouncedFetch(projectName);
-  }, [projectName, projectData?.episodes, debouncedFetch]);
+  }, [projectName, projectData?.episodes, projectDetailLoading, debouncedFetch]);
 
   const [upload, setUpload] = useState<{ projectName: string; files: File[] } | null>(null);
   const uploadFiles = upload?.projectName === projectName ? upload.files : null;

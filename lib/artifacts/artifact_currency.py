@@ -115,6 +115,9 @@ class RegisteredArtifactResolver:
         self._adapter = ProjectArtifactManifestAdapter(Path(project_dir).resolve(strict=True))
         self._entries = self._adapter.snapshot_entries()
 
+    def batch_inspect(self) -> Any:
+        return self._adapter.batch_inspect()
+
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:

@@ -862,6 +862,76 @@ class ProjectArtifactManifestAdapter:
             raise ArtifactManifestError(f"project directory changed during adapter initialization: {project_dir}")
         self._project_dir = resolved
         self._project_identity = initial_identity
+        self._batch_dir_fds: dict[tuple[str, ...], int | None] | None = None
+
+    @contextlib.contextmanager
+    def batch_inspect(self) -> Generator[None]:
+        if os.name != "posix" or not self._nofollow_flag or self._batch_dir_fds is not None:
+            yield
+            return
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
+        try:
+            root_fd = os.open(self._project_dir, directory_flags)
+        except OSError:
+            yield
+            return
+        try:
+            self._assert_open_project_root_identity(root_fd)
+        except ArtifactManifestError:
+            os.close(root_fd)
+            yield
+            return
+        dir_fds: dict[tuple[str, ...], int | None] = {(): root_fd}
+        self._batch_dir_fds = dir_fds
+        try:
+            yield
+        finally:
+            self._batch_dir_fds = None
+            for fd in dir_fds.values():
+                if fd is not None:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+
+    def _resolve_batch_parent_fd(
+        self,
+        normalized: str,
+        parent_parts: tuple[str, ...],
+        directory_flags: int,
+    ) -> tuple[int | None, ArtifactObservation | None]:
+        dir_fds = self._batch_dir_fds
+        assert dir_fds is not None
+        if parent_parts in dir_fds:
+            fd = dir_fds[parent_parts]
+            if fd is None:
+                return None, ArtifactObservation(artifact_path=normalized, present=False)
+            return fd, None
+        current_fd = dir_fds[()]
+        assert current_fd is not None
+        prefix: tuple[str, ...] = ()
+        for part in parent_parts:
+            prefix = (*prefix, part)
+            if prefix in dir_fds:
+                cached = dir_fds[prefix]
+                if cached is None:
+                    dir_fds[parent_parts] = None
+                    return None, ArtifactObservation(artifact_path=normalized, present=False)
+                current_fd = cached
+                continue
+            try:
+                next_fd = os.open(part, directory_flags, dir_fd=current_fd)
+            except FileNotFoundError:
+                dir_fds[prefix] = None
+                dir_fds[parent_parts] = None
+                return None, ArtifactObservation(artifact_path=normalized, present=False)
+            except OSError as exc:
+                return None, self._artifact_blocked(
+                    normalized,
+                    "artifact_symlink" if exc.errno in {errno.ELOOP, errno.ENOTDIR} else "artifact_unreadable",
+                    f"artifact parent cannot be opened safely: {normalized}: {exc}",
+                )
+            dir_fds[prefix] = next_fd
+            current_fd = next_fd
+        return current_fd, None
 
     @property
     def _nofollow_flag(self) -> int:
@@ -987,81 +1057,90 @@ class ProjectArtifactManifestAdapter:
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
         file_flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0) | _binary_open_flag()
         with contextlib.ExitStack() as stack:
-            if not self._nofollow_flag and _is_linkish(self._project_dir):
-                return self._artifact_blocked(
-                    normalized,
-                    "artifact_symlink",
-                    f"project directory is a symlink or junction: {self._project_dir}",
-                )
-            try:
-                root_fd = os.open(self._project_dir, directory_flags)
-            except OSError as exc:
-                return self._artifact_blocked(
-                    normalized,
-                    "artifact_unreadable",
-                    f"project directory is unreadable: {exc}",
-                )
-            stack.callback(os.close, root_fd)
-            try:
-                self._assert_open_project_root_identity(root_fd)
-            except ArtifactManifestError as exc:
-                return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
-            directory_fd = root_fd
-            cursor = self._project_dir
-            for part in parts[:-1]:
-                cursor /= part
-                expected_parent_identity: tuple[int, int] | None = None
-                if not self._nofollow_flag and _is_linkish(cursor):
+            if self._batch_dir_fds is not None and self._nofollow_flag:
+                parent_parts = parts[:-1]
+                parent_fd, parent_result = self._resolve_batch_parent_fd(normalized, parent_parts, directory_flags)
+                if parent_result is not None:
+                    return parent_result
+                assert parent_fd is not None
+                directory_fd = parent_fd
+                cursor = self._project_dir.joinpath(*parent_parts) if parent_parts else self._project_dir
+            else:
+                if not self._nofollow_flag and _is_linkish(self._project_dir):
                     return self._artifact_blocked(
                         normalized,
                         "artifact_symlink",
-                        f"artifact path contains a symlink or junction: {normalized}",
+                        f"project directory is a symlink or junction: {self._project_dir}",
                     )
-                if not self._nofollow_flag:
+                try:
+                    root_fd = os.open(self._project_dir, directory_flags)
+                except OSError as exc:
+                    return self._artifact_blocked(
+                        normalized,
+                        "artifact_unreadable",
+                        f"project directory is unreadable: {exc}",
+                    )
+                stack.callback(os.close, root_fd)
+                try:
+                    self._assert_open_project_root_identity(root_fd)
+                except ArtifactManifestError as exc:
+                    return self._artifact_blocked(normalized, "artifact_unreadable", str(exc))
+                directory_fd = root_fd
+                cursor = self._project_dir
+                for part in parts[:-1]:
+                    cursor /= part
+                    expected_parent_identity: tuple[int, int] | None = None
+                    if not self._nofollow_flag and _is_linkish(cursor):
+                        return self._artifact_blocked(
+                            normalized,
+                            "artifact_symlink",
+                            f"artifact path contains a symlink or junction: {normalized}",
+                        )
+                    if not self._nofollow_flag:
+                        try:
+                            parent_stat = cursor.stat(follow_symlinks=False)
+                        except FileNotFoundError:
+                            return ArtifactObservation(artifact_path=normalized, present=False)
+                        except OSError as exc:
+                            return self._artifact_blocked(
+                                normalized,
+                                "artifact_unreadable",
+                                f"artifact parent cannot be inspected safely: {normalized}: {exc}",
+                            )
+                        expected_parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
                     try:
-                        parent_stat = cursor.stat(follow_symlinks=False)
+                        next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
                     except FileNotFoundError:
                         return ArtifactObservation(artifact_path=normalized, present=False)
                     except OSError as exc:
                         return self._artifact_blocked(
                             normalized,
-                            "artifact_unreadable",
-                            f"artifact parent cannot be inspected safely: {normalized}: {exc}",
+                            "artifact_symlink" if exc.errno in {errno.ELOOP, errno.ENOTDIR} else "artifact_unreadable",
+                            f"artifact parent cannot be opened safely: {normalized}: {exc}",
                         )
-                    expected_parent_identity = (parent_stat.st_dev, parent_stat.st_ino)
-                try:
-                    next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
-                except FileNotFoundError:
-                    return ArtifactObservation(artifact_path=normalized, present=False)
-                except OSError as exc:
-                    return self._artifact_blocked(
-                        normalized,
-                        "artifact_symlink" if exc.errno in {errno.ELOOP, errno.ENOTDIR} else "artifact_unreadable",
-                        f"artifact parent cannot be opened safely: {normalized}: {exc}",
-                    )
-                stack.callback(os.close, next_fd)
-                if expected_parent_identity is not None:
-                    try:
-                        opened_parent_stat = os.fstat(next_fd)
-                        current_parent_stat = cursor.stat(follow_symlinks=False)
-                    except OSError as exc:
-                        return self._artifact_blocked(
-                            normalized,
-                            "artifact_unreadable",
-                            f"artifact parent changed while it was being opened: {normalized}: {exc}",
-                        )
-                    if (
-                        _is_linkish(cursor)
-                        or not stat.S_ISDIR(opened_parent_stat.st_mode)
-                        or (opened_parent_stat.st_dev, opened_parent_stat.st_ino) != expected_parent_identity
-                        or (current_parent_stat.st_dev, current_parent_stat.st_ino) != expected_parent_identity
-                    ):
-                        return self._artifact_blocked(
-                            normalized,
-                            "artifact_symlink",
-                            f"artifact parent changed while it was being opened: {normalized}",
-                        )
-                directory_fd = next_fd
+                    stack.callback(os.close, next_fd)
+                    if expected_parent_identity is not None:
+                        try:
+                            opened_parent_stat = os.fstat(next_fd)
+                            current_parent_stat = cursor.stat(follow_symlinks=False)
+                        except OSError as exc:
+                            return self._artifact_blocked(
+                                normalized,
+                                "artifact_unreadable",
+                                f"artifact parent changed while it was being opened: {normalized}: {exc}",
+                            )
+                        if (
+                            _is_linkish(cursor)
+                            or not stat.S_ISDIR(opened_parent_stat.st_mode)
+                            or (opened_parent_stat.st_dev, opened_parent_stat.st_ino) != expected_parent_identity
+                            or (current_parent_stat.st_dev, current_parent_stat.st_ino) != expected_parent_identity
+                        ):
+                            return self._artifact_blocked(
+                                normalized,
+                                "artifact_symlink",
+                                f"artifact parent changed while it was being opened: {normalized}",
+                            )
+                    directory_fd = next_fd
             final_path = cursor / parts[-1]
             expected_file_identity: tuple[int, int] | None = None
             if not self._nofollow_flag and _is_linkish(final_path):

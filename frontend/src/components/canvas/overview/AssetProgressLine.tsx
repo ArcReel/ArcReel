@@ -8,6 +8,7 @@ import {
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 
 const ASSET_KINDS = [
@@ -19,7 +20,8 @@ const ASSET_KINDS = [
 
 export function AssetProgressLine({ data }: { data: ProjectData }) {
   const { t } = useTranslation("dashboard");
-  const assets = data.status?.assets;
+  const previewAssets = useProjectsStore((s) => s.previewAssets);
+  const assets = data.status?.assets ?? previewAssets;
   if (!assets) return null;
   const kinds = ASSET_KINDS.filter((kind) => kind.key !== "product" || data.content_mode === "ad");
 

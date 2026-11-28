@@ -1328,9 +1328,8 @@ class DataValidator:
         *,
         validate_artifacts: bool = True,
         validate_route: bool = True,
+        reference_catalog: Any | None = None,
     ) -> None:
-        catalog = build_reference_catalog(project)
-
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
 
@@ -1379,36 +1378,38 @@ class DataValidator:
                 warnings,
                 project_dir=artifact_root,
             )
-        elif kind == "segments":
-            self._validate_segments(
-                episode.get("segments", []),
-                catalog,
-                errors,
-                warnings,
-                project_dir=artifact_root,
-            )
-        elif kind == "shots":
-            shots = episode.get("shots", [])
-            self._validate_shots(
-                shots,
-                catalog,
-                errors,
-                warnings,
-                project_dir=artifact_root,
-            )
-            self._warn_ad_target_duration_drift(project, shots, warnings)
-        elif kind == "scenes":
-            self._validate_scenes(
-                episode.get("scenes", []),
-                catalog,
-                errors,
-                warnings,
-                project_dir=artifact_root,
-                language=scene_language,
-                speech_rate_override=scene_speech_rate,
-            )
-        else:  # pragma: no cover - resolve_declared_kind 只回四种骨架；第五种未处置即报错
-            raise ValueError(f"未处置的骨架种类: {kind!r}")
+        else:
+            catalog = build_reference_catalog(project) if reference_catalog is None else reference_catalog
+            if kind == "segments":
+                self._validate_segments(
+                    episode.get("segments", []),
+                    catalog,
+                    errors,
+                    warnings,
+                    project_dir=artifact_root,
+                )
+            elif kind == "shots":
+                shots = episode.get("shots", [])
+                self._validate_shots(
+                    shots,
+                    catalog,
+                    errors,
+                    warnings,
+                    project_dir=artifact_root,
+                )
+                self._warn_ad_target_duration_drift(project, shots, warnings)
+            elif kind == "scenes":
+                self._validate_scenes(
+                    episode.get("scenes", []),
+                    catalog,
+                    errors,
+                    warnings,
+                    project_dir=artifact_root,
+                    language=scene_language,
+                    speech_rate_override=scene_speech_rate,
+                )
+            else:  # pragma: no cover - resolve_declared_kind 只回四种骨架；第五种未处置即报错
+                raise ValueError(f"未处置的骨架种类: {kind!r}")
 
     def validate_episode(self, project_name: str, episode_file: str) -> ValidationResult:
         """验证 episode JSON"""
@@ -1422,6 +1423,7 @@ class DataValidator:
         *,
         validate_artifacts: bool = True,
         validate_route: bool = True,
+        reference_catalog: Any | None = None,
     ) -> ValidationResult:
         """Validate an already loaded episode without reading or rewriting project files.
 
@@ -1440,6 +1442,7 @@ class DataValidator:
             warnings,
             validate_artifacts=validate_artifacts,
             validate_route=validate_route,
+            reference_catalog=reference_catalog,
         )
         return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 

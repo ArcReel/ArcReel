@@ -123,6 +123,7 @@ function StudioWorkspace() {
   const projectName = params.projectName ?? null;
   const [location] = useLocation();
   const routeEpisode = parseWorkspaceEpisode(location);
+  const isOverviewRoute = location === "/";
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const currentProjectData = useProjectsStore((s) => s.currentProjectName === projectName ? s.currentProjectData : null);
   const retryEpisodeProjection = useProjectsStore((s) => s.currentProjectName === projectName && s.currentProjectData !== null && !s.currentProjectData.status && !s.projectDetailLoading);
@@ -179,6 +180,10 @@ function StudioWorkspace() {
       if (store.activeEpisodeScript.episode !== null || Object.keys(store.currentScripts).length > 0) {
         store.clearActiveEpisodeScript();
       }
+      if (isOverviewRoute && !currentProjectData && store.projectDetailLoading) {
+        void store.hydrateOverviewWorkspace(projectName);
+        return () => useProjectsStore.getState().cancelEpisodeWorkspaceHydration();
+      }
       return;
     }
     if (!currentProjectData) {
@@ -209,7 +214,7 @@ function StudioWorkspace() {
       onError: (err) =>
         useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
     });
-  }, [projectName, routeEpisode, currentProjectData, retryEpisodeProjection]);
+  }, [projectName, routeEpisode, isOverviewRoute, currentProjectData, retryEpisodeProjection]);
 
   useEffect(() => {
     if (!projectName || !isDemoProject(projectName)) return;

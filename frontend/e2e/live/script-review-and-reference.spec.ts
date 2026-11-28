@@ -485,3 +485,117 @@ test("v20 project migrated to current schema moves retired invalid drafts to tra
   await expect(page.getByRole("navigation", { name: "分镜列表" })).toBeVisible();
   await health.assertClean();
 });
+
+test("workbench home renders before full workspace, and in-app switch keeps episode draft editable and saves to target episode", async ({ page, request }) => {
+  const health = watchProtocolHealth(page);
+  await post(request, `${API}/onboarding/seen`, {});
+
+  const project = "live-home-overview-and-switch";
+  const ep1Source = "第一集原文：雨落长街，石板映灯。";
+  const ep2Source = "第二集原文：风过茶楼，铜铃轻响。";
+  const ep2Updated = "第二集切集后编辑的新草稿：风过茶楼，铜铃轻响。";
+  await post(request, `${API}/projects`, {
+    name: project,
+    title: "首页预加载与切集回归",
+    content_mode: "narration",
+    generation_mode: "storyboard",
+  });
+  await post(request, `${API}/projects/${project}/episodes`, { title: "第一集", source_text: ep1Source });
+  await post(request, `${API}/projects/${project}/episodes`, { title: "第二集", source_text: ep2Source });
+  await put(request, `${API}/projects/${project}/episodes/1/script-review/content`, {
+    segments: [
+      {
+        segment_id: "E1S01",
+        novel_text: ep1Source,
+        duration_seconds: 4,
+        segment_break: false,
+        characters_in_segment: [],
+        scenes: [],
+        props: [],
+      },
+    ],
+    new_assets: [],
+  });
+  await put(request, `${API}/projects/${project}/episodes/2/script-review/content`, {
+    segments: [
+      {
+        segment_id: "E2S01",
+        novel_text: "旧草稿文字",
+        duration_seconds: 4,
+        segment_break: false,
+        characters_in_segment: [],
+        scenes: [],
+        props: [],
+      },
+    ],
+    new_assets: [],
+  });
+
+  const fullWorkspaceUrl = `**/api/v1/projects/${project}/workspace`;
+  let releaseHomeFull!: () => void;
+  const homeFullHeld = new Promise<void>((resolve) => { releaseHomeFull = resolve; });
+  await page.route(fullWorkspaceUrl, async (route) => {
+    const response = await route.fetch();
+    await homeFullHeld;
+    await route.fulfill({ response });
+  }, { times: 1 });
+
+  const synopsis = page.getByRole("textbox", { name: "梗概" });
+  const typedSynopsis = "冷开工作台首页在全量返回前输入的梗概";
+  try {
+    await page.goto(`/app/projects/${project}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { level: 1, name: "首页预加载与切集回归" })).toBeVisible();
+    await expect(page.getByText("资产图")).toBeVisible();
+    await synopsis.fill(typedSynopsis);
+  } finally {
+    releaseHomeFull();
+  }
+  await expect(synopsis).toHaveValue(typedSynopsis);
+
+  const saveOverview = page.waitForResponse(
+    (reply) => reply.request().method() === "PATCH" && new URL(reply.url()).pathname === `${API}/projects/${project}/overview`,
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  expect((await saveOverview).ok()).toBe(true);
+
+  let releaseSwitchFull!: () => void;
+  const switchFullHeld = new Promise<void>((resolve) => { releaseSwitchFull = resolve; });
+  const fullEp2Title = "第二集 · 全量到达";
+  await page.route(fullWorkspaceUrl, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { project: { episodes: { title: string }[] } };
+    body.project.episodes[1].title = fullEp2Title;
+    await switchFullHeld;
+    await route.fulfill({ response, json: body });
+  }, { times: 1 });
+
+  const fullEp2Heading = page.getByRole("heading", { name: fullEp2Title, exact: true });
+  const novelEditor = page.getByRole("textbox", { name: "小说原文" });
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /^2\s+第二集/ }).click();
+    await expect(novelEditor).toBeVisible();
+    await novelEditor.fill(ep2Updated);
+    await expect(fullEp2Heading).toHaveCount(0);
+  } finally {
+    releaseSwitchFull();
+  }
+  await expect(fullEp2Heading).toBeVisible();
+  await expect(novelEditor).toHaveValue(ep2Updated);
+
+  const saveEp2 = page.waitForResponse(
+    (reply) =>
+      reply.request().method() === "PUT" &&
+      new URL(reply.url()).pathname === `${API}/projects/${project}/episodes/2/script-review/content`,
+  );
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  expect((await saveEp2).ok()).toBe(true);
+
+  const ep1Review = await request.get(`${API}/projects/${project}/episodes/1/script-review`);
+  const ep2Review = await request.get(`${API}/projects/${project}/episodes/2/script-review`);
+  await expect(ep1Review).toBeOK();
+  await expect(ep2Review).toBeOK();
+  expect((await ep1Review.json() as { content: { segments: { novel_text: string }[] } }).content.segments[0].novel_text).toBe(ep1Source);
+  expect((await ep2Review.json() as { content: { segments: { novel_text: string }[] } }).content.segments[0].novel_text).toBe(ep2Updated);
+  await health.assertClean();
+});

@@ -130,6 +130,10 @@ describe("AppRoutes", () => {
     expect(await screen.findByTestId("studio-canvas-router")).toBeInTheDocument();
     await waitFor(() => {
       expect(API.getWorkspace).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      expect(API.getWorkspace).toHaveBeenCalledWith("demo", {
+        includeEpisodes: false,
+        signal: expect.any(AbortSignal),
+      });
     });
     expect(getProjectSpy).not.toHaveBeenCalled();
     expect(getScriptSpy).not.toHaveBeenCalled();
@@ -323,6 +327,75 @@ describe("AppRoutes", () => {
     expect(useProjectsStore.getState().currentProjectData).toBeNull();
   });
 
+  it("冷开工作台首页先消费无分集概览预览，全量到达前切到分集也能按集加载且不被迟到全量覆盖", async () => {
+    const ws = makeWorkspaceResponse({
+      title: "Demo",
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [
+        { episode: 1, title: "EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        { episode: 2, title: "EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+      characters: {},
+      scenes: {},
+      props: {},
+    });
+    const strippedEpisodes = ws.project.episodes.map(({ script_status: _s, status: _st, ...row }) => row);
+    const overview = {
+      ...ws,
+      project: { ...ws.project, episodes: strippedEpisodes },
+      summary: { ...ws.summary, episodes: [], episodes_summary: null },
+      asset_fingerprints: {},
+    };
+    const ep2Projection = {
+      ...ws,
+      project: { ...ws.project, episodes: strippedEpisodes },
+      summary: { ...ws.summary, episodes: [ws.summary.episodes[1]], episodes_summary: null, assets: {} },
+    };
+    const overviewDeferred = createDeferred<typeof ws>();
+    const broadDeferred = createDeferred<typeof ws>();
+    const getWorkspaceSpy = vi.spyOn(API, "getWorkspace").mockImplementation((_name, options) => {
+      if (options?.includeEpisodes === false) return overviewDeferred.promise;
+      if (options?.episodes?.[0] === 2) return Promise.resolve(ep2Projection);
+      return broadDeferred.promise;
+    });
+    const getScriptSpy = vi.spyOn(API, "getScript").mockResolvedValue({
+      script: { episode: 2, segments: [] } as never,
+      revision: "r2",
+    });
+
+    const { hook, navigate } = memoryLocation({ path: "/app/projects/demo" });
+    render(<Router hook={hook}><AppRoutes /></Router>);
+
+    await waitFor(() => {
+      expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", {
+        includeEpisodes: false,
+        signal: expect.any(AbortSignal),
+      });
+      expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+    });
+
+    await act(async () => overviewDeferred.resolve(overview));
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo");
+    expect(useProjectsStore.getState().currentProjectData?.status).toBeUndefined();
+    expect(useProjectsStore.getState().projectDetailLoading).toBe(true);
+
+    act(() => navigate("/app/projects/demo/episodes/2"));
+    await waitFor(() => {
+      expect(getWorkspaceSpy).toHaveBeenCalledWith("demo", { episodes: [2], signal: expect.any(AbortSignal) });
+      expect(getScriptSpy).toHaveBeenCalledWith("demo", "episode_2.json", { signal: expect.any(AbortSignal) });
+      expect(useProjectsStore.getState().activeEpisodeScript.episode).toBe(2);
+      expect(useProjectsStore.getState().activeEpisodeScript.status).toBe("ready");
+    });
+
+    await act(async () => broadDeferred.resolve(ws));
+    await waitFor(() => expect(useProjectsStore.getState().projectDetailLoading).toBe(false));
+    expect(useProjectsStore.getState().currentProjectData?.status?.episodes_summary.total).toBe(2);
+    expect(useProjectsStore.getState().activeEpisodeScript.episode).toBe(2);
+    expect(Object.keys(useProjectsStore.getState().currentScripts)).toEqual(["episode_2.json"]);
+    expect(getScriptSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("自定义绑定的剧本读取期间切到同项目概览会结束工作台加载", async () => {
     vi.spyOn(API, "getWorkspace").mockResolvedValue(makeWorkspaceResponse({
       title: "Demo", content_mode: "narration", style: "", characters: {},
@@ -359,7 +432,7 @@ describe("AppRoutes", () => {
       await i18n.changeLanguage("en");
     });
 
-    expect(API.getWorkspace).toHaveBeenCalledTimes(1);
+    expect(API.getWorkspace).toHaveBeenCalledTimes(2);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo Project");
 
     await act(async () => {

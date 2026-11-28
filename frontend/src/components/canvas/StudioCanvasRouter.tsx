@@ -101,6 +101,7 @@ export function StudioCanvasRouter() {
     activeEpisodeScript,
     projectDetailLoading,
   } = useProjectsStore();
+  const [isOverviewRoute] = useRoute("/");
   const [, episodeParams] = useRoute(EPISODE_ROUTE_PATH);
   const demoMode = useDemoWorkbench();
 
@@ -395,7 +396,8 @@ export function StudioCanvasRouter() {
 
   const targetEpisode = currentProjectData?.episodes.find((ep) => ep.episode === Number(episodeParams?.episodeId));
   const episodeReady = canPreviewEpisode(targetEpisode, activeEpisodeScript);
-  if (!currentProjectName || (projectDetailLoading && !episodeReady)) {
+  const overviewReady = isOverviewRoute && currentProjectData !== null;
+  if (!currentProjectName || (projectDetailLoading && !episodeReady && !overviewReady)) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         {t("loading_placeholder")}

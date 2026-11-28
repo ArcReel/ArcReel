@@ -47,6 +47,7 @@ const RECORDINGS: Recording[] = [
   { file: "projects", method: "GET", path: "/api/v1/projects" },
   { file: "deleted-projects", method: "GET", path: "/api/v1/deleted-projects" },
   { file: "project-demo-workspace", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workspace` },
+  { file: "project-demo-workspace-overview", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workspace?include_episodes=false` },
   { file: "project-demo-workspace-episode-1", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/workspace?episodes=1` },
   { file: "project-demo-script-episode-1", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/scripts/episode_1.json` },
   { file: "project-demo-item-locations", method: "POST", path: `/api/v1/projects/${DEMO_PROJECT}/item-locations`, json: { item_ids: [] } },

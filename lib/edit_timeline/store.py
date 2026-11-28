@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -48,6 +48,13 @@ def episode_timeline_dirs(project_dir: Path, episode: int | None = None) -> list
     return sorted(found)
 
 
+def episode_timeline_dir_index(project_dir: Path) -> dict[int, list[Path]]:
+    by_episode: dict[int, list[Path]] = {}
+    for number, directory in episode_timeline_dirs(project_dir):
+        by_episode.setdefault(number, []).append(directory)
+    return by_episode
+
+
 def _parse_document(path: Path, read_bytes: Callable[[Path], bytes] = Path.read_bytes) -> EditTimelineDocument:
     try:
         document = EditTimelineDocument.model_validate(json.loads(read_bytes(path).decode("utf-8")))
@@ -75,13 +82,24 @@ class EditTimelineStore:
     def _parse(path: Path) -> EditTimelineDocument:
         return _parse_document(path)
 
-    def list_documents(self, episode: int | None = None, *, strict: bool = False) -> list[EditTimelineDocument]:
+    def list_documents(
+        self,
+        episode: int | None = None,
+        *,
+        strict: bool = False,
+        episode_dirs: Sequence[Path] | None = None,
+    ) -> list[EditTimelineDocument]:
         """列出剪辑时间线（按集、再按创建时间）。
 
         无法解析的文件默认跳过并记日志；``strict`` 时抛出 ``timeline_invalid``。
         """
         documents: list[EditTimelineDocument] = []
-        for number, directory in self._episode_dirs(episode):
+        targets = (
+            [(episode, directory) for directory in episode_dirs]
+            if episode is not None and episode_dirs is not None
+            else self._episode_dirs(episode)
+        )
+        for number, directory in targets:
             for path in sorted(directory.glob("*.json")):
                 if not is_timeline_id(path.stem):
                     continue
@@ -172,6 +190,7 @@ __all__ = [
     "EDIT_TIMELINES_DIRNAME",
     "EditTimelineStore",
     "document_relpath",
+    "episode_timeline_dir_index",
     "episode_timeline_dirs",
     "read_timeline_document",
 ]

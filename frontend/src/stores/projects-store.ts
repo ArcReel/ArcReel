@@ -4,6 +4,7 @@ import { errMsg } from "@/utils/async";
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { create } from "zustand";
 import type {
+  ArtifactCount,
   EpisodeMeta,
   EpisodeScript,
   ProjectData,
@@ -175,6 +176,7 @@ interface ProjectsState {
 
   currentProjectName: string | null;
   currentProjectData: ProjectData | null;
+  previewAssets: Record<string, ArtifactCount> | null;
   currentScripts: Record<string, EpisodeScript>;
   activeEpisodeScript: ActiveEpisodeScriptState;
   projectDetailLoading: boolean;
@@ -216,6 +218,10 @@ interface ProjectsState {
   hydrateEpisodeWorkspace: (
     projectName: string,
     episode: number,
+    options?: { onError?: (err: unknown) => void },
+  ) => Promise<RefreshProjectResult>;
+  hydrateOverviewWorkspace: (
+    projectName: string,
     options?: { onError?: (err: unknown) => void },
   ) => Promise<RefreshProjectResult>;
   cancelEpisodeWorkspaceHydration: () => void;
@@ -521,6 +527,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     fingerprints: Record<string, number> | undefined,
     scope: ProjectRefreshScope | undefined,
     rotateOnChange: boolean,
+    previewAssets?: Record<string, ArtifactCount> | null,
   ) => {
     const prevName = get().currentProjectName;
     const projectChanged = name !== prevName;
@@ -550,11 +557,18 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         projectChanged || name === null
           ? { ...IDLE_ACTIVE_SCRIPT, projectName: name, generation: scriptGeneration }
           : s.activeEpisodeScript;
+      const nextPreviewAssets =
+        projectChanged || name === null || data === null || Boolean(data.status)
+          ? null
+          : previewAssets !== undefined
+            ? previewAssets
+            : s.previewAssets;
 
       if (name === null || data === null) {
         return {
           currentProjectName: name,
           currentProjectData: data,
+          previewAssets: nextPreviewAssets,
           currentScripts: nextScripts,
           activeEpisodeScript: nextActiveScript,
           assetFingerprints: fingerprints ?? s.assetFingerprints,
@@ -591,6 +605,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       return {
         currentProjectName: name,
         currentProjectData: data,
+        previewAssets: nextPreviewAssets,
         currentScripts: nextScripts,
         activeEpisodeScript: nextActiveScript,
         projectSnapshotRevisions: nextProjectSnapshotRevisions,
@@ -724,6 +739,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     projectsLoading: false,
     currentProjectName: null,
     currentProjectData: null,
+    previewAssets: null,
     currentScripts: {},
     activeEpisodeScript: IDLE_ACTIVE_SCRIPT,
     projectDetailLoading: false,
@@ -802,6 +818,36 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         const merged = mergeWorkspaceProject(response, state.currentProjectData);
         const fingerprints = { ...state.assetFingerprints, ...response.asset_fingerprints };
         commitCurrentProject(projectName, merged, undefined, fingerprints, { episodes: [episode] }, false);
+        return "success";
+      } catch (error) {
+        if (signal.aborted) return "cancelled";
+        if (!get().projectDetailLoading) options?.onError?.(error);
+        return "failed";
+      }
+    },
+
+    hydrateOverviewWorkspace: async (projectName, options) => {
+      if (!projectName || isDemoProject(projectName)) return "cancelled";
+      const previewSignal = rotatePreviewScope();
+      const signal = AbortSignal.any([projectScope.signal, previewSignal]);
+      try {
+        const response = await API.getWorkspace(projectName, { includeEpisodes: false, signal });
+        if (signal.aborted) return "cancelled";
+        const state = get();
+        if (state.currentProjectName !== projectName || state.currentProjectData?.status) return "cancelled";
+        if (!state.projectDetailLoading && state.currentProjectData === null) return "cancelled";
+        if (state.projectDetailLoading && response.summary.needs_repair) return "cancelled";
+        const merged = mergeWorkspaceProject(response, state.currentProjectData);
+        const fingerprints = { ...state.assetFingerprints, ...response.asset_fingerprints };
+        commitCurrentProject(
+          projectName,
+          merged,
+          undefined,
+          fingerprints,
+          { projectWide: false },
+          false,
+          response.summary.assets,
+        );
         return "success";
       } catch (error) {
         if (signal.aborted) return "cancelled";
