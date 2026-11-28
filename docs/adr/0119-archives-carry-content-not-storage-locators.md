@@ -8,7 +8,7 @@ status: accepted
 
 旧归档在安装前由归档服务于暂存目录修复，复用规范资源路径、剧本骨架和项目迁移链。归档修复会处理旧目录布局、丢失路径或残缺记录，已安装项目的保存入口负责校验现有内容，两处各有契约。[ADR 0098](0098-backfill-keeps-existing-content-gaps-only-gate-generation.md) 定义哪些结构应修复、哪些项目须拒绝。
 
-仅当前版本的包裁剪了生成图片的历史。导入远端存储时为包内没有版本记录的正式图片建立新内容版本，尾帧等始终保存在本地的图片除外。旧快照与版本摘要不符时仍可按本地版本保存。远端保存失败时项目不安装，提交占用由统一结算处理。覆盖导入旧项目的正式对象随墓碑保留，见 [ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)。
+仅当前版本的包裁剪了生成图片的历史。导入远端存储时为包内没有版本记录的正式图片建立新内容版本；尾帧、角色/商品原图与风格参考图等无版本图片按 [ADR 0132](0132-project-media-storage-locators-decoupled-from-version-history.md) 经项目媒体存储定位表随目标实例设置保存。旧快照与版本摘要不符时仍可按本地版本保存。远端保存失败时项目不安装，提交占用由统一结算处理。覆盖导入旧项目的正式对象随墓碑保留，见 [ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)。
 
 归档只带包内版本选定且可用的供应商素材关联。导入按版本身份与摘要核对实际字节，匹配后复制关联及冻结的调用范围，保留目标范围内已有的选定关联。未完成任务依赖源实例后台和中转资源，失败或已解除的关联也无可用内容。关联还原失败时报告警告，已导入图片仍可使用。运行时以推理凭证实际绑定的云账号判断是否选中关联，云账号资格由供应商决定，见 [ADR 0113](0113-generation-selects-provider-assets-by-actual-inference-credential.md) 和 [ADR 0111](0111-asset-upload-job-and-link-share-one-record.md)。
 

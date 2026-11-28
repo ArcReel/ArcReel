@@ -8,4 +8,4 @@ status: accepted
 
 需要读字节时，经 [work_files.py](../../lib/material/work_files.py) 取回并登记使用。并发请求共享下载，安装前按锁内记录复核内容，读取中的文件不会被清理。生成输入冻结或暂存后由任务私有副本承接，供应商迟取时读到同一份内容。对象缺失或连接不可用在实际取回时报告。
 
-清理只移除已确认保存、且与记录摘要一致的闲置工作文件，正式对象由引用保护。正式提交及保存范围见 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md)，归档取回范围见 [ADR 0119](0119-archives-carry-content-not-storage-locators.md)。
+清理只移除已确认保存、且与记录摘要一致的闲置工作文件，正式对象由引用保护。正式提交及保存范围见 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md)，无版本项目图片沿用同一工作文件与摘要在场契约（见 [ADR 0132](0132-project-media-storage-locators-decoupled-from-version-history.md)），归档取回范围见 [ADR 0119](0119-archives-carry-content-not-storage-locators.md)。

@@ -8,13 +8,13 @@ status: accepted
 
 ## 引用与转移
 
-- 项目从版本历史与可恢复的回收站内容重算引用。重算和提交结算都在项目锁与版本锁内完成，读不出项目或快照时保留现有引用或占用。删除进回收站、恢复和切换版本都保留可恢复对象。
+- 项目从版本历史、项目媒体存储定位表（见 [ADR 0132](0132-project-media-storage-locators-decoupled-from-version-history.md)）与可恢复的回收站内容重算引用。重算和提交结算都在项目锁与版本锁内完成，读不出项目或快照时保留现有引用或占用。删除进回收站、恢复和切换版本都保留可恢复对象。
 - 项目删除或被覆盖导入时，旧项目引用随项目改挂墓碑名，恢复时改回。改挂前按旧项目当时的快照补齐引用并拦住针对它的新提交。进行中提交的占用留在项目名下，以便新项目发布后正常结算。
-- 全局资产库与入库任务持有各自独立的键，分别见 [ADR 0120](0120-global-asset-library-entries-hold-content-references-and-link-copies.md) 和 [ADR 0111](0111-asset-upload-job-and-link-share-one-record.md)。入库直接为正式对象签发地址时先登记引用，即使来源版本随后被彻底删除，也保留到取图窗口结束。仅有入库引用的对象不阻止连接变更，适用 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 的旧桶处置规则。
+- 全局资产库与外部取图持有方（素材入库 `ingest:`、模型生成 `task:` 与真实端点试跑 `trial_run:`）持有各自独立的键，分别见 [ADR 0120](0120-global-asset-library-entries-hold-content-references-and-link-copies.md)、[ADR 0111](0111-asset-upload-job-and-link-share-one-record.md) 与 [ADR 0131](0131-external-image-url-supply-and-generation-url-inputs.md)。直接为正式对象签发外部下载地址时先登记引用，即使来源图片随后被彻底删除，也保留到取图窗口结束。仅有外部取图引用的对象不阻止连接变更，适用 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 的旧桶处置规则。
 
 ## 回收与恢复
 
-撤下最后一个引用或占用后尝试删除。由 [正式对象生命周期服务](../../lib/material/formal_objects.py) 统一处理正常回收、例行重算及退避重试，未确认上传只在正式提交结算时处理。已删除项目在正常彻底删除时立即调用 `release_holder` 显式撤下墓碑引用，无需等待宽限期。目录临时消失本身不足以证明可以回收，因为恢复会先移动项目目录，再改回引用。为在彻底删除后的显式撤下失败时兜底，维护循环的 `retain_formal_objects` 在传入已删除项目目录时，仅对可解析为墓碑名、删除时间已超过保留期外再满 1 天且墓碑目录已不存在的持有方调用 `release_holder`；该操作只撤下已持有的引用，不干扰进行中提交的占用，仍被其他持有方引用的共享对象也继续保留。
+撤下最后一个引用或占用后尝试删除；例外是在执行连接「收敛回本地」切换或删除且用户选择保留旧桶文件时，即时回收与后台扫盘须推迟对该旧桶对象的远端删除（见 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md)）。由 [正式对象生命周期服务](../../lib/material/formal_objects.py) 统一处理正常回收、例行重算及退避重试，未确认上传只在正式提交结算时处理。已删除项目在正常彻底删除时立即调用 `release_holder` 显式撤下墓碑引用，无需等待宽限期。目录临时消失本身不足以证明可以回收，因为恢复会先移动项目目录，再改回引用。为在彻底删除后的显式撤下失败时兜底，维护循环的 `retain_formal_objects` 在传入已删除项目目录时，仅对可解析为墓碑名、删除时间已超过保留期外再满 1 天且墓碑目录已不存在的持有方调用 `release_holder`；该操作只撤下已持有的引用，不干扰进行中提交的占用，仍被其他持有方引用的共享对象也继续保留。
 
 恢复远端历史版本时，若保留的字节仍匹配版本摘要，沿用原内容身份与定位。回收站保留本地内容，因此恢复无需重新上传。摘要不符时按本地版本保存。
 

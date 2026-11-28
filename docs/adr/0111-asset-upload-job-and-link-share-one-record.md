@@ -10,6 +10,6 @@ status: accepted
 
 提交结果不确定时，以本次上传的唯一名称查询已有素材，避免再次创建。进程在提交中途退出也按结果不确定继续核对。账号身份变化时，旧关联保留且对新身份不可选，未提交任务失败，处理中的任务停止自动查询。
 
-中转副本独立登记。下载地址有效期 24 小时，副本在任务有结果时自写入起至少保留 1 小时，无结果时保留至地址过期后 1 小时。这是本应用为异步取图留的余量。清理失败按退避重试。连接离开旧桶时按 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 选择清理或放弃副本，受影响的入库任务停止。直接为正式对象签发地址时的引用见 [ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)。
+中转副本与外部取图地址供给现由统一的外部图片 URL 供给服务承载（优先对象存储预签名、无对象存储时可回退至管理员显式配置的实例公网单文件回源，见 [ADR 0131](0131-external-image-url-supply-and-generation-url-inputs.md)）。下载地址有效期 24 小时，副本在任务有结果时自写入起至少保留 1 小时，无结果时保留至地址过期后 1 小时。这是本应用为异步取图留的余量。清理失败按退避重试。连接离开旧桶时按 [ADR 0116](0116-remote-content-versions-saved-by-formal-commit-with-object-references.md) 选择清理或放弃仅依赖旧桶的副本，受影响的入库任务停止。直接为正式对象签发地址时的引用见 [ADR 0118](0118-formal-objects-retained-by-holder-references-and-collected-in-one-place.md)。
 
 范围与验收见 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559)。
