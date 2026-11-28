@@ -69,18 +69,15 @@ rest_pages() {
 }
 
 remove_paths() {
-  [[ $# -gt 0 ]] || return 0
   python3 -c '
 import os, shutil, sys
 
 for path in sys.argv[1:]:
-    if not path:
-        continue
     try:
         if os.path.islink(path) or not os.path.isdir(path):
             os.unlink(path)
         else:
-            shutil.rmtree(path, ignore_errors=True)
+            shutil.rmtree(path)
     except FileNotFoundError:
         pass
 ' "$@"

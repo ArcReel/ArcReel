@@ -25,7 +25,7 @@ if ! [[ "$PR" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
-for tool in gh jq python3; do
+for tool in gh jq; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "ROUND_ERROR: $tool not found on PATH" >&2
     exit 3
@@ -70,6 +70,10 @@ case "$CMD" in
     if ! [[ "$PUSHBACK" =~ ^[0-9]+$ ]]; then
       echo "ROUND_ERROR: --pushback must be a non-negative integer, got: '$PUSHBACK'" >&2
       exit 2
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "ROUND_ERROR: python3 not found on PATH" >&2
+      exit 3
     fi
 
     HEAD_SHA=$(gh api "repos/${OWNER_REPO}/pulls/${PR}" --jq .head.sha) || {
