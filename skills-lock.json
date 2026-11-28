@@ -1,13 +1,6 @@
 {
   "version": 2,
   "skills": {
-    "agent-browser": {
-      "source": "vercel-labs/agent-browser",
-      "sourceType": "github",
-      "skillPath": "skills/agent-browser/SKILL.md",
-      "computedHash": "a0dfac7503f69bcf529b2660fc79964064c4f179eb65695904ddc45fc0d99d20",
-      "commit": "d2dfc782ccdd79d25a9b4f0acced9321789cecb8"
-    },
     "animate": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
