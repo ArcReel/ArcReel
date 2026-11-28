@@ -42,6 +42,10 @@ async function configureFixtureProviders(request: APIRequestContext, baseURL: st
   });
 }
 
+test.beforeEach(async ({ request, baseURL }) => {
+  await configureFixtureProviders(request, baseURL!);
+});
+
 async function queueTextResponses(request: APIRequestContext, project: string, responses: unknown[]) {
   await post(request, `/__playwright/text-responses/${project}`, {
     responses: responses.map((item) => (typeof item === "string" ? item : JSON.stringify(item))),
@@ -96,9 +100,8 @@ function watchProtocolHealth(page: Page) {
   };
 }
 
-test("drama script review loads blocking issues inline, unlocks confirm after saving fixes, and materializes the formal script", async ({ page, request, baseURL }) => {
+test("drama script review loads blocking issues inline, unlocks confirm after saving fixes, and materializes the formal script", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-drama-review";
   const sourceText = "山雨初歇，林夕推开茶馆木窗，望着青石街尽头亮起的马灯。";
@@ -268,9 +271,8 @@ async function resolveReferenceReviewAndConfirm(
   await health.assertClean();
 }
 
-test("reference video script review resolves blocking issues inline and materializes pending video units", async ({ page, request, baseURL }) => {
+test("reference video script review resolves blocking issues inline and materializes pending video units", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-ref-review";
   const { partOne, partTwo } = await createReferenceEpisode(request, project);
@@ -299,9 +301,8 @@ test("reference video script review resolves blocking issues inline and material
   await resolveReferenceReviewAndConfirm(page, request, { project, partOne, partTwo, health });
 });
 
-test("reference video script review recovers when workspace reads script_status none before manifest registration", async ({ page, request, baseURL }) => {
+test("reference video script review recovers when workspace reads script_status none before manifest registration", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-ref-review-register-race";
   const { partOne, partTwo } = await createReferenceEpisode(request, project);
@@ -324,36 +325,42 @@ test("reference video script review recovers when workspace reads script_status 
     },
   ]);
 
-  await post(request, `/__playwright/script-plan-register-gate/${project}`);
-  try {
-    await page.goto(`/app/projects/${project}/episodes/1`);
-    const midTransactionRead = page.waitForResponse(async (reply) => {
-      if (reply.request().method() !== "GET") return false;
-      if (new URL(reply.url()).pathname !== `${API}/projects/${project}/workspace`) return false;
-      if (!reply.ok()) return false;
-      const body = await reply.json() as {
-        project?: { episodes?: { item_id_high_water?: number }[] };
-        summary?: { episodes?: { script_status?: string }[] };
-      };
-      return (
-        body.project?.episodes?.[0]?.item_id_high_water === 2 &&
-        body.summary?.episodes?.[0]?.script_status === "none"
-      );
-    });
+  await page.goto(`/app/projects/${project}/episodes/1`);
+  const planButton = page.getByRole("button", { name: "AI 规划", exact: true });
+  await expect(planButton).toBeVisible();
 
-    await page.getByRole("button", { name: "AI 规划", exact: true }).click();
-    await post(request, `/__playwright/script-plan-register-gate/${project}/wait-entered`);
-    await midTransactionRead;
+  const gate = `/__playwright/script-plan-register-gate/${project}`;
+  await post(request, gate);
+  try {
+    await Promise.all([
+      page.waitForEvent("requestfinished", {
+        timeout: 15_000,
+        predicate: async (req) => {
+          if (req.method() !== "GET" || new URL(req.url()).pathname !== `${API}/projects/${project}/workspace`) return false;
+          const reply = await req.response();
+          if (!reply?.ok()) return false;
+          const body = await reply.json() as {
+            project?: { episodes?: { item_id_high_water?: number }[] };
+            summary?: { episodes?: { script_status?: string }[] };
+          };
+          return (
+            body.project?.episodes?.[0]?.item_id_high_water === 2 &&
+            body.summary?.episodes?.[0]?.script_status === "none"
+          );
+        },
+      }),
+      planButton.click(),
+      post(request, `${gate}/wait-entered`),
+    ]);
   } finally {
-    await post(request, `/__playwright/script-plan-register-gate/${project}/release`);
+    await post(request, `${gate}/release`);
   }
 
   await resolveReferenceReviewAndConfirm(page, request, { project, partOne, partTwo, health });
 });
 
-test("reference video units persist partial prompt authoring outcome across reload and allow retrying failed units", async ({ page, request, baseURL }) => {
+test("reference video units persist partial prompt authoring outcome across reload and allow retrying failed units", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-ref-partial";
   const { partOne, partTwo } = await createReferenceEpisode(request, project);
@@ -413,9 +420,8 @@ test("reference video units persist partial prompt authoring outcome across relo
   await health.assertClean();
 });
 
-test("v20 project migrated to current schema moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request, baseURL }) => {
+test("v20 project migrated to current schema moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await configureFixtureProviders(request, baseURL!);
 
   const project = "live-v20-migrated";
   const sourceText = "山雨初歇，旧城青石板泛着微光。";
@@ -488,7 +494,6 @@ test("v20 project migrated to current schema moves retired invalid drafts to tra
 
 test("workbench home renders before full workspace, and in-app switch keeps episode draft editable and saves to target episode", async ({ page, request }) => {
   const health = watchProtocolHealth(page);
-  await post(request, `${API}/onboarding/seen`, {});
 
   const project = "live-home-overview-and-switch";
   const ep1Source = "第一集原文：雨落长街，石板映灯。";
