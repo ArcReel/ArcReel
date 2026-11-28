@@ -19,18 +19,32 @@ def parse_project_schema_version(project: Mapping[str, object]) -> int:
     return raw_version
 
 
-def project_schema_is_current(project: Mapping[str, object]) -> bool:
-    """Return whether a strictly parsed project uses the current schema."""
+def parse_supported_project_schema_version(project: Mapping[str, object]) -> int:
+    """Return a strictly parsed schema version not newer than the supported version."""
 
     version = parse_project_schema_version(project)
     if version > CURRENT_PROJECT_SCHEMA_VERSION:
         raise ValueError(f"schema_version {version} is newer than supported version {CURRENT_PROJECT_SCHEMA_VERSION}")
-    return version == CURRENT_PROJECT_SCHEMA_VERSION
+    return version
+
+
+def project_schema_uses_sqlite_history(version: int) -> bool:
+    """Return whether a supported project schema version stores version history in SQLite."""
+
+    return SQLITE_HISTORY_SCHEMA_VERSION <= version <= CURRENT_PROJECT_SCHEMA_VERSION
+
+
+def project_schema_is_current(project: Mapping[str, object]) -> bool:
+    """Return whether a strictly parsed project uses the current schema."""
+
+    return parse_supported_project_schema_version(project) == CURRENT_PROJECT_SCHEMA_VERSION
 
 
 __all__ = [
     "CURRENT_PROJECT_SCHEMA_VERSION",
     "SQLITE_HISTORY_SCHEMA_VERSION",
     "parse_project_schema_version",
+    "parse_supported_project_schema_version",
     "project_schema_is_current",
+    "project_schema_uses_sqlite_history",
 ]

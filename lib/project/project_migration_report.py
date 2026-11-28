@@ -10,7 +10,7 @@ is informational and never blocks anything, unlike the migration verdict
 so the production status can surface it without a database round trip.
 
 The migration runner writes it when a chain finishes. A chain that fails after
-adjusting files writes an incomplete report holding those adjustments only, so
+adjusting files writes an incomplete report holding those adjustments, so
 the retry that finishes the chain still reports them; an incomplete report is
 never shown. A chain that fails only after committing the current schema is not
 rerun, so the runner completes its report when it finds the project current. Archive import adds its placeholder adjustments to the staged
@@ -217,6 +217,16 @@ def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _merge_adjustments(
+    previous: Sequence[MigrationAdjustment], additional: Sequence[MigrationAdjustment]
+) -> list[MigrationAdjustment]:
+    merged = list(previous)
+    for item in additional:
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
 def build_migration_report(
     outcome: ArtifactBackfillOutcome | None,
     *,
@@ -224,7 +234,19 @@ def build_migration_report(
     to_schema_version: int,
     adjusted: Sequence[MigrationAdjustment] = (),
     complete: bool = True,
+    previous: MigrationReport | None = None,
 ) -> MigrationReport:
+    if outcome is None and previous is not None:
+        return previous.model_copy(
+            update={
+                "migrated_at": _utc_now(),
+                "from_schema_version": min(from_schema_version, previous.from_schema_version),
+                "to_schema_version": to_schema_version,
+                "complete": complete,
+                "acknowledged_at": None,
+                "adjusted": _merge_adjustments(previous.adjusted, adjusted),
+            }
+        )
     return MigrationReport(
         migrated_at=_utc_now(),
         from_schema_version=from_schema_version,
@@ -398,10 +420,7 @@ def extend_migration_report(
             from_schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
             to_schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
         )
-    merged_adjusted = list(report.adjusted)
-    for item in adjusted:
-        if item not in merged_adjusted:
-            merged_adjusted.append(item)
+    merged_adjusted = _merge_adjustments(report.adjusted, adjusted)
     merged_skipped = list(merge_skipped(report.skipped, skipped))
     if merged_adjusted == report.adjusted and merged_skipped == report.skipped:
         return

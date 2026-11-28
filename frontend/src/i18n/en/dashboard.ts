@@ -2517,7 +2517,7 @@ export default {
   'migration_report_acknowledge': 'Got it, don\'t show again',
   'migration_report_dismiss_failed': 'Could not dismiss the upgrade notice: {{message}}',
   'migration_report_title': 'What the upgrade changed',
-  'migration_report_description': 'Upgrading this project\'s data made the changes below. Whatever was replaced is kept as a backup; no file was deleted.',
+  'migration_report_description': 'Upgrading this project\'s data made the changes below. Replaced or conflicting content is kept as a backup; only identical or reconstructible redundant copies are removed.',
   'migration_report_adjusted': 'Changed',
   'migration_report_skipped': 'Not carried over',
   'migration_report_skipped_hint': 'These files stay where they are but are not recognized by the project, so they show as missing. Generate or upload them again when needed.',

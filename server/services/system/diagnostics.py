@@ -97,7 +97,17 @@ def _db_url() -> str:
             ]
             query = urlencode(masked)
 
-        return urlunparse(parsed._replace(netloc=netloc, query=query))
+        rebuilt = urlunparse(parsed._replace(netloc=netloc, query=query))
+        if parsed.scheme and not netloc and parsed.path.startswith("//"):
+            expected_prefix = f"{parsed.scheme}://{parsed.path}"
+            collapsed_prefix = f"{parsed.scheme}:{parsed.path}"
+            if (
+                raw.startswith(expected_prefix)
+                and rebuilt.startswith(collapsed_prefix)
+                and not rebuilt.startswith(expected_prefix)
+            ):
+                rebuilt = f"{parsed.scheme}://{rebuilt[len(parsed.scheme) + 1 :]}"
+        return rebuilt
     except Exception:
         return raw
 

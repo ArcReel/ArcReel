@@ -343,7 +343,7 @@ test("reference video units persist partial prompt authoring outcome across relo
   await health.assertClean();
 });
 
-test("v20 project migrated to v21 moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request, baseURL }) => {
+test("v20 project migrated to current schema moves retired invalid drafts to trash and proceeds through script review to production", async ({ page, request, baseURL }) => {
   const health = watchProtocolHealth(page);
   await configureFixtureProviders(request, baseURL!);
 
@@ -355,6 +355,13 @@ test("v20 project migrated to v21 moves retired invalid drafts to trash and proc
     content_mode: "narration",
     generation_mode: "storyboard",
   });
+  const initialProjectResp = await request.get(`${API}/projects/${project}`);
+  await expect(initialProjectResp).toBeOK();
+  const initialProjectBody = (await initialProjectResp.json()) as {
+    project: { schema_version: number };
+  };
+  const currentSchemaVersion = initialProjectBody.project.schema_version;
+  expect(currentSchemaVersion).toBeGreaterThanOrEqual(22);
   await post(request, `${API}/projects/${project}/episodes`, { title: "第一集", source_text: sourceText });
   await put(request, `${API}/projects/${project}/episodes/1/script-review/content`, {
     segments: [
@@ -377,7 +384,7 @@ test("v20 project migrated to v21 moves retired invalid drafts to trash and proc
   const projectResp = await request.get(`${API}/projects/${project}`);
   await expect(projectResp).toBeOK();
   expect(await projectResp.json()).toMatchObject({
-    project: { schema_version: 21 },
+    project: { schema_version: currentSchemaVersion },
   });
 
   const trashResp = await request.get(`${API}/projects/${project}/trash`);

@@ -96,10 +96,11 @@ from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
     migrate_project_dict as freeze_bare_provider_models,
 )
 from lib.project.project_schema import (
-    CURRENT_PROJECT_SCHEMA_VERSION,
     SQLITE_HISTORY_SCHEMA_VERSION,
     parse_project_schema_version,
+    parse_supported_project_schema_version,
     project_schema_is_current,
+    project_schema_uses_sqlite_history,
 )
 from lib.project.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -785,15 +786,10 @@ class ProjectArchiveService:
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
                     try:
-                        staged_version = parse_project_schema_version(
+                        staged_version = parse_supported_project_schema_version(
                             self._load_project_file(staging_dir / "project.json")
                         )
-                        if staged_version > CURRENT_PROJECT_SCHEMA_VERSION:
-                            raise ValueError(
-                                f"schema_version {staged_version} is newer than supported version "
-                                f"{CURRENT_PROJECT_SCHEMA_VERSION}"
-                            )
-                        if staged_version >= SQLITE_HISTORY_SCHEMA_VERSION:
+                        if project_schema_uses_sqlite_history(staged_version):
                             source = staging_dir / "versions/versions.json"
                             SQLiteHistory(staging_dir).create(SQLiteHistory.read_exchange(source))
                             source.unlink()  # hard-delete: temp -- exchange payload in import staging
@@ -2152,11 +2148,18 @@ class ProjectArchiveService:
             return
 
         unknown = [key for key in payload if key not in VersionManager.RESOURCE_TYPES]
-        if unknown and project_schema_is_current(self._load_project_file(project_dir / "project.json")):
+        if unknown:
             try:
-                SQLiteHistory.read_exchange(versions_path)
+                staged_version = parse_supported_project_schema_version(
+                    self._load_project_file(project_dir / "project.json")
+                )
             except ValueError as exc:
-                _raise_malformed_history(exc)
+                self._raise_migration_validation_error(ArchiveDiagnostics(), exc)
+            if project_schema_uses_sqlite_history(staged_version):
+                try:
+                    SQLiteHistory.read_exchange(versions_path)
+                except ValueError as exc:
+                    _raise_malformed_history(exc)
         for key in unknown:
             records = sum(len(history) for _, history in self._iter_version_histories(payload.pop(key)))
             logger.info("导入包的版本历史含未知资源类型桶 %r（%d 条版本记录），已剔除", key, records)

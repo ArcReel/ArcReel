@@ -321,25 +321,9 @@ def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], t
         normalized = value.replace("\\", "/").removeprefix("./")
         return normalized in old_paths or f"scripts/{normalized}" in old_paths
 
-    sqlite_history = SQLiteHistory(work.project_dir)
-    if sqlite_history.is_enabled():
-        batch = sqlite_history.resources(sqlite_history.resource_keys())
+    def rewrite_history_buckets(buckets: dict[str, Any]) -> bool:
         changed = False
-        for bucket in batch.values():
-            for resource in bucket.values():
-                records = resource.get("versions") if isinstance(resource, dict) else None
-                for record in records if isinstance(records, list) else []:
-                    if isinstance(record, dict) and points_at_old(record.get("execution_script_file")):
-                        record["execution_script_file"] = target
-                        changed = True
-        if changed:
-            sqlite_history.save(batch)
-
-    versions_path = work.project_dir / "versions" / "versions.json"
-    versions = _load_object(versions_path) if versions_path.is_file() else None
-    if versions is not None:
-        changed = False
-        for bucket in versions.values():
+        for bucket in buckets.values():
             if not isinstance(bucket, dict):
                 continue
             for resource in bucket.values():
@@ -348,9 +332,19 @@ def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], t
                     if isinstance(record, dict) and points_at_old(record.get("execution_script_file")):
                         record["execution_script_file"] = target
                         changed = True
-        if changed:
-            ensure_versioned_backup(versions_path, work.schema_version)
-            atomic_write_json(versions_path, versions)
+        return changed
+
+    sqlite_history = SQLiteHistory(work.project_dir)
+    if sqlite_history.is_enabled():
+        batch = sqlite_history.resources(sqlite_history.resource_keys())
+        if rewrite_history_buckets(batch):
+            sqlite_history.save(batch)
+
+    versions_path = work.project_dir / "versions" / "versions.json"
+    versions = _load_object(versions_path) if versions_path.is_file() else None
+    if versions is not None and rewrite_history_buckets(versions):
+        ensure_versioned_backup(versions_path, work.schema_version)
+        atomic_write_json(versions_path, versions)
 
     grids_dir = work.project_dir / "grids"
     if grids_dir.is_dir() and not grids_dir.is_symlink():
@@ -670,46 +664,34 @@ def _carry_merged_derivative_records(work: _Work, drops: list[_AssetDrop]) -> No
                 expected={old_key: stored}, replacements={old_key: None}
             ):
                 raise RuntimeError("artifact manifest changed while retiring a derivative claim")
+
+    def apply_derivative_history(bucket: dict[str, Any]) -> bool:
+        changed = False
+        for owner, kept, name, _path_rewrites in moved:
+            old_key = resolve_asset_key(bucket, derivative_artifact_id(owner, name))
+            new_id = derivative_artifact_id(kept, name)
+            if old_key is None or resolve_asset_key(bucket, new_id) is not None:
+                continue
+            bucket[new_id] = bucket.pop(old_key)
+            changed = True
+        for owner, name in retired:
+            old_key = resolve_asset_key(bucket, derivative_artifact_id(owner, name))
+            if old_key is not None:
+                del bucket[old_key]
+                changed = True
+        return changed
+
     sqlite_history = SQLiteHistory(work.project_dir)
     if sqlite_history.is_enabled():
         batch = sqlite_history.resources(sqlite_history.resource_keys(CHARACTER_DERIVATIVE_RESOURCE_TYPE))
         bucket = batch.get(CHARACTER_DERIVATIVE_RESOURCE_TYPE)
-        if isinstance(bucket, dict):
-            changed = False
-            for owner, kept, name, _path_rewrites in moved:
-                old_key = resolve_asset_key(bucket, derivative_artifact_id(owner, name))
-                new_id = derivative_artifact_id(kept, name)
-                if old_key is None or resolve_asset_key(bucket, new_id) is not None:
-                    continue
-                bucket[new_id] = bucket.pop(old_key)
-                changed = True
-            for owner, name in retired:
-                old_key = resolve_asset_key(bucket, derivative_artifact_id(owner, name))
-                if old_key is not None:
-                    del bucket[old_key]
-                    changed = True
-            if changed:
-                sqlite_history.save(batch)
+        if isinstance(bucket, dict) and apply_derivative_history(bucket):
+            sqlite_history.save(batch)
 
     versions_path = work.project_dir / "versions" / "versions.json"
     versions = _load_object(versions_path) if versions_path.is_file() else None
     history = versions.get(CHARACTER_DERIVATIVE_RESOURCE_TYPE) if versions is not None else None
-    if not isinstance(history, dict):
-        return
-    changed = False
-    for owner, kept, name, _path_rewrites in moved:
-        old_key = resolve_asset_key(history, derivative_artifact_id(owner, name))
-        new_id = derivative_artifact_id(kept, name)
-        if old_key is None or resolve_asset_key(history, new_id) is not None:
-            continue
-        history[new_id] = history.pop(old_key)
-        changed = True
-    for owner, name in retired:
-        old_key = resolve_asset_key(history, derivative_artifact_id(owner, name))
-        if old_key is not None:
-            del history[old_key]
-            changed = True
-    if changed:
+    if isinstance(history, dict) and apply_derivative_history(history):
         ensure_versioned_backup(versions_path, work.schema_version)
         atomic_write_json(versions_path, versions)
 
