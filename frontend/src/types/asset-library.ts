@@ -41,6 +41,104 @@ export interface ObjectStorageTestResult {
   residual_object_key?: string | null;
 }
 
+export type ObjectStorageRelocationMode = "switch" | "delete";
+
+export type ObjectStorageRelocationPhase =
+  | "idle"
+  | "scanning"
+  | "converging"
+  | "finalizing"
+  | "completed"
+  | "failed";
+
+export interface ObjectStorageUnrecoverableItem {
+  holder_kind: string;
+  holder_label: string;
+  path: string;
+  digest: string;
+  object_key: string;
+  size: number;
+}
+
+export interface ObjectStorageRelocationProgress {
+  running: boolean;
+  phase: ObjectStorageRelocationPhase;
+  mode: ObjectStorageRelocationMode | null;
+  delete_remote_objects: boolean;
+  total_objects: number;
+  completed_objects: number;
+  downloaded_objects: number;
+  reused_local_objects: number;
+  total_references: number;
+  promoted_references: number;
+  conflicts_preserved: number;
+  failed_objects: number;
+  last_error_kind: string | null;
+  last_error_message: string | null;
+  unreachable: boolean;
+}
+
+export interface ObjectStorageRelocationPlan {
+  connection_id: number;
+  in_use_object_count: number;
+  in_use_reference_count: number;
+  download_object_count: number;
+  estimated_download_bytes: number;
+  pending_ingest_tasks: number;
+  in_flight_uploads: number;
+  relocating: boolean;
+  relocate_delete_remote: boolean | null;
+  relocate_mode: ObjectStorageRelocationMode | null;
+  unrecoverable_items: ObjectStorageUnrecoverableItem[];
+  progress: ObjectStorageRelocationProgress;
+}
+
+export interface ObjectStorageRelocationTargetPayload {
+  kind?: ObjectStorageKind;
+  region: string;
+  endpoint: string;
+  bucket: string;
+  addressing_style?: ObjectStorageAddressingStyle;
+  access_key_id?: string;
+  secret_access_key?: string;
+}
+
+export interface RunObjectStorageRelocationPayload {
+  mode: ObjectStorageRelocationMode;
+  delete_remote_objects: boolean;
+  target?: ObjectStorageRelocationTargetPayload | null;
+}
+
+export interface ObjectStorageRelocationRunResult {
+  status: "completed" | "incomplete";
+  mode: ObjectStorageRelocationMode;
+  delete_remote_objects: boolean;
+  connection: ObjectStorageConnection | null;
+  new_image_target: NewImageTarget;
+  cleanup_failures: Record<string, number>;
+  total_objects: number;
+  completed_objects: number;
+  downloaded_objects: number;
+  reused_local_objects: number;
+  total_references: number;
+  promoted_references: number;
+  conflicts_preserved: number;
+  failed_objects: number;
+  error_kind: string | null;
+  error_message: string | null;
+  error_detail: string | null;
+  unreachable: boolean;
+  unrecoverable_items: ObjectStorageUnrecoverableItem[];
+}
+
+export interface ObjectStorageForceDisconnectResult {
+  salvaged_objects: number;
+  salvaged_references: number;
+  conflicts_preserved: number;
+  unrecoverable_items: ObjectStorageUnrecoverableItem[];
+  new_image_target: NewImageTarget;
+}
+
 export interface ObjectStorageConnection {
   kind: ObjectStorageKind;
   region: string;
@@ -48,6 +146,10 @@ export interface ObjectStorageConnection {
   bucket: string;
   addressing_style: ObjectStorageAddressingStyle;
   needs_endpoint_review?: boolean;
+  relocating?: boolean;
+  relocate_delete_remote?: boolean | null;
+  relocate_mode?: ObjectStorageRelocationMode | null;
+  in_use_object_count?: number;
   access_key_id_masked: string;
   secret_access_key_masked: string;
   updated_at: string;

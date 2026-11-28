@@ -37,17 +37,23 @@ import type {
   ObjectStorageAddressingStyle,
   ObjectStorageCleanupResult,
   ObjectStorageConnection,
+  ObjectStorageForceDisconnectResult,
   ObjectStorageProbeDiagnostic,
   ObjectStorageProbeStep,
   ObjectStorageProbeStepName,
   ObjectStorageProbeStepStatus,
+  ObjectStorageRelocationMode,
+  ObjectStorageRelocationRunResult,
+  ObjectStorageRelocationTargetPayload,
   ObjectStorageSettings,
   ObjectStorageTestResult,
+  ObjectStorageUnrecoverableItem,
   SavedObjectStorageConnection,
 } from "@/types";
 import { errMsg } from "@/utils/async";
 import { cn } from "cn";
 
+import { ForceDisconnectDialog, RelocationDialog } from "./ObjectStorageRelocationDialogs";
 import {
   OBJECT_STORAGE_PRESETS,
   buildPresetEndpoint,
@@ -99,13 +105,29 @@ function formatProbeDiagnostic(diagnostic: ObjectStorageProbeDiagnostic | null |
   return parts.length > 0 ? parts.join(": ") : null;
 }
 
+type RelocationModalState = {
+  mode: ObjectStorageRelocationMode;
+  target?: ObjectStorageRelocationTargetPayload | null;
+  initialDeleteRemote?: boolean;
+};
+
+type ForceDisconnectModalState = {
+  items?: ObjectStorageUnrecoverableItem[] | null;
+};
+
 export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
   const headingId = useId();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
   const [cleanupFailures, setCleanupFailures] = useState<Record<string, number>>({});
+  const [relocationResult, setRelocationResult] = useState<ObjectStorageRelocationRunResult | null>(null);
+  const [forceDisconnectResult, setForceDisconnectResult] = useState<ObjectStorageForceDisconnectResult | null>(null);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [relocationModal, setRelocationModal] = useState<RelocationModalState | null>(null);
+  const [forceDisconnectModal, setForceDisconnectModal] = useState<ForceDisconnectModalState | null>(null);
+  const [cancellingRelocation, setCancellingRelocation] = useState(false);
+  const [relocationCancelError, setRelocationCancelError] = useState<string | null>(null);
   const [test, setTest] = useState<TestState>({ status: "idle" });
 
   const loadController = useRef<AbortController | null>(null);
@@ -149,6 +171,8 @@ export function ObjectStorageBlock() {
   const handleSaved = useCallback(
     (saved: SavedObjectStorageConnection) => {
       setCleanupFailures(saved.cleanup_failures);
+      setRelocationResult(null);
+      setForceDisconnectResult(null);
       setEditing(false);
       resetTest();
       patchSettings({ connection: saved });
@@ -156,6 +180,64 @@ export function ObjectStorageBlock() {
     },
     [resetTest, patchSettings, fetchConnection],
   );
+  const handleRelocationCompleted = useCallback(
+    (result: ObjectStorageRelocationRunResult) => {
+      setRelocationModal(null);
+      setEditing(false);
+      setDeleting(false);
+      resetTest();
+      setForceDisconnectResult(null);
+      setRelocationResult(result);
+      setCleanupFailures(result.cleanup_failures);
+      patchSettings({
+        connection: result.connection,
+        new_image_target: result.new_image_target,
+        pending_ingest_tasks: 0,
+      });
+      void fetchConnection();
+    },
+    [resetTest, patchSettings, fetchConnection],
+  );
+  const handleRelocationCancelled = useCallback(
+    (nextSettings: ObjectStorageSettings) => {
+      setRelocationModal(null);
+      setRelocationCancelError(null);
+      setLoad({ status: "ready", settings: nextSettings });
+    },
+    [],
+  );
+  const handleForceDisconnected = useCallback(
+    (result: ObjectStorageForceDisconnectResult) => {
+      setForceDisconnectModal(null);
+      setRelocationModal(null);
+      setEditing(false);
+      setDeleting(false);
+      resetTest();
+      setRelocationResult(null);
+      setCleanupFailures({});
+      setForceDisconnectResult(result);
+      patchSettings({
+        connection: null,
+        new_image_target: result.new_image_target,
+        pending_ingest_tasks: 0,
+      });
+      void fetchConnection();
+    },
+    [resetTest, patchSettings, fetchConnection],
+  );
+  const handleBannerCancelRelocation = async () => {
+    if (cancellingRelocation) return;
+    setCancellingRelocation(true);
+    setRelocationCancelError(null);
+    try {
+      const nextSettings = await API.cancelObjectStorageRelocation();
+      setLoad({ status: "ready", settings: nextSettings });
+    } catch (error) {
+      setRelocationCancelError(errMsg(error));
+    } finally {
+      setCancellingRelocation(false);
+    }
+  };
   const handleTargetSaved = useCallback(
     (target: NewImageTarget) => patchSettings({ new_image_target: target }),
     [patchSettings],
@@ -223,15 +305,36 @@ export function ObjectStorageBlock() {
         <ConnectionCard
           connection={connection}
           test={test}
+          cancellingRelocation={cancellingRelocation}
+          relocationCancelError={relocationCancelError}
           onTest={() => void runTest()}
           onEdit={() => {
             setEditing(true);
             void refreshPendingIngest();
           }}
           onDelete={() => {
-            setDeleting(true);
-            void refreshPendingIngest();
+            if ((connection.in_use_object_count ?? 0) > 0 || connection.relocating) {
+              setRelocationModal({
+                mode: "delete",
+                initialDeleteRemote: connection.relocate_delete_remote ?? true,
+              });
+            } else {
+              setDeleting(true);
+              void refreshPendingIngest();
+            }
           }}
+          onResumeRelocation={() => {
+            if (connection.relocate_mode === "delete") {
+              setRelocationModal({
+                mode: "delete",
+                initialDeleteRemote: connection.relocate_delete_remote ?? true,
+              });
+            } else {
+              setEditing(true);
+            }
+          }}
+          onCancelRelocation={() => void handleBannerCancelRelocation()}
+          onForceDisconnect={() => setForceDisconnectModal({ items: null })}
         />
       )}
 
@@ -239,6 +342,7 @@ export function ObjectStorageBlock() {
         <NewImageTargetField
           target={settings.new_image_target}
           connectionConfigured={connection !== null}
+          relocating={Boolean(connection?.relocating)}
           onSaved={handleTargetSaved}
         />
       )}
@@ -249,19 +353,82 @@ export function ObjectStorageBlock() {
           pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
           onCancel={closeEditor}
           onSaved={handleSaved}
+          onStartRelocation={(target, deleteRemote) => {
+            setEditing(false);
+            setRelocationModal({ mode: "switch", target, initialDeleteRemote: deleteRemote });
+          }}
         />
       )}
       {deleting && (
         <DeleteObjectStorageDialog
           pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
+          newImageTarget={settings?.new_image_target ?? "local"}
           onClose={() => setDeleting(false)}
-          onDeleted={(result) => {
+          onDeleted={(result, resetTarget) => {
             setDeleting(false);
             resetTest();
+            setRelocationResult(null);
+            setForceDisconnectResult(null);
             setCleanupFailures(result.cleanup_failures);
-            patchSettings({ connection: null, pending_ingest_tasks: 0 });
+            patchSettings({
+              connection: null,
+              pending_ingest_tasks: 0,
+              ...(resetTarget ? { new_image_target: "local" as const } : {}),
+            });
           }}
         />
+      )}
+      {relocationModal && (
+        <RelocationDialog
+          mode={relocationModal.mode}
+          target={relocationModal.target}
+          initialDeleteRemote={relocationModal.initialDeleteRemote}
+          onClose={() => setRelocationModal(null)}
+          onCompleted={handleRelocationCompleted}
+          onCancelled={handleRelocationCancelled}
+          onRequestForceDisconnect={(items) => {
+            setRelocationModal(null);
+            setForceDisconnectModal({ items });
+          }}
+        />
+      )}
+      {forceDisconnectModal && (
+        <ForceDisconnectDialog
+          initialItems={forceDisconnectModal.items}
+          onClose={() => setForceDisconnectModal(null)}
+          onDisconnected={handleForceDisconnected}
+        />
+      )}
+      {relocationResult && (
+        <div role="status" className="flex flex-col gap-1 rounded-md border border-good/40 bg-good/10 px-3 py-2 text-xs text-foreground">
+          <p>
+            {t("object_storage_relocation_completed_notice", {
+              objects: relocationResult.completed_objects,
+              references: relocationResult.promoted_references,
+            })}
+          </p>
+          {relocationResult.conflicts_preserved > 0 && (
+            <p className="text-warn">
+              {t("object_storage_relocation_conflicts_note", { count: relocationResult.conflicts_preserved })}
+            </p>
+          )}
+        </div>
+      )}
+      {forceDisconnectResult && (
+        <div role="status" className="flex flex-col gap-1 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-foreground">
+          <p>
+            {t("object_storage_force_disconnect_result", {
+              objects: forceDisconnectResult.salvaged_objects,
+              references: forceDisconnectResult.salvaged_references,
+              missing: forceDisconnectResult.unrecoverable_items.length,
+            })}
+          </p>
+          {forceDisconnectResult.conflicts_preserved > 0 && (
+            <p className="text-warn">
+              {t("object_storage_relocation_conflicts_note", { count: forceDisconnectResult.conflicts_preserved })}
+            </p>
+          )}
+        </div>
       )}
       <CleanupFailures failures={cleanupFailures} />
     </section>
@@ -271,15 +438,25 @@ export function ObjectStorageBlock() {
 function ConnectionCard({
   connection,
   test,
+  cancellingRelocation,
+  relocationCancelError,
   onTest,
   onEdit,
   onDelete,
+  onResumeRelocation,
+  onCancelRelocation,
+  onForceDisconnect,
 }: {
   connection: ObjectStorageConnection;
   test: TestState;
+  cancellingRelocation: boolean;
+  relocationCancelError: string | null;
   onTest: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onResumeRelocation: () => void;
+  onCancelRelocation: () => void;
+  onForceDisconnect: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   return (
@@ -322,6 +499,38 @@ function ConnectionCard({
         <div role="status" className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-2 text-xs text-warn">
           <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
           <p className="min-w-0 flex-1 wrap-break-word">{t("object_storage_needs_endpoint_review")}</p>
+        </div>
+      )}
+      {connection.relocating && (
+        <div role="status" className="flex flex-col gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2.5 text-xs">
+          <div className="flex items-start gap-2 text-warn">
+            <CircleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <p className="font-medium">{t("object_storage_relocating_banner_title")}</p>
+              <p className="wrap-break-word text-foreground">{t("object_storage_relocating_banner_desc")}</p>
+            </div>
+          </div>
+          {relocationCancelError && (
+            <p role="alert" className="wrap-break-word text-destructive">
+              {relocationCancelError}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="xs" disabled={cancellingRelocation} onClick={onResumeRelocation}>
+              {t(
+                connection.relocate_mode === "delete"
+                  ? "object_storage_relocating_resume_delete"
+                  : "object_storage_relocating_resume_switch",
+              )}
+            </Button>
+            <Button variant="ghost" size="xs" disabled={cancellingRelocation} onClick={onCancelRelocation}>
+              {cancellingRelocation && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+              {t("object_storage_relocating_cancel")}
+            </Button>
+            <Button variant="destructive" size="xs" disabled={cancellingRelocation} onClick={onForceDisconnect}>
+              {t("object_storage_relocating_force_disconnect_entry")}
+            </Button>
+          </div>
         </div>
       )}
       <div aria-live="polite">
@@ -427,10 +636,12 @@ function ProbeStepRow({ step }: { step: ObjectStorageProbeStep }) {
 function NewImageTargetField({
   target,
   connectionConfigured,
+  relocating,
   onSaved,
 }: {
   target: NewImageTarget;
   connectionConfigured: boolean;
+  relocating: boolean;
   onSaved: (target: NewImageTarget) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -462,8 +673,10 @@ function NewImageTargetField({
     {
       value: "object_storage",
       title: t("new_image_target_object_storage"),
-      hint: connectionConfigured ? t("new_image_target_object_storage_hint") : t("new_image_target_needs_connection"),
-      disabled: !connectionConfigured && target !== "object_storage",
+      hint: connectionConfigured
+        ? t("new_image_target_object_storage_hint")
+        : t("new_image_target_needs_connection"),
+      disabled: (!connectionConfigured || relocating) && target !== "object_storage",
     },
   ];
 
@@ -569,11 +782,13 @@ function ObjectStorageDialog({
   pendingIngestTasks,
   onCancel,
   onSaved,
+  onStartRelocation,
 }: {
   connection: ObjectStorageConnection | null;
   pendingIngestTasks: number;
   onCancel: () => void;
   onSaved: (connection: SavedObjectStorageConnection) => void;
+  onStartRelocation: (target: ObjectStorageRelocationTargetPayload, deleteRemote: boolean) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
@@ -597,6 +812,11 @@ function ObjectStorageDialog({
   const endpointUnresolvedPlaceholder = hasEndpointPlaceholder(endpoint);
   const changesBucket =
     !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
+  const changesRegion = !!connection && region.trim() !== connection.region;
+  const requiresRelocation =
+    !!connection &&
+    ((connection.in_use_object_count ?? 0) > 0 || Boolean(connection.relocating)) &&
+    (changesBucket || changesRegion);
   const requiresKeys = creating || changesBucket;
   const complete = Boolean(
     region.trim() &&
@@ -691,12 +911,41 @@ function ObjectStorageDialog({
 
   const handleSubmit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
+    if (requiresRelocation) {
+      onStartRelocation(
+        {
+          kind: "s3",
+          region: region.trim(),
+          endpoint: endpoint.trim(),
+          bucket: bucket.trim(),
+          addressing_style: addressingStyle,
+          access_key_id: accessKeyId.trim() || undefined,
+          secret_access_key: secretAccessKey.trim() || undefined,
+        },
+        deleteRemote,
+      );
+      return false;
+    }
     if (changesBucket && deleteRemote) {
       setConfirmingCleanup(true);
       return false;
     }
     return submit();
-  }, [complete, changesBucket, deleteRemote, submit, setConfirmingCleanup]);
+  }, [
+    complete,
+    requiresRelocation,
+    onStartRelocation,
+    region,
+    endpoint,
+    bucket,
+    addressingStyle,
+    accessKeyId,
+    secretAccessKey,
+    changesBucket,
+    deleteRemote,
+    submit,
+    setConfirmingCleanup,
+  ]);
 
   const confirmCleanup = async () => {
     if (!(await submit())) setConfirmingCleanup(false);
@@ -850,7 +1099,7 @@ function ObjectStorageDialog({
               {changesBucket && (
                 <p className="text-xs text-muted-foreground">{t("object_storage_target_keys_required_hint")}</p>
               )}
-              {changesBucket && (
+              {changesBucket && !requiresRelocation && (
                 <CleanupOptions
                   checked={deleteRemote}
                   onChange={setDeleteRemote}
@@ -904,24 +1153,29 @@ function ObjectStorageDialog({
 
 function DeleteObjectStorageDialog({
   pendingIngestTasks,
+  newImageTarget,
   onClose,
   onDeleted,
 }: {
   pendingIngestTasks: number;
+  newImageTarget: NewImageTarget;
   onClose: () => void;
-  onDeleted: (result: ObjectStorageCleanupResult) => void;
+  onDeleted: (result: ObjectStorageCleanupResult, resetTarget: boolean) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [deleteRemote, setDeleteRemote] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const willResetTarget = newImageTarget === "object_storage";
 
   const handleDelete = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      const result = await API.deleteObjectStorageConnection(deleteRemote);
-      onDeleted(result);
+      const result = willResetTarget
+        ? await API.deleteObjectStorageConnection(deleteRemote, { resetNewImageTarget: true })
+        : await API.deleteObjectStorageConnection(deleteRemote);
+      onDeleted(result, willResetTarget);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -943,6 +1197,9 @@ function DeleteObjectStorageDialog({
         <AlertDialogBody>
           <div className="flex flex-col gap-2">
             <AlertDialogDescription>{t("object_storage_delete_desc")}</AlertDialogDescription>
+            {willResetTarget && (
+              <p className="text-sm text-muted-foreground">{t("object_storage_delete_reset_target_hint")}</p>
+            )}
             <CleanupOptions
               checked={deleteRemote}
               onChange={setDeleteRemote}

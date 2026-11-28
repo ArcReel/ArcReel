@@ -36,6 +36,7 @@ class ObjectStorageConnectionRepository(BaseRepository):
         access_key_id: str | None,
         secret_access_key: str | None,
         needs_endpoint_review: bool = False,
+        clear_relocation: bool = False,
     ) -> ObjectStorageConnection:
         """写入连接配置。
 
@@ -53,6 +54,9 @@ class ObjectStorageConnectionRepository(BaseRepository):
                 bucket=bucket,
                 addressing_style=addressing_style,
                 needs_endpoint_review=needs_endpoint_review,
+                relocating=False,
+                relocate_delete_remote=None,
+                relocate_mode=None,
                 access_key_id=access_key_id,
                 secret_access_key=secret_access_key,
                 slot=CURRENT_CONNECTION_SLOT,
@@ -70,6 +74,9 @@ class ObjectStorageConnectionRepository(BaseRepository):
                 bucket=bucket,
                 addressing_style=addressing_style,
                 needs_endpoint_review=needs_endpoint_review,
+                relocating=False,
+                relocate_delete_remote=None,
+                relocate_mode=None,
                 access_key_id=access_key_id,
                 secret_access_key=secret_access_key,
                 slot=CURRENT_CONNECTION_SLOT,
@@ -80,10 +87,36 @@ class ObjectStorageConnectionRepository(BaseRepository):
             conn.region = region
             conn.addressing_style = addressing_style
             conn.needs_endpoint_review = needs_endpoint_review
+            if clear_relocation:
+                conn.relocating = False
+                conn.relocate_delete_remote = None
+                conn.relocate_mode = None
             if access_key_id:
                 conn.access_key_id = access_key_id
             if secret_access_key:
                 conn.secret_access_key = secret_access_key
+        await self.session.flush()
+        return conn
+
+    async def set_relocating(
+        self, connection_id: int, *, delete_remote: bool, mode: str
+    ) -> ObjectStorageConnection | None:
+        conn = await self.get()
+        if conn is None or conn.id != connection_id:
+            return None
+        conn.relocating = True
+        conn.relocate_delete_remote = delete_remote
+        conn.relocate_mode = mode
+        await self.session.flush()
+        return conn
+
+    async def clear_relocating(self, connection_id: int | None = None) -> ObjectStorageConnection | None:
+        conn = await self.get()
+        if conn is None or (connection_id is not None and conn.id != connection_id):
+            return None
+        conn.relocating = False
+        conn.relocate_delete_remote = None
+        conn.relocate_mode = None
         await self.session.flush()
         return conn
 

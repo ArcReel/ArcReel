@@ -88,6 +88,13 @@ class ObjectStorageRequiredError(ConflictError):
         super().__init__("material_storage_object_storage_missing")
 
 
+class ObjectStorageRelocatingError(ConflictError):
+    """当前对象存储连接正在收敛回本地，期间禁止发起新的远端写入与引用登记。"""
+
+    def __init__(self) -> None:
+        super().__init__("object_storage_relocating")
+
+
 class ProjectRetiringError(ConflictError):
     """项目正在整体删除或被覆盖导入替换，这次提交不再把新图片保存为正式对象。"""
 
@@ -281,8 +288,11 @@ class ObjectContentStorage:
         正式对象，连接变更会被拒绝。
         """
         async with connection_change_lock(), object_key_lock(key), self.session_factory() as session:
-            if not self.connection.is_current(await ObjectStorageConnectionRepository(session).get()):
+            current = await ObjectStorageConnectionRepository(session).get()
+            if not self.connection.is_current(current):
                 raise RemoteSaveFailedError("connection_changed")
+            if current is not None and current.relocating:
+                raise ObjectStorageRelocatingError()
             row = await _object_row(session, self.connection.id, self.connection.bucket, key)
             needs_upload = row is None or row.state != "stored"
             if row is None:
@@ -514,6 +524,8 @@ async def _delete_orphan(
     now = now or utc_now()
     if not same_connection(row, current):
         await session.delete(row)
+        return False
+    if current is not None and current.relocating and current.relocate_delete_remote is False:
         return False
     row.delete_attempts += 1
     if client is None:
@@ -858,7 +870,8 @@ async def add_reference(
         row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
         if row is None or row.state not in {"stored", "orphaned"}:
             return False
-        if not same_connection(row, await ObjectStorageConnectionRepository(session).get()):
+        current = await ObjectStorageConnectionRepository(session).get()
+        if not same_connection(row, current) or (current is not None and current.relocating):
             return False
         row.state = "stored"
         row.next_attempt_at = None
@@ -951,6 +964,23 @@ async def retain_formal_objects(
     return deleted
 
 
+async def in_flight_upload_count(session: AsyncSession, connection_id: int) -> int:
+    """连接上尚未结算的上传或待结算提交占用数量。"""
+    pending_ref = exists().where(
+        FormalObjectRef.object_id == FormalObject.id,
+        FormalObjectRef.state == REF_PENDING,
+    )
+    stmt = (
+        select(func.count())
+        .select_from(FormalObject)
+        .where(
+            FormalObject.connection_id == connection_id,
+            (FormalObject.state == "uploading") | ((FormalObject.state != "deleted") & pending_ref),
+        )
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
 async def holding_object_count(session: AsyncSession, connection_id: int) -> int:
     """上传未确认，或尚未删除且有非入库引用的对象继续保护连接；调用方持有连接锁。"""
     protected_ref = exists().where(
@@ -1009,6 +1039,8 @@ async def _open_formal_commit(
         return None
     if connection is None:
         raise ObjectStorageRequiredError()
+    if connection.relocating:
+        raise ObjectStorageRelocatingError()
     return ObjectContentStorage(
         project_name=project_name,
         connection=_ConnectionSnapshot.of(connection),
@@ -1077,6 +1109,7 @@ __all__ = [
     "REF_TRASHED",
     "NewContentTarget",
     "ObjectContentStorage",
+    "ObjectStorageRelocatingError",
     "ObjectStorageRequiredError",
     "ProjectRetiringError",
     "RemoteSaveFailedError",
@@ -1088,6 +1121,7 @@ __all__ = [
     "formal_object_key",
     "formal_object_sizes",
     "holding_object_count",
+    "in_flight_upload_count",
     "iter_version_records",
     "new_content_target",
     "object_key_lock",

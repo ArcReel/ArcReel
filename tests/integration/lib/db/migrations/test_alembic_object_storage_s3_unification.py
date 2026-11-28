@@ -372,6 +372,7 @@ def test_upgraded_legacy_tos_connection_works_end_to_end_via_high_level_apis(
         sync_engine.dispose()
 
     command.upgrade(cfg, revision)
+    command.upgrade(cfg, "head")
 
     bucket_objects: dict[tuple[str, str], bytes] = {
         ("legacy-bucket", stored_key): payload,

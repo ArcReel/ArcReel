@@ -29,10 +29,27 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
-from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.data_root_layout import DataRootLayout
+from lib.material.convergence import (
+    ForceDisconnectResult,
+    RelocationMode,
+    RelocationPhase,
+    RelocationPlan,
+    RelocationProgress,
+    RelocationRunResult,
+    RelocationTargetConfig,
+    UnrecoverableItem,
+    cancel_relocation,
+    force_disconnect_connection,
+    get_relocation_progress,
+    inspect_relocation_plan,
+    run_relocation,
+)
 from lib.material.formal_objects import (
     NewContentTarget,
+    ObjectStorageRelocatingError,
     connection_change_lock,
     holding_object_count,
     new_content_target,
@@ -82,6 +99,10 @@ class ObjectStorageConnectionResponse(BaseModel):
     bucket: str
     addressing_style: AddressingStyle
     needs_endpoint_review: bool = False
+    relocating: bool = False
+    relocate_delete_remote: bool | None = None
+    relocate_mode: RelocationMode | None = None
+    in_use_object_count: int = 0
     access_key_id_masked: str
     secret_access_key_masked: str
     updated_at: str
@@ -159,7 +180,10 @@ def _same_endpoint(existing_endpoint: str, raw_endpoint: str, normalized_endpoin
         return False
 
 
-def _to_response(conn: ObjectStorageConnection) -> ObjectStorageConnectionResponse:
+def _to_response(conn: ObjectStorageConnection, *, in_use_object_count: int = 0) -> ObjectStorageConnectionResponse:
+    relocate_mode: RelocationMode | None = (
+        "switch" if conn.relocate_mode == "switch" else "delete" if conn.relocate_mode == "delete" else None
+    )
     return ObjectStorageConnectionResponse(
         kind=OBJECT_STORAGE_KIND_S3,
         region=conn.region,
@@ -167,17 +191,225 @@ def _to_response(conn: ObjectStorageConnection) -> ObjectStorageConnectionRespon
         bucket=conn.bucket,
         addressing_style=cast(AddressingStyle, conn.addressing_style),
         needs_endpoint_review=bool(conn.needs_endpoint_review),
+        relocating=bool(conn.relocating),
+        relocate_delete_remote=conn.relocate_delete_remote,
+        relocate_mode=relocate_mode,
+        in_use_object_count=in_use_object_count,
         access_key_id_masked=mask_secret(conn.access_key_id),
         secret_access_key_masked=mask_secret(conn.secret_access_key),
         updated_at=dt_to_iso(conn.updated_at) or "",
     )
 
 
+def _default_session_factory():
+    from lib.db import async_session_factory
+
+    return async_session_factory
+
+
+def _current_layout() -> DataRootLayout:
+    return DataRootLayout(get_project_manager().data_root)
+
+
+class UnrecoverableItemResponse(BaseModel):
+    holder_kind: str
+    holder_label: str
+    path: str
+    digest: str
+    object_key: str
+    size: int
+
+
+class RelocationProgressResponse(BaseModel):
+    running: bool = False
+    phase: RelocationPhase = "idle"
+    mode: RelocationMode | None = None
+    delete_remote_objects: bool = True
+    total_objects: int = 0
+    completed_objects: int = 0
+    downloaded_objects: int = 0
+    reused_local_objects: int = 0
+    total_references: int = 0
+    promoted_references: int = 0
+    conflicts_preserved: int = 0
+    failed_objects: int = 0
+    last_error_kind: str | None = None
+    last_error_message: str | None = None
+    unreachable: bool = False
+
+
+class RelocationPlanResponse(BaseModel):
+    connection_id: int
+    in_use_object_count: int
+    in_use_reference_count: int
+    download_object_count: int
+    estimated_download_bytes: int
+    pending_ingest_tasks: int
+    in_flight_uploads: int
+    relocating: bool
+    relocate_delete_remote: bool | None
+    relocate_mode: RelocationMode | None
+    unrecoverable_items: list[UnrecoverableItemResponse]
+    progress: RelocationProgressResponse
+
+
+class RelocationTargetRequest(BaseModel):
+    kind: ObjectStorageKind = OBJECT_STORAGE_KIND_S3
+    region: _Stripped
+    endpoint: _Stripped
+    bucket: _Stripped
+    addressing_style: AddressingStyle = DEFAULT_ADDRESSING_STYLE
+    access_key_id: _StrippedOpt = None
+    secret_access_key: _StrippedOpt = None
+
+
+class RunRelocationRequest(BaseModel):
+    mode: RelocationMode
+    delete_remote_objects: bool = True
+    target: RelocationTargetRequest | None = None
+
+
+class RunRelocationResponse(BaseModel):
+    status: str
+    mode: RelocationMode
+    delete_remote_objects: bool
+    connection: ObjectStorageConnectionResponse | None = None
+    new_image_target: NewContentTarget
+    cleanup_failures: dict[str, int] = Field(default_factory=dict)
+    total_objects: int = 0
+    completed_objects: int = 0
+    downloaded_objects: int = 0
+    reused_local_objects: int = 0
+    total_references: int = 0
+    promoted_references: int = 0
+    conflicts_preserved: int = 0
+    failed_objects: int = 0
+    error_kind: str | None = None
+    error_message: str | None = None
+    error_detail: str | None = None
+    unreachable: bool = False
+    unrecoverable_items: list[UnrecoverableItemResponse] = Field(default_factory=list)
+
+
+class ForceDisconnectRequest(BaseModel):
+    confirm: bool = False
+
+
+class ForceDisconnectResponse(BaseModel):
+    salvaged_objects: int
+    salvaged_references: int
+    conflicts_preserved: int
+    unrecoverable_items: list[UnrecoverableItemResponse]
+    new_image_target: NewContentTarget
+
+
+_RELOCATION_ERROR_KEYS: dict[str, str] = {
+    "auth": "object_storage_test_auth_failed",
+    "denied": "object_storage_test_denied",
+    "not_found": "object_storage_test_bucket_not_found",
+    "network": "object_storage_test_unreachable",
+    "invalid_config": "object_storage_invalid_config",
+    "provider": "object_storage_test_failed",
+    "in_flight_uploads": "object_storage_relocation_in_flight_uploads",
+    "disk_full": "object_storage_relocation_disk_full",
+    "io_error": "object_storage_relocation_io_error",
+    "remaining_references": "object_storage_relocation_remaining_references",
+    "digest_mismatch": "object_storage_relocation_digest_mismatch",
+}
+
+
+def _unrecoverable_response(item: UnrecoverableItem) -> UnrecoverableItemResponse:
+    return UnrecoverableItemResponse(
+        holder_kind=item.holder_kind,
+        holder_label=item.holder_label,
+        path=item.path,
+        digest=item.digest,
+        object_key=item.object_key,
+        size=item.size,
+    )
+
+
+def _progress_response(progress: RelocationProgress) -> RelocationProgressResponse:
+    return RelocationProgressResponse(
+        running=progress.running,
+        phase=progress.phase,
+        mode=progress.mode,
+        delete_remote_objects=progress.delete_remote_objects,
+        total_objects=progress.total_objects,
+        completed_objects=progress.completed_objects,
+        downloaded_objects=progress.downloaded_objects,
+        reused_local_objects=progress.reused_local_objects,
+        total_references=progress.total_references,
+        promoted_references=progress.promoted_references,
+        conflicts_preserved=progress.conflicts_preserved,
+        failed_objects=progress.failed_objects,
+        last_error_kind=progress.last_error_kind,
+        last_error_message=progress.last_error_message,
+        unreachable=progress.unreachable,
+    )
+
+
+def _plan_response(plan: RelocationPlan) -> RelocationPlanResponse:
+    return RelocationPlanResponse(
+        connection_id=plan.connection_id,
+        in_use_object_count=plan.in_use_object_count,
+        in_use_reference_count=plan.in_use_reference_count,
+        download_object_count=plan.download_object_count,
+        estimated_download_bytes=plan.estimated_download_bytes,
+        pending_ingest_tasks=plan.pending_ingest_tasks,
+        in_flight_uploads=plan.in_flight_uploads,
+        relocating=plan.relocating,
+        relocate_delete_remote=plan.relocate_delete_remote,
+        relocate_mode=plan.relocate_mode,
+        unrecoverable_items=[_unrecoverable_response(item) for item in plan.unrecoverable_items],
+        progress=_progress_response(plan.progress),
+    )
+
+
+def _run_result_response(result: RelocationRunResult, _t: Translator) -> RunRelocationResponse:
+    error_message: str | None = None
+    if result.error_kind is not None:
+        key = _RELOCATION_ERROR_KEYS.get(result.error_kind, "object_storage_test_failed")
+        error_message = _t(key)
+    return RunRelocationResponse(
+        status=result.status,
+        mode=result.mode,
+        delete_remote_objects=result.delete_remote_objects,
+        connection=_to_response(result.connection) if result.connection is not None else None,
+        new_image_target=result.new_image_target,
+        cleanup_failures=result.cleanup_failures,
+        total_objects=result.total_objects,
+        completed_objects=result.completed_objects,
+        downloaded_objects=result.downloaded_objects,
+        reused_local_objects=result.reused_local_objects,
+        total_references=result.total_references,
+        promoted_references=result.promoted_references,
+        conflicts_preserved=result.conflicts_preserved,
+        failed_objects=result.failed_objects,
+        error_kind=result.error_kind,
+        error_message=error_message,
+        error_detail=result.error_message,
+        unreachable=result.unreachable,
+        unrecoverable_items=[_unrecoverable_response(item) for item in result.unrecoverable_items],
+    )
+
+
+def _force_disconnect_response(result: ForceDisconnectResult) -> ForceDisconnectResponse:
+    return ForceDisconnectResponse(
+        salvaged_objects=result.salvaged_objects,
+        salvaged_references=result.salvaged_references,
+        conflicts_preserved=result.conflicts_preserved,
+        unrecoverable_items=[_unrecoverable_response(item) for item in result.unrecoverable_items],
+        new_image_target=result.new_image_target,
+    )
+
+
 @router.get("/connection", response_model=ObjectStorageConnectionEnvelope)
 async def get_connection(session: AsyncSession = Depends(get_async_session)) -> ObjectStorageConnectionEnvelope:
     conn = await ObjectStorageConnectionRepository(session).get()
+    in_use = await holding_object_count(session, conn.id) if conn else 0
     return ObjectStorageConnectionEnvelope(
-        connection=_to_response(conn) if conn else None,
+        connection=_to_response(conn, in_use_object_count=in_use) if conn else None,
         new_image_target=await new_content_target(session),
         pending_ingest_tasks=await pending_ingest_count(session, conn.id) if conn else 0,
     )
@@ -189,8 +421,12 @@ async def save_new_image_target(
 ) -> NewImageTargetBody:
     """选择之后新提交的图片内容版本保存在本地还是对象存储；已有图片与历史版本不搬迁。"""
     async with connection_change_lock():
-        if body.target == "object_storage" and await ObjectStorageConnectionRepository(session).get() is None:
-            raise ConflictError("material_storage_target_needs_connection")
+        if body.target == "object_storage":
+            conn = await ObjectStorageConnectionRepository(session).get()
+            if conn is None:
+                raise ConflictError("material_storage_target_needs_connection")
+            if conn.relocating:
+                raise ObjectStorageRelocatingError()
         await set_new_content_target(session, body.target)
         await session.commit()
     return body
@@ -235,6 +471,8 @@ async def _save_connection(
             same_endpoint = _same_endpoint(existing.endpoint, body.endpoint, normalized_endpoint)
             target_changed = (not same_endpoint) or (existing.bucket != body.bucket)
             if target_changed:
+                if existing.relocating:
+                    raise ObjectStorageRelocatingError()
                 if not body.access_key_id or not body.secret_access_key:
                     raise UnprocessableError("object_storage_target_keys_required")
                 await _ensure_connection_unused(session, existing)
@@ -245,6 +483,8 @@ async def _save_connection(
                 needs_review = False
             else:
                 if (existing.kind, existing.region) != (body.kind, body.region):
+                    if existing.relocating:
+                        raise ObjectStorageRelocatingError()
                     await _ensure_connection_unused(session, existing)
                 next_endpoint = existing.endpoint
                 needs_review = bool(existing.needs_endpoint_review)
@@ -264,7 +504,9 @@ async def _save_connection(
 
 @router.delete("/connection", response_model=ConnectionCleanupResponse)
 async def delete_connection(
-    delete_remote_objects: bool = True, session: AsyncSession = Depends(get_async_session)
+    delete_remote_objects: bool = True,
+    reset_new_image_target: bool = False,
+    session: AsyncSession = Depends(get_async_session),
 ) -> ConnectionCleanupResponse:
     async def apply_change() -> ConnectionCleanupResponse:
         async with connection_change_lock(), AsyncExitStack() as stack:
@@ -272,9 +514,14 @@ async def delete_connection(
             existing = await repo.get()
             failures: dict[str, int] = {}
             if existing is not None:
+                if existing.relocating:
+                    raise ObjectStorageRelocatingError()
                 await _ensure_connection_unused(session, existing)
                 if await new_content_target(session) == "object_storage":
-                    raise ConflictError("object_storage_connection_is_new_image_target")
+                    if reset_new_image_target:
+                        await set_new_content_target(session, "local")
+                    else:
+                        raise ConflictError("object_storage_connection_is_new_image_target")
                 failures = await stack.enter_async_context(
                     dispose_connection_objects(session, existing, delete_remote=delete_remote_objects)
                 )
@@ -284,6 +531,72 @@ async def delete_connection(
         return ConnectionCleanupResponse(cleanup_failures=failures)
 
     return await run_noninterruptible_async(apply_change())
+
+
+@router.get("/connection/relocation-plan", response_model=RelocationPlanResponse)
+async def get_relocation_plan() -> RelocationPlanResponse:
+    """扫描所有持有方，评估当前连接收敛回本地的影响摘要、需下载体积与无法拉回清单。"""
+    plan = await inspect_relocation_plan(_current_layout(), _default_session_factory())
+    return _plan_response(plan)
+
+
+@router.get("/connection/relocation-status", response_model=RelocationProgressResponse)
+async def get_relocation_status() -> RelocationProgressResponse:
+    """读取当前进程内收敛回本地的实时进度（不扫盘）。"""
+    return _progress_response(get_relocation_progress())
+
+
+@router.post("/connection/relocation/run", response_model=RunRelocationResponse)
+async def run_connection_relocation(
+    body: RunRelocationRequest,
+    _t: Translator,
+) -> RunRelocationResponse:
+    """幂等执行收敛回本地并在全部转正后原子切换或删除对象存储连接。"""
+    target_cfg = (
+        RelocationTargetConfig(
+            kind=body.target.kind,
+            region=body.target.region,
+            endpoint=body.target.endpoint,
+            bucket=body.target.bucket,
+            addressing_style=body.target.addressing_style,
+            access_key_id=body.target.access_key_id,
+            secret_access_key=body.target.secret_access_key,
+        )
+        if body.target is not None
+        else None
+    )
+    result = await run_relocation(
+        _current_layout(),
+        _default_session_factory(),
+        mode=body.mode,
+        delete_remote_objects=body.delete_remote_objects,
+        target=target_cfg,
+    )
+    return _run_result_response(result, _t)
+
+
+@router.post("/connection/relocation/cancel", response_model=ObjectStorageConnectionEnvelope)
+async def cancel_connection_relocation(
+    session: AsyncSession = Depends(get_async_session),
+) -> ObjectStorageConnectionEnvelope:
+    """取消未完成的收敛回本地流程，保留已转正的本地文件并恢复旧连接正常使用。"""
+    await cancel_relocation(_default_session_factory())
+    conn = await ObjectStorageConnectionRepository(session).get()
+    in_use = await holding_object_count(session, conn.id) if conn else 0
+    return ObjectStorageConnectionEnvelope(
+        connection=_to_response(conn, in_use_object_count=in_use) if conn else None,
+        new_image_target=await new_content_target(session),
+        pending_ingest_tasks=await pending_ingest_count(session, conn.id) if conn else 0,
+    )
+
+
+@router.post("/connection/relocation/force-disconnect", response_model=ForceDisconnectResponse)
+async def force_disconnect(body: ForceDisconnectRequest) -> ForceDisconnectResponse:
+    """旧桶永久不可达时执行抢救式强制断开：先跨持有方按摘要抢救有效本地文件，再移除旧连接。"""
+    if not body.confirm:
+        raise BadRequestError("object_storage_force_disconnect_confirm_required")
+    result = await force_disconnect_connection(_current_layout(), _default_session_factory())
+    return _force_disconnect_response(result)
 
 
 _TEST_FAILURE_KEYS: dict[ProbeErrorKind, str] = {

@@ -57,8 +57,13 @@ import type {
   NewImageTarget,
   SavedObjectStorageConnection,
   ObjectStorageCleanupResult,
+  ObjectStorageForceDisconnectResult,
+  ObjectStorageRelocationPlan,
+  ObjectStorageRelocationProgress,
+  ObjectStorageRelocationRunResult,
   ObjectStorageSettings,
   ObjectStorageTestResult,
+  RunObjectStorageRelocationPayload,
   ProviderAssetImportResult,
   ProviderAssetLink,
   ProviderAssetLinkPanel,
@@ -3109,12 +3114,51 @@ class API {
     return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
   }
 
-  static async deleteObjectStorageConnection(deleteRemoteObjects = true): Promise<ObjectStorageCleanupResult> {
-    return this.request(`/object-storage/connection?delete_remote_objects=${deleteRemoteObjects}`, { method: "DELETE" });
+  static async deleteObjectStorageConnection(
+    deleteRemoteObjects = true,
+    options?: { resetNewImageTarget?: boolean },
+  ): Promise<ObjectStorageCleanupResult> {
+    const params = new URLSearchParams({ delete_remote_objects: String(deleteRemoteObjects) });
+    if (options?.resetNewImageTarget) {
+      params.set("reset_new_image_target", "true");
+    }
+    return this.request(`/object-storage/connection?${params.toString()}`, { method: "DELETE" });
   }
 
   static async checkObjectStorageConnection(): Promise<ObjectStorageTestResult> {
     return this.request("/object-storage/connection/test", { method: "POST" });
+  }
+
+  static async getObjectStorageRelocationPlan(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ObjectStorageRelocationPlan> {
+    return this.request("/object-storage/connection/relocation-plan", { signal: options.signal });
+  }
+
+  static async getObjectStorageRelocationStatus(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ObjectStorageRelocationProgress> {
+    return this.request("/object-storage/connection/relocation-status", { signal: options.signal });
+  }
+
+  static async runObjectStorageRelocation(
+    data: RunObjectStorageRelocationPayload,
+  ): Promise<ObjectStorageRelocationRunResult> {
+    return this.request("/object-storage/connection/relocation/run", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async cancelObjectStorageRelocation(): Promise<ObjectStorageSettings> {
+    return this.request("/object-storage/connection/relocation/cancel", { method: "POST" });
+  }
+
+  static async forceDisconnectObjectStorage(): Promise<ObjectStorageForceDisconnectResult> {
+    return this.request("/object-storage/connection/relocation/force-disconnect", {
+      method: "POST",
+      body: JSON.stringify({ confirm: true }),
+    });
   }
 
   static async listAssetLibraryAccounts(options: { signal?: AbortSignal } = {}): Promise<AssetLibraryAccountList> {

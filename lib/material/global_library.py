@@ -342,25 +342,57 @@ async def cleanup_global_work_files(
     """删除库里远端图片闲置超过 ``min_idle`` 的本地工作文件，口径同 ``cleanup_work_cache``。
 
     只删除远端已确认保存（``stored``）、本地内容与摘要一致、此刻没有使用登记的文件；本地图片不受影响。
+    每张图片逐出前在条目锁内复核数据库记录，防止刚转正为永久本地的图片被并发清理误删。
     """
+    from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+
     session_factory = session_factory or _default_session_factory()
     idle_before = time.time() - min_idle.total_seconds()
+    candidates: list[tuple[type[Asset] | type[AssetDerivative], str, str, GlobalImage]] = []
     async with session_factory() as session:
-        images = [
-            image
-            for model in (Asset, AssetDerivative)
-            for row in (await session.execute(select(model).where(model.image_storage.is_not(None)))).scalars()
-            if (image := GlobalImage.of(row)) is not None and image.stored is not None and image.digest is not None
-        ]
-        stored = await stored_object_keys(session, {image.stored for image in images if image.stored})
+        active_conn = await ObjectStorageConnectionRepository(session).get()
+        relocating_conn_id = active_conn.id if active_conn is not None and active_conn.relocating else None
+        for model in (Asset, AssetDerivative):
+            rows = (await session.execute(select(model).where(model.image_storage.is_not(None)))).scalars()
+            for row in rows:
+                image = GlobalImage.of(row)
+                if image is None or image.stored is None or image.digest is None:
+                    continue
+                if relocating_conn_id is not None and image.stored.connection_id == relocating_conn_id:
+                    continue
+                asset_id = row.id if isinstance(row, Asset) else row.asset_id
+                candidates.append((model, row.id, asset_id, image))
+        stored = await stored_object_keys(
+            session, {image.stored for _model, _row_id, _asset_id, image in candidates if image.stored}
+        )
     removed = freed = kept = 0
-    for image in images:
+    for model, row_id, asset_id, image in candidates:
         if image.stored not in stored or image.digest is None:
             continue
-        count, size, in_use = await asyncio.to_thread(_evict, Path(data_root) / image.path, image.digest, idle_before)
-        removed += count
-        freed += size
-        kept += in_use
+        async with library_entry_lock(asset_id):
+            async with session_factory() as session:
+                current_conn = await ObjectStorageConnectionRepository(session).get()
+                if (
+                    current_conn is not None
+                    and current_conn.relocating
+                    and image.stored.connection_id == current_conn.id
+                ):
+                    continue
+                fresh = await session.get(model, row_id)
+                fresh_image = GlobalImage.of(fresh) if fresh is not None else None
+                if (
+                    fresh_image is None
+                    or fresh_image.stored != image.stored
+                    or fresh_image.path != image.path
+                    or fresh_image.digest != image.digest
+                ):
+                    continue
+            count, size, in_use = await asyncio.to_thread(
+                _evict, Path(data_root) / image.path, image.digest, idle_before
+            )
+            removed += count
+            freed += size
+            kept += in_use
     if removed:
         logger.info("清理全局资产库远端图片工作文件 %d 个，释放 %d 字节", removed, freed)
     return CacheCleanupResult(removed=removed, freed_bytes=freed, kept_in_use=kept)

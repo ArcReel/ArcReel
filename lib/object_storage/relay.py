@@ -141,6 +141,8 @@ async def sweep_relay_objects(session_factory: async_sessionmaker[AsyncSession],
             connection = await ObjectStorageConnectionRepository(session).get()
             if connection is None or not _same_connection(relay, connection):
                 await session.delete(relay)
+            elif connection.relocating and connection.relocate_delete_remote is False:
+                continue
             else:
                 deleted += await _delete_relay(relay, connection, now)
             await session.commit()

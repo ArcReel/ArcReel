@@ -438,4 +438,236 @@ describe("MediaStorageSection", () => {
     await user.click(screen.getByRole("button", { name: "详情" }));
     expect(screen.getByText("AccessDenied: HTTP 403: delete denied")).toBeInTheDocument();
   });
+
+  it("旧桶存在在用正式对象时，换桶先展示影响摘要弹窗、支持保留旧桶文件并完成收敛切换", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      connection: { ...CONNECTION, in_use_object_count: 3 },
+      new_image_target: "object_storage",
+      pending_ingest_tasks: 2,
+    });
+    vi.spyOn(API, "getObjectStorageRelocationPlan").mockResolvedValue({
+      connection_id: 1,
+      in_use_object_count: 3,
+      in_use_reference_count: 5,
+      download_object_count: 2,
+      estimated_download_bytes: 2 * 1024 * 1024,
+      pending_ingest_tasks: 2,
+      in_flight_uploads: 0,
+      relocating: false,
+      relocate_delete_remote: null,
+      relocate_mode: null,
+      unrecoverable_items: [],
+      progress: {
+        running: false,
+        phase: "idle",
+        mode: null,
+        delete_remote_objects: true,
+        total_objects: 0,
+        completed_objects: 0,
+        downloaded_objects: 0,
+        reused_local_objects: 0,
+        total_references: 0,
+        promoted_references: 0,
+        conflicts_preserved: 0,
+        failed_objects: 0,
+        last_error_kind: null,
+        last_error_message: null,
+        unreachable: false,
+      },
+    });
+    const runSpy = vi.spyOn(API, "runObjectStorageRelocation").mockResolvedValue({
+      status: "completed",
+      mode: "switch",
+      delete_remote_objects: false,
+      connection: { ...CONNECTION, bucket: "next-bucket", in_use_object_count: 0 },
+      new_image_target: "object_storage",
+      cleanup_failures: {},
+      total_objects: 3,
+      completed_objects: 3,
+      downloaded_objects: 2,
+      reused_local_objects: 1,
+      total_references: 5,
+      promoted_references: 5,
+      conflicts_preserved: 1,
+      failed_objects: 0,
+      error_kind: null,
+      error_message: null,
+      error_detail: null,
+      unreachable: false,
+      unrecoverable_items: [],
+    });
+
+    const user = userEvent.setup();
+    render(<MediaStorageSection />);
+
+    await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
+    const editDialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
+    const bucketInput = within(editDialog).getByLabelText("桶名");
+    await user.clear(bucketInput);
+    await user.type(bucketInput, "next-bucket");
+    await user.type(within(editDialog).getByLabelText("Access Key ID"), "NEW-AK");
+    await user.type(within(editDialog).getByLabelText("Secret Access Key"), "NEW-SK");
+    await user.click(within(editDialog).getByRole("button", { name: "保存" }));
+
+    const relocDialog = await screen.findByRole("dialog", { name: "将旧桶在用图片拉回本地并切换连接" });
+    expect(within(relocDialog).getByText("3 个对象（5 处引用）")).toBeInTheDocument();
+    expect(within(relocDialog).getByText("2 个对象，预计 2.0 MB")).toBeInTheDocument();
+    expect(within(relocDialog).getByText("1 个对象")).toBeInTheDocument();
+    expect(within(relocDialog).getByText(/有 2 个入库任务进行中/)).toBeInTheDocument();
+
+    const keepCheckbox = within(relocDialog).getByRole("checkbox", { name: "保留旧桶文件（不删除旧桶对象）" });
+    expect(keepCheckbox).not.toBeChecked();
+    await user.click(keepCheckbox);
+    expect(keepCheckbox).toBeChecked();
+
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      connection: { ...CONNECTION, bucket: "next-bucket", in_use_object_count: 0 },
+      new_image_target: "object_storage",
+      pending_ingest_tasks: 0,
+    });
+    await user.click(within(relocDialog).getByRole("button", { name: "拉回本地并切换" }));
+
+    expect(runSpy).toHaveBeenCalledWith({
+      mode: "switch",
+      delete_remote_objects: false,
+      target: expect.objectContaining({
+        bucket: "next-bucket",
+        access_key_id: "NEW-AK",
+        secret_access_key: "NEW-SK",
+      }),
+    });
+    expect(await screen.findByText(/旧桶图片已全部收敛为永久本地文件（共 3 个对象、5 处引用）/)).toBeInTheDocument();
+    expect(screen.getByText(/检测到 1 个本地当前文件被外部改写/)).toBeInTheDocument();
+    expect(screen.getByText("next-bucket")).toBeInTheDocument();
+  });
+
+  it("旧桶失联导致收敛失败时支持重试、取消或进入显式二次确认强制断开并展示无法拉回清单", async () => {
+    const missingItem = {
+      holder_kind: "project_version",
+      holder_label: "demo / characters/Bob (v1)",
+      path: "versions/characters/Bob_v1.png",
+      digest: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      object_key: "arcreel-materials/sha256/ab/abcdef.png",
+      size: 4096,
+    };
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      connection: { ...CONNECTION, in_use_object_count: 2 },
+      new_image_target: "object_storage",
+      pending_ingest_tasks: 0,
+    });
+    vi.spyOn(API, "getObjectStorageRelocationPlan").mockResolvedValue({
+      connection_id: 1,
+      in_use_object_count: 2,
+      in_use_reference_count: 2,
+      download_object_count: 1,
+      estimated_download_bytes: 4096,
+      pending_ingest_tasks: 0,
+      in_flight_uploads: 0,
+      relocating: false,
+      relocate_delete_remote: null,
+      relocate_mode: null,
+      unrecoverable_items: [missingItem],
+      progress: {
+        running: false,
+        phase: "idle",
+        mode: null,
+        delete_remote_objects: true,
+        total_objects: 0,
+        completed_objects: 0,
+        downloaded_objects: 0,
+        reused_local_objects: 0,
+        total_references: 0,
+        promoted_references: 0,
+        conflicts_preserved: 0,
+        failed_objects: 0,
+        last_error_kind: null,
+        last_error_message: null,
+        unreachable: false,
+      },
+    });
+    vi.spyOn(API, "runObjectStorageRelocation").mockResolvedValue({
+      status: "incomplete",
+      mode: "delete",
+      delete_remote_objects: true,
+      connection: null,
+      new_image_target: "object_storage",
+      cleanup_failures: {},
+      total_objects: 2,
+      completed_objects: 1,
+      downloaded_objects: 0,
+      reused_local_objects: 1,
+      total_references: 2,
+      promoted_references: 1,
+      conflicts_preserved: 0,
+      failed_objects: 1,
+      error_kind: "network",
+      error_message: "无法连接对象存储。检查 Endpoint 与网络后重试",
+      error_detail: "EndpointConnectionError",
+      unreachable: true,
+      unrecoverable_items: [missingItem],
+    });
+    const forceSpy = vi.spyOn(API, "forceDisconnectObjectStorage").mockResolvedValue({
+      salvaged_objects: 1,
+      salvaged_references: 2,
+      conflicts_preserved: 0,
+      unrecoverable_items: [missingItem],
+      new_image_target: "local",
+    });
+
+    const user = userEvent.setup();
+    render(<MediaStorageSection />);
+
+    await user.click(await screen.findByRole("button", { name: "删除对象存储连接" }));
+    const relocDialog = await screen.findByRole("dialog", { name: "将旧桶在用图片拉回本地并删除连接" });
+    await user.click(within(relocDialog).getByRole("button", { name: "拉回本地并删除" }));
+
+    expect(await within(relocDialog).findByText("收敛中途中断，可排除故障后继续重试")).toBeInTheDocument();
+    expect(within(relocDialog).getByRole("button", { name: "继续重试" })).toBeInTheDocument();
+    expect(within(relocDialog).getByRole("button", { name: "取消收敛" })).toBeInTheDocument();
+
+    await user.click(within(relocDialog).getByRole("button", { name: "旧桶不可达？强制断开" }));
+    const forceDialog = await screen.findByRole("alertdialog", { name: "旧桶永久不可达，强制断开连接？" });
+    expect(within(forceDialog).getByText("demo / characters/Bob (v1)")).toBeInTheDocument();
+    expect(within(forceDialog).getByText(/versions\/characters\/Bob_v1\.png/)).toBeInTheDocument();
+    expect(within(forceDialog).getByRole("button", { name: "复制清单" })).toBeInTheDocument();
+
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue(LOCAL_ONLY);
+    await user.click(within(forceDialog).getByRole("button", { name: "确认强制断开" }));
+    expect(forceSpy).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText(/已强制断开旧连接：抢救 1 个对象（2 处引用）为永久本地文件，1 项无法拉回/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("还没有配置对象存储")).toBeInTheDocument();
+  });
+
+  it("页面重载时若连接仍处于收敛中，展示恢复横幅、允许取消收敛且禁止切回对象存储", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      connection: {
+        ...CONNECTION,
+        relocating: true,
+        relocate_delete_remote: false,
+        relocate_mode: "delete",
+        in_use_object_count: 1,
+      },
+      new_image_target: "local",
+      pending_ingest_tasks: 0,
+    });
+    const cancelSpy = vi.spyOn(API, "cancelObjectStorageRelocation").mockResolvedValue({
+      connection: { ...CONNECTION, relocating: false, relocate_delete_remote: null, relocate_mode: null, in_use_object_count: 1 },
+      new_image_target: "local",
+      pending_ingest_tasks: 0,
+    });
+
+    const user = userEvent.setup();
+    render(<MediaStorageSection />);
+
+    expect(await screen.findByText("旧桶图片收敛回本地尚未完成")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "继续收敛并删除" })).toBeInTheDocument();
+    const targets = screen.getByRole("radiogroup", { name: "新增图片保存位置" });
+    expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(screen.getByRole("button", { name: "取消收敛" }));
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByText("旧桶图片收敛回本地尚未完成")).not.toBeInTheDocument());
+  });
 });
