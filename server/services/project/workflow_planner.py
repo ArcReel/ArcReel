@@ -11,6 +11,7 @@ from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
+from lib.episode.episode_ids import episode_resource_id
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation.generation_queue_client import get_active_tasks_for_resources
 from lib.generation.generation_result import (
@@ -234,7 +235,7 @@ class WorkflowPlanner:
             [("text_episode_plan", list(EPISODE_PLANNING_SLOTS))] if status.project.content_mode != "ad" else []
         )
         if status.target is not None:
-            episode_ids = [f"episode-{status.target.episode}"]
+            episode_ids = [episode_resource_id(status.target.episode)]
             text_queries.append(("text_episode_script", episode_ids))
             if status.project.content_mode != "ad":
                 script_plan_type = (

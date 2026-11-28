@@ -4,7 +4,12 @@ from functools import partial
 
 import pytest
 
-from lib.episode.episode_ids import episode_display_name, episode_file_label
+from lib.episode.episode_ids import (
+    episode_display_name,
+    episode_file_label,
+    episode_resource_id,
+    parse_episode_resource_id,
+)
 from lib.i18n import _
 from lib.script.script_document import build_materialized_script
 
@@ -54,3 +59,17 @@ def test_materialized_script_leaves_an_empty_episode_title_empty() -> None:
 
     assert script["title"] == ""
     assert script["novel"]["chapter"] == ""
+
+
+def test_episode_resource_id_round_trips_positive_int_and_rejects_non_canonical_values() -> None:
+    for episode in (1, 2, 42):
+        encoded = episode_resource_id(episode)
+        assert encoded == f"episode-{episode}"
+        assert parse_episode_resource_id(encoded) == episode
+
+    for invalid_int in (0, -1, True):
+        with pytest.raises(ValueError, match="positive int"):
+            episode_resource_id(invalid_int)
+
+    for invalid_str in ("", "episode-", "episode-0", "episode-01", "episode-planning", "episode-1a", "E1S01"):
+        assert parse_episode_resource_id(invalid_str) is None

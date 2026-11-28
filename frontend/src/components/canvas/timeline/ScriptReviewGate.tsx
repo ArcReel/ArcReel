@@ -16,7 +16,7 @@ import type {
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
-import { voidPromise } from "@/utils/async";
+import { voidCall } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
@@ -423,6 +423,13 @@ export function ScriptReviewGate({
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
+  const [blankSubmitting, setBlankSubmitting] = useState(false);
+  const blankSubmittingRef = useRef(false);
+
+  const handleBlankSubmittingChange = useCallback((next: boolean) => {
+    blankSubmittingRef.current = next;
+    setBlankSubmitting(next);
+  }, []);
 
   const handleConfirmed = useCallback(() => {
     pushToast(t("dashboard:review_confirmed"), "success");
@@ -540,9 +547,17 @@ export function ScriptReviewGate({
     );
   }
 
+  const effectiveBusy = busy || blankSubmitting;
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan disabled={busy} variant="ghost" />
+      <StartBlankScriptButton
+        projectName={projectName}
+        episode={episode}
+        discardsPlan
+        disabled={busy}
+        onSubmittingChange={handleBlankSubmittingChange}
+        variant="ghost"
+      />
     ) : null;
 
   const confirmed = status === "confirmed";
@@ -607,7 +622,7 @@ export function ScriptReviewGate({
         onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
         dirty={dirty}
         outdated={outdated}
-        busy={busy}
+        busy={effectiveBusy}
         saving={saving}
         confirming={confirming}
         confirmLocked={confirmLocked}
@@ -615,8 +630,12 @@ export function ScriptReviewGate({
         confirmBlockedHint={confirmBlockedHint}
         saveLabel={t("dashboard:review_save_action")}
         confirmLabel={t("dashboard:review_confirm_action")}
-        onSave={voidPromise(handleSave)}
-        onConfirm={voidPromise(() => handleConfirm())}
+        onSave={() => {
+          if (!blankSubmittingRef.current) voidCall(handleSave());
+        }}
+        onConfirm={() => {
+          if (!blankSubmittingRef.current) voidCall(handleConfirm());
+        }}
         onRequestOverwrite={() => setOverwriteOpen(true)}
         onReloadLatest={reloadLatest}
         onHandToAgent={
@@ -632,6 +651,7 @@ export function ScriptReviewGate({
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+              disabled={effectiveBusy}
               disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
           </>
@@ -652,9 +672,11 @@ export function ScriptReviewGate({
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
-          confirmDisabled={confirmBlocked}
+          confirmDisabled={confirmBlocked || effectiveBusy}
           onConfirm={async () => {
-            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
+            if (!blankSubmittingRef.current && (await handleConfirm({ overwriteRevision: overwrite.revision }))) {
+              setOverwriteOpen(false);
+            }
           }}
           onCancel={() => setOverwriteOpen(false)}
         />
@@ -669,7 +691,7 @@ export function ScriptReviewGate({
         items={draft.new_assets ?? []}
         entries={newAssetEntries(draft)}
         readOnly={readOnly}
-        disabled={busy}
+        disabled={effectiveBusy}
         onChange={updateNewAssets}
       />
 
@@ -682,7 +704,7 @@ export function ScriptReviewGate({
                 key={key}
                 scene={scene}
                 position={i + 1}
-                disabled={busy}
+                disabled={effectiveBusy}
                 readOnly={readOnly}
                 notes={notesFor(i)}
                 context={itemContext}
@@ -696,7 +718,7 @@ export function ScriptReviewGate({
                 key={key}
                 segment={segment}
                 position={i + 1}
-                disabled={busy}
+                disabled={effectiveBusy}
                 readOnly={readOnly}
                 notes={notesFor(i)}
                 context={itemContext}

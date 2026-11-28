@@ -13,7 +13,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
-import { voidPromise } from "@/utils/async";
+import { voidCall } from "@/utils/async";
 import { draftViolationMessage, groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { sumItemDuration } from "@/utils/script-shape";
@@ -254,6 +254,7 @@ function UnitCard({
           <Button
             variant="ghost"
             size="icon-xs"
+            disabled={busy}
             onClick={onToggleEdit}
             aria-label={editing ? t("reference_script_plan_edit_done") : t("reference_script_plan_edit_text")}
             aria-pressed={editing}
@@ -369,6 +370,13 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
+  const [blankSubmitting, setBlankSubmitting] = useState(false);
+  const blankSubmittingRef = useRef(false);
+
+  const handleBlankSubmittingChange = useCallback((next: boolean) => {
+    blankSubmittingRef.current = next;
+    setBlankSubmitting(next);
+  }, []);
 
   const handleConfirmed = useCallback(() => {
     if (useProjectsStore.getState().currentProjectName !== projectName) return;
@@ -462,9 +470,16 @@ export function ReferenceScriptPlanPreviewPanel({
     );
   }
 
+  const effectiveBusy = busy || blankSubmitting;
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan disabled={busy} />
+      <StartBlankScriptButton
+        projectName={projectName}
+        episode={episode}
+        discardsPlan
+        disabled={busy}
+        onSubmittingChange={handleBlankSubmittingChange}
+      />
     ) : null;
 
   const confirmed = status === "confirmed";
@@ -538,7 +553,7 @@ export function ReferenceScriptPlanPreviewPanel({
         onJumpEpisodeLevel={() => scrollTo(episodeLevelRef.current)}
         dirty={dirty}
         outdated={outdated}
-        busy={busy}
+        busy={effectiveBusy}
         saving={saving}
         confirming={confirming}
         confirmLocked={confirmLocked}
@@ -546,8 +561,12 @@ export function ReferenceScriptPlanPreviewPanel({
         confirmBlockedHint={confirmBlockedHint}
         saveLabel={t("common:save")}
         confirmLabel={t("reference_script_plan_confirm_continue")}
-        onSave={voidPromise(handleSave)}
-        onConfirm={voidPromise(() => handleConfirm())}
+        onSave={() => {
+          if (!blankSubmittingRef.current) voidCall(handleSave());
+        }}
+        onConfirm={() => {
+          if (!blankSubmittingRef.current) voidCall(handleConfirm());
+        }}
         onRequestOverwrite={() => setOverwriteOpen(true)}
         onReloadLatest={reloadLatest}
         onHandToAgent={
@@ -563,6 +582,7 @@ export function ReferenceScriptPlanPreviewPanel({
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+              disabled={effectiveBusy}
               disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
           </>
@@ -588,9 +608,11 @@ export function ReferenceScriptPlanPreviewPanel({
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
-          confirmDisabled={confirmBlocked}
+          confirmDisabled={confirmBlocked || effectiveBusy}
           onConfirm={async () => {
-            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
+            if (!blankSubmittingRef.current && (await handleConfirm({ overwriteRevision: overwrite.revision }))) {
+              setOverwriteOpen(false);
+            }
           }}
           onCancel={() => setOverwriteOpen(false)}
         />
@@ -605,7 +627,7 @@ export function ReferenceScriptPlanPreviewPanel({
         items={newAssets}
         entries={newAssetEntries(displayUnits)}
         readOnly={readOnly}
-        disabled={busy}
+        disabled={effectiveBusy}
         onChange={updateNewAssets}
       />
 
@@ -638,7 +660,7 @@ export function ReferenceScriptPlanPreviewPanel({
               split={capability != null && capability.problems.length > 0 ? capability : null}
               outOfTier={outOfTierUnitKeys.has(unit.key)}
               onDurationChange={readOnly ? null : (seconds) => updateUnit(i, { duration_seconds: seconds })}
-              busy={busy}
+              busy={effectiveBusy}
             />
           );
         })}

@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, LoaderCircle, Sparkles } from "lucide-react";
 
@@ -36,6 +36,13 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
   const { busy, latestTask, refusedReason } = useScriptPlanEntry(projectName, episode);
   const { submitting, submit, handOff } = useScriptPlanSubmit(projectName, episode);
   const [preparing, setPreparing] = useState(false);
+  const [blankSubmitting, setBlankSubmitting] = useState(false);
+  const blankSubmittingRef = useRef(false);
+
+  const handleBlankSubmittingChange = useCallback((next: boolean) => {
+    blankSubmittingRef.current = next;
+    setBlankSubmitting(next);
+  }, []);
 
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
     fieldRef.current?.focus();
@@ -43,6 +50,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
   });
 
   const run = async (action: (instructions: string) => Promise<boolean>) => {
+    if (submitting || preparing || blankSubmittingRef.current) return;
     if (prepare) {
       setPreparing(true);
       try {
@@ -50,12 +58,14 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
       } finally {
         setPreparing(false);
       }
+      if (blankSubmittingRef.current) return;
     }
     await action(instructions);
   };
 
   const activeTask = latestTask && isActiveStatus(latestTask.status) ? latestTask : undefined;
-  const disabled = submitting || preparing || refusedReason !== null;
+  const localBusy = submitting || preparing || blankSubmitting;
+  const disabled = localBusy || refusedReason !== null;
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <div className="flex flex-col gap-1">
@@ -93,7 +103,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
               onChange={(event) => setDraft(event.target.value)}
               maxLength={4000}
               placeholder={t("script_plan_instructions_placeholder")}
-              disabled={submitting || preparing}
+              disabled={localBusy}
               className="max-h-40"
             />
           </div>
@@ -125,6 +135,7 @@ function ScriptPlanStartForm({ projectName, episode, savedInstructions, sourceCh
               episode={episode}
               discardsPlan={false}
               disabled={submitting || preparing}
+              onSubmittingChange={handleBlankSubmittingChange}
               variant="ghost"
               className="ml-auto"
             />

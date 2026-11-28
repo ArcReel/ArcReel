@@ -36,7 +36,7 @@ from lib.config.resolver import (
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError
-from lib.episode.episode_ids import describe_episode_for_agent, episode_position
+from lib.episode.episode_ids import describe_episode_for_agent, episode_position, episode_resource_id
 from lib.episode.episode_ledger import is_derived_episode_name, normalize_source_text
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -974,7 +974,7 @@ async def generate_episode_script(
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_SCRIPT,
         operation="generate_episode_script",
-        unit_id=f"episode-{text_request.episode}",
+        unit_id=episode_resource_id(text_request.episode),
         payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,
@@ -1019,7 +1019,7 @@ async def generate_script_plan(
     return await _submit_text_task(
         task_type=task_type,
         operation="generate_script_plan",
-        unit_id=f"episode-{text_request.episode}",
+        unit_id=episode_resource_id(text_request.episode),
         payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,

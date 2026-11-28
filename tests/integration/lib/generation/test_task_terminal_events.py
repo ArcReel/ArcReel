@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 import pytest
 
+from lib.episode.episode_ids import episode_resource_id
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.task_terminal_events import build_task_terminal_change
 from lib.project.project_change_hints import register_project_change_batch_listener
@@ -239,7 +240,7 @@ class TestQueueEmitsTerminalEvents:
             project_name="demo",
             task_type="text_reference_script_plan",
             media_type="text",
-            resource_id="episode-1",
+            resource_id=episode_resource_id(1),
             payload={"episode": 1},
             source="webui",
         )
@@ -253,3 +254,21 @@ class TestQueueEmitsTerminalEvents:
         assert changes[0]["action"] == "task_succeeded"
         assert changes[0]["task_type"] == "text_reference_script_plan"
         assert changes[0]["episode"] == 1
+
+    async def test_terminal_event_falls_back_to_episode_resource_id(self, queue, captured_batches):
+        task = await queue.enqueue_task(
+            project_name="demo",
+            task_type="text_reference_script_plan",
+            media_type="text",
+            resource_id=episode_resource_id(3),
+            payload={},
+            source="webui",
+        )
+        await queue.claim_next_task(media_type="text")
+        captured_batches.clear()
+
+        await queue.mark_task_succeeded(task["task_id"], {"message": "ok"})
+
+        changes = _task_changes(captured_batches)
+        assert len(changes) == 1
+        assert changes[0]["episode"] == 3

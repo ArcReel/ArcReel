@@ -21,6 +21,7 @@ from lib.db.base import DEFAULT_USER_ID, as_utc, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.episode.episode_ids import parse_episode_resource_id
 from lib.generation.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
@@ -132,14 +133,7 @@ def _task_episode(task: Task) -> int | None:
         episode = payload.get("episode")
         if type(episode) is int and episode >= 1:
             return episode
-    resource_id = task.resource_id or ""
-    if resource_id.startswith("episode-"):
-        suffix = resource_id.removeprefix("episode-")
-        if suffix.isascii() and suffix.isdigit():
-            parsed = int(suffix)
-            if parsed >= 1:
-                return parsed
-    return None
+    return parse_episode_resource_id(task.resource_id or "")
 
 
 class TaskRepository(BaseRepository):

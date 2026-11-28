@@ -22,6 +22,7 @@ from lib.project.asset_types import ASSET_SPECS
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
 EPISODE_ID_HIGH_WATER_KEY = "episode_id_high_water"
+_EPISODE_RESOURCE_ID_PREFIX = "episode-"
 
 _ITEM_ID_PREFIX_RE = re.compile(r"^E(\d+)(?=[A-Z]\d)")
 _NAME_EPISODE_RE = re.compile(r"(?:^|[^A-Za-z0-9])episode[_-](\d+)(?![0-9])")
@@ -157,6 +158,23 @@ def item_id_episode(item_id: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def episode_resource_id(episode: int) -> str:
+    """分集级任务与工作流占用的规范资源 ID（``episode-<正整数>``）。"""
+    if type(episode) is not int or episode < 1:
+        raise ValueError(f"episode must be a positive int, got {episode!r}")
+    return f"{_EPISODE_RESOURCE_ID_PREFIX}{episode}"
+
+
+def parse_episode_resource_id(resource_id: str) -> int | None:
+    """解析 :func:`episode_resource_id` 产出的资源 ID；不匹配时返回 ``None``。"""
+    if not resource_id.startswith(_EPISODE_RESOURCE_ID_PREFIX):
+        return None
+    suffix = resource_id.removeprefix(_EPISODE_RESOURCE_ID_PREFIX)
+    if not suffix or not suffix.isascii() or not suffix.isdigit() or suffix.startswith("0"):
+        return None
+    return int(suffix)
+
+
 def episode_item_ref(project: Mapping[str, Any], item_id: str) -> dict[str, Any] | None:
     """集页面之外指称条目所需的结构：所属集的标题与播出位置、集内 ID（``S01``）。
 
@@ -252,11 +270,13 @@ __all__ = [
     "episode_ids_on_disk",
     "episode_item_ref",
     "episode_position",
+    "episode_resource_id",
     "episode_title",
     "find_ledger_entry",
     "following_ledger_entry",
     "item_id_episode",
     "item_id_within_episode",
     "ledger_episode_ids",
+    "parse_episode_resource_id",
     "raise_episode_id_high_water",
 ]

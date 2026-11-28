@@ -7,10 +7,25 @@ import { API } from "@/api";
 import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { makeTask } from "@/test/factories";
+import { createDeferred } from "@/test/deferred";
+import { makeTask, makeWorkspaceResponse } from "@/test/factories";
 import { seedTasks } from "@/test/task-state";
 
 import { StartBlankScriptButton } from "./StartBlankScriptButton";
+
+function stubWorkspaceRefresh() {
+  return vi.spyOn(API, "getWorkspace").mockResolvedValue(
+    makeWorkspaceResponse({
+      title: "Demo",
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [{ episode: 2, title: "第二集", script_file: "scripts/episode_2.json", script_status: "generated" }],
+      characters: {},
+      scenes: {},
+      props: {},
+    }),
+  );
+}
 
 function DirtyEditorHarness({
   discardsPlan,
@@ -102,7 +117,7 @@ describe("StartBlankScriptButton", () => {
       .spyOn(API, "startBlankScript")
       .mockRejectedValueOnce(new Error("server busy"))
       .mockResolvedValueOnce({ success: true, script_file: "scripts/episode_2.json" });
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    stubWorkspaceRefresh();
     const onDiscard = vi.fn();
 
     render(
@@ -140,7 +155,7 @@ describe("StartBlankScriptButton", () => {
     const user = userEvent.setup();
     const save = vi.fn(async () => true);
     const start = vi.spyOn(API, "startBlankScript").mockResolvedValue({ success: true, script_file: "scripts/episode_2.json" });
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    stubWorkspaceRefresh();
 
     render(
       <LeaveGuardProvider>
@@ -161,7 +176,7 @@ describe("StartBlankScriptButton", () => {
   it("intercepts direct start via leave guard when discardsPlan is false", async () => {
     const user = userEvent.setup();
     const start = vi.spyOn(API, "startBlankScript").mockResolvedValue({ success: true, script_file: "scripts/episode_2.json" });
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    stubWorkspaceRefresh();
 
     render(
       <LeaveGuardProvider>
@@ -293,5 +308,70 @@ describe("StartBlankScriptButton", () => {
       }),
     );
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("reports submitting state across start and refresh, and clears it on episode switch or unmount", async () => {
+    const user = userEvent.setup();
+    const startDeferred = createDeferred<{ success: boolean; script_file: string }>();
+    const refreshDeferred = createDeferred<Awaited<ReturnType<typeof API.getWorkspace>>>();
+    vi.spyOn(API, "startBlankScript")
+      .mockImplementationOnce(() => startDeferred.promise)
+      .mockImplementationOnce(() => new Promise(() => {}));
+    vi.spyOn(API, "getWorkspace").mockImplementationOnce(() => refreshDeferred.promise);
+    const states: boolean[] = [];
+
+    const { rerender, unmount } = render(
+      <StartBlankScriptButton
+        projectName="demo"
+        episode={2}
+        discardsPlan={false}
+        onSubmittingChange={(submitting) => states.push(submitting)}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "从空白开始" }));
+    expect(states).toEqual([true]);
+
+    await act(async () => {
+      startDeferred.resolve({ success: true, script_file: "scripts/episode_2.json" });
+      await Promise.resolve();
+    });
+    expect(states).toEqual([true]);
+
+    await act(async () => {
+      refreshDeferred.resolve(
+        makeWorkspaceResponse({
+          title: "Demo",
+          content_mode: "narration",
+          style: "Anime",
+          episodes: [{ episode: 2, title: "第二集", script_file: "scripts/episode_2.json", script_status: "generated" }],
+          characters: {},
+          scenes: {},
+          props: {},
+        }),
+      );
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(states).toEqual([true, false]));
+
+    await user.click(screen.getByRole("button", { name: "从空白开始" }));
+    expect(states).toEqual([true, false, true]);
+
+    rerender(
+      <StartBlankScriptButton
+        projectName="demo"
+        episode={3}
+        discardsPlan={false}
+        onSubmittingChange={(submitting) => states.push(submitting)}
+      />,
+    );
+    expect(states).toEqual([true, false, true, false]);
+
+    vi.spyOn(API, "startBlankScript").mockImplementationOnce(() => new Promise(() => {}));
+    await user.click(screen.getByRole("button", { name: "从空白开始" }));
+    expect(states).toEqual([true, false, true, false, true]);
+
+    unmount();
+    expect(states).toEqual([true, false, true, false, true, false]);
   });
 });
