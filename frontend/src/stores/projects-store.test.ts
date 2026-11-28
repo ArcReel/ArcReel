@@ -861,4 +861,72 @@ describe("projects-store refreshProject", () => {
     expect(await store.hydrateOverviewWorkspace("demo")).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectData).toBeNull();
   });
+
+  it("全量刷新排队并在首页预览之后启动时仍视作初载，不强制重载活动分集脚本", async () => {
+    const projectA = makeProject("Project A");
+    const projectB: ProjectData = {
+      ...makeProject("Project B"),
+      episodes: [
+        { episode: 1, title: "B-EP1", script_file: "scripts/episode_1.json", script_status: "generated" },
+        { episode: 2, title: "B-EP2", script_file: "scripts/episode_2.json", script_status: "generated" },
+      ],
+    };
+    const fullB = makeWorkspaceResponse(projectB);
+    const overviewB = {
+      ...fullB,
+      project: {
+        ...fullB.project,
+        episodes: fullB.project.episodes.map(({ script_status: _s, status: _st, ...ep }) => ep),
+      },
+      summary: { ...fullB.summary, episodes: [], episodes_summary: null },
+      asset_fingerprints: {},
+    };
+    const ep2PreviewB = {
+      ...fullB,
+      project: overviewB.project,
+      summary: { ...fullB.summary, episodes: [fullB.summary.episodes[1]], episodes_summary: null, assets: {} },
+      asset_fingerprints: {},
+    };
+
+    const projectADeferred = createDeferred<GetWorkspaceResult>();
+    const projectBFullDeferred = createDeferred<GetWorkspaceResult>();
+    vi.spyOn(API, "getWorkspace").mockImplementation((name, options) => {
+      if (name === "project-a") return projectADeferred.promise;
+      if (options?.includeEpisodes === false) return Promise.resolve(overviewB);
+      if (options?.episodes?.[0] === 2) return Promise.resolve(ep2PreviewB);
+      return projectBFullDeferred.promise;
+    });
+    const scriptSpy = vi.spyOn(API, "getScript").mockResolvedValue({
+      script: { episode: 2, segments: [] } as never,
+      revision: "r2",
+    });
+
+    const store = useProjectsStore.getState();
+    store.setCurrentProject("project-a", projectA);
+    const inFlightA = store.refreshProject("project-a");
+
+    store.setProjectDetailLoading(true);
+    store.setCurrentProject("project-b", null);
+    const queuedFullB = store.refreshProject("project-b");
+
+    expect(await store.hydrateOverviewWorkspace("project-b")).toBe("success");
+    expect(await store.hydrateEpisodeWorkspace("project-b", 2)).toBe("success");
+    expect(await store.loadEpisodeScript("project-b", 2, "episode_2.json")).toBe("success");
+    expect(useProjectsStore.getState().currentProjectData?.status).toBeUndefined();
+    expect(useProjectsStore.getState().activeEpisodeScript.status).toBe("ready");
+    expect(scriptSpy).toHaveBeenCalledTimes(1);
+
+    projectADeferred.resolve(makeWorkspaceResponse(projectA));
+    expect(await inFlightA).toBe("cancelled");
+
+    projectBFullDeferred.resolve(fullB);
+    expect(await queuedFullB).toBe("success");
+
+    const settled = useProjectsStore.getState();
+    expect(settled.currentProjectData?.status?.episodes_summary.total).toBe(2);
+    expect(settled.previewAssets).toBeNull();
+    expect(settled.activeEpisodeScript.episode).toBe(2);
+    expect(settled.activeEpisodeScript.status).toBe("ready");
+    expect(scriptSpy).toHaveBeenCalledTimes(1);
+  });
 });

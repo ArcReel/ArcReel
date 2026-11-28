@@ -451,6 +451,21 @@ class _SharedWorkflowFacts:
     active_script: _ActiveScript
 
 
+def _safe_timeline_dir_index(project_path: Path) -> dict[int, list[Path]] | None:
+    try:
+        return episode_timeline_dir_index(project_path)
+    except OSError:
+        return None
+
+
+@dataclass(frozen=True)
+class _WorkspaceSummaryContext:
+    timeline_store: EditTimelineStore
+    timeline_dirs: Mapping[int, list[Path]] | None = None
+    validator: DataValidator | None = None
+    reference_catalog: Any | None = None
+
+
 def _project_revision(project: Mapping[str, Any]) -> str:
     return prefixed_canonical_json_digest(dict(project))
 
@@ -1042,12 +1057,18 @@ class WorkflowStateService:
             if isinstance(resolver, RegisteredArtifactResolver):
                 stack.enter_context(resolver.batch_inspect())
             assets = self._asset_counts(project_path, project, resolver) if episode_numbers is None else {}
-            timeline_store = EditTimelineStore(self.pm, project_name) if episodes else None
-            timeline_dirs = episode_timeline_dir_index(project_path) if workspace and episodes else None
-            validator = DataValidator(str(self.pm.projects_dir)) if workspace and episodes else None
-            reference_catalog = (
-                build_reference_catalog(project)
-                if workspace and episodes and project.get("generation_mode") != "reference_video"
+            workspace_ctx = (
+                _WorkspaceSummaryContext(
+                    timeline_store=EditTimelineStore(self.pm, project_name),
+                    timeline_dirs=_safe_timeline_dir_index(project_path) if workspace else None,
+                    validator=DataValidator(str(self.pm.projects_dir)) if workspace else None,
+                    reference_catalog=(
+                        build_reference_catalog(project)
+                        if workspace and project.get("generation_mode") != "reference_video"
+                        else None
+                    ),
+                )
+                if episodes
                 else None
             )
             episode_summaries = []
@@ -1075,10 +1096,7 @@ class WorkflowStateService:
                         media_paths=media_paths,
                         resolver=resolver,
                         preloaded_scripts=detail_scripts if detail_scripts is not None else preloaded_scripts,
-                        timeline_store=timeline_store,
-                        timeline_dirs=timeline_dirs.get(number, ()) if timeline_dirs is not None else None,
-                        validator=validator,
-                        reference_catalog=reference_catalog,
+                        workspace_ctx=workspace_ctx,
                     )
                 )
                 if isinstance(resolver, ArtifactCurrencyResolver):
@@ -1119,10 +1137,7 @@ class WorkflowStateService:
         media_paths: set[str] | None = None,
         resolver: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any] | None] | None,
-        timeline_store: EditTimelineStore | None = None,
-        timeline_dirs: Sequence[Path] | None = None,
-        validator: DataValidator | None = None,
-        reference_catalog: Any | None = None,
+        workspace_ctx: _WorkspaceSummaryContext | None = None,
     ) -> EpisodeSummary:
         script_status = self._episode_script_status(project, project_path, number, entry, resolver)
         script = None
@@ -1207,7 +1222,7 @@ class WorkflowStateService:
                 ),
                 total=len(items),
             )
-        store = EditTimelineStore(self.pm, project_name) if timeline_store is None else timeline_store
+        store = workspace_ctx.timeline_store if workspace_ctx is not None else EditTimelineStore(self.pm, project_name)
         status = _episode_production_status(
             script_status,
             storyboards,
@@ -1224,16 +1239,21 @@ class WorkflowStateService:
                     target.script,
                     script,
                     [],
-                    validator=validator,
-                    reference_catalog=reference_catalog,
+                    validator=workspace_ctx.validator if workspace_ctx is not None else None,
+                    reference_catalog=workspace_ctx.reference_catalog if workspace_ctx is not None else None,
                 )
                 if valid and len(validated_items) == len(items):
+                    episode_dirs = (
+                        workspace_ctx.timeline_dirs.get(number, ())
+                        if workspace_ctx is not None and workspace_ctx.timeline_dirs is not None
+                        else None
+                    )
                     timelines = self._edit_timeline_ids(
                         project_name,
                         number,
                         [],
                         timeline_store=store,
-                        episode_dirs=timeline_dirs,
+                        episode_dirs=episode_dirs,
                     )
                     if timelines:
                         status = "completed"

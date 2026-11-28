@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -115,7 +116,7 @@ class RegisteredArtifactResolver:
         self._adapter = ProjectArtifactManifestAdapter(Path(project_dir).resolve(strict=True))
         self._entries = self._adapter.snapshot_entries()
 
-    def batch_inspect(self) -> Any:
+    def batch_inspect(self) -> AbstractContextManager[None]:
         return self._adapter.batch_inspect()
 
     def compare(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactComparison:

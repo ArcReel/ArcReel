@@ -302,9 +302,8 @@ def test_workspace_registered_counts_and_legacy_script_reuse(tmp_path, monkeypat
 
 
 def test_workspace_include_episodes_false_skips_scripts_and_full_fingerprints(tmp_path, monkeypatch):
-    from unittest.mock import Mock
-
     from lib.workflow.workflow_state import WorkflowStateService
+    from tests.integration.lib.artifacts.test_content_digest_currency import _count_content_reads
     from tests.integration.lib.project.test_project_summary import (
         _make_project,
         _plan_one_episode,
@@ -338,8 +337,7 @@ def test_workspace_include_episodes_false_skips_scripts_and_full_fingerprints(tm
     with build_projects_client(monkeypatch, manager, WorkflowStateService(manager)) as client:
         reads = _ArrivalSpy()
         override(client, project_reads, lambda: reads)
-        script_reader = Mock(wraps=manager.load_script_readonly)
-        monkeypatch.setattr(manager, "load_script_readonly", script_reader)
+        script_reads = _count_content_reads(monkeypatch, project_dir / "scripts" / "episode_1.json")
 
         overview = client.get("/api/v1/projects/demo/workspace", params={"include_episodes": "false"})
         assert overview.status_code == 200
@@ -348,13 +346,14 @@ def test_workspace_include_episodes_false_skips_scripts_and_full_fingerprints(tm
         assert body["summary"]["episodes_summary"] is None
         assert body["summary"]["assets"]["character"]["total"] == 1
         assert body["asset_fingerprints"] == {}
-        assert script_reader.call_count == 0
+        assert script_reads["content_reads"] == 0
 
         full = client.get("/api/v1/projects/demo/workspace")
         assert full.status_code == 200
         assert reads.keys[-2] != reads.keys[-1]
         assert len(full.json()["summary"]["episodes"]) == 1
         assert "reference_videos/E1U1.mp4" in full.json()["asset_fingerprints"]
+        assert script_reads["content_reads"] == 1
 
         invalid = client.get("/api/v1/projects/demo/workspace", params={"episodes": 1, "include_episodes": "false"})
         assert invalid.status_code == 400

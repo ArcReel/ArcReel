@@ -1620,11 +1620,34 @@ def test_builtin_resolutions_narrow_price_summary_and_unpriced_flag_without_alte
             ),
         ),
     )
+    only_4k_with_aux = CatalogEntry(
+        maker="bytedance",
+        name="doubao-seedance-4k-aux",
+        media_type="video",
+        display_name="Seedance 4K Aux",
+        facts=VideoFacts(durations=(5,), resolutions=("480p", "4k")),
+        price=PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="video_tokens",
+                    dims=("resolution",),
+                    rows=(PriceRow(when={"resolution": "4k"}, price=31.0),),
+                    defaults={"resolution": "4k"},
+                ),
+                Meter(
+                    meter="output_tokens",
+                    dims=(),
+                    rows=(PriceRow(when={}, price=1.0),),
+                ),
+            ),
+        ),
+    )
     install_catalog(
         monkeypatch,
         CatalogData(
             dataset_version="2026-11-28T14:00:00Z",
-            entries=(seedance_25, only_4k),
+            entries=(seedance_25, only_4k, only_4k_with_aux),
             builtin_providers={
                 "ark": BuiltinProviderListing(
                     models=(
@@ -1646,6 +1669,12 @@ def test_builtin_resolutions_narrow_price_summary_and_unpriced_flag_without_alte
                             resolutions=("480p",),
                             multiplier=0.0,
                         ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-4k-aux",
+                            entry="bytedance/doubao-seedance-4k-aux",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p",),
+                        ),
                     ),
                     defaults={"video": "doubao-seedance-2-5-260628"},
                 ),
@@ -1660,6 +1689,12 @@ def test_builtin_resolutions_narrow_price_summary_and_unpriced_flag_without_alte
                         BuiltinProviderModel(
                             api_model_name="doubao-seedance-4k-only",
                             entry="bytedance/doubao-seedance-4k-only",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p",),
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-4k-aux",
+                            entry="bytedance/doubao-seedance-4k-aux",
                             endpoint="ark-seedance-2-5",
                             resolutions=("480p",),
                         ),
@@ -1712,3 +1747,12 @@ def test_builtin_resolutions_narrow_price_summary_and_unpriced_flag_without_alte
     plan_unpriced = plan_models["doubao-seedance-4k-only"]
     assert plan_unpriced["price"] is None
     assert "unpriced" not in plan_unpriced["flags"]
+
+    aux_unpriced = ark_models["doubao-seedance-4k-aux"]
+    assert aux_unpriced["price"] is None
+    assert "unpriced" in aux_unpriced["flags"]
+    aux_detail = models_client.get("/api/v1/providers/ark/models/doubao-seedance-4k-aux").json()
+    assert aux_detail["model"]["price"] is None
+    assert "unpriced" in aux_detail["model"]["flags"]
+    assert plan_models["doubao-seedance-4k-aux"]["price"] is None
+    assert "unpriced" not in plan_models["doubao-seedance-4k-aux"]["flags"]

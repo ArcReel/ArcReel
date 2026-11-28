@@ -866,6 +866,11 @@ class ProjectArtifactManifestAdapter:
 
     @contextlib.contextmanager
     def batch_inspect(self) -> Generator[None]:
+        """在单次只读快照内复用 POSIX ``O_NOFOLLOW`` 目录描述符，避免逐件产物重复打开父目录。
+
+        每个目录描述符均从已核验身份的项目根以 ``O_NOFOLLOW | O_DIRECTORY`` 打开，
+        保持对项目根的约束；不支持 ``O_NOFOLLOW`` 或非 POSIX 平台自动回退为逐件路径。
+        """
         if os.name != "posix" or not self._nofollow_flag or self._batch_dir_fds is not None:
             yield
             return
@@ -878,9 +883,14 @@ class ProjectArtifactManifestAdapter:
         try:
             self._assert_open_project_root_identity(root_fd)
         except ArtifactManifestError:
-            os.close(root_fd)
+            with contextlib.suppress(OSError):
+                os.close(root_fd)
             yield
             return
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.close(root_fd)
+            raise
         dir_fds: dict[tuple[str, ...], int | None] = {(): root_fd}
         self._batch_dir_fds = dir_fds
         try:

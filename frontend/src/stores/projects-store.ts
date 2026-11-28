@@ -224,7 +224,7 @@ interface ProjectsState {
     projectName: string,
     options?: { onError?: (err: unknown) => void },
   ) => Promise<RefreshProjectResult>;
-  cancelEpisodeWorkspaceHydration: () => void;
+  cancelWorkspacePreviewHydration: () => void;
   refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<RefreshProjectResult>;
 }
 
@@ -647,6 +647,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       try {
         const before = get();
         const prior = before.currentProjectName === curName ? before.currentProjectData : null;
+        const initialScope = curScope;
         const localIds = new Set(prior?.episodes.map((ep) => ep.episode));
         const requested = !curScope?.projectWide && !curScope?.assets ? curScope?.episodes : undefined;
         const episodes = requested?.length && requested.every((id) => localIds.has(id)) ? requested : undefined;
@@ -684,7 +685,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         const isCurrentProject =
           currentProjectName === curName || (currentProjectName === null && !hasLoadedAnyProject);
         if (!supersededByOtherProject && !signal.aborted && isCurrentProject) {
-          const wasInitialLoad = prior === null;
+          const wasInitialLoad =
+            prior === null || (!prior.status && before.projectDetailLoading && initialScope === undefined);
           const partial = res.summary.episodes_summary === null;
           const merged = mergeWorkspaceProject(res, partial ? currentProjectData : null);
           const fingerprints = partial ? { ...get().assetFingerprints, ...res.asset_fingerprints } : res.asset_fingerprints;
@@ -856,7 +858,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       }
     },
 
-    cancelEpisodeWorkspaceHydration: () => {
+    cancelWorkspacePreviewHydration: () => {
       rotatePreviewScope();
     },
 

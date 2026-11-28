@@ -18,7 +18,7 @@ from lib.infra.content_digest import reset_file_digest_cache_for_tests
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_state import WorkflowStateService
-from tests.integration.lib.content_read_support import observe_builtin_open
+from tests.integration.lib.content_read_support import observe_builtin_open, observe_os_fds
 from tests.integration.lib.workflow.test_workflow_state import (
     _make_project,
     _register_produced_artifacts,
@@ -80,9 +80,7 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
     counts = {"content_reads": 0}
     fd_reads: dict[int, int] = {}
     original_path_open = Path.open
-    original_os_open = os.open
     original_os_read = os.read
-    original_os_close = os.close
 
     def _is_target(path: Path) -> bool:
         try:
@@ -101,12 +99,10 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
             counts["content_reads"] += 1
         return original_path_open(self, *args, **kwargs)
 
-    def _counted_os_open(path: object, *args: object, **kwargs: object) -> int:
-        fd = original_os_open(path, *args, **kwargs)
+    def _on_os_open(fd: int) -> None:
         info = os.fstat(fd)
         if (info.st_dev, info.st_ino) in identities:
             fd_reads[fd] = 0
-        return fd
 
     def _counted_os_read(fd: int, length: int, /) -> bytes:
         data = original_os_read(fd, length)
@@ -117,15 +113,10 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dic
                 counts["content_reads"] += 1
         return data
 
-    def _counted_os_close(fd: int, /) -> None:
-        fd_reads.pop(fd, None)
-        original_os_close(fd)
-
     observe_builtin_open(monkeypatch, _counted_open)
     monkeypatch.setattr(Path, "open", _counted_path_open)
-    monkeypatch.setattr(os, "open", _counted_os_open)
+    observe_os_fds(monkeypatch, on_open=_on_os_open, on_close=lambda fd: fd_reads.pop(fd, None))
     monkeypatch.setattr(os, "read", _counted_os_read)
-    monkeypatch.setattr(os, "close", _counted_os_close)
     return counts
 
 
