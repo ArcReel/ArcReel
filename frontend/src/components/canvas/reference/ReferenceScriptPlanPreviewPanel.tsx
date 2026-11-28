@@ -464,7 +464,7 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan />
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan disabled={busy} />
     ) : null;
 
   const confirmed = status === "confirmed";

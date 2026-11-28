@@ -542,7 +542,7 @@ export function ScriptReviewGate({
 
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
-      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan disabled={busy} variant="ghost" />
     ) : null;
 
   const confirmed = status === "confirmed";
