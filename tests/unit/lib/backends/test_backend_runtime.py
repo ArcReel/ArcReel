@@ -47,6 +47,8 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import AmbiguousSubmitError, ProviderRejectedError
+from lib.billing.call_failure import CallErrorCode, classify_call_failure
+from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.infra.retry import with_retry_async
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
@@ -675,7 +677,7 @@ class TestSubmitPost:
 
     async def test_server_error_stays_a_plain_status_error(self):
         request = httpx.Request("POST", "https://x/v2")
-        resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
+        resp = httpx.Response(503, request=request, json={"message": "unavailable"})
 
         async def _post() -> httpx.Response:
             return resp
@@ -684,7 +686,7 @@ class TestSubmitPost:
             await submit_post(_post, provider="v2")
 
         assert type(excinfo.value) is httpx.HTTPStatusError
-        assert str(excinfo.value) == "502 response for https://x/v2"
+        assert str(excinfo.value) == "503 response for https://x/v2"
 
     async def test_error_message_drops_url_userinfo(self):
         request = httpx.Request("POST", "https://user:SECRETPW@x/v2?api_key=SECRETKEY")
@@ -776,6 +778,10 @@ class TestSubmitPost:
 
         assert excinfo.value.response.status_code == status
         assert attempts == 1
+        assert should_retry_submit(excinfo.value, idempotent=True)
+        assert encode_task_failure_message(excinfo.value) == f'[submit_gateway_ambiguous] {{"status": {status}}}'
+        if status == 504:
+            assert classify_call_failure(excinfo.value).error_code == CallErrorCode.TIMEOUT
 
     @pytest.mark.parametrize("status", [429, 500, 503])
     async def test_retry_wrapper_retries_non_ambiguous_transient_statuses(self, status: int):

@@ -10,16 +10,12 @@ import asyncio
 import logging
 from typing import ClassVar
 
-import httpx
-
 from lib.backends.backend_runtime import (
-    is_provider_rejection,
     poll_with_retry,
-    provider_reason_summary,
     read_reference_images,
-    redact_provider_text,
+    should_retry_submit,
+    submit_post,
 )
-from lib.backends.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
@@ -172,23 +168,11 @@ class ViduImageBackend:
             ),
         )
 
-    @with_retry_async(retryable_errors=VIDU_RETRYABLE_ERRORS)
+    @with_retry_async(retry_if=should_retry_submit)
     async def _create_task(self, client, body: dict) -> dict:
         assert_vidu_body_size(body)
         logger.info("调用 Vidu 图片 API kwargs=%s", format_kwargs_for_log(safe_body_for_log(body)))
-        resp = await client.post("/reference2image", json=body)
-        if resp.status_code >= 400:
-            logger.warning(
-                "Vidu 图片接口 /reference2image 返回 %s: %s",
-                resp.status_code,
-                redact_provider_text(resp.text)[:500],
-            )
-            try:
-                resp.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                if is_provider_rejection(resp.status_code):
-                    raise provider_rejected_error(exc, provider_reason=provider_reason_summary(resp)) from None
-                raise redacted_status_error(exc) from None
+        resp = await submit_post(lambda: client.post("/reference2image", json=body), provider=PROVIDER_VIDU)
         data = resp.json()
         if not data.get("task_id"):
             raise RuntimeError(f"Vidu 图片任务创建响应缺少 task_id: {data}")

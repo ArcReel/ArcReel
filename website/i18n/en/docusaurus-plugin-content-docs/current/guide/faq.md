@@ -147,7 +147,7 @@ First confirm the provider and model the project actually uses, then inspect the
 - **429**: Check the balance, plan quota, RPM, and concurrency limits. Reduce concurrency for the corresponding image, video, or audio channel, then retry after the quota window resets.
 - **Network errors or timeouts**: Check DNS, TLS, proxy configuration, and API-domain connectivity from the server running ArcReel. Browser access does not prove that the server container can connect.
 
-A read timeout after a generation request is submitted can leave an uncertain state in which the upstream provider created and billed the task but ArcReel did not receive the response. Do not retry repeatedly without checking. First inspect the provider console for an existing task to avoid duplicate charges.
+If a media generation request times out while reading the response, or the gateway returns HTTP 502 or 504, the provider may already have created and billed the task. Check the task and billing history in the provider console before retrying manually.
 
 ## Project workflows and tasks {#project-workflow-and-tasks}
 

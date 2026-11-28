@@ -363,6 +363,13 @@ def test_a_registered_failure_code_keeps_its_code_and_gets_a_sharper_action() ->
     assert problem.action is GenerationAction.CONFIRM_REQUEST_DURATION
 
 
+def test_ambiguous_gateway_has_no_dispatchable_retry_action() -> None:
+    problem = problem_from_task_failure(encode_failure("submit_gateway_ambiguous", status=504))
+
+    assert problem.action is GenerationAction.NONE
+    assert problem.params == {"status": 504}
+
+
 def test_unparseable_provider_text_keeps_its_text_and_stays_retryable() -> None:
     problem = problem_from_task_failure("HTTP 503 from upstream")
 

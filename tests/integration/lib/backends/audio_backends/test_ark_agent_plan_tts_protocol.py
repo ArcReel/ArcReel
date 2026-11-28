@@ -22,6 +22,7 @@ from lib.backends.audio_backends import AudioSynthesisRequest
 from lib.backends.audio_backends.ark_agent_plan import ArkAgentPlanAudioBackend
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.billing.call_failure import classify_call_failure
+from lib.generation.generation_result import GenerationAction, problem_from_task_failure
 from lib.generation.task_failure import render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import _ as translate
@@ -429,9 +430,38 @@ async def test_explicit_server_error_status_is_retried(tmp_path: Path, poll_cloc
     assert _frames(tmp_path / "o.wav")[0] == _PCM
 
 
-async def test_concurrency_rejection_is_terminal_even_with_retryable_status(tmp_path: Path, poll_clock):
+@pytest.mark.parametrize(
+    ("status", "chunks"),
+    [
+        pytest.param(502, [b"gateway failure"], id="502-plain"),
+        pytest.param(504, _lines({"code": 504, "message": "timeout"}), id="504-http-code"),
+        pytest.param(504, _lines({"code": 55000000, "message": "server error detail"}), id="504-server-business-code"),
+        pytest.param(502, _lines({"code": 55000000, "message": "server error detail"}), id="502-server-business-code"),
+    ],
+)
+async def test_gateway_failure_preserves_manual_retry_guidance(tmp_path: Path, status, chunks):
+    server, _, error = await _synthesize([ScriptedReply(status=status, chunks=chunks)], _request(tmp_path))
+    assert isinstance(error, httpx.HTTPStatusError)
+    assert len(server.requests) == 1
+    stored = encode_task_failure_message(error)
+    assert stored == f'[submit_gateway_ambiguous] {{"status": {status}}}'
+    problem = problem_from_task_failure(stored)
+    assert problem is not None
+    assert problem.action is GenerationAction.NONE
+    messages = set()
+    for locale in ("zh", "en", "vi", "ru"):
+        message = render_failure(stored, partial(translate, locale=locale), make_display_names(locale))
+        assert message is not None
+        assert f"HTTP {status}" in message
+        messages.add(message)
+    assert len(messages) == 4
+    assert any("billing records" in message and "retrying manually" in message for message in messages)
+
+
+@pytest.mark.parametrize("status", [429, 502, 504])
+async def test_concurrency_rejection_is_terminal_even_with_retryable_status(tmp_path: Path, poll_clock, status):
     busy = ScriptedReply(
-        status=429, chunks=_lines({"code": 45000000, "message": "quota exceeded for types: concurrency"})
+        status=status, chunks=_lines({"code": 45000000, "message": "quota exceeded for types: concurrency"})
     )
     server, _, error = await _synthesize([busy] * 3, _request(tmp_path))
 

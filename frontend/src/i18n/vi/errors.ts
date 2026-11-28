@@ -112,5 +112,6 @@ export default {
   'event_stream_interrupted': 'Luồng sự kiện bị gián đoạn',
   'event_stream_ended': 'Luồng sự kiện đã kết thúc',
   'scroll_target_not_found': 'Không tìm thấy nội dung để định vị: {{id}}',
+  "submit_gateway_ambiguous": "Cổng kết nối trả về HTTP {{status}}. Nhà cung cấp có thể đã tiếp nhận yêu cầu. Hãy kiểm tra trạng thái tác vụ và lịch sử tính phí của nhà cung cấp trước khi thử lại thủ công.",
   'text_wait_timeout': 'Hệ thống đã ngừng chờ, nhưng nhà cung cấp vẫn có thể hoàn tất yêu cầu và tính phí. Hãy kiểm tra kết quả trước khi thử lại',
 } satisfies Record<keyof typeof enErrors, string>;
