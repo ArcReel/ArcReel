@@ -167,7 +167,8 @@ class BuiltinProviderModel:
     ``entry`` 是「模型厂商/官方模型名」；只有引用两栖模型时才需要 ``media_type`` 指明是哪一个条目。
     ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不启用它，只在设置页列出所需版本。``endpoint`` 是它挂接的
     内置调用端点，取该供应商在条目媒体类型下的可选端点之一（见 ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``）；
-    缺失表示没有声明。同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
+    缺失表示没有声明。``resolutions`` 在某供应商渠道只开放条目可选分辨率的子集时给出；为 ``None`` 表示沿用条目声明。
+    同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
     """
 
     api_model_name: str
@@ -176,6 +177,7 @@ class BuiltinProviderModel:
     multiplier: float = 1.0
     min_app_version: str | None = None
     endpoint: str | None = None
+    resolutions: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

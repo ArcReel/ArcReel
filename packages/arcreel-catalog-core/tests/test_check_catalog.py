@@ -432,3 +432,28 @@ def test_end_frame_constraint_is_a_known_build_field():
     data = catalog()
     data["entries"][1]["facts"]["duration_constraints"]["with_end_frame"] = [5]
     assert check_catalog(data) == []
+
+
+def test_provider_model_resolutions_accepts_entry_subset():
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][0]["resolutions"] = ["720p"]
+    data["builtin_providers"]["kling"]["models"][1]["resolutions"] = ["1K"]
+
+    assert check_catalog(data) == []
+
+
+def test_provider_model_resolutions_rejects_unknown_empty_and_non_visual():
+    unknown = catalog()
+    unknown["builtin_providers"]["kling"]["models"][0]["resolutions"] = ["720p", "4k"]
+    assert ("builtin_providers.kling.models[0].resolutions[1]", "unknown_provider_resolution") in _codes(unknown)
+
+    empty = catalog()
+    empty["builtin_providers"]["kling"]["models"][0]["resolutions"] = []
+    assert ("builtin_providers.kling.models[0].resolutions", "empty_provider_resolutions") in _codes(empty)
+
+    text_model = catalog()
+    text_model["builtin_providers"]["gemini-aistudio"]["models"][0]["resolutions"] = ["720p"]
+    assert (
+        "builtin_providers.gemini-aistudio.models[0].resolutions",
+        "resolutions_not_applicable",
+    ) in _codes(text_model)

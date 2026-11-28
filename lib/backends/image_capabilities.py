@@ -25,6 +25,7 @@ ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -149,6 +150,10 @@ def builtin_image_snapshot_from_view(
     facts: ImageFacts | dict[str, object] | None
     if entry is not None and isinstance(entry.facts, ImageFacts):
         facts = entry.facts
+        if view is not None:
+            base = view.base_model or view.model
+            if tuple(base.resolutions) != entry.facts.resolutions:
+                facts = replace(entry.facts, resolutions=tuple(base.resolutions))
     elif view is None and base_model is not None:
         facts = {
             "text_to_image": "text_to_image" in base_model.capabilities,

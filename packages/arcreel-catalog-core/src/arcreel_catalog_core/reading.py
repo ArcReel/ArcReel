@@ -129,7 +129,7 @@ _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance"
 _ROW_FIELDS = frozenset({"when", "price"})
 _LISTING_FIELDS = frozenset({"models", "defaults"})
 _PROVIDER_MODEL_FIELDS = frozenset(
-    {"api_model_name", "entry", "media_type", "multiplier", "min_app_version", "endpoint"}
+    {"api_model_name", "entry", "media_type", "multiplier", "min_app_version", "endpoint", "resolutions"}
 )
 
 
@@ -627,6 +627,9 @@ class CatalogReader:
         min_app_version = self.optional_text(data, "min_app_version", path)
         if min_app_version and not is_app_version(min_app_version):
             self.flag(_at(path, "min_app_version"), "invalid_app_version", "应为形如 0.34.0 的应用版本")
+        resolutions = (
+            self.texts(data["resolutions"], _at(path, "resolutions")) if data.get("resolutions") is not None else None
+        )
         return BuiltinProviderModel(
             api_model_name=api_model_name,
             entry=entry,
@@ -634,6 +637,7 @@ class CatalogReader:
             multiplier=multiplier,
             min_app_version=min_app_version,
             endpoint=self.optional_text(data, "endpoint", path),
+            resolutions=resolutions,
         )
 
     def check_entry_identities(self, entries: tuple[CatalogEntry, ...]) -> None:
@@ -679,6 +683,7 @@ class CatalogReader:
                     unresolved.add(model.api_model_name)
                     continue
                 self.check_endpoint(provider_id, model, entry, model_path)
+                self.check_provider_resolutions(model, entry, model_path)
                 declared = BUILTIN_ENDPOINTS.get(model.endpoint) if model.endpoint is not None else None
                 if (
                     declared is not None
@@ -726,6 +731,22 @@ class CatalogReader:
             options = provider_endpoint_options(provider_id, entry.media_type)
             if options is None or model.endpoint not in options.endpoints:
                 self.flag(path, "endpoint_not_selectable", "这个调用端点不在该供应商这一媒体类型的可选端点里")
+
+    def check_provider_resolutions(self, model: BuiltinProviderModel, entry: CatalogEntry, path: str) -> None:
+        """供应商模型收窄分辨率时，所列档位必须来自所引用条目的可选分辨率。"""
+        if model.resolutions is None:
+            return
+        res_path = _at(path, "resolutions")
+        if not isinstance(entry.facts, ImageFacts | VideoFacts):
+            self.flag(res_path, "resolutions_not_applicable", "只有图片或视频模型才能限定可选分辨率")
+            return
+        if not model.resolutions:
+            self.flag(res_path, "empty_provider_resolutions", "可选分辨率不能为空")
+            return
+        allowed = set(entry.facts.resolutions)
+        for index, resolution in enumerate(model.resolutions):
+            if resolution not in allowed:
+                self.flag(f"{res_path}[{index}]", "unknown_provider_resolution", "分辨率不在所引用条目的可选分辨率中")
 
     def listed_entry(self, data: CatalogData, model: BuiltinProviderModel, path: str) -> CatalogEntry | None:
         if model.media_type is not None and model.media_type not in MEDIA_TYPES:

@@ -263,6 +263,20 @@ def builtin_video_snapshot_from_view(
     facts = entry_video_facts(entry)
     if view and entry is None:
         facts = replace(facts, durations=tuple((view.base_model or view.model).supported_durations))
+    elif view is not None and entry is not None:
+        base = view.base_model or view.model
+        if tuple(base.resolutions) != facts.resolutions:
+            kept = set(base.resolutions)
+            facts = replace(
+                facts,
+                resolutions=tuple(base.resolutions),
+                duration_constraints=replace(
+                    facts.duration_constraints,
+                    by_resolution={
+                        res: allowed for res, allowed in facts.duration_constraints.by_resolution.items() if res in kept
+                    },
+                ),
+            )
     elif view is None and base_model is not None:
         facts = VideoFacts(
             durations=tuple(base_model.supported_durations),

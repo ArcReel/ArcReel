@@ -76,7 +76,7 @@ _SEEDANCE_2_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
     ("4k", "21:9"): (4398, 1886),
 }
 _SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
-    **{key: size for key, size in _SEEDANCE_2_PIXELS.items() if key[0] != "4k"},
+    **_SEEDANCE_2_PIXELS,
     ("480p", "16:9"): (854, 480),
     ("480p", "9:16"): (480, 854),
 }
@@ -282,11 +282,12 @@ class ArkVideoBackend(VideoEndpointCapabilities, ProviderJobIdPersistenceMixin):
         ``model`` 与 ``entry`` 是计量契约的统一入参，本通道不读。
         """
         del model, entry
+        resolution = request.resolution.lower() if request.resolution is not None else None
         tokens = (
             result.usage_tokens
             if result is not None
             else cls.estimate_video_tokens(
-                resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
+                resolution=resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
             )
         )
         tier = request.service_tier
@@ -294,7 +295,7 @@ class ArkVideoBackend(VideoEndpointCapabilities, ProviderJobIdPersistenceMixin):
             request,
             result,
             seconds=request.duration_seconds,
-            resolution=request.resolution,
+            resolution=resolution,
             audio=request.generate_audio,
             video_tokens=tokens,
             dimensions=(
@@ -379,7 +380,7 @@ class ArkVideoBackend(VideoEndpointCapabilities, ProviderJobIdPersistenceMixin):
             "watermark": False,
         }
         if request.resolution is not None:
-            create_params["resolution"] = request.resolution
+            create_params["resolution"] = request.resolution.lower()
         if self.endpoint.sends_service_tier:
             create_params["service_tier"] = request.service_tier
         if request.seed is not None:
