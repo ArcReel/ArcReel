@@ -197,18 +197,130 @@ class TestSeedanceSelectableResolutions:
             assert cost.amount > 0
 
 
-class TestSeedance25Factory4KContract:
-    """出厂快照下 Seedance 2.5 4K 契约：官方普通版支持 4K 且按 31 元/M 估算，Flash 与 Agent Plan 不扩大范围。"""
+class TestSeedance254KContract:
+    """Seedance 2.5 4K 契约：官方普通版支持 4K 且按 31 元/M 估算，Flash 与 Agent Plan 不扩大范围与未确认报价。"""
+
+    @staticmethod
+    def _catalog():
+        from arcreel_catalog_core import (
+            BuiltinProviderListing,
+            BuiltinProviderModel,
+            CatalogData,
+            CatalogEntry,
+            Meter,
+            PriceRow,
+            PriceTable,
+            VideoFacts,
+        )
+
+        seedance_25 = CatalogEntry(
+            maker="bytedance",
+            name="doubao-seedance-2.5",
+            media_type="video",
+            display_name="Seedance 2.5",
+            aliases=("doubao-seedance-2-5-260628",),
+            facts=VideoFacts(
+                durations=tuple(range(4, 31)),
+                resolutions=("480p", "720p", "1080p", "4k"),
+                max_reference_images=30,
+                text_to_video=True,
+                first_frame=True,
+                last_frame=True,
+                reference_audio=True,
+                max_reference_audio_count=10,
+                max_reference_audio_total_seconds=30.0,
+            ),
+            price=PriceTable(
+                currency="CNY",
+                meters=(
+                    Meter(
+                        meter="video_tokens",
+                        dims=("resolution", "input_video"),
+                        rows=(
+                            PriceRow(when={"resolution": "480p", "input_video": False}, price=70.0),
+                            PriceRow(when={"resolution": "480p", "input_video": True}, price=42.0),
+                            PriceRow(when={"resolution": "720p", "input_video": False}, price=70.0),
+                            PriceRow(when={"resolution": "720p", "input_video": True}, price=42.0),
+                            PriceRow(when={"resolution": "1080p", "input_video": False}, price=77.0),
+                            PriceRow(when={"resolution": "1080p", "input_video": True}, price=46.0),
+                            PriceRow(when={"resolution": "4k", "input_video": False}, price=31.0),
+                            PriceRow(when={"resolution": "4k", "input_video": True}, price=19.0),
+                        ),
+                        defaults={"resolution": "720p", "input_video": False},
+                    ),
+                ),
+            ),
+        )
+        seedance_25_flash = CatalogEntry(
+            maker="bytedance",
+            name="doubao-seedance-2.5-flash",
+            media_type="video",
+            display_name="Seedance 2.5 Flash",
+            aliases=("doubao-seedance-2-5-flash-261115",),
+            facts=VideoFacts(
+                durations=tuple(range(4, 16)),
+                resolutions=("480p", "720p"),
+                max_reference_images=9,
+                text_to_video=True,
+                first_frame=True,
+                last_frame=True,
+            ),
+        )
+        seedance_20_mini = CatalogEntry(
+            maker="bytedance",
+            name="doubao-seedance-2.0-mini",
+            media_type="video",
+            display_name="Seedance 2.0 Mini",
+            aliases=("doubao-seedance-2-0-mini-260615",),
+            facts=VideoFacts(durations=(4, 5), resolutions=("480p", "720p")),
+        )
+        return CatalogData(
+            dataset_version="2026-11-28T14:00:00Z",
+            entries=(seedance_25, seedance_25_flash, seedance_20_mini),
+            builtin_providers={
+                "ark": BuiltinProviderListing(
+                    models=(
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2-0-mini-260615",
+                            entry="bytedance/doubao-seedance-2.0-mini",
+                            endpoint="ark-seedance-2",
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2-5-260628",
+                            entry="bytedance/doubao-seedance-2.5",
+                            endpoint="ark-seedance-2-5",
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2-5-flash-261115",
+                            entry="bytedance/doubao-seedance-2.5-flash",
+                            endpoint="ark-seedance-2-5",
+                        ),
+                    ),
+                    defaults={"video": "doubao-seedance-2-0-mini-260615"},
+                ),
+                "ark-agent-plan": BuiltinProviderListing(
+                    models=(
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2.0-mini",
+                            entry="bytedance/doubao-seedance-2.0-mini",
+                            endpoint="ark-seedance-2",
+                        ),
+                        BuiltinProviderModel(
+                            api_model_name="doubao-seedance-2.5",
+                            entry="bytedance/doubao-seedance-2.5",
+                            endpoint="ark-seedance-2-5",
+                            resolutions=("480p", "720p", "1080p"),
+                        ),
+                    ),
+                    defaults={"video": "doubao-seedance-2.0-mini"},
+                ),
+            },
+        )
 
     def test_official_4k_estimate_and_actual_settlement(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, load_catalog
         from tests.catalog_support import install_catalog
 
-        snapshot = load_catalog(
-            (catalog.SNAPSHOT_DIR / MANIFEST_FILENAME).read_bytes(),
-            (catalog.SNAPSHOT_DIR / CATALOG_FILENAME).read_bytes(),
-        )
-        install_catalog(monkeypatch, snapshot)
+        install_catalog(monkeypatch, self._catalog())
 
         regular = catalog.get_model("ark", "doubao-seedance-2-5-260628")
         assert regular is not None
@@ -260,19 +372,15 @@ class TestSeedance25Factory4KContract:
         )
         assert "video_tokens" not in missing_usage.quantities
 
-    def test_agent_plan_keeps_confirmed_resolutions_in_catalog_and_runtime(
+    def test_agent_plan_keeps_confirmed_resolutions_in_catalog_runtime_and_pricing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, load_catalog
         from lib.backends.backend_assembly.specs import builtin_video_snapshot
+        from lib.billing.metering import Unpriced, UnpricedReason
         from lib.custom_provider.capability_view import builtin_capability_view
         from tests.catalog_support import install_catalog
 
-        snapshot = load_catalog(
-            (catalog.SNAPSHOT_DIR / MANIFEST_FILENAME).read_bytes(),
-            (catalog.SNAPSHOT_DIR / CATALOG_FILENAME).read_bytes(),
-        )
-        install_catalog(monkeypatch, snapshot)
+        install_catalog(monkeypatch, self._catalog())
 
         ap_model = catalog.get_model("ark-agent-plan", "doubao-seedance-2.5")
         assert ap_model is not None
@@ -289,6 +397,43 @@ class TestSeedance25Factory4KContract:
 
         ark_runtime = builtin_video_snapshot("ark", "doubao-seedance-2-5-260628")
         assert ark_runtime.effective["resolutions"] == ("480p", "720p", "1080p", "4k")
+
+        usage_4k = builtin_video_metered_usage(
+            "ark-agent-plan", "doubao-seedance-2.5", _request(duration_seconds=5, resolution="4k", aspect_ratio="16:9")
+        )
+        assert price_builtin_call(
+            provider="ark-agent-plan",
+            model="doubao-seedance-2.5",
+            media_type="video",
+            requests=(usage_4k,),
+            provider_multiplier=1.0,
+            estimate=True,
+        ) == Unpriced(UnpricedReason.MISSING_RATE)
+        zero_mult_cost = price_builtin_call(
+            provider="ark-agent-plan",
+            model="doubao-seedance-2.5",
+            media_type="video",
+            requests=(usage_4k,),
+            provider_multiplier=0.0,
+            estimate=True,
+        )
+        assert zero_mult_cost == Priced(0.0, "CNY")
+
+        usage_1080p = builtin_video_metered_usage(
+            "ark-agent-plan",
+            "doubao-seedance-2.5",
+            _request(duration_seconds=5, resolution="1080p", aspect_ratio="16:9"),
+        )
+        cost_1080p = price_builtin_call(
+            provider="ark-agent-plan",
+            model="doubao-seedance-2.5",
+            media_type="video",
+            requests=(usage_1080p,),
+            provider_multiplier=1.0,
+            estimate=True,
+        )
+        assert isinstance(cost_1080p, Priced)
+        assert cost_1080p.amount > 0
 
 
 class TestKlingMetering:

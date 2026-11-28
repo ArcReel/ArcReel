@@ -132,6 +132,43 @@ def official_data() -> CatalogData:
     return _official_cache[0][2]
 
 
+def _effective_provider_resolutions(
+    facts_resolutions: tuple[str, ...], provider_resolutions: tuple[str, ...] | None
+) -> list[str]:
+    if provider_resolutions is None:
+        return list(facts_resolutions)
+    if not facts_resolutions:
+        return list(provider_resolutions)
+    allowed_cf = {res.casefold() for res in facts_resolutions}
+    return [res for res in provider_resolutions if res.casefold() in allowed_cf]
+
+
+def _narrow_price_table(price: PriceTable, resolutions: tuple[str, ...]) -> PriceTable:
+    """按供应商模型收窄后的分辨率裁剪价目表中未开放档位的报价行，避免未确认渠道按共享条目费率定价。"""
+    allowed_cf = {res.casefold() for res in resolutions}
+    narrowed_meters = []
+    changed = False
+    for meter in price.meters:
+        if "resolution" not in meter.dims:
+            narrowed_meters.append(meter)
+            continue
+        rows = tuple(
+            row
+            for row in meter.rows
+            if not isinstance(row.when.get("resolution"), str) or str(row.when["resolution"]).casefold() in allowed_cf
+        )
+        defaults = dict(meter.defaults)
+        default_res = defaults.get("resolution")
+        if isinstance(default_res, str) and default_res.casefold() not in allowed_cf:
+            defaults.pop("resolution", None)
+        if len(rows) != len(meter.rows) or defaults != dict(meter.defaults):
+            changed = True
+            narrowed_meters.append(replace(meter, rows=rows, defaults=defaults))
+        else:
+            narrowed_meters.append(meter)
+    return replace(price, meters=tuple(narrowed_meters)) if changed else price
+
+
 def _to_catalog_model(
     entry: CatalogEntry,
     api_model_name: str,
@@ -162,18 +199,18 @@ def _to_catalog_model(
                 capabilities.append("text_to_image")
             if facts.image_to_image:
                 capabilities.append("image_to_image")
-            resolutions = list(provider_resolutions if provider_resolutions is not None else facts.resolutions)
+            resolutions = _effective_provider_resolutions(facts.resolutions, provider_resolutions)
             max_reference_images = facts.max_reference_images
         case VideoFacts():
             max_reference_images = facts.max_reference_images
             durations = list(facts.durations)
-            resolutions = list(provider_resolutions if provider_resolutions is not None else facts.resolutions)
+            resolutions = _effective_provider_resolutions(facts.resolutions, provider_resolutions)
             constraints = facts.duration_constraints
-            allowed_resolutions = set(resolutions) if provider_resolutions is not None else None
+            allowed_resolutions = {res.casefold() for res in resolutions} if provider_resolutions is not None else None
             by_resolution = {
                 res: list(allowed)
                 for res, allowed in constraints.by_resolution.items()
-                if allowed_resolutions is None or res in allowed_resolutions
+                if allowed_resolutions is None or res.casefold() in allowed_resolutions
             }
             reference_durations = list(constraints.with_reference_images)
             end_frame_durations = list(constraints.with_end_frame)
@@ -260,6 +297,7 @@ class _IndexedModel:
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
     endpoint: str | None = None
     min_app_version: str | None = None
+    provider_resolutions: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -309,6 +347,7 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
             official=True,
             endpoint=model.endpoint,
             min_app_version=model.min_app_version,
+            provider_resolutions=model.resolutions,
         )
     return _ProviderIndex(models, version_gated)
 
@@ -760,15 +799,16 @@ def provider_model_price(provider_id: str, model_id: str, media_type: str) -> Mo
     """内置供应商模型的价目表与供应商模型倍率。
 
     供应商或模型键不在目录中、或模型不是调用的 ``media_type``（与 :func:`get_model` 同一口径）时返回 ``None``，
-    按对应不上条目计。
+    按对应不上条目计。供应商模型声明了 ``resolutions`` 收窄时，同步裁剪未开放档位的报价行。
     """
     indexed = _indexed_model(provider_id, model_id, media_type)
     if indexed is None:
         return None
     entry = indexed.entry
-    return ModelPrice(
-        price=entry.price if entry is not None else None, multiplier=indexed.multiplier, entry_found=entry is not None
-    )
+    price = entry.price if entry is not None else None
+    if price is not None and indexed.provider_resolutions is not None:
+        price = _narrow_price_table(price, indexed.provider_resolutions)
+    return ModelPrice(price=price, multiplier=indexed.multiplier, entry_found=entry is not None)
 
 
 @dataclass(frozen=True)

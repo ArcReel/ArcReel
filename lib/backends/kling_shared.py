@@ -337,15 +337,6 @@ def kling_model_path_image_urls(payload: dict) -> list[str]:
     return urls
 
 
-def extract_kling_model_path_image_urls(payload: dict) -> list[str]:
-    """从 succeeded 的新版 API 查询响应提取 ``outputs[type=image].url`` 列表；为空时 fail-loud。"""
-    urls = kling_model_path_image_urls(payload)
-    if urls:
-        return urls
-    reason = kling_response_error(payload)
-    raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")
-
-
 def kling_model_path_output_duration(payload: dict) -> int | None:
     """``usage.output_duration``：官方用于计费核算的输出时长（秒，字符串），只在任务结束且有用量时返回。
 

@@ -446,3 +446,174 @@ def test_comfyui_fixed_duration_consistent_across_projection_and_facts():
     assert payload["duration_endpoint_fixed_reason"] == "endpoint"
     assert payload["duration_constraints"]["allowed"] == []
     assert payload["duration_constraints"]["planning"] == ENDPOINT_FIXED_PLANNING_DURATIONS
+
+
+@pytest.mark.invariant
+@given(
+    kept_mask=st.tuples(st.booleans(), st.booleans(), st.booleans(), st.booleans()).filter(any),
+)
+def test_provider_resolution_narrowing_consistent_across_query_snapshot_view_and_pricing(
+    kept_mask: tuple[bool, bool, bool, bool],
+) -> None:
+    from arcreel_catalog_core import (
+        BuiltinProviderListing,
+        BuiltinProviderModel,
+        CatalogData,
+        CatalogEntry,
+        DurationConstraints,
+        ImageFacts,
+        Meter,
+        PriceRow,
+        PriceTable,
+        VideoFacts,
+    )
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.backends.image_capabilities import builtin_image_snapshot
+    from lib.billing.catalog_pricing import price_builtin_call
+    from lib.billing.metering import Priced, Unpriced, UnpricedReason, Usage
+    from tests.catalog_support import install_catalog
+
+    all_video_res = ("480p", "720p", "1080p", "4k")
+    narrowed_video = tuple(res for res, keep in zip(all_video_res, kept_mask, strict=True) if keep)
+    all_image_res = ("1K", "2K", "4K", "8K")
+    narrowed_image = tuple(res for res, keep in zip(all_image_res, kept_mask, strict=True) if keep)
+    raw_by_resolution = {"1080p": (5, 8), "4k": (8,)}
+    expected_by_resolution_tuple = {res: allowed for res, allowed in raw_by_resolution.items() if res in narrowed_video}
+    expected_by_resolution_list = {
+        res: list(allowed) for res, allowed in raw_by_resolution.items() if res in narrowed_video
+    }
+
+    video_entry = CatalogEntry(
+        maker="bytedance",
+        name="seedance-narrow-inv",
+        media_type="video",
+        display_name="Seedance Narrow Invariant",
+        facts=VideoFacts(
+            durations=(4, 5, 8),
+            resolutions=all_video_res,
+            duration_constraints=DurationConstraints(by_resolution=raw_by_resolution),
+            text_to_video=True,
+            first_frame=True,
+        ),
+        price=PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="video_tokens",
+                    dims=("resolution",),
+                    rows=tuple(
+                        PriceRow(when={"resolution": res}, price=10.0 + idx) for idx, res in enumerate(all_video_res)
+                    ),
+                    defaults={"resolution": "720p"},
+                ),
+            ),
+        ),
+    )
+    image_entry = CatalogEntry(
+        maker="kuaishou",
+        name="kling-narrow-inv",
+        media_type="image",
+        display_name="Kling Narrow Invariant",
+        facts=ImageFacts(
+            text_to_image=True,
+            image_to_image=True,
+            resolutions=all_image_res,
+            max_reference_images=10,
+        ),
+        price=PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="output_images",
+                    dims=("resolution",),
+                    rows=tuple(
+                        PriceRow(when={"resolution": res}, price=0.2 + idx * 0.2)
+                        for idx, res in enumerate(all_image_res)
+                    ),
+                    defaults={"resolution": "2K"},
+                ),
+            ),
+        ),
+    )
+    data = CatalogData(
+        dataset_version="2026-11-28T00:00:00Z",
+        entries=(video_entry, image_entry),
+        builtin_providers={
+            "ark-agent-plan": BuiltinProviderListing(
+                models=(
+                    BuiltinProviderModel(
+                        api_model_name="seedance-narrow",
+                        entry="bytedance/seedance-narrow-inv",
+                        endpoint="ark-seedance-2-5",
+                        resolutions=narrowed_video,
+                    ),
+                )
+            ),
+            "kling": BuiltinProviderListing(
+                models=(
+                    BuiltinProviderModel(
+                        api_model_name="kling-narrow",
+                        entry="kuaishou/kling-narrow-inv",
+                        endpoint="kling-image-model-path",
+                        resolutions=narrowed_image,
+                    ),
+                )
+            ),
+        },
+    )
+
+    mp = pytest.MonkeyPatch()
+    try:
+        install_catalog(mp, data, app_version="0.38.1")
+
+        v_info = catalog.get_model("ark-agent-plan", "seedance-narrow", media_type="video")
+        assert v_info is not None
+        assert v_info.resolutions == list(narrowed_video)
+        assert v_info.duration_resolution_constraints == expected_by_resolution_list
+
+        v_snap = builtin_video_snapshot("ark-agent-plan", "seedance-narrow")
+        assert v_snap.effective["resolutions"] == narrowed_video
+        assert v_snap.effective["duration_constraints"]["by_resolution"] == expected_by_resolution_tuple
+
+        v_view = builtin_capability_view(
+            "ark-agent-plan", "seedance-narrow", base_model=v_info, official=True, overrides={}
+        )
+        assert v_view.effective["resolutions"] == list(narrowed_video)
+        view_constraints = v_view.effective["duration_constraints"]
+        assert isinstance(view_constraints, dict)
+        assert view_constraints["by_resolution"] == expected_by_resolution_list
+
+        for res in all_video_res:
+            cost = price_builtin_call(
+                provider="ark-agent-plan",
+                model="seedance-narrow",
+                media_type="video",
+                requests=(Usage(quantities={"video_tokens": 100_000}, dimensions={"resolution": res}),),
+                provider_multiplier=1.0,
+                estimate=True,
+            )
+            if res in narrowed_video:
+                assert isinstance(cost, Priced)
+            else:
+                assert cost == Unpriced(UnpricedReason.MISSING_RATE)
+
+        i_info = catalog.get_model("kling", "kling-narrow", media_type="image")
+        assert i_info is not None
+        assert i_info.resolutions == list(narrowed_image)
+        i_snap = builtin_image_snapshot("kling", "kling-narrow")
+        assert i_snap.effective["resolutions"] == narrowed_image
+        for res in all_image_res:
+            i_cost = price_builtin_call(
+                provider="kling",
+                model="kling-narrow",
+                media_type="image",
+                requests=(Usage(quantities={"output_images": 1}, dimensions={"resolution": res}),),
+                provider_multiplier=1.0,
+                estimate=True,
+            )
+            if res in narrowed_image:
+                assert isinstance(i_cost, Priced)
+            else:
+                assert i_cost == Unpriced(UnpricedReason.MISSING_RATE)
+    finally:
+        mp.undo()

@@ -577,6 +577,7 @@ MESSAGES = {
     "image_endpoint_mismatch_no_i2i": "模型 {model} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型",
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
     "image_seedream_edits_unavailable": "模型 {model} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
+    "image_kling_api_key_required": "模型 {model} 仅支持 API Key 鉴权，不支持 Access Key / Secret Key（JWT）；请在系统配置页填写可灵 Kling 的 API Key 后重试",
     "image_capability_missing_i2i": "{provider}/{model} 不支持图生图；请配置一个支持图生图的默认模型",
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",

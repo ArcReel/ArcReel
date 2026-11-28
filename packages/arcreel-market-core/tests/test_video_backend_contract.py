@@ -42,7 +42,7 @@ class TestVideoGenerationRequest:
 
     def test_rejects_positional_arguments(self):
         with pytest.raises(TypeError, match="positional"):
-            VideoGenerationRequest("test", Path("/tmp/out.mp4"))  # type: ignore[misc]
+            VideoGenerationRequest("test", Path("/tmp/out.mp4"))  # type: ignore[misc]  # 刻意以位置参数构造以验证 kw_only=True 在运行期拒绝
 
 
 class TestVideoGenerationResult:
